@@ -1,0 +1,692 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > Hierarchy</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">org.apache.log4j</a>
+</div>
+
+<h1>Coverage Summary for Class: Hierarchy (org.apache.log4j)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">Hierarchy</td>
+<td class="coverageStat">
+  <span class="percent">
+    100%
+  </span>
+  <span class="absValue">
+    (1/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    33,3%
+  </span>
+  <span class="absValue">
+    (9/27)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    36%
+  </span>
+  <span class="absValue">
+    (18/50)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    43,5%
+  </span>
+  <span class="absValue">
+    (60/138)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * Licensed to the Apache Software Foundation (ASF) under one or more
+&nbsp; * contributor license agreements.  See the NOTICE file distributed with
+&nbsp; * this work for additional information regarding copyright ownership.
+&nbsp; * The ASF licenses this file to You under the Apache License, Version 2.0
+&nbsp; * (the &quot;License&quot;); you may not use this file except in compliance with
+&nbsp; * the License.  You may obtain a copy of the License at
+&nbsp; * 
+&nbsp; *      http://www.apache.org/licenses/LICENSE-2.0
+&nbsp; * 
+&nbsp; * Unless required by applicable law or agreed to in writing, software
+&nbsp; * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+&nbsp; * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+&nbsp; * See the License for the specific language governing permissions and
+&nbsp; * limitations under the License.
+&nbsp; */
+&nbsp;
+&nbsp;// WARNING This class MUST not have references to the Category or
+&nbsp;// WARNING RootCategory classes in its static initiliazation neither
+&nbsp;// WARNING directly nor indirectly.
+&nbsp;
+&nbsp;// Contributors:
+&nbsp;//                Luke Blanshard &lt;luke@quiq.com&gt;
+&nbsp;//                Mario Schomburg - IBM Global Services/Germany
+&nbsp;//                Anders Kristensen
+&nbsp;//                Igor Poteryaev
+&nbsp;
+&nbsp;package org.apache.log4j;
+&nbsp;
+&nbsp;
+&nbsp;import java.util.Hashtable;
+&nbsp;import java.util.Enumeration;
+&nbsp;import java.util.Vector;
+&nbsp;
+&nbsp;import org.apache.log4j.spi.LoggerFactory;
+&nbsp;import org.apache.log4j.spi.HierarchyEventListener;
+&nbsp;import org.apache.log4j.spi.LoggerRepository;
+&nbsp;import org.apache.log4j.spi.RendererSupport;
+&nbsp;import org.apache.log4j.or.RendererMap;
+&nbsp;import org.apache.log4j.or.ObjectRenderer;
+&nbsp;import org.apache.log4j.helpers.LogLog;
+&nbsp;import org.apache.log4j.spi.ThrowableRendererSupport;
+&nbsp;import org.apache.log4j.spi.ThrowableRenderer;
+&nbsp;
+&nbsp;/**
+&nbsp;   This class is specialized in retrieving loggers by name and also
+&nbsp;   maintaining the logger hierarchy.
+&nbsp;
+&nbsp;   &lt;p&gt;&lt;em&gt;The casual user does not have to deal with this class
+&nbsp;   directly.&lt;/em&gt;
+&nbsp;
+&nbsp;   &lt;p&gt;The structure of the logger hierarchy is maintained by the
+&nbsp;   {@link #getLogger} method. The hierarchy is such that children link
+&nbsp;   to their parent but parents do not have any pointers to their
+&nbsp;   children. Moreover, loggers can be instantiated in any order, in
+&nbsp;   particular descendant before ancestor.
+&nbsp;
+&nbsp;   &lt;p&gt;In case a descendant is created before a particular ancestor,
+&nbsp;   then it creates a provision node for the ancestor and adds itself
+&nbsp;   to the provision node. Other descendants of the same ancestor add
+&nbsp;   themselves to the previously created provision node.
+&nbsp;
+&nbsp;   @author Ceki G&amp;uuml;lc&amp;uuml;
+&nbsp;
+&nbsp;*/
+&nbsp;public class Hierarchy implements LoggerRepository, RendererSupport, ThrowableRendererSupport {
+&nbsp;
+&nbsp;  private LoggerFactory defaultFactory;
+&nbsp;  private Vector listeners;
+&nbsp;
+&nbsp;  Hashtable ht;
+&nbsp;  Logger root;
+&nbsp;  RendererMap rendererMap;
+&nbsp;
+&nbsp;  int thresholdInt;
+&nbsp;  Level threshold;
+&nbsp;
+<b class="fc">&nbsp;  boolean emittedNoAppenderWarning = false;</b>
+<b class="fc">&nbsp;  boolean emittedNoResourceBundleWarning = false;</b>
+&nbsp;
+<b class="fc">&nbsp;  private ThrowableRenderer throwableRenderer = null;</b>
+&nbsp;
+&nbsp;  /**
+&nbsp;     Create a new logger hierarchy.
+&nbsp;
+&nbsp;     @param root The root of the new hierarchy.
+&nbsp;
+&nbsp;   */
+&nbsp;  public
+<b class="fc">&nbsp;  Hierarchy(Logger root) {</b>
+<b class="fc">&nbsp;    ht = new Hashtable();</b>
+<b class="fc">&nbsp;    listeners = new Vector(1);</b>
+<b class="fc">&nbsp;    this.root = root;</b>
+&nbsp;    // Enable all level levels by default.
+<b class="fc">&nbsp;    setThreshold(Level.ALL);</b>
+<b class="fc">&nbsp;    this.root.setHierarchy(this);</b>
+<b class="fc">&nbsp;    rendererMap = new RendererMap();</b>
+<b class="fc">&nbsp;    defaultFactory = new DefaultCategoryFactory();</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     Add an object renderer for a specific class.
+&nbsp;   */
+&nbsp;  public
+&nbsp;  void addRenderer(Class classToRender, ObjectRenderer or) {
+<b class="nc">&nbsp;    rendererMap.put(classToRender, or);</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  public
+&nbsp;  void addHierarchyEventListener(HierarchyEventListener listener) {
+<b class="nc">&nbsp;    if(listeners.contains(listener)) {</b>
+<b class="nc">&nbsp;      LogLog.warn(&quot;Ignoring attempt to add an existent listener.&quot;);</b>
+&nbsp;    } else {
+<b class="nc">&nbsp;      listeners.addElement(listener);</b>
+&nbsp;    }
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     This call will clear all logger definitions from the internal
+&nbsp;     hashtable. Invoking this method will irrevocably mess up the
+&nbsp;     logger hierarchy.
+&nbsp;
+&nbsp;     &lt;p&gt;You should &lt;em&gt;really&lt;/em&gt; know what you are doing before
+&nbsp;     invoking this method.
+&nbsp;
+&nbsp;     @since 0.9.0 */
+&nbsp;  public
+&nbsp;  void clear() {
+&nbsp;    //System.out.println(&quot;\n\nAbout to clear internal hash table.&quot;);
+<b class="nc">&nbsp;    ht.clear();</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  public
+&nbsp;  void emitNoAppenderWarning(Category cat) {
+&nbsp;    // No appenders in hierarchy, warn user only once.
+<b class="nc">&nbsp;    if(!this.emittedNoAppenderWarning) {</b>
+<b class="nc">&nbsp;      LogLog.warn(&quot;No appenders could be found for logger (&quot; +</b>
+&nbsp;		   cat.getName() + &quot;).&quot;);
+<b class="nc">&nbsp;      LogLog.warn(&quot;Please initialize the log4j system properly.&quot;);</b>
+<b class="nc">&nbsp;      LogLog.warn(&quot;See http://logging.apache.org/log4j/1.2/faq.html#noconfig for more info.&quot;);</b>
+<b class="nc">&nbsp;      this.emittedNoAppenderWarning = true;</b>
+&nbsp;    }
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     Check if the named logger exists in the hierarchy. If so return
+&nbsp;     its reference, otherwise returns &lt;code&gt;null&lt;/code&gt;.
+&nbsp;
+&nbsp;     @param name The name of the logger to search for.
+&nbsp;
+&nbsp;  */
+&nbsp;  public
+&nbsp;  Logger exists(String name) {
+<b class="nc">&nbsp;    Object o = ht.get(new CategoryKey(name));</b>
+<b class="nc">&nbsp;    if(o instanceof Logger) {</b>
+<b class="nc">&nbsp;      return (Logger) o;</b>
+&nbsp;    } else {
+<b class="nc">&nbsp;      return null;</b>
+&nbsp;    }
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     The string form of {@link #setThreshold(Level)}.
+&nbsp;  */
+&nbsp;  public
+&nbsp;  void setThreshold(String levelStr) {
+<b class="nc">&nbsp;    Level l = (Level) Level.toLevel(levelStr, null);</b>
+<b class="nc">&nbsp;    if(l != null) {</b>
+<b class="nc">&nbsp;      setThreshold(l);</b>
+&nbsp;    } else {
+<b class="nc">&nbsp;      LogLog.warn(&quot;Could not convert [&quot;+levelStr+&quot;] to Level.&quot;);</b>
+&nbsp;    }
+&nbsp;  }
+&nbsp;
+&nbsp;
+&nbsp;  /**
+&nbsp;     Enable logging for logging requests with level &lt;code&gt;l&lt;/code&gt; or
+&nbsp;     higher. By default all levels are enabled.
+&nbsp;
+&nbsp;     @param l The minimum level for which logging requests are sent to
+&nbsp;     their appenders.  */
+&nbsp;  public
+&nbsp;  void setThreshold(Level l) {
+<b class="pc">&nbsp;    if(l != null) {</b>
+<b class="fc">&nbsp;      thresholdInt = l.level;</b>
+<b class="fc">&nbsp;      threshold = l;</b>
+&nbsp;    }
+&nbsp;  }
+&nbsp;
+&nbsp;  public
+&nbsp;  void fireAddAppenderEvent(Category logger, Appender appender) {
+<b class="pc">&nbsp;    if(listeners != null) {</b>
+<b class="fc">&nbsp;      int size = listeners.size();</b>
+&nbsp;      HierarchyEventListener listener;
+<b class="pc">&nbsp;      for(int i = 0; i &lt; size; i++) {</b>
+<b class="nc">&nbsp;	listener = (HierarchyEventListener) listeners.elementAt(i);</b>
+<b class="nc">&nbsp;	listener.addAppenderEvent(logger, appender);</b>
+&nbsp;      }
+&nbsp;    }
+&nbsp;  }
+&nbsp;
+&nbsp;  void fireRemoveAppenderEvent(Category logger, Appender appender) {
+<b class="nc">&nbsp;    if(listeners != null) {</b>
+<b class="nc">&nbsp;      int size = listeners.size();</b>
+&nbsp;      HierarchyEventListener listener;
+<b class="nc">&nbsp;      for(int i = 0; i &lt; size; i++) {</b>
+<b class="nc">&nbsp;	listener = (HierarchyEventListener) listeners.elementAt(i);</b>
+<b class="nc">&nbsp;	listener.removeAppenderEvent(logger, appender);</b>
+&nbsp;      }
+&nbsp;    }
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     Returns a {@link Level} representation of the &lt;code&gt;enable&lt;/code&gt;
+&nbsp;     state.
+&nbsp;
+&nbsp;     @since 1.2 */
+&nbsp;  public
+&nbsp;  Level getThreshold() {
+<b class="nc">&nbsp;    return threshold;</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     Returns an integer representation of the this repository&#39;s
+&nbsp;     threshold.
+&nbsp;
+&nbsp;     @since 1.2 */
+&nbsp;  //public
+&nbsp;  //int getThresholdInt() {
+&nbsp;  //  return thresholdInt;
+&nbsp;  //}
+&nbsp;
+&nbsp;
+&nbsp;  /**
+&nbsp;     Return a new logger instance named as the first parameter using
+&nbsp;     the default factory.
+&nbsp;
+&nbsp;     &lt;p&gt;If a logger of that name already exists, then it will be
+&nbsp;     returned.  Otherwise, a new logger will be instantiated and
+&nbsp;     then linked with its existing ancestors as well as children.
+&nbsp;
+&nbsp;     @param name The name of the logger to retrieve.
+&nbsp;
+&nbsp; */
+&nbsp;  public
+&nbsp;  Logger getLogger(String name) {
+<b class="fc">&nbsp;    return getLogger(name, defaultFactory);</b>
+&nbsp;  }
+&nbsp;
+&nbsp; /**
+&nbsp;     Return a new logger instance named as the first parameter using
+&nbsp;     &lt;code&gt;factory&lt;/code&gt;.
+&nbsp;
+&nbsp;     &lt;p&gt;If a logger of that name already exists, then it will be
+&nbsp;     returned.  Otherwise, a new logger will be instantiated by the
+&nbsp;     &lt;code&gt;factory&lt;/code&gt; parameter and linked with its existing
+&nbsp;     ancestors as well as children.
+&nbsp;
+&nbsp;     @param name The name of the logger to retrieve.
+&nbsp;     @param factory The factory that will make the new logger instance.
+&nbsp;
+&nbsp; */
+&nbsp;  public
+&nbsp;  Logger getLogger(String name, LoggerFactory factory) {
+&nbsp;    //System.out.println(&quot;getInstance(&quot;+name+&quot;) called.&quot;);
+<b class="fc">&nbsp;    CategoryKey key = new CategoryKey(name);</b>
+&nbsp;    // Synchronize to prevent write conflicts. Read conflicts (in
+&nbsp;    // getChainedLevel method) are possible only if variable
+&nbsp;    // assignments are non-atomic.
+&nbsp;    Logger logger;
+&nbsp;
+<b class="fc">&nbsp;    synchronized(ht) {</b>
+<b class="fc">&nbsp;      Object o = ht.get(key);</b>
+<b class="fc">&nbsp;      if(o == null) {</b>
+<b class="fc">&nbsp;	logger = factory.makeNewLoggerInstance(name);</b>
+<b class="fc">&nbsp;	logger.setHierarchy(this);</b>
+<b class="fc">&nbsp;	ht.put(key, logger);</b>
+<b class="fc">&nbsp;	updateParents(logger);</b>
+<b class="fc">&nbsp;	return logger;</b>
+<b class="pc">&nbsp;      } else if(o instanceof Logger) {</b>
+<b class="nc">&nbsp;	return (Logger) o;</b>
+<b class="pc">&nbsp;      } else if (o instanceof ProvisionNode) {</b>
+&nbsp;	//System.out.println(&quot;(&quot;+name+&quot;) ht.get(this) returned ProvisionNode&quot;);
+<b class="fc">&nbsp;	logger = factory.makeNewLoggerInstance(name);</b>
+<b class="fc">&nbsp;	logger.setHierarchy(this);</b>
+<b class="fc">&nbsp;	ht.put(key, logger);</b>
+<b class="fc">&nbsp;	updateChildren((ProvisionNode) o, logger);</b>
+<b class="fc">&nbsp;	updateParents(logger);</b>
+<b class="fc">&nbsp;	return logger;</b>
+&nbsp;      }
+&nbsp;      else {
+&nbsp;	// It should be impossible to arrive here
+<b class="nc">&nbsp;	return null;  // but let&#39;s keep the compiler happy.</b>
+&nbsp;      }
+<b class="nc">&nbsp;    }</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     Returns all the currently defined categories in this hierarchy as
+&nbsp;     an {@link java.util.Enumeration Enumeration}.
+&nbsp;
+&nbsp;     &lt;p&gt;The root logger is &lt;em&gt;not&lt;/em&gt; included in the returned
+&nbsp;     {@link Enumeration}.  */
+&nbsp;  public
+&nbsp;  Enumeration getCurrentLoggers() {
+&nbsp;    // The accumlation in v is necessary because not all elements in
+&nbsp;    // ht are Logger objects as there might be some ProvisionNodes
+&nbsp;    // as well.
+<b class="nc">&nbsp;    Vector v = new Vector(ht.size());</b>
+&nbsp;
+<b class="nc">&nbsp;    Enumeration elems = ht.elements();</b>
+<b class="nc">&nbsp;    while(elems.hasMoreElements()) {</b>
+<b class="nc">&nbsp;      Object o = elems.nextElement();</b>
+<b class="nc">&nbsp;      if(o instanceof Logger) {</b>
+<b class="nc">&nbsp;	v.addElement(o);</b>
+&nbsp;      }
+<b class="nc">&nbsp;    }</b>
+<b class="nc">&nbsp;    return v.elements();</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     @deprecated Please use {@link #getCurrentLoggers} instead.
+&nbsp;   */
+&nbsp;  public
+&nbsp;  Enumeration getCurrentCategories() {
+<b class="nc">&nbsp;    return getCurrentLoggers();</b>
+&nbsp;  }
+&nbsp;
+&nbsp;
+&nbsp;  /**
+&nbsp;     Get the renderer map for this hierarchy.
+&nbsp;  */
+&nbsp;  public
+&nbsp;  RendererMap getRendererMap() {
+<b class="nc">&nbsp;    return rendererMap;</b>
+&nbsp;  }
+&nbsp;
+&nbsp;
+&nbsp;  /**
+&nbsp;     Get the root of this hierarchy.
+&nbsp;
+&nbsp;     @since 0.9.0
+&nbsp;   */
+&nbsp;  public
+&nbsp;  Logger getRootLogger() {
+<b class="fc">&nbsp;    return root;</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     This method will return &lt;code&gt;true&lt;/code&gt; if this repository is
+&nbsp;     disabled for &lt;code&gt;level&lt;/code&gt; object passed as parameter and
+&nbsp;     &lt;code&gt;false&lt;/code&gt; otherwise. See also the {@link
+&nbsp;     #setThreshold(Level) threshold} emthod.  */
+&nbsp;  public
+&nbsp;  boolean isDisabled(int level) {
+<b class="pc">&nbsp;    return thresholdInt &gt; level;</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     @deprecated Deprecated with no replacement.
+&nbsp;  */
+&nbsp;  public
+&nbsp;  void overrideAsNeeded(String override) {
+<b class="nc">&nbsp;    LogLog.warn(&quot;The Hiearchy.overrideAsNeeded method has been deprecated.&quot;);</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     Reset all values contained in this hierarchy instance to their
+&nbsp;     default.  This removes all appenders from all categories, sets
+&nbsp;     the level of all non-root categories to &lt;code&gt;null&lt;/code&gt;,
+&nbsp;     sets their additivity flag to &lt;code&gt;true&lt;/code&gt; and sets the level
+&nbsp;     of the root logger to {@link Level#DEBUG DEBUG}.  Moreover,
+&nbsp;     message disabling is set its default &quot;off&quot; value.
+&nbsp;
+&nbsp;     &lt;p&gt;Existing categories are not removed. They are just reset.
+&nbsp;
+&nbsp;     &lt;p&gt;This method should be used sparingly and with care as it will
+&nbsp;     block all logging until it is completed.&lt;/p&gt;
+&nbsp;
+&nbsp;     @since 0.8.5 */
+&nbsp;  public
+&nbsp;  void resetConfiguration() {
+&nbsp;
+<b class="nc">&nbsp;    getRootLogger().setLevel((Level) Level.DEBUG);</b>
+<b class="nc">&nbsp;    root.setResourceBundle(null);</b>
+<b class="nc">&nbsp;    setThreshold(Level.ALL);</b>
+&nbsp;
+&nbsp;    // the synchronization is needed to prevent JDK 1.2.x hashtable
+&nbsp;    // surprises
+<b class="nc">&nbsp;    synchronized(ht) {</b>
+<b class="nc">&nbsp;      shutdown(); // nested locks are OK</b>
+&nbsp;
+<b class="nc">&nbsp;      Enumeration cats = getCurrentLoggers();</b>
+<b class="nc">&nbsp;      while(cats.hasMoreElements()) {</b>
+<b class="nc">&nbsp;	Logger c = (Logger) cats.nextElement();</b>
+<b class="nc">&nbsp;	c.setLevel(null);</b>
+<b class="nc">&nbsp;	c.setAdditivity(true);</b>
+<b class="nc">&nbsp;	c.setResourceBundle(null);</b>
+<b class="nc">&nbsp;      }</b>
+<b class="nc">&nbsp;    }</b>
+<b class="nc">&nbsp;    rendererMap.clear();</b>
+<b class="nc">&nbsp;    throwableRenderer = null;</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;     Does nothing.
+&nbsp;
+&nbsp;     @deprecated Deprecated with no replacement.
+&nbsp;   */
+&nbsp;  public
+&nbsp;  void setDisableOverride(String override) {
+<b class="nc">&nbsp;    LogLog.warn(&quot;The Hiearchy.setDisableOverride method has been deprecated.&quot;);</b>
+&nbsp;  }
+&nbsp;
+&nbsp;
+&nbsp;
+&nbsp;  /**
+&nbsp;     Used by subclasses to add a renderer to the hierarchy passed as parameter.
+&nbsp;   */
+&nbsp;  public
+&nbsp;  void setRenderer(Class renderedClass, ObjectRenderer renderer) {
+<b class="nc">&nbsp;    rendererMap.put(renderedClass, renderer);</b>
+&nbsp;  }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * {@inheritDoc}
+&nbsp;     */
+&nbsp;  public void setThrowableRenderer(final ThrowableRenderer renderer) {
+<b class="nc">&nbsp;      throwableRenderer = renderer;</b>
+&nbsp;  }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * {@inheritDoc}
+&nbsp;     */
+&nbsp;  public ThrowableRenderer getThrowableRenderer() {
+<b class="nc">&nbsp;      return throwableRenderer;</b>
+&nbsp;  }
+&nbsp;
+&nbsp;
+&nbsp;  /**
+&nbsp;     Shutting down a hierarchy will &lt;em&gt;safely&lt;/em&gt; close and remove
+&nbsp;     all appenders in all categories including the root logger.
+&nbsp;
+&nbsp;     &lt;p&gt;Some appenders such as {@link org.apache.log4j.net.SocketAppender}
+&nbsp;     and {@link AsyncAppender} need to be closed before the
+&nbsp;     application exists. Otherwise, pending logging events might be
+&nbsp;     lost.
+&nbsp;
+&nbsp;     &lt;p&gt;The &lt;code&gt;shutdown&lt;/code&gt; method is careful to close nested
+&nbsp;     appenders before closing regular appenders. This is allows
+&nbsp;     configurations where a regular appender is attached to a logger
+&nbsp;     and again to a nested appender.
+&nbsp;
+&nbsp;
+&nbsp;     @since 1.0 */
+&nbsp;  public
+&nbsp;  void shutdown() {
+<b class="nc">&nbsp;    Logger root = getRootLogger();</b>
+&nbsp;
+&nbsp;    // begin by closing nested appenders
+<b class="nc">&nbsp;    root.closeNestedAppenders();</b>
+&nbsp;
+<b class="nc">&nbsp;    synchronized(ht) {</b>
+<b class="nc">&nbsp;      Enumeration cats = this.getCurrentLoggers();</b>
+<b class="nc">&nbsp;      while(cats.hasMoreElements()) {</b>
+<b class="nc">&nbsp;	Logger c = (Logger) cats.nextElement();</b>
+<b class="nc">&nbsp;	c.closeNestedAppenders();</b>
+<b class="nc">&nbsp;      }</b>
+&nbsp;
+&nbsp;      // then, remove all appenders
+<b class="nc">&nbsp;      root.removeAllAppenders();</b>
+<b class="nc">&nbsp;      cats = this.getCurrentLoggers();</b>
+<b class="nc">&nbsp;      while(cats.hasMoreElements()) {</b>
+<b class="nc">&nbsp;	Logger c = (Logger) cats.nextElement();</b>
+<b class="nc">&nbsp;	c.removeAllAppenders();</b>
+<b class="nc">&nbsp;      }</b>
+<b class="nc">&nbsp;    }</b>
+&nbsp;  }
+&nbsp;
+&nbsp;
+&nbsp;  /**
+&nbsp;     This method loops through all the *potential* parents of
+&nbsp;     &#39;cat&#39;. There 3 possible cases:
+&nbsp;
+&nbsp;     1) No entry for the potential parent of &#39;cat&#39; exists
+&nbsp;
+&nbsp;        We create a ProvisionNode for this potential parent and insert
+&nbsp;        &#39;cat&#39; in that provision node.
+&nbsp;
+&nbsp;     2) There entry is of type Logger for the potential parent.
+&nbsp;
+&nbsp;        The entry is &#39;cat&#39;s nearest existing parent. We update cat&#39;s
+&nbsp;        parent field with this entry. We also break from the loop
+&nbsp;        because updating our parent&#39;s parent is our parent&#39;s
+&nbsp;        responsibility.
+&nbsp;
+&nbsp;     3) There entry is of type ProvisionNode for this potential parent.
+&nbsp;
+&nbsp;        We add &#39;cat&#39; to the list of children for this potential parent.
+&nbsp;   */
+&nbsp;  final
+&nbsp;  private
+&nbsp;  void updateParents(Logger cat) {
+<b class="fc">&nbsp;    String name = cat.name;</b>
+<b class="fc">&nbsp;    int length = name.length();</b>
+<b class="fc">&nbsp;    boolean parentFound = false;</b>
+&nbsp;
+&nbsp;    //System.out.println(&quot;UpdateParents called for &quot; + name);
+&nbsp;
+&nbsp;    // if name = &quot;w.x.y.z&quot;, loop thourgh &quot;w.x.y&quot;, &quot;w.x&quot; and &quot;w&quot;, but not &quot;w.x.y.z&quot;
+<b class="fc">&nbsp;    for(int i = name.lastIndexOf(&#39;.&#39;, length-1); i &gt;= 0;</b>
+<b class="fc">&nbsp;	                                 i = name.lastIndexOf(&#39;.&#39;, i-1))  {</b>
+<b class="fc">&nbsp;      String substr = name.substring(0, i);</b>
+&nbsp;
+&nbsp;      //System.out.println(&quot;Updating parent : &quot; + substr);
+<b class="fc">&nbsp;      CategoryKey key = new CategoryKey(substr); // simple constructor</b>
+<b class="fc">&nbsp;      Object o = ht.get(key);</b>
+&nbsp;      // Create a provision node for a future parent.
+<b class="fc">&nbsp;      if(o == null) {</b>
+&nbsp;	//System.out.println(&quot;No parent &quot;+substr+&quot; found. Creating ProvisionNode.&quot;);
+<b class="fc">&nbsp;	ProvisionNode pn = new ProvisionNode(cat);</b>
+<b class="fc">&nbsp;	ht.put(key, pn);</b>
+<b class="pc">&nbsp;      } else if(o instanceof Category) {</b>
+<b class="fc">&nbsp;	parentFound = true;</b>
+<b class="fc">&nbsp;	cat.parent = (Category) o;</b>
+&nbsp;	//System.out.println(&quot;Linking &quot; + cat.name + &quot; -&gt; &quot; + ((Category) o).name);
+<b class="fc">&nbsp;	break; // no need to update the ancestors of the closest ancestor</b>
+<b class="nc">&nbsp;      } else if(o instanceof ProvisionNode) {</b>
+<b class="nc">&nbsp;	((ProvisionNode) o).addElement(cat);</b>
+&nbsp;      } else {
+<b class="nc">&nbsp;	Exception e = new IllegalStateException(&quot;unexpected object type &quot; +</b>
+&nbsp;					o.getClass() + &quot; in ht.&quot;);
+<b class="nc">&nbsp;	e.printStackTrace();</b>
+&nbsp;      }
+&nbsp;    }
+&nbsp;    // If we could not find any existing parents, then link with root.
+<b class="fc">&nbsp;    if(!parentFound)</b>
+<b class="fc">&nbsp;      cat.parent = root;</b>
+&nbsp;  }
+&nbsp;
+&nbsp;  /**
+&nbsp;      We update the links for all the children that placed themselves
+&nbsp;      in the provision node &#39;pn&#39;. The second argument &#39;cat&#39; is a
+&nbsp;      reference for the newly created Logger, parent of all the
+&nbsp;      children in &#39;pn&#39;
+&nbsp;
+&nbsp;      We loop on all the children &#39;c&#39; in &#39;pn&#39;:
+&nbsp;
+&nbsp;         If the child &#39;c&#39; has been already linked to a child of
+&nbsp;         &#39;cat&#39; then there is no need to update &#39;c&#39;.
+&nbsp;
+&nbsp;	 Otherwise, we set cat&#39;s parent field to c&#39;s parent and set
+&nbsp;	 c&#39;s parent field to cat.
+&nbsp;
+&nbsp;  */
+&nbsp;  final
+&nbsp;  private
+&nbsp;  void updateChildren(ProvisionNode pn, Logger logger) {
+&nbsp;    //System.out.println(&quot;updateChildren called for &quot; + logger.name);
+<b class="fc">&nbsp;    final int last = pn.size();</b>
+&nbsp;
+<b class="fc">&nbsp;    for(int i = 0; i &lt; last; i++) {</b>
+<b class="fc">&nbsp;      Logger l = (Logger) pn.elementAt(i);</b>
+&nbsp;      //System.out.println(&quot;Updating child &quot; +p.name);
+&nbsp;
+&nbsp;      // Unless this child already points to a correct (lower) parent,
+&nbsp;      // make cat.parent point to l.parent and l.parent to cat.
+<b class="pc">&nbsp;      if(!l.parent.name.startsWith(logger.name)) {</b>
+<b class="fc">&nbsp;	logger.parent = l.parent;</b>
+<b class="fc">&nbsp;	l.parent = logger;</b>
+&nbsp;      }
+&nbsp;    }
+&nbsp;  }
+&nbsp;
+&nbsp;}
+&nbsp;
+&nbsp;
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>

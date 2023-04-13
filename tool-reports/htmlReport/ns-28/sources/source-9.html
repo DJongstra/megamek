@@ -1,0 +1,300 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > PacketReadState</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.common.net</a>
+</div>
+
+<h1>Coverage Summary for Class: PacketReadState (megamek.common.net)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">PacketReadState</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/3)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek - Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+&nbsp; *
+&nbsp; *  This program is free software; you can redistribute it and/or modify it
+&nbsp; *  under the terms of the GNU General Public License as published by the Free
+&nbsp; *  Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; *  any later version.
+&nbsp; *
+&nbsp; *  This program is distributed in the hope that it will be useful, but
+&nbsp; *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+&nbsp; *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+&nbsp; *  for more details.
+&nbsp; */
+&nbsp;
+&nbsp;package megamek.common.net;
+&nbsp;
+&nbsp;import java.io.BufferedInputStream;
+&nbsp;import java.io.BufferedOutputStream;
+&nbsp;import java.io.DataInputStream;
+&nbsp;import java.io.DataOutputStream;
+&nbsp;import java.io.IOException;
+&nbsp;import java.net.Socket;
+&nbsp;import java.net.SocketException;
+&nbsp;
+&nbsp;/**
+&nbsp; * Implementation of the &lt;code&gt;Connection&lt;/code&gt; that uses the
+&nbsp; * &lt;code&gt;DataInputStream&lt;/code&gt; and &lt;code&gt;DataOutputStream&lt;/code&gt; to
+&nbsp; * send/receive data.
+&nbsp; */
+&nbsp;class DataStreamConnection extends AbstractConnection {
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Input stream
+&nbsp;     */
+&nbsp;    private DataInputStream in;
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Output stream
+&nbsp;     */
+&nbsp;    private DataOutputStream out;
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Creates new server connection
+&nbsp;     * 
+&nbsp;     * @param socket
+&nbsp;     * @param id
+&nbsp;     */
+&nbsp;    public DataStreamConnection(Socket socket, int id) {
+&nbsp;        super(socket, id);
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Creates new Client connection
+&nbsp;     * 
+&nbsp;     * @param host
+&nbsp;     * @param port
+&nbsp;     * @param id
+&nbsp;     */
+&nbsp;    public DataStreamConnection(String host, int port, int id) {
+&nbsp;        super(host, port, id);
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * store data for packet reception statemachine
+&nbsp;     */
+&nbsp;    protected boolean zipped = false;
+&nbsp;    protected int encoding = -1;
+&nbsp;    protected int len = 0;
+&nbsp;    protected PacketReadState state = PacketReadState.Header;
+&nbsp;
+&nbsp;    @Override
+&nbsp;    protected INetworkPacket readNetworkPacket() throws Exception {
+&nbsp;        
+&nbsp;            NetworkPacket packet = null;
+&nbsp;            if (in == null) {
+&nbsp;                in = new DataInputStream(new BufferedInputStream(
+&nbsp;                        getInputStream(), getReceiveBufferSize()));
+&nbsp;                state = PacketReadState.Header;
+&nbsp;            }
+&nbsp;            synchronized (in){
+&nbsp;                switch (state) {
+&nbsp;                    case Header:
+&nbsp;                        zipped = in.readBoolean();
+&nbsp;                        encoding = in.readInt();
+&nbsp;                        len = in.readInt();
+&nbsp;                        state = PacketReadState.Data;
+&nbsp;                        // drop through on purpose
+&nbsp;                    case Data:
+&nbsp;                        byte[] data = new byte[len];
+&nbsp;                        in.readFully(data);
+&nbsp;                        packet = new NetworkPacket(zipped, encoding, data);
+&nbsp;                        state = PacketReadState.Header;
+&nbsp;                        return packet;
+&nbsp;                    default:
+&nbsp;                        assert (false);
+&nbsp;                }
+&nbsp;            }
+&nbsp;        assert (false);
+&nbsp;        return null;
+&nbsp;    }
+&nbsp;
+&nbsp;    @Override
+&nbsp;    protected void sendNetworkPacket(byte[] data, boolean iszipped)
+&nbsp;            throws Exception {
+&nbsp;        
+&nbsp;        if (out == null) {
+&nbsp;            out = new DataOutputStream(new BufferedOutputStream(
+&nbsp;                    getOutputStream(),getSendBufferSize()));
+&nbsp;        }
+&nbsp;        synchronized (out){
+&nbsp;            out.writeBoolean(iszipped);
+&nbsp;            out.writeInt(marshallingType);
+&nbsp;            out.writeInt(data.length);
+&nbsp;            out.write(data);
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * override flush to flush the datastream after flushing packetqueue
+&nbsp;     */
+&nbsp;    @Override
+&nbsp;    public void flush() {
+&nbsp;        // Sends all queued packets
+&nbsp;        super.flush();
+&nbsp;        try {
+&nbsp;            // Flush the output stream, to ensure all packets are sent
+&nbsp;            if (out != null)
+&nbsp;                synchronized (out) {
+&nbsp;                    out.flush();
+&nbsp;                }
+&nbsp;        } catch (SocketException se) {
+&nbsp;            // close this connection, because it&#39;s broken
+&nbsp;            // This can happen if the connection is closed while being written
+&nbsp;            // to, and it&#39;s not a big deal, since the connection is being broken
+&nbsp;            // anyways
+&nbsp;            close();
+&nbsp;        } catch (IOException ioe) {
+&nbsp;            // Log non-SocketException IOExceptions
+&nbsp;            ioe.printStackTrace();
+&nbsp;            // close this connection, because it&#39;s broken
+&nbsp;            close();
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    @Override
+&nbsp;    public String toString() {
+&nbsp;        return &quot;DataStreamConnection Id &quot; + getId();
+&nbsp;    }
+&nbsp;
+&nbsp;    private static class NetworkPacket implements INetworkPacket {
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Is data compressed
+&nbsp;         */
+&nbsp;        private boolean compressed;
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Data marshalling type
+&nbsp;         */
+&nbsp;        private int marshallingType;
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Packet data
+&nbsp;         */
+&nbsp;        private byte[] data;
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Creates new packet
+&nbsp;         * 
+&nbsp;         * @param compressed
+&nbsp;         * @param marshallingType
+&nbsp;         * @param data
+&nbsp;         */
+&nbsp;        NetworkPacket(boolean compressed, int marshallingType, byte[] data) {
+&nbsp;            this.compressed = compressed;
+&nbsp;            this.marshallingType = marshallingType;
+&nbsp;            this.data = data;
+&nbsp;        }
+&nbsp;
+&nbsp;        public int getMarshallingType() {
+&nbsp;            return marshallingType;
+&nbsp;        }
+&nbsp;
+&nbsp;        public byte[] getData() {
+&nbsp;            return data;
+&nbsp;        }
+&nbsp;
+&nbsp;        public boolean isCompressed() {
+&nbsp;            return compressed;
+&nbsp;        }
+&nbsp;    }
+&nbsp;}
+&nbsp;
+<b class="nc">&nbsp;enum PacketReadState {</b>
+<b class="nc">&nbsp;    Header, // next will be header data</b>
+<b class="nc">&nbsp;    Data;</b>
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>

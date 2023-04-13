@@ -1,0 +1,930 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > PhysicalCalculator</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.client.bot</a>
+</div>
+
+<h1>Coverage Summary for Class: PhysicalCalculator (megamek.client.bot)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">PhysicalCalculator</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/6)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/386)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek - Copyright (C) 2003,2004,2005 Ben Mazur (bmazur@sev.org)
+&nbsp; *
+&nbsp; *  This program is free software; you can redistribute it and/or modify it
+&nbsp; *  under the terms of the GNU General Public License as published by the Free
+&nbsp; *  Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; *  any later version.
+&nbsp; *
+&nbsp; *  This program is distributed in the hope that it will be useful, but
+&nbsp; *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+&nbsp; *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+&nbsp; *  for more details.
+&nbsp; */
+&nbsp;
+&nbsp;package megamek.client.bot;
+&nbsp;
+&nbsp;import java.util.Iterator;
+&nbsp;
+&nbsp;import megamek.common.BattleArmor;
+&nbsp;import megamek.common.BuildingTarget;
+&nbsp;import megamek.common.Compute;
+&nbsp;import megamek.common.Coords;
+&nbsp;import megamek.common.Entity;
+&nbsp;import megamek.common.GunEmplacement;
+&nbsp;import megamek.common.IGame;
+&nbsp;import megamek.common.IHex;
+&nbsp;import megamek.common.INarcPod;
+&nbsp;import megamek.common.Infantry;
+&nbsp;import megamek.common.Mech;
+&nbsp;import megamek.common.Mounted;
+&nbsp;import megamek.common.Protomech;
+&nbsp;import megamek.common.Tank;
+&nbsp;import megamek.common.TargetRoll;
+&nbsp;import megamek.common.Targetable;
+&nbsp;import megamek.common.Terrains;
+&nbsp;import megamek.common.ToHitData;
+&nbsp;import megamek.common.actions.BrushOffAttackAction;
+&nbsp;import megamek.common.actions.ClubAttackAction;
+&nbsp;import megamek.common.actions.KickAttackAction;
+&nbsp;import megamek.common.actions.PunchAttackAction;
+&nbsp;import megamek.common.actions.PushAttackAction;
+&nbsp;import megamek.common.options.OptionsConstants;
+&nbsp;
+&nbsp;public final class PhysicalCalculator {
+&nbsp;    private PhysicalCalculator() {
+&nbsp;        super();
+&nbsp;        // should never call this
+&nbsp;    }
+&nbsp;
+&nbsp;    static PhysicalOption calculatePhysicalTurn(TestBot bot) {
+<b class="nc">&nbsp;        int entNum = bot.getGame().getFirstEntityNum(bot.getMyTurn());</b>
+<b class="nc">&nbsp;        int first = entNum;</b>
+&nbsp;        do {
+&nbsp;            // take the first entity that can do an attack
+<b class="nc">&nbsp;            Entity en = bot.getGame().getEntity(entNum);</b>
+<b class="nc">&nbsp;            PhysicalOption bestAttack = getBestPhysical(en, bot.getGame());</b>
+&nbsp;
+<b class="nc">&nbsp;            if (bestAttack != null) {</b>
+&nbsp;
+<b class="nc">&nbsp;                return bestAttack;</b>
+&nbsp;
+&nbsp;            } // End no-attack
+<b class="nc">&nbsp;            entNum = bot.getGame().getNextEntityNum(bot.getMyTurn(), entNum);</b>
+&nbsp;
+<b class="nc">&nbsp;        } while ((entNum != -1) &amp;&amp; (entNum != first));</b>
+&nbsp;
+&nbsp;        // Didn&#39;t find any physical attack.
+<b class="nc">&nbsp;        return null;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public static PhysicalOption getBestPhysical(Entity entity, IGame game) {
+&nbsp;        // Infantry can&#39;t conduct physical attacks.
+<b class="nc">&nbsp;        if (entity instanceof Infantry) {</b>
+<b class="nc">&nbsp;            return null;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // if you&#39;re charging, it&#39;s already declared
+<b class="nc">&nbsp;        if (entity.isCharging() || entity.isMakingDfa()) {</b>
+<b class="nc">&nbsp;            return null;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        PhysicalOption best = null;</b>
+&nbsp;        ToHitData odds;
+&nbsp;        double breach;
+&nbsp;        double breach_a;
+&nbsp;        double l_dmg;
+&nbsp;        double r_dmg;
+&nbsp;        double final_dmg;
+<b class="nc">&nbsp;        int best_brush = PhysicalOption.NONE;</b>
+<b class="nc">&nbsp;        boolean aptPiloting = entity.hasAbility(OptionsConstants.PILOT_APTITUDE_PILOTING);</b>
+&nbsp;
+&nbsp;        // If the attacker is a Mech
+&nbsp;
+<b class="nc">&nbsp;        if (entity instanceof Mech) {</b>
+&nbsp;
+<b class="nc">&nbsp;            l_dmg = 0.0;</b>
+<b class="nc">&nbsp;            r_dmg = 0.0;</b>
+<b class="nc">&nbsp;            final_dmg = 0.0;</b>
+<b class="nc">&nbsp;            breach_a = 0.0;</b>
+&nbsp;
+&nbsp;            // If the attacker is being swarmed
+&nbsp;
+<b class="nc">&nbsp;            if (entity.getSwarmAttackerId() != Entity.NONE) {</b>
+&nbsp;
+&nbsp;                // Check for left arm punch damage to self
+&nbsp;
+<b class="nc">&nbsp;                odds = BrushOffAttackAction.toHit(game, entity.getId(), game</b>
+<b class="nc">&nbsp;                        .getEntity(entity.getSwarmAttackerId()),</b>
+&nbsp;                                                  BrushOffAttackAction.LEFT);
+<b class="nc">&nbsp;                if (odds.getValue() != TargetRoll.IMPOSSIBLE) {</b>
+&nbsp;
+<b class="nc">&nbsp;                    l_dmg = BrushOffAttackAction.getDamageFor(entity,</b>
+&nbsp;                                                              BrushOffAttackAction.LEFT);
+<b class="nc">&nbsp;                    l_dmg *= 1.0 - (Compute.oddsAbove(odds.getValue(), aptPiloting) / 100.0);</b>
+<b class="nc">&nbsp;                    breach = punchThroughMod(entity, ToHitData.HIT_PUNCH,</b>
+&nbsp;                                             ToHitData.SIDE_FRONT, l_dmg, l_dmg);
+<b class="nc">&nbsp;                    if (breach &lt; 1.5) {</b>
+<b class="nc">&nbsp;                        best_brush = PhysicalOption.BRUSH_LEFT;</b>
+<b class="nc">&nbsp;                        breach_a = breach;</b>
+<b class="nc">&nbsp;                        final_dmg = BrushOffAttackAction.getDamageFor(entity,</b>
+&nbsp;                                                                      BrushOffAttackAction.LEFT);
+&nbsp;                    }
+&nbsp;                }
+&nbsp;
+&nbsp;                // Check for right arm punch damage to self
+<b class="nc">&nbsp;                odds = BrushOffAttackAction.toHit(game, entity.getId(), game</b>
+<b class="nc">&nbsp;                        .getEntity(entity.getSwarmAttackerId()),</b>
+&nbsp;                                                  BrushOffAttackAction.RIGHT);
+<b class="nc">&nbsp;                if (odds.getValue() != TargetRoll.IMPOSSIBLE) {</b>
+&nbsp;
+&nbsp;                    // If chance of breaching armor is minimal set brush left
+&nbsp;
+<b class="nc">&nbsp;                    r_dmg = BrushOffAttackAction.getDamageFor(entity,</b>
+&nbsp;                                                              BrushOffAttackAction.RIGHT);
+<b class="nc">&nbsp;                    r_dmg *= 1.0 - (Compute.oddsAbove(odds.getValue(), aptPiloting) / 100.0);</b>
+<b class="nc">&nbsp;                    breach = punchThroughMod(entity, ToHitData.HIT_PUNCH,</b>
+&nbsp;                                             ToHitData.SIDE_FRONT, r_dmg, r_dmg);
+<b class="nc">&nbsp;                    if (breach &lt; Math.min(breach_a, 1.5)) {</b>
+<b class="nc">&nbsp;                        best_brush = PhysicalOption.BRUSH_RIGHT;</b>
+<b class="nc">&nbsp;                        breach_a = breach;</b>
+<b class="nc">&nbsp;                        final_dmg = BrushOffAttackAction.getDamageFor(entity,</b>
+&nbsp;                                                                      BrushOffAttackAction.RIGHT);
+&nbsp;                    }
+&nbsp;                }
+&nbsp;
+&nbsp;                // If both arms are capable of punching, check double punch
+&nbsp;                // damage
+&nbsp;
+<b class="nc">&nbsp;                if ((l_dmg &gt; 0) &amp;&amp; (r_dmg &gt; 0)) {</b>
+&nbsp;
+&nbsp;                    // If chance of breaching armor is minimal set double brush
+&nbsp;
+<b class="nc">&nbsp;                    breach = punchThroughMod(entity, ToHitData.HIT_PUNCH,</b>
+&nbsp;                                             ToHitData.SIDE_FRONT, l_dmg + r_dmg,
+&nbsp;                                             (l_dmg + r_dmg) / 2.0);
+<b class="nc">&nbsp;                    if (breach &lt; Math.min(breach_a, 1.5)) {</b>
+<b class="nc">&nbsp;                        best_brush = PhysicalOption.BRUSH_BOTH;</b>
+<b class="nc">&nbsp;                        breach_a = breach;</b>
+<b class="nc">&nbsp;                        final_dmg = BrushOffAttackAction.getDamageFor(entity,</b>
+&nbsp;                                                                      BrushOffAttackAction.LEFT);
+<b class="nc">&nbsp;                        final_dmg += BrushOffAttackAction.getDamageFor(entity,</b>
+&nbsp;                                                                       BrushOffAttackAction.RIGHT);
+&nbsp;                    }
+&nbsp;                }
+&nbsp;
+&nbsp;                // Construct and return Physical option
+<b class="nc">&nbsp;                if (best_brush != PhysicalOption.NONE) {</b>
+<b class="nc">&nbsp;                    return new PhysicalOption(entity, game.getEntity(entity</b>
+<b class="nc">&nbsp;                                                                             .getSwarmAttackerId()), final_dmg,</b>
+&nbsp;                                              best_brush, null);
+&nbsp;                }
+&nbsp;            }
+&nbsp;
+&nbsp;            // If the attacker has attached iNarc pods, assign
+&nbsp;            // a competing damage value for comparison with other
+&nbsp;            // attacks
+&nbsp;
+<b class="nc">&nbsp;            if (entity.hasINarcPodsAttached()) {</b>
+&nbsp;                double test_ranking;
+&nbsp;                double pod_ranking;
+&nbsp;                INarcPod test_pod;
+&nbsp;                INarcPod best_pod;
+<b class="nc">&nbsp;                pod_ranking = 0.0;</b>
+<b class="nc">&nbsp;                Iterator&lt;INarcPod&gt; pod_list = entity.getINarcPodsAttached();</b>
+<b class="nc">&nbsp;                best_pod = pod_list.next();</b>
+<b class="nc">&nbsp;                for (pod_list = entity.getINarcPodsAttached(); pod_list</b>
+<b class="nc">&nbsp;                        .hasNext(); ) {</b>
+<b class="nc">&nbsp;                    test_ranking = 1.0;</b>
+<b class="nc">&nbsp;                    test_pod = pod_list.next();</b>
+&nbsp;                    // If pod is homing and attacker has no ECM
+<b class="nc">&nbsp;                    if ((test_pod.getType() == INarcPod.HOMING)</b>
+<b class="nc">&nbsp;                            &amp;&amp; !entity.hasActiveECM()) {</b>
+&nbsp;                        // Pod is +1
+<b class="nc">&nbsp;                        test_ranking += 1.0;</b>
+&nbsp;                    }
+&nbsp;                    // If pod is ECM and attacker has C3 link
+<b class="nc">&nbsp;                    if ((test_pod.getType() == INarcPod.ECM)</b>
+<b class="nc">&nbsp;                            &amp;&amp; (entity.hasC3() || entity.hasC3i())) {</b>
+&nbsp;                        // Pod is +2
+<b class="nc">&nbsp;                        test_ranking += 2.0;</b>
+&nbsp;                    }
+&nbsp;                    // If pod is Nemesis
+<b class="nc">&nbsp;                    if (test_pod.getType() == INarcPod.NEMESIS) {</b>
+&nbsp;                        // Pod is +variable, based on movement
+<b class="nc">&nbsp;                        test_ranking += (entity.getWalkMP() + entity</b>
+<b class="nc">&nbsp;                                .getJumpMP()) / 2.0;</b>
+&nbsp;                    }
+&nbsp;                    // If this pod is best, retain it and its ranking
+<b class="nc">&nbsp;                    if (test_ranking &gt; pod_ranking) {</b>
+<b class="nc">&nbsp;                        pod_ranking = test_ranking;</b>
+<b class="nc">&nbsp;                        best_pod = test_pod;</b>
+&nbsp;                    }
+&nbsp;                }
+<b class="nc">&nbsp;                if (best_pod != null) {</b>
+&nbsp;                    // Check for left arm punch damage to self
+<b class="nc">&nbsp;                    odds = BrushOffAttackAction.toHit(game, entity.getId(),</b>
+&nbsp;                                                      best_pod, BrushOffAttackAction.LEFT);
+<b class="nc">&nbsp;                    if (odds.getValue() != TargetRoll.IMPOSSIBLE) {</b>
+&nbsp;
+<b class="nc">&nbsp;                        l_dmg = BrushOffAttackAction.getDamageFor(entity,</b>
+&nbsp;                                                                  BrushOffAttackAction.LEFT);
+<b class="nc">&nbsp;                        l_dmg *= 1.0 - (Compute.oddsAbove(odds.getValue(), aptPiloting) / 100.0);</b>
+<b class="nc">&nbsp;                        breach = punchThroughMod(entity, ToHitData.HIT_PUNCH,</b>
+&nbsp;                                                 ToHitData.SIDE_FRONT, l_dmg, l_dmg);
+<b class="nc">&nbsp;                        if (breach &lt; 1.5) {</b>
+<b class="nc">&nbsp;                            best_brush = PhysicalOption.BRUSH_LEFT;</b>
+<b class="nc">&nbsp;                            breach_a = breach;</b>
+<b class="nc">&nbsp;                            final_dmg = BrushOffAttackAction.getDamageFor(</b>
+&nbsp;                                    entity, BrushOffAttackAction.LEFT);
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;
+&nbsp;                    // Check for right arm punch damage to self
+<b class="nc">&nbsp;                    odds = BrushOffAttackAction.toHit(game, entity.getId(),</b>
+&nbsp;                                                      best_pod, BrushOffAttackAction.RIGHT);
+<b class="nc">&nbsp;                    if (odds.getValue() != TargetRoll.IMPOSSIBLE) {</b>
+&nbsp;
+&nbsp;                        // If chance of breaching armor is minimal set brush
+&nbsp;                        // left
+&nbsp;
+<b class="nc">&nbsp;                        r_dmg = BrushOffAttackAction.getDamageFor(entity,</b>
+&nbsp;                                                                  BrushOffAttackAction.RIGHT);
+<b class="nc">&nbsp;                        r_dmg *= 1.0 - (Compute.oddsAbove(odds.getValue(), aptPiloting) / 100.0);</b>
+<b class="nc">&nbsp;                        breach = punchThroughMod(entity, ToHitData.HIT_PUNCH,</b>
+&nbsp;                                                 ToHitData.SIDE_FRONT, r_dmg, r_dmg);
+<b class="nc">&nbsp;                        if (breach &lt; Math.min(breach_a, 1.5)) {</b>
+<b class="nc">&nbsp;                            best_brush = PhysicalOption.BRUSH_RIGHT;</b>
+<b class="nc">&nbsp;                            breach_a = breach;</b>
+<b class="nc">&nbsp;                            final_dmg = BrushOffAttackAction.getDamageFor(</b>
+&nbsp;                                    entity, BrushOffAttackAction.RIGHT);
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;
+&nbsp;                    // If both arms are capable of punching, check double punch
+&nbsp;                    // damage
+&nbsp;
+<b class="nc">&nbsp;                    if ((l_dmg &gt; 0) &amp;&amp; (r_dmg &gt; 0)) {</b>
+&nbsp;
+&nbsp;                        // If chance of breaching armor is minimal set double
+&nbsp;                        // brush
+&nbsp;
+<b class="nc">&nbsp;                        breach = punchThroughMod(entity, ToHitData.HIT_PUNCH,</b>
+&nbsp;                                                 ToHitData.SIDE_FRONT, l_dmg + r_dmg,
+&nbsp;                                                 (l_dmg + r_dmg) / 2.0);
+<b class="nc">&nbsp;                        if (breach &lt; Math.min(breach_a, 1.5)) {</b>
+<b class="nc">&nbsp;                            best_brush = PhysicalOption.BRUSH_BOTH;</b>
+<b class="nc">&nbsp;                            final_dmg = BrushOffAttackAction.getDamageFor(</b>
+&nbsp;                                    entity, BrushOffAttackAction.LEFT);
+<b class="nc">&nbsp;                            final_dmg += BrushOffAttackAction.getDamageFor(</b>
+&nbsp;                                    entity, BrushOffAttackAction.RIGHT);
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;
+&nbsp;                    // Construct and return Physical option
+<b class="nc">&nbsp;                    if (best_brush != PhysicalOption.NONE) {</b>
+<b class="nc">&nbsp;                        return new PhysicalOption(entity, best_pod, final_dmg,</b>
+&nbsp;                                                  best_brush, null);
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        for (Entity target : game.getEntitiesVector()) {</b>
+&nbsp;
+<b class="nc">&nbsp;            if (target.equals(entity)) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (!target.isEnemyOf(entity)) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (target.getPosition() == null) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (Compute.effectiveDistance(game, entity, target) &gt; 1) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+&nbsp;
+<b class="nc">&nbsp;            PhysicalOption one = getBestPhysicalAttack(entity, target, game);</b>
+<b class="nc">&nbsp;            if (one != null) {</b>
+<b class="nc">&nbsp;                if ((best == null) || (one.expectedDmg &gt; best.expectedDmg)) {</b>
+<b class="nc">&nbsp;                    best = one;</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        if (best == null) {</b>
+<b class="nc">&nbsp;            best = new PhysicalOption(entity);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return best;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    static PhysicalOption getBestPhysicalAttack(Entity from, Entity to,
+&nbsp;                                                IGame game) {        
+<b class="nc">&nbsp;        Targetable target = to;</b>
+&nbsp;        
+&nbsp;        // if the object of our affections is in a building, we have to target the building instead
+<b class="nc">&nbsp;        if(Compute.isInBuilding(game, to) || (to instanceof GunEmplacement)) {</b>
+<b class="nc">&nbsp;            target = new BuildingTarget(to.getPosition(), game.getBoard(), false);</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        double bestDmg = 0.0;</b>
+&nbsp;        double dmg;
+&nbsp;        int damage;
+&nbsp;        int target_arc;
+&nbsp;        int location_table;
+<b class="nc">&nbsp;        int bestType = PhysicalOption.NONE;</b>
+<b class="nc">&nbsp;        Mounted bestClub = null;</b>
+<b class="nc">&nbsp;        boolean targetConvInfantry = false;</b>
+<b class="nc">&nbsp;        boolean fromAptPiloting = from.hasAbility(OptionsConstants.PILOT_APTITUDE_PILOTING);</b>
+<b class="nc">&nbsp;        boolean toAptPiloting = to.hasAbility(OptionsConstants.PILOT_APTITUDE_PILOTING);</b>
+&nbsp;
+&nbsp;        // Infantry and tanks can&#39;t conduct any of these attacks
+<b class="nc">&nbsp;        if ((from instanceof Infantry) || (from instanceof Tank)) {</b>
+<b class="nc">&nbsp;            return null;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if ((to instanceof Infantry) &amp;&amp; !(to instanceof BattleArmor)) {</b>
+<b class="nc">&nbsp;            targetConvInfantry = true;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // Find arc the attack comes in
+<b class="nc">&nbsp;        target_arc = CEntity.getThreatHitArc(to.getPosition(), to.getFacing(),</b>
+<b class="nc">&nbsp;                                             from.getPosition());</b>
+&nbsp;
+&nbsp;        // Check for punches
+&nbsp;        // If the target is a Mech, must determine if punch lands on the punch,
+&nbsp;        // kick, or full table
+<b class="nc">&nbsp;        if (to instanceof Mech) {</b>
+<b class="nc">&nbsp;            if (!to.isProne()) {</b>
+<b class="nc">&nbsp;                location_table = ToHitData.HIT_PUNCH;</b>
+<b class="nc">&nbsp;                if (to.getElevation() == (from.getElevation() + 1)) {</b>
+<b class="nc">&nbsp;                    location_table = ToHitData.HIT_KICK;</b>
+&nbsp;                }
+&nbsp;            } else {
+<b class="nc">&nbsp;                location_table = ToHitData.HIT_NORMAL;</b>
+&nbsp;            }
+&nbsp;        } else {
+<b class="nc">&nbsp;            location_table = ToHitData.HIT_NORMAL;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        ToHitData odds = PunchAttackAction.toHit(game, from.getId(), target,</b>
+&nbsp;                                                 PunchAttackAction.LEFT, false);
+<b class="nc">&nbsp;        if (odds.getValue() != TargetRoll.IMPOSSIBLE) {</b>
+<b class="nc">&nbsp;            damage = PunchAttackAction.getDamageFor(from,</b>
+&nbsp;                                                    PunchAttackAction.LEFT, targetConvInfantry, false);
+<b class="nc">&nbsp;            bestDmg = (Compute.oddsAbove(odds.getValue(), fromAptPiloting) / 100.0) * damage;</b>
+&nbsp;            // Adjust damage for targets armor
+<b class="nc">&nbsp;            bestType = PhysicalOption.PUNCH_LEFT;</b>
+<b class="nc">&nbsp;            bestDmg *= punchThroughMod(to, location_table, target_arc, bestDmg,</b>
+&nbsp;                                       bestDmg);
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        odds = PunchAttackAction.toHit(game, from.getId(), target,</b>
+&nbsp;                                       PunchAttackAction.RIGHT, false);
+<b class="nc">&nbsp;        if (odds.getValue() != TargetRoll.IMPOSSIBLE) {</b>
+<b class="nc">&nbsp;            damage = PunchAttackAction.getDamageFor(from,</b>
+&nbsp;                                                    PunchAttackAction.RIGHT, targetConvInfantry, false);
+<b class="nc">&nbsp;            dmg = (Compute.oddsAbove(odds.getValue(), fromAptPiloting) / 100.0) * damage;</b>
+&nbsp;            // Adjust damage for targets armor
+<b class="nc">&nbsp;            dmg *= punchThroughMod(to, location_table, target_arc, dmg, dmg);</b>
+<b class="nc">&nbsp;            if (dmg &gt; bestDmg) {</b>
+<b class="nc">&nbsp;                bestType = PhysicalOption.PUNCH_RIGHT;</b>
+<b class="nc">&nbsp;                bestDmg = dmg;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // Check for a double punch
+<b class="nc">&nbsp;        odds = PunchAttackAction.toHit(game, from.getId(), target,</b>
+&nbsp;                                       PunchAttackAction.LEFT, false);
+<b class="nc">&nbsp;        ToHitData odds_a = PunchAttackAction.toHit(game, from.getId(), to,</b>
+&nbsp;                                                   PunchAttackAction.RIGHT, false);
+<b class="nc">&nbsp;        if ((odds.getValue() != TargetRoll.IMPOSSIBLE)</b>
+<b class="nc">&nbsp;                &amp;&amp; (odds_a.getValue() != TargetRoll.IMPOSSIBLE)) {</b>
+<b class="nc">&nbsp;            damage = PunchAttackAction.getDamageFor(from,</b>
+&nbsp;                                                    PunchAttackAction.LEFT, targetConvInfantry, false);
+<b class="nc">&nbsp;            dmg = (Compute.oddsAbove(odds.getValue(), fromAptPiloting) / 100.0) * damage;</b>
+<b class="nc">&nbsp;            double dmg_a = (Compute.oddsAbove(odds_a.getValue(), fromAptPiloting) / 100.0)</b>
+&nbsp;                           * damage;
+<b class="nc">&nbsp;            dmg += dmg_a;</b>
+<b class="nc">&nbsp;            dmg *= punchThroughMod(to, location_table, target_arc, dmg,</b>
+&nbsp;                                   dmg / 2.0);
+<b class="nc">&nbsp;            if (dmg &gt; bestDmg) {</b>
+<b class="nc">&nbsp;                bestType = PhysicalOption.PUNCH_BOTH;</b>
+<b class="nc">&nbsp;                bestDmg = dmg;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // Check for a kick
+&nbsp;        // If the target is a Mech, must determine if it lands on the kick or
+&nbsp;        // punch table
+<b class="nc">&nbsp;        if (to instanceof Mech) {</b>
+<b class="nc">&nbsp;            location_table = ToHitData.HIT_KICK;</b>
+<b class="nc">&nbsp;            if (!to.isProne()) {</b>
+<b class="nc">&nbsp;                if (to.getElevation() == (from.getElevation() - 1)) {</b>
+<b class="nc">&nbsp;                    location_table = ToHitData.HIT_PUNCH;</b>
+&nbsp;                }
+&nbsp;            } else {
+<b class="nc">&nbsp;                location_table = ToHitData.HIT_NORMAL;</b>
+&nbsp;            }
+&nbsp;        } else {
+<b class="nc">&nbsp;            location_table = ToHitData.HIT_NORMAL;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        dmg = getExpectedKickDamage(from, to, game, location_table, target_arc,</b>
+&nbsp;                                    KickAttackAction.LEFT);
+<b class="nc">&nbsp;        if (dmg &gt; bestDmg) {</b>
+<b class="nc">&nbsp;            bestType = PhysicalOption.KICK_LEFT;</b>
+<b class="nc">&nbsp;            bestDmg = dmg;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        dmg = getExpectedKickDamage(from, to, game, location_table, target_arc,</b>
+&nbsp;                                    KickAttackAction.RIGHT);
+<b class="nc">&nbsp;        if (dmg &gt; bestDmg) {</b>
+<b class="nc">&nbsp;            bestType = PhysicalOption.KICK_RIGHT;</b>
+<b class="nc">&nbsp;            bestDmg = dmg;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // Check for mounted club-type weapon or carried improvised club
+<b class="nc">&nbsp;        for (Mounted club : from.getClubs()) {</b>
+&nbsp;            // If the target is a Mech, must determine if it hits full body,
+&nbsp;            // punch, or kick table
+<b class="nc">&nbsp;            if (to instanceof Mech) {</b>
+<b class="nc">&nbsp;                location_table = ToHitData.HIT_NORMAL;</b>
+<b class="nc">&nbsp;                if ((to.getElevation() == (from.getElevation() - 1))</b>
+<b class="nc">&nbsp;                        &amp;&amp; !to.isProne()) {</b>
+<b class="nc">&nbsp;                    location_table = ToHitData.HIT_PUNCH;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if ((to.getElevation() == (from.getElevation() + 1))</b>
+<b class="nc">&nbsp;                        &amp;&amp; !to.isProne()) {</b>
+<b class="nc">&nbsp;                    location_table = ToHitData.HIT_KICK;</b>
+&nbsp;                }
+&nbsp;            } else {
+<b class="nc">&nbsp;                location_table = ToHitData.HIT_NORMAL;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            odds = ClubAttackAction.toHit(game, from.getId(), target, club,</b>
+&nbsp;                                          ToHitData.HIT_NORMAL, false);
+<b class="nc">&nbsp;            if (odds.getValue() != TargetRoll.IMPOSSIBLE) {</b>
+<b class="nc">&nbsp;                damage = ClubAttackAction.getDamageFor(from, club, targetConvInfantry, false);</b>
+<b class="nc">&nbsp;                dmg = (Compute.oddsAbove(odds.getValue(), fromAptPiloting) / 100.0) * damage;</b>
+&nbsp;                // Adjust damage for targets armor
+<b class="nc">&nbsp;                dmg *= punchThroughMod(to, location_table, target_arc, dmg, dmg);</b>
+&nbsp;                // Some types of clubs, such as the mace, require a piloting
+&nbsp;                // check on a missed attack
+&nbsp;                // Calculate self damage in the same manner as a missed kick
+<b class="nc">&nbsp;                if (dmg &gt; bestDmg) {</b>
+<b class="nc">&nbsp;                    bestType = PhysicalOption.USE_CLUB;</b>
+<b class="nc">&nbsp;                    bestDmg = dmg;</b>
+<b class="nc">&nbsp;                    bestClub = club;</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+&nbsp;        // Check for a push attack
+<b class="nc">&nbsp;        odds = PushAttackAction.toHit(game, from.getId(), target);</b>
+<b class="nc">&nbsp;        if (odds.getValue() != TargetRoll.IMPOSSIBLE) {</b>
+&nbsp;            int elev_diff;
+&nbsp;            double breach;
+<b class="nc">&nbsp;            boolean water_landing = false;</b>
+<b class="nc">&nbsp;            dmg = 0.0;</b>
+<b class="nc">&nbsp;            int disp_dir = from.getPosition().direction(to.getPosition());</b>
+<b class="nc">&nbsp;            Coords disp_c = to.getPosition().translated(disp_dir);</b>
+&nbsp;            // If the displacement hex is a valid one
+<b class="nc">&nbsp;            if (Compute.isValidDisplacement(game, to.getId(), to.getPosition(),</b>
+&nbsp;                                            disp_c)) {
+&nbsp;                // If the displacement hex is not on the map, credit damage
+&nbsp;                // against full target armor
+<b class="nc">&nbsp;                if (!game.getBoard().contains(disp_c)) {</b>
+<b class="nc">&nbsp;                    dmg = (to.getTotalArmor()</b>
+<b class="nc">&nbsp;                           * Compute.oddsAbove(odds.getValue(), toAptPiloting)) / 100.0;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (game.getBoard().contains(disp_c)) {</b>
+&nbsp;                    // Find the elevation difference
+<b class="nc">&nbsp;                    elev_diff = game.getBoard().getHex(to.getPosition())</b>
+<b class="nc">&nbsp;                                    .getLevel();</b>
+<b class="nc">&nbsp;                    elev_diff -= game.getBoard().getHex(disp_c).getLevel();</b>
+<b class="nc">&nbsp;                    if (elev_diff &lt; 0) {</b>
+<b class="nc">&nbsp;                        elev_diff = 0;</b>
+&nbsp;                    }
+&nbsp;                    // Set a flag if the displacement hex has water
+<b class="nc">&nbsp;                    if (game.getBoard().getHex(disp_c).containsTerrain(</b>
+&nbsp;                            Terrains.WATER)) {
+<b class="nc">&nbsp;                        water_landing = true;</b>
+&nbsp;                    }
+&nbsp;                    // Get the base damage from target falling, multiplied by
+&nbsp;                    // the elevation difference
+<b class="nc">&nbsp;                    dmg = calculateFallingDamage(Compute.oddsAbove(odds.getValue(), toAptPiloting) / 100.0, to)</b>
+&nbsp;                          * (1.0 + elev_diff);
+&nbsp;                    // Calculate breach factor of falling damage
+<b class="nc">&nbsp;                    breach = punchThroughMod(to, ToHitData.HIT_NORMAL,</b>
+<b class="nc">&nbsp;                                             ToHitData.SIDE_FRONT, dmg, Math.min(dmg, 5.0));</b>
+&nbsp;                    // If breach factor is &gt; 1 and displacement hex has water
+<b class="nc">&nbsp;                    if ((breach &gt; 1) &amp;&amp; water_landing) {</b>
+<b class="nc">&nbsp;                        breach *= 2.0;</b>
+&nbsp;                    }
+&nbsp;                    // Modify damage to reflect how bad it is for target to be
+&nbsp;                    // prone
+<b class="nc">&nbsp;                    if (to.getWalkMP() &gt; 0) {</b>
+<b class="nc">&nbsp;                        dmg = dmg</b>
+<b class="nc">&nbsp;                                * Math.sqrt((1.0 / to.getWalkMP())</b>
+<b class="nc">&nbsp;                                                    + to.getJumpMP());</b>
+&nbsp;                    } else {
+<b class="nc">&nbsp;                        dmg *= Math.max(1.0, Math.sqrt(to.getJumpMP()));</b>
+&nbsp;                    }
+&nbsp;                    // Modify damage by breach factor
+<b class="nc">&nbsp;                    dmg *= breach;</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;            // If the displacement hex is not valid
+<b class="nc">&nbsp;            if (!Compute.isValidDisplacement(game, to.getId(),</b>
+<b class="nc">&nbsp;                                             to.getPosition(), disp_c)) {</b>
+&nbsp;                // Set a flag if the displacement hex has water
+<b class="nc">&nbsp;                if (game.getBoard().getHex(to.getPosition()).containsTerrain(</b>
+&nbsp;                        Terrains.WATER)) {
+<b class="nc">&nbsp;                    water_landing = true;</b>
+&nbsp;                }
+&nbsp;                // Get falling in place
+<b class="nc">&nbsp;                dmg = calculateFallingDamage(</b>
+<b class="nc">&nbsp;                        Compute.oddsAbove(odds.getValue(), toAptPiloting) / 100.0, to);</b>
+&nbsp;                // Calculate breach factor of falling damage
+<b class="nc">&nbsp;                breach = punchThroughMod(to, ToHitData.HIT_NORMAL,</b>
+<b class="nc">&nbsp;                                         ToHitData.SIDE_FRONT, dmg, Math.min(dmg, 5.0));</b>
+&nbsp;                // If breach factor is &gt; 1 and target hex is in water
+<b class="nc">&nbsp;                if ((breach &gt; 1) &amp;&amp; water_landing) {</b>
+<b class="nc">&nbsp;                    breach *= 2.0;</b>
+&nbsp;                }
+&nbsp;                // Modify damage to reflect how bad it is for target to be prone
+<b class="nc">&nbsp;                if (to.getWalkMP() &gt; 0) {</b>
+<b class="nc">&nbsp;                    dmg = dmg</b>
+<b class="nc">&nbsp;                            * Math.sqrt((1.0 / to.getWalkMP()) + to.getJumpMP());</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    dmg = dmg * Math.max(1.0, Math.sqrt(to.getJumpMP()));</b>
+&nbsp;                }
+&nbsp;                // Modify damage by breach factor
+<b class="nc">&nbsp;                dmg *= breach;</b>
+&nbsp;            }
+&nbsp;            // If damage is better than best damage
+<b class="nc">&nbsp;            if (dmg &gt; bestDmg) {</b>
+<b class="nc">&nbsp;                bestType = PhysicalOption.PUSH_ATTACK;</b>
+<b class="nc">&nbsp;                bestDmg = dmg;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // Conventional infantry in the open suffer double damage.
+<b class="nc">&nbsp;        if ((to instanceof Infantry) &amp;&amp; !(to instanceof BattleArmor)) {</b>
+<b class="nc">&nbsp;            IHex e_hex = game.getBoard().getHex(to.getPosition());</b>
+<b class="nc">&nbsp;            if (!e_hex.containsTerrain(Terrains.WOODS)</b>
+<b class="nc">&nbsp;                    &amp;&amp; !e_hex.containsTerrain(Terrains.BUILDING)) {</b>
+<b class="nc">&nbsp;                bestDmg *= 2.0;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (bestDmg &gt; 0) {</b>
+<b class="nc">&nbsp;            return new PhysicalOption(from, target, bestDmg, bestType, bestClub);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return null;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Calculates the Falling damage after a successful To-Hit.
+&nbsp;     *
+&nbsp;     * @param odds
+&nbsp;     * @param ent  The entity that is falling
+&nbsp;     * @return
+&nbsp;     */
+&nbsp;    private static double calculateFallingDamage(double odds, Entity ent) {
+<b class="nc">&nbsp;        double dmg = odds;</b>
+<b class="nc">&nbsp;        dmg *= 1.0 - (Compute.oddsAbove(ent.getBasePilotingRoll().getValue(),</b>
+<b class="nc">&nbsp;                                        ent.hasAbility(OptionsConstants.PILOT_APTITUDE_PILOTING)) /</b>
+&nbsp;                      100.0);
+<b class="nc">&nbsp;        dmg *= ent.getWeight() * 0.1;</b>
+<b class="nc">&nbsp;        return dmg;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private static double getExpectedKickDamage(Entity from, Entity to,
+&nbsp;                                                IGame game, int locTable, int arc, int action) {
+&nbsp;        double self_damage;
+&nbsp;        double dmg;
+<b class="nc">&nbsp;        double coll_damage = 0.0;</b>
+&nbsp;        int damage;
+<b class="nc">&nbsp;        boolean targetConvInfantry = false;</b>
+&nbsp;        
+<b class="nc">&nbsp;        Targetable target = to;</b>
+&nbsp;        
+&nbsp;        // if the object of our affections is in a building, we have to target the building instead
+<b class="nc">&nbsp;        if(Compute.isInBuilding(game, to) || (to instanceof GunEmplacement)) {</b>
+<b class="nc">&nbsp;            target = new BuildingTarget(to.getPosition(), game.getBoard(), false);</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        ToHitData odds = KickAttackAction.toHit(game, from.getId(), target, action);</b>
+<b class="nc">&nbsp;        if (odds.getValue() &gt; 12) {</b>
+<b class="nc">&nbsp;            return 0.0;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if ((to instanceof Infantry) &amp;&amp; !(to instanceof BattleArmor)) {</b>
+<b class="nc">&nbsp;            targetConvInfantry = true;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // Calculate collateral damage, due to possible target fall
+<b class="nc">&nbsp;        if (to instanceof Mech) {</b>
+<b class="nc">&nbsp;            boolean toAptPiloting = to.hasAbility(OptionsConstants.PILOT_APTITUDE_PILOTING);</b>
+<b class="nc">&nbsp;            coll_damage = calculateFallingDamage(Compute.oddsAbove(odds.getValue(), toAptPiloting) / 100.0, to);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        boolean fromAptPiloting = from.hasAbility(OptionsConstants.PILOT_APTITUDE_PILOTING);</b>
+<b class="nc">&nbsp;        damage = KickAttackAction.getDamageFor(from, action, targetConvInfantry);</b>
+<b class="nc">&nbsp;        dmg = (Compute.oddsAbove(odds.getValue(), fromAptPiloting) / 100.0) * damage;</b>
+&nbsp;        // Adjust damage for targets armor
+<b class="nc">&nbsp;        dmg *= punchThroughMod(to, locTable, arc, dmg, dmg);</b>
+&nbsp;        // Calculate self damage, due to possible fall from missing a kick
+<b class="nc">&nbsp;        self_damage = calculateFallingDamage(1.0 - (Compute.oddsAbove(odds.getValue(), fromAptPiloting) / 100.0), from);</b>
+<b class="nc">&nbsp;        if (from.getWalkMP() &gt; 0) {</b>
+<b class="nc">&nbsp;            self_damage = self_damage</b>
+<b class="nc">&nbsp;                    * Math.sqrt((1.0 / from.getWalkMP()) + from.getJumpMP());</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            self_damage = self_damage * Math.sqrt(from.getJumpMP());</b>
+&nbsp;        }
+&nbsp;        // Add together damage values for comparison
+<b class="nc">&nbsp;        dmg = (dmg + coll_damage) - self_damage;</b>
+<b class="nc">&nbsp;        return dmg;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * This checks to see if the damage will punch through armor anywhere in the
+&nbsp;     * attacked arc. damage argument is divided into hits, using the group
+&nbsp;     * argument (ie, group = 5.0 for LRM). Each hit of group damage is checked
+&nbsp;     * against each location; if it penetrates increase the multiplier to
+&nbsp;     * reflect potential for additional damage Multiple passes are made with
+&nbsp;     * each hit being multiples of group damage to reflect shot grouping; as
+&nbsp;     * each pass is made the increase to the multiplier is lowered due to the
+&nbsp;     * lower chance of hitting the same location
+&nbsp;     */
+&nbsp;    private static double punchThroughMod(Entity target, int hitTable,
+&nbsp;                                          int hitSide, double damage, double group) {
+&nbsp;
+<b class="nc">&nbsp;        int[] armor_values = new int[8];</b>
+<b class="nc">&nbsp;        int max_index = 1;</b>
+<b class="nc">&nbsp;        armor_values[0] = 0;</b>
+&nbsp;
+&nbsp;        // Set the final multiplier as 1.0 (no chance of penetrating armor)
+<b class="nc">&nbsp;        double final_multiplier = 1.0;</b>
+&nbsp;
+&nbsp;        // Set the base multiplier as 0.5 (good bonus for penetrating with a
+&nbsp;        // single hit)
+<b class="nc">&nbsp;        double base_multiplier = 0.5;</b>
+&nbsp;
+<b class="nc">&nbsp;        if ((damage &lt;= 0.0) || (group &lt;= 0.0)) {</b>
+<b class="nc">&nbsp;            return final_multiplier;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // If the target is a Mech
+<b class="nc">&nbsp;        if (target instanceof Mech) {</b>
+&nbsp;            // Create vector of body locations with targets current armor values
+&nbsp;            // Use hit table and direction to determine locations that are hit
+<b class="nc">&nbsp;            if (hitTable == ToHitData.HIT_NORMAL) {</b>
+<b class="nc">&nbsp;                max_index = 7;</b>
+<b class="nc">&nbsp;                armor_values[0] = target.getArmor(Mech.LOC_HEAD, false);</b>
+<b class="nc">&nbsp;                if (hitSide != ToHitData.SIDE_FRONT) {</b>
+<b class="nc">&nbsp;                    armor_values[1] = target.getArmor(Mech.LOC_CT, true);</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    armor_values[1] = target.getArmor(Mech.LOC_CT, false);</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (hitSide != ToHitData.SIDE_FRONT) {</b>
+<b class="nc">&nbsp;                    armor_values[2] = target.getArmor(Mech.LOC_RT, true);</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    armor_values[2] = target.getArmor(Mech.LOC_RT, false);</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (hitSide != ToHitData.SIDE_FRONT) {</b>
+<b class="nc">&nbsp;                    armor_values[3] = target.getArmor(Mech.LOC_LT, true);</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    armor_values[3] = target.getArmor(Mech.LOC_LT, false);</b>
+&nbsp;                }
+<b class="nc">&nbsp;                armor_values[4] = target.getArmor(Mech.LOC_RARM, false);</b>
+<b class="nc">&nbsp;                armor_values[5] = target.getArmor(Mech.LOC_LARM, false);</b>
+<b class="nc">&nbsp;                armor_values[6] = target.getArmor(Mech.LOC_RLEG, false);</b>
+<b class="nc">&nbsp;                armor_values[7] = target.getArmor(Mech.LOC_RLEG, false);</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (hitTable == ToHitData.HIT_PUNCH) {</b>
+<b class="nc">&nbsp;                armor_values[0] = target.getArmor(Mech.LOC_HEAD, false);</b>
+<b class="nc">&nbsp;                if (hitSide == ToHitData.SIDE_RIGHT) {</b>
+<b class="nc">&nbsp;                    max_index = 3;</b>
+<b class="nc">&nbsp;                    armor_values[1] = target.getArmor(Mech.LOC_CT, false);</b>
+<b class="nc">&nbsp;                    armor_values[2] = target.getArmor(Mech.LOC_RT, false);</b>
+<b class="nc">&nbsp;                    armor_values[3] = target.getArmor(Mech.LOC_RARM, false);</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (hitSide == ToHitData.SIDE_LEFT) {</b>
+<b class="nc">&nbsp;                    max_index = 3;</b>
+<b class="nc">&nbsp;                    armor_values[1] = target.getArmor(Mech.LOC_CT, false);</b>
+<b class="nc">&nbsp;                    armor_values[2] = target.getArmor(Mech.LOC_LT, false);</b>
+<b class="nc">&nbsp;                    armor_values[3] = target.getArmor(Mech.LOC_LARM, false);</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (hitSide == ToHitData.SIDE_FRONT) {</b>
+<b class="nc">&nbsp;                    max_index = 5;</b>
+<b class="nc">&nbsp;                    armor_values[1] = target.getArmor(Mech.LOC_CT, false);</b>
+<b class="nc">&nbsp;                    armor_values[2] = target.getArmor(Mech.LOC_RT, false);</b>
+<b class="nc">&nbsp;                    armor_values[3] = target.getArmor(Mech.LOC_LT, false);</b>
+<b class="nc">&nbsp;                    armor_values[4] = target.getArmor(Mech.LOC_RARM, false);</b>
+<b class="nc">&nbsp;                    armor_values[5] = target.getArmor(Mech.LOC_LARM, false);</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (hitSide == ToHitData.SIDE_REAR) {</b>
+<b class="nc">&nbsp;                    max_index = 5;</b>
+<b class="nc">&nbsp;                    armor_values[1] = target.getArmor(Mech.LOC_CT, true);</b>
+<b class="nc">&nbsp;                    armor_values[2] = target.getArmor(Mech.LOC_RT, true);</b>
+<b class="nc">&nbsp;                    armor_values[3] = target.getArmor(Mech.LOC_LT, true);</b>
+<b class="nc">&nbsp;                    armor_values[4] = target.getArmor(Mech.LOC_RARM, false);</b>
+<b class="nc">&nbsp;                    armor_values[5] = target.getArmor(Mech.LOC_LARM, false);</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            if (hitTable == ToHitData.HIT_KICK) {</b>
+<b class="nc">&nbsp;                max_index = -1;</b>
+<b class="nc">&nbsp;                if ((hitSide == ToHitData.SIDE_FRONT)</b>
+&nbsp;                        || (hitSide == ToHitData.SIDE_REAR)
+&nbsp;                        || (hitSide == ToHitData.SIDE_RIGHT)) {
+<b class="nc">&nbsp;                    max_index++;</b>
+<b class="nc">&nbsp;                    armor_values[max_index] = target.getArmor(Mech.LOC_RLEG,</b>
+&nbsp;                                                              false);
+&nbsp;                }
+<b class="nc">&nbsp;                if ((hitSide == ToHitData.SIDE_FRONT)</b>
+&nbsp;                        || (hitSide == ToHitData.SIDE_REAR)
+&nbsp;                        || (hitSide == ToHitData.SIDE_LEFT)) {
+<b class="nc">&nbsp;                    max_index++;</b>
+<b class="nc">&nbsp;                    armor_values[max_index] = target.getArmor(Mech.LOC_LLEG,</b>
+&nbsp;                                                              false);
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;        // If the target is a ProtoMech
+<b class="nc">&nbsp;        if (target instanceof Protomech) {</b>
+<b class="nc">&nbsp;            max_index = 6;</b>
+&nbsp;            // Create vector of body locations with targets current armor values
+&nbsp;            // Create two high-armor dummy locations to represent the &#39;near
+&nbsp;            // miss&#39; hit locations
+<b class="nc">&nbsp;            armor_values[0] = target.getArmor(Protomech.LOC_TORSO, false);</b>
+<b class="nc">&nbsp;            armor_values[1] = target.getArmor(Protomech.LOC_LEG, false);</b>
+<b class="nc">&nbsp;            armor_values[2] = target.getArmor(Protomech.LOC_RARM, false);</b>
+<b class="nc">&nbsp;            armor_values[3] = target.getArmor(Protomech.LOC_LARM, false);</b>
+<b class="nc">&nbsp;            armor_values[4] = target.getArmor(Protomech.LOC_HEAD, false);</b>
+<b class="nc">&nbsp;            armor_values[5] = 100;</b>
+<b class="nc">&nbsp;            armor_values[6] = 100;</b>
+<b class="nc">&nbsp;            if (((Protomech) target).hasMainGun()) {</b>
+<b class="nc">&nbsp;                max_index++;</b>
+<b class="nc">&nbsp;                armor_values[max_index] = target.getArmor(</b>
+&nbsp;                        Protomech.LOC_MAINGUN, false);
+&nbsp;            }
+&nbsp;        }
+&nbsp;        // If the target is a vehicle
+<b class="nc">&nbsp;        if (target instanceof Tank) {</b>
+&nbsp;            // Create vector of armor locations
+<b class="nc">&nbsp;            max_index = 0;</b>
+<b class="nc">&nbsp;            switch (hitSide) {</b>
+&nbsp;                case ToHitData.SIDE_FRONT:
+<b class="nc">&nbsp;                    armor_values[0] = target.getArmor(Tank.LOC_FRONT);</b>
+<b class="nc">&nbsp;                    break;</b>
+&nbsp;                case ToHitData.SIDE_RIGHT:
+<b class="nc">&nbsp;                    armor_values[0] = target.getArmor(Tank.LOC_RIGHT);</b>
+<b class="nc">&nbsp;                    break;</b>
+&nbsp;                case ToHitData.SIDE_LEFT:
+<b class="nc">&nbsp;                    armor_values[0] = target.getArmor(Tank.LOC_LEFT);</b>
+<b class="nc">&nbsp;                    break;</b>
+&nbsp;                case ToHitData.SIDE_REAR:
+<b class="nc">&nbsp;                    armor_values[0] = target.getArmor(Tank.LOC_REAR);</b>
+&nbsp;                    break;
+&nbsp;            }
+<b class="nc">&nbsp;            if (!((Tank) target).hasNoTurret()) {</b>
+<b class="nc">&nbsp;                max_index++;</b>
+<b class="nc">&nbsp;                armor_values[max_index] = target.getArmor(((Tank) target).getLocTurret());</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (!((Tank) target).hasNoDualTurret()) {</b>
+<b class="nc">&nbsp;                max_index++;</b>
+<b class="nc">&nbsp;                armor_values[max_index] = target.getArmor(((Tank) target).getLocTurret2());</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        // If the target is Battle Armor
+<b class="nc">&nbsp;        if (target instanceof BattleArmor) {</b>
+&nbsp;            // Create vector of armor of surviving troopers
+<b class="nc">&nbsp;            max_index = -1;</b>
+<b class="nc">&nbsp;            for (int i = 1; i &lt; ((BattleArmor) target).getShootingStrength(); i++) {</b>
+<b class="nc">&nbsp;                if (target.getArmor(i) &gt;= 0) {</b>
+<b class="nc">&nbsp;                    max_index++;</b>
+<b class="nc">&nbsp;                    armor_values[max_index] = target.getArmor(i);</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;        // If the target is conventional infantry
+<b class="nc">&nbsp;        if ((target instanceof Infantry) &amp;&amp; !(target instanceof BattleArmor)) {</b>
+&nbsp;            // Create a single element vector with total number of troopers
+<b class="nc">&nbsp;            max_index = 0;</b>
+<b class="nc">&nbsp;            armor_values[0] = ((Infantry) target).getShootingStrength();</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        double hit_total = 0;</b>
+&nbsp;        // While hit damage is less than total damage applied, increment by
+&nbsp;        // group value
+<b class="nc">&nbsp;        while (hit_total &lt;= damage) {</b>
+<b class="nc">&nbsp;            hit_total += group;</b>
+<b class="nc">&nbsp;            for (int i = 0; i &lt;= max_index; i++) {</b>
+&nbsp;                // If hit damage can penetrate location
+<b class="nc">&nbsp;                if (hit_total &gt; armor_values[i]) {</b>
+<b class="nc">&nbsp;                    final_multiplier += base_multiplier;</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            base_multiplier /= 2.0;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // Return final multiplier
+&nbsp;
+<b class="nc">&nbsp;        return final_multiplier;</b>
+&nbsp;
+&nbsp;    }
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:46</div>
+</div>
+</body>
+</html>

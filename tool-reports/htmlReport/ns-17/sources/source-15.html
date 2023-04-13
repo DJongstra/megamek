@@ -1,0 +1,422 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > BulldozerMovePath</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.common</a>
+</div>
+
+<h1>Coverage Summary for Class: BulldozerMovePath (megamek.common)</h1>
+
+<table class="coverageStats">
+
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">BulldozerMovePath</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/11)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/89)
+  </span>
+</td>
+</tr>
+  <tr>
+    <td class="name">BulldozerMovePath$MPCostComparator</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/2)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/6)
+  </span>
+</td>
+  </tr>
+<tr>
+  <td class="name"><strong>Total</strong></td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/13)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/95)
+  </span>
+</td>
+</tr>
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp;* MegaMek -
+&nbsp;* Copyright (C) 2020 The MegaMek Team
+&nbsp;*
+&nbsp;* This program is free software; you can redistribute it and/or modify it under
+&nbsp;* the terms of the GNU General Public License as published by the Free Software
+&nbsp;* Foundation; either version 2 of the License, or (at your option) any later
+&nbsp;* version.
+&nbsp;*
+&nbsp;* This program is distributed in the hope that it will be useful, but WITHOUT
+&nbsp;* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+&nbsp;* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+&nbsp;* details.
+&nbsp;*/
+&nbsp;
+&nbsp;package megamek.common;
+&nbsp;
+&nbsp;import java.util.ArrayList;
+&nbsp;import java.util.Comparator;
+&nbsp;import java.util.HashMap;
+&nbsp;import java.util.List;
+&nbsp;import java.util.Map;
+&nbsp;
+&nbsp;import megamek.client.bot.princess.FireControl;
+&nbsp;import megamek.common.pathfinder.ShortestPathFinder;
+&nbsp;import megamek.common.pathfinder.BoardClusterTracker.MovementType;
+&nbsp;
+&nbsp;/**
+&nbsp; * An extension of the MovePath class that stores information about terrain that needs
+&nbsp; * to be destroyed in order to move along the specified route.
+&nbsp; * @author NickAragua
+&nbsp; */
+&nbsp;public class BulldozerMovePath extends MovePath {
+&nbsp;    private static final long serialVersionUID = 1346716014573707012L;
+&nbsp;
+&nbsp;    public static final int CANNOT_LEVEL = -1;
+&nbsp;
+<b class="nc">&nbsp;    Map&lt;Coords, Integer&gt; coordLevelingCosts = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;    Map&lt;Coords, Integer&gt; additionalCosts = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;    List&lt;Coords&gt; coordsToLevel = new ArrayList&lt;&gt;();</b>
+<b class="nc">&nbsp;    double maxPointBlankDamage = -1;</b>
+&nbsp;
+&nbsp;    public BulldozerMovePath(IGame game, Entity entity) {
+<b class="nc">&nbsp;        super(game, entity);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Any additional costs of this move paths, such as stepping into water or
+&nbsp;     * other factors that would increase the number of turns to complete it without increasing the actual MP used.
+&nbsp;     */
+&nbsp;    public int getAdditionalCost() {
+<b class="nc">&nbsp;        int totalCost = 0;</b>
+&nbsp;
+<b class="nc">&nbsp;        for (int additionalCost : additionalCosts.values()) {</b>
+<b class="nc">&nbsp;            totalCost += additionalCost;</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;
+<b class="nc">&nbsp;        return totalCost;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * An estimation of how many MP we would &quot;waste&quot; blowing down obstacles.
+&nbsp;     */
+&nbsp;    public int getLevelingCost() {
+<b class="nc">&nbsp;        int totalCost = 0;</b>
+&nbsp;
+<b class="nc">&nbsp;        for (int levelingCost : coordLevelingCosts.values()) {</b>
+<b class="nc">&nbsp;            totalCost += levelingCost;</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;
+<b class="nc">&nbsp;        return totalCost;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Override of the MovePath.addStep method, calculates leveling and other extra costs 
+&nbsp;     * associated with this bulldozer move path
+&nbsp;     */
+&nbsp;    @Override
+&nbsp;    public MovePath addStep(final MoveStepType type) {
+<b class="nc">&nbsp;        BulldozerMovePath mp = (BulldozerMovePath) super.addStep(type);</b>
+<b class="nc">&nbsp;        IHex hex = mp.getGame().getBoard().getHex(mp.getFinalCoords());</b>
+<b class="nc">&nbsp;        int hexWaterDepth = ((hex != null) &amp;&amp; hex.containsTerrain(Terrains.WATER)) ?</b>
+<b class="nc">&nbsp;                hex.depth() : Integer.MIN_VALUE;</b>
+&nbsp;        
+<b class="nc">&nbsp;        if (!mp.isMoveLegal() &amp;&amp; !mp.isJumping()) {</b>
+&nbsp;            // here, we will check if the step is illegal because the unit in question
+&nbsp;            // is attempting to move through illegal terrain for its movement type, but
+&nbsp;            // would be able to get through if the terrain was &quot;reduced&quot;
+&nbsp;            // don&#39;t bother to do this for jumping paths
+<b class="nc">&nbsp;            int levelingCost = calculateLevelingCost(mp.getFinalCoords(), getEntity());</b>
+<b class="nc">&nbsp;            if(levelingCost &gt; CANNOT_LEVEL) {</b>
+<b class="nc">&nbsp;                coordLevelingCosts.put(mp.getFinalCoords(), levelingCost);</b>
+<b class="nc">&nbsp;                coordsToLevel.add(mp.getFinalCoords());</b>
+&nbsp;            }
+&nbsp;            
+&nbsp;            // we want to make note of when we&#39;re going into water (if we are capable of it)
+&nbsp;            // it may look cheaper, but it slows you down to max walking speed or worse, 
+&nbsp;            // and we should flag it as costing extra, that extra being the difference between walking and running speed
+<b class="nc">&nbsp;            if(hexWaterDepth &gt; 0) {</b>
+<b class="nc">&nbsp;                MovementType mType = MovementType.getMovementType(mp.getEntity());</b>
+<b class="nc">&nbsp;                if(mType == MovementType.Walker || mType == MovementType.WheeledAmphi || mType == MovementType.TrackedAmphi) {</b>
+<b class="nc">&nbsp;                    additionalCosts.put(mp.getFinalCoords(), 1);</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (mp.isJumping()) {</b>
+&nbsp;            // if we are jumping, but not on top of a bridge (because jumping always goes to the top of a bridge)
+&nbsp;            // and are jumping into terrain that would impede jump jet functionality (aka water)
+&nbsp;            // then we are impeding future jump movement and should add an extra cost to this step
+<b class="nc">&nbsp;            if ((hex != null) &amp;&amp; !hex.containsTerrain(Terrains.BRIDGE)) {</b>
+&nbsp;                // special case - mech jumping into depth 1 water might not be all that bad, jump mp cost wise
+<b class="nc">&nbsp;                if (hexWaterDepth == 1) {</b>
+<b class="nc">&nbsp;                    additionalCosts.put(mp.getFinalCoords(), mp.getCachedEntityState().getJumpMP() - mp.getCachedEntityState().getTorsoJumpJets());</b>
+&nbsp;                // jumping into water that submerges you entirely pretty much ruins jump MP for at least a turn while you clamber out
+<b class="nc">&nbsp;                } else if (hexWaterDepth &gt; 1) {</b>
+<b class="nc">&nbsp;                    additionalCosts.put(mp.getFinalCoords(), mp.getCachedEntityState().getJumpMP());</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        return mp;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Removes the last step from the path and updates its internal data structures accordingly
+&nbsp;     */
+&nbsp;    @Override
+&nbsp;    public void removeLastStep() {
+<b class="nc">&nbsp;        Coords prevFinalCoords = getFinalCoords();</b>
+&nbsp;        
+<b class="nc">&nbsp;        super.removeLastStep();</b>
+&nbsp;        
+&nbsp;        // if removing the last step changes the destination coordinates
+&nbsp;        // we need to clear out some of the data we have for this path.
+<b class="nc">&nbsp;        if(!getFinalCoords().equals(prevFinalCoords)) {</b>
+<b class="nc">&nbsp;            coordLevelingCosts.remove(prevFinalCoords);</b>
+<b class="nc">&nbsp;            additionalCosts.remove(prevFinalCoords);</b>
+<b class="nc">&nbsp;            coordsToLevel.remove(prevFinalCoords);</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Clones this path, will contain a new clone of the steps so that the clone
+&nbsp;     * is independent from the original.
+&nbsp;     *
+&nbsp;     * @return the cloned MovePath
+&nbsp;     */
+&nbsp;    @Override
+&nbsp;    public BulldozerMovePath clone() {
+<b class="nc">&nbsp;        final BulldozerMovePath copy = new BulldozerMovePath(getGame(), getEntity());</b>
+<b class="nc">&nbsp;        copyFields(copy);        </b>
+<b class="nc">&nbsp;        copy.coordLevelingCosts = new HashMap&lt;&gt;(coordLevelingCosts);</b>
+<b class="nc">&nbsp;        copy.additionalCosts = new HashMap&lt;&gt;(additionalCosts);</b>
+<b class="nc">&nbsp;        copy.coordsToLevel = new ArrayList&lt;&gt;(coordsToLevel);</b>
+<b class="nc">&nbsp;        copy.maxPointBlankDamage = maxPointBlankDamage;</b>
+<b class="nc">&nbsp;        return copy;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Worker function that calculates the &quot;MP cost&quot; of moving into the given set of coords
+&nbsp;     * if we were to stand still for the number of turns required to reduce the terrain there
+&nbsp;     * to a form through which the current unit can move
+&nbsp;     */
+&nbsp;    public static int calculateLevelingCost(Coords finalCoords, Entity entity) {
+<b class="nc">&nbsp;        IBoard board = entity.getGame().getBoard();</b>
+<b class="nc">&nbsp;        IHex destHex = board.getHex(finalCoords);</b>
+<b class="nc">&nbsp;        int levelingCost = CANNOT_LEVEL;</b>
+&nbsp;        
+<b class="nc">&nbsp;        if(destHex == null) {</b>
+<b class="nc">&nbsp;            return levelingCost;</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        EntityMovementMode movementMode = entity.getMovementMode();</b>
+<b class="nc">&nbsp;        boolean isTracked = movementMode == EntityMovementMode.TRACKED &amp;&amp; !entity.hasETypeFlag(Entity.ETYPE_QUADVEE);</b>
+<b class="nc">&nbsp;        boolean isHovercraft = movementMode == EntityMovementMode.HOVER;</b>
+<b class="nc">&nbsp;        boolean isMech = movementMode == EntityMovementMode.BIPED || movementMode == EntityMovementMode.TRIPOD ||</b>
+&nbsp;                movementMode == EntityMovementMode.QUAD;
+&nbsp;        
+<b class="nc">&nbsp;        double damageNeeded = 0;</b>
+&nbsp;        
+&nbsp;        // tracked tanks can move through light woods, rough and rubble, so any terrain that can be reduced to that
+&nbsp;        // can eventually be moved through
+<b class="nc">&nbsp;        if(isTracked) {</b>
+<b class="nc">&nbsp;            if (destHex.terrainLevel(Terrains.JUNGLE) &gt; 0) {</b>
+<b class="nc">&nbsp;                damageNeeded += Terrains.getTerrainFactor(Terrains.JUNGLE, destHex.terrainLevel(Terrains.JUNGLE));           </b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if (destHex.terrainLevel(Terrains.WOODS) &gt; 1) {</b>
+&nbsp;                // just what we need to reduce it to light woods
+<b class="nc">&nbsp;                damageNeeded += Terrains.getTerrainFactor(Terrains.WOODS, destHex.terrainLevel(Terrains.WOODS)) -</b>
+<b class="nc">&nbsp;                        Terrains.getTerrainFactor(Terrains.WOODS, 1); </b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if (destHex.containsTerrain(Terrains.BLDG_CF)) {</b>
+<b class="nc">&nbsp;                damageNeeded += board.getBuildingAt(finalCoords).getCurrentCF(finalCoords);</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+&nbsp;        // mechs can&#39;t go through ultra-heavy terrain, so must reduce it to heavy terrain
+&nbsp;        // may as well consider blowing buildings away
+<b class="nc">&nbsp;        if(isMech) {</b>
+<b class="nc">&nbsp;            if (destHex.terrainLevel(Terrains.JUNGLE) &gt; 2) {</b>
+<b class="nc">&nbsp;                damageNeeded += Terrains.getTerrainFactor(Terrains.JUNGLE, destHex.terrainLevel(Terrains.JUNGLE)) -</b>
+<b class="nc">&nbsp;                        Terrains.getTerrainFactor(Terrains.JUNGLE, 2);            </b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if (destHex.terrainLevel(Terrains.WOODS) &gt; 2) {</b>
+<b class="nc">&nbsp;                damageNeeded += Terrains.getTerrainFactor(Terrains.WOODS, destHex.terrainLevel(Terrains.WOODS)) -</b>
+<b class="nc">&nbsp;                        Terrains.getTerrainFactor(Terrains.WOODS, 2); </b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if (destHex.containsTerrain(Terrains.BLDG_CF)) {</b>
+<b class="nc">&nbsp;                damageNeeded += board.getBuildingAt(finalCoords).getCurrentCF(finalCoords);</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+&nbsp;        // hovertanks can move through rough and rubble, so any terrain that can be reduced to that
+&nbsp;        // can eventually be moved through
+<b class="nc">&nbsp;        if(isHovercraft) {</b>
+<b class="nc">&nbsp;            if (destHex.terrainLevel(Terrains.JUNGLE) &gt; 0) {</b>
+<b class="nc">&nbsp;                damageNeeded += Terrains.getTerrainFactor(Terrains.JUNGLE, destHex.terrainLevel(Terrains.JUNGLE));           </b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if (destHex.terrainLevel(Terrains.WOODS) &gt; 0) {</b>
+<b class="nc">&nbsp;                damageNeeded += Terrains.getTerrainFactor(Terrains.WOODS, destHex.terrainLevel(Terrains.WOODS)); </b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if (destHex.containsTerrain(Terrains.BLDG_CF)) {</b>
+<b class="nc">&nbsp;                damageNeeded += board.getBuildingAt(finalCoords).getCurrentCF(finalCoords);</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        if(damageNeeded &gt; 0) {</b>
+&nbsp;            // basically, the MP cost of leveling this terrain is equal to how many turns we&#39;re going to waste
+&nbsp;            // shooting at it instead of moving.
+<b class="nc">&nbsp;            levelingCost = (int) Math.round(damageNeeded / getMaxPointBlankDamage(entity)) * entity.getRunMP();</b>
+&nbsp;        }
+&nbsp;        
+&nbsp;        
+<b class="nc">&nbsp;        return levelingCost;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Helper function that lazy-calculates an entity&#39;s max damage at point blank range.
+&nbsp;     */
+&nbsp;    private static double getMaxPointBlankDamage(Entity entity) {
+<b class="nc">&nbsp;        return FireControl.getMaxDamageAtRange(entity, 1, false, false);</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Whether this path will require terrain reduction to fully accomplish
+&nbsp;     */
+&nbsp;    public boolean needsLeveling() {
+<b class="nc">&nbsp;        return coordLevelingCosts.size() &gt; 0;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * The coordinates which need to be leveled for this path to be performed by its unit
+&nbsp;     */
+&nbsp;    public List&lt;Coords&gt; getCoordsToLevel() {
+<b class="nc">&nbsp;        return coordsToLevel;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    @Override
+&nbsp;    public String toString() {
+<b class="nc">&nbsp;        return super.toString() + &quot; Leveling Cost: &quot; + getLevelingCost() + &quot; Additional Cost: &quot; + getAdditionalCost();</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Comparator implementation useful in comparing two bulldozer move paths by
+&nbsp;     * how many MP it&#39;ll take to accomplish that path, including time wasted leveling any obstacles
+&nbsp;     * @author NickAragua
+&nbsp;     *
+&nbsp;     */
+<b class="nc">&nbsp;    public static class MPCostComparator implements Comparator&lt;BulldozerMovePath&gt; {</b>
+&nbsp;        /**
+&nbsp;         * compare the first move path to the second
+&nbsp;         * Favors paths that spend less mp total
+&nbsp;         * in case of tie, favors paths that use more hexes
+&nbsp;         */
+&nbsp;        public int compare(BulldozerMovePath first, BulldozerMovePath second) {
+<b class="nc">&nbsp;            int dd = (first.getMpUsed() + first.getLevelingCost() + first.getAdditionalCost()) - </b>
+<b class="nc">&nbsp;                    (second.getMpUsed() + second.getLevelingCost() + second.getAdditionalCost());</b>
+&nbsp;    
+<b class="nc">&nbsp;            if (dd != 0) {</b>
+<b class="nc">&nbsp;                return dd;</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                return first.getHexesMoved() - second.getHexesMoved();</b>
+&nbsp;            }           
+&nbsp;        }
+&nbsp;    }
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:46</div>
+</div>
+</body>
+</html>

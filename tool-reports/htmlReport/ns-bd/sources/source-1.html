@@ -1,0 +1,503 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > ByteBuddyCrossClassLoaderSerializationSupport</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">org.mockito.internal.creation.bytebuddy</a>
+</div>
+
+<h1>Coverage Summary for Class: ByteBuddyCrossClassLoaderSerializationSupport (org.mockito.internal.creation.bytebuddy)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">ByteBuddyCrossClassLoaderSerializationSupport</td>
+<td class="coverageStat">
+  <span class="percent">
+    100%
+  </span>
+  <span class="absValue">
+    (1/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    20%
+  </span>
+  <span class="absValue">
+    (1/5)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/2)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    15,8%
+  </span>
+  <span class="absValue">
+    (3/19)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * Copyright (c) 2007 Mockito contributors
+&nbsp; * This program is made available under the terms of the MIT License.
+&nbsp; */
+&nbsp;
+&nbsp;package org.mockito.internal.creation.bytebuddy;
+&nbsp;
+&nbsp;import org.mockito.Incubating;
+&nbsp;import org.mockito.exceptions.base.MockitoSerializationIssue;
+&nbsp;import org.mockito.internal.configuration.plugins.Plugins;
+&nbsp;import org.mockito.internal.creation.settings.CreationSettings;
+&nbsp;import org.mockito.internal.util.MockUtil;
+&nbsp;import org.mockito.mock.MockCreationSettings;
+&nbsp;import org.mockito.mock.MockName;
+&nbsp;import org.mockito.mock.SerializableMode;
+&nbsp;
+&nbsp;import java.io.*;
+&nbsp;import java.lang.reflect.Field;
+&nbsp;import java.util.Set;
+&nbsp;import java.util.concurrent.locks.Lock;
+&nbsp;import java.util.concurrent.locks.ReentrantLock;
+&nbsp;
+&nbsp;import static org.mockito.internal.creation.bytebuddy.MockMethodInterceptor.ForWriteReplace;
+&nbsp;import static org.mockito.internal.util.StringUtil.join;
+&nbsp;import static org.mockito.internal.util.reflection.FieldSetter.setField;
+&nbsp;
+&nbsp;/**
+&nbsp; * This is responsible for serializing a mock, it is enabled if the mock is implementing {@link Serializable}.
+&nbsp; *
+&nbsp; * &lt;p&gt;
+&nbsp; *     The way it works is to enable serialization with mode {@link SerializableMode#ACROSS_CLASSLOADERS},
+&nbsp; *     if the mock settings is set to be serializable the mock engine will implement the
+&nbsp; *     {@link CrossClassLoaderSerializableMock} marker interface.
+&nbsp; *     This interface defines a the {@link CrossClassLoaderSerializableMock#writeReplace()}
+&nbsp; *     whose signature match the one that is looked by the standard Java serialization.
+&nbsp; * &lt;/p&gt;
+&nbsp; *
+&nbsp; * &lt;p&gt;
+&nbsp; *     Then in the proxy class there will be a generated &lt;code&gt;writeReplace&lt;/code&gt; that will delegate to
+&nbsp; *     {@link ForWriteReplace#doWriteReplace(MockAccess)} of mockito, and in turn will delegate to the custom
+&nbsp; *     implementation of this class {@link #writeReplace(Object)}. This method has a specific
+&nbsp; *     knowledge on how to serialize a mockito mock that is based on ByteBuddy and will ignore other Mockito MockMakers.
+&nbsp; * &lt;/p&gt;
+&nbsp; *
+&nbsp; * &lt;p&gt;&lt;strong&gt;Only one instance per mock! See {@link MockMethodInterceptor}&lt;/strong&gt;&lt;/p&gt;
+&nbsp; *
+&nbsp; * TODO check the class is mockable in the deserialization side
+&nbsp; *
+&nbsp; * @see SubclassByteBuddyMockMaker
+&nbsp; * @see org.mockito.internal.creation.bytebuddy.MockMethodInterceptor
+&nbsp; * @author Brice Dutheil
+&nbsp; * @since 1.10.0
+&nbsp; */
+&nbsp;@Incubating
+<b class="fc">&nbsp;class ByteBuddyCrossClassLoaderSerializationSupport implements Serializable {</b>
+&nbsp;    private static final long serialVersionUID = 7411152578314420778L;
+&nbsp;    private static final String MOCKITO_PROXY_MARKER = &quot;ByteBuddyMockitoProxyMarker&quot;;
+<b class="fc">&nbsp;    private boolean instanceLocalCurrentlySerializingFlag = false;</b>
+<b class="fc">&nbsp;    private final Lock mutex = new ReentrantLock();</b>
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Custom implementation of the &lt;code&gt;writeReplace&lt;/code&gt; method for serialization.
+&nbsp;     * &lt;p/&gt;
+&nbsp;     * Here&#39;s how it&#39;s working and why :
+&nbsp;     * &lt;ol&gt;
+&nbsp;     *
+&nbsp;     *     &lt;li&gt;
+&nbsp;     *         &lt;p&gt;When first entering in this method, it&#39;s because some is serializing the mock, with some code like :&lt;/p&gt;
+&nbsp;     *
+&nbsp;     * &lt;pre class=&quot;code&quot;&gt;&lt;code class=&quot;java&quot;&gt;
+&nbsp;     * objectOutputStream.writeObject(mock);
+&nbsp;     * &lt;/code&gt;&lt;/pre&gt;
+&nbsp;     *
+&nbsp;     *         &lt;p&gt;So, {@link ObjectOutputStream} will track the &lt;code&gt;writeReplace&lt;/code&gt; method in the instance and
+&nbsp;     *         execute it, which is wanted to replace the mock by another type that will encapsulate the actual mock.
+&nbsp;     *         At this point, the code will return an
+&nbsp;     *         {@link CrossClassLoaderSerializableMock}.&lt;/p&gt;
+&nbsp;     *     &lt;/li&gt;
+&nbsp;     *     &lt;li&gt;
+&nbsp;     *         &lt;p&gt;Now, in the constructor
+&nbsp;     *         {@link CrossClassLoaderSerializationProxy#CrossClassLoaderSerializationProxy(java.lang.Object)}
+&nbsp;     *         the mock is being serialized in a custom way (using {@link MockitoMockObjectOutputStream}) to a
+&nbsp;     *         byte array. So basically it means the code is performing double nested serialization of the passed
+&nbsp;     *         &lt;code&gt;mockitoMock&lt;/code&gt;.&lt;/p&gt;
+&nbsp;     *
+&nbsp;     *         &lt;p&gt;However the &lt;code&gt;ObjectOutputStream&lt;/code&gt; will still detect the custom
+&nbsp;     *         &lt;code&gt;writeReplace&lt;/code&gt; and execute it.
+&nbsp;     *         &lt;em&gt;(For that matter disabling replacement via {@link ObjectOutputStream#enableReplaceObject(boolean)}
+&nbsp;     *         doesn&#39;t disable the &lt;code&gt;writeReplace&lt;/code&gt; call, but just just toggle replacement in the
+&nbsp;     *         written stream, &lt;strong&gt;&lt;code&gt;writeReplace&lt;/code&gt; is always called by
+&nbsp;     *         &lt;code&gt;ObjectOutputStream&lt;/code&gt;&lt;/strong&gt;.)&lt;/em&gt;&lt;/p&gt;
+&nbsp;     *
+&nbsp;     *         &lt;p&gt;In order to avoid this recursion, obviously leading to a {@link StackOverflowError}, this method is using
+&nbsp;     *         a flag that marks the mock as already being replaced, and then shouldn&#39;t replace itself again.
+&nbsp;     *         &lt;strong&gt;This flag is local to this class&lt;/strong&gt;, which means the flag of this class unfortunately needs
+&nbsp;     *         to be protected against concurrent access, hence the reentrant lock.&lt;/p&gt;
+&nbsp;     *     &lt;/li&gt;
+&nbsp;     * &lt;/ol&gt;
+&nbsp;     *
+&nbsp;     * @param mockitoMock The Mockito mock to be serialized.
+&nbsp;     * @return A wrapper ({@link CrossClassLoaderSerializationProxy}) to be serialized by the calling ObjectOutputStream.
+&nbsp;     * @throws java.io.ObjectStreamException
+&nbsp;     */
+&nbsp;    public Object writeReplace(Object mockitoMock) throws ObjectStreamException {
+&nbsp;        // reentrant lock for critical section. could it be improved ?
+<b class="nc">&nbsp;        mutex.lock();</b>
+&nbsp;        try {
+&nbsp;            // mark started flag // per thread, not per instance
+&nbsp;            // temporary loosy hack to avoid stackoverflow
+<b class="nc">&nbsp;            if (mockIsCurrentlyBeingReplaced()) {</b>
+<b class="nc">&nbsp;                return mockitoMock;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            mockReplacementStarted();</b>
+&nbsp;
+<b class="nc">&nbsp;            return new CrossClassLoaderSerializationProxy(mockitoMock);</b>
+<b class="nc">&nbsp;        } catch (IOException ioe) {</b>
+<b class="nc">&nbsp;            MockName mockName = MockUtil.getMockName(mockitoMock);</b>
+<b class="nc">&nbsp;            String mockedType = MockUtil.getMockSettings(mockitoMock).getTypeToMock().getCanonicalName();</b>
+<b class="nc">&nbsp;            throw new MockitoSerializationIssue(join(</b>
+&nbsp;                    &quot;The mock &#39;&quot; + mockName + &quot;&#39; of type &#39;&quot; + mockedType + &quot;&#39;&quot;,
+<b class="nc">&nbsp;                    &quot;The Java Standard Serialization reported an &#39;&quot; + ioe.getClass().getSimpleName() + &quot;&#39; saying :&quot;,</b>
+<b class="nc">&nbsp;                    &quot;  &quot; + ioe.getMessage()</b>
+&nbsp;            ), ioe);
+&nbsp;        } finally {
+&nbsp;            // unmark
+<b class="nc">&nbsp;            mockReplacementCompleted();</b>
+<b class="nc">&nbsp;            mutex.unlock();</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;
+&nbsp;    private void mockReplacementCompleted() {
+<b class="nc">&nbsp;        instanceLocalCurrentlySerializingFlag = false;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;
+&nbsp;    private void mockReplacementStarted() {
+<b class="nc">&nbsp;        instanceLocalCurrentlySerializingFlag = true;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;
+&nbsp;    private boolean mockIsCurrentlyBeingReplaced() {
+<b class="nc">&nbsp;        return instanceLocalCurrentlySerializingFlag;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * This is the serialization proxy that will encapsulate the real mock data as a byte array.
+&nbsp;     * &lt;p/&gt;
+&nbsp;     * &lt;p&gt;When called in the constructor it will serialize the mock in a byte array using a
+&nbsp;     * custom {@link MockitoMockObjectOutputStream} that will annotate the mock class in the stream.
+&nbsp;     * Other information are used in this class in order to facilitate deserialization.
+&nbsp;     * &lt;/p&gt;
+&nbsp;     * &lt;p/&gt;
+&nbsp;     * &lt;p&gt;Deserialization of the mock will be performed by the {@link #readResolve()} method via
+&nbsp;     * the custom {@link MockitoMockObjectInputStream} that will be in charge of creating the mock class.&lt;/p&gt;
+&nbsp;     */
+&nbsp;    public static class CrossClassLoaderSerializationProxy implements Serializable {
+&nbsp;
+&nbsp;        private static final long serialVersionUID = -7600267929109286514L;
+&nbsp;        private final byte[] serializedMock;
+&nbsp;        private final Class&lt;?&gt; typeToMock;
+&nbsp;        private final Set&lt;Class&lt;?&gt;&gt; extraInterfaces;
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Creates the wrapper that be used in the serialization stream.
+&nbsp;         *
+&nbsp;         * &lt;p&gt;Immediately serializes the Mockito mock using specifically crafted {@link MockitoMockObjectOutputStream},
+&nbsp;         * in a byte array.&lt;/p&gt;
+&nbsp;         *
+&nbsp;         * @param mockitoMock The Mockito mock to serialize.
+&nbsp;         * @throws java.io.IOException
+&nbsp;         */
+&nbsp;        public CrossClassLoaderSerializationProxy(Object mockitoMock) throws IOException {
+&nbsp;            ByteArrayOutputStream out = new ByteArrayOutputStream();
+&nbsp;            ObjectOutputStream objectOutputStream = new MockitoMockObjectOutputStream(out);
+&nbsp;
+&nbsp;            objectOutputStream.writeObject(mockitoMock);
+&nbsp;
+&nbsp;            objectOutputStream.close();
+&nbsp;            out.close();
+&nbsp;
+&nbsp;            MockCreationSettings&lt;?&gt; mockSettings = MockUtil.getMockSettings(mockitoMock);
+&nbsp;            this.serializedMock = out.toByteArray();
+&nbsp;            this.typeToMock = mockSettings.getTypeToMock();
+&nbsp;            this.extraInterfaces = mockSettings.getExtraInterfaces();
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Resolves the proxy to a new deserialized instance of the Mockito mock.
+&nbsp;         * &lt;p/&gt;
+&nbsp;         * &lt;p&gt;Uses the custom crafted {@link MockitoMockObjectInputStream} to deserialize the mock.&lt;/p&gt;
+&nbsp;         *
+&nbsp;         * @return A deserialized instance of the Mockito mock.
+&nbsp;         * @throws java.io.ObjectStreamException
+&nbsp;         */
+&nbsp;        private Object readResolve() throws ObjectStreamException {
+&nbsp;            try {
+&nbsp;                ByteArrayInputStream bis = new ByteArrayInputStream(serializedMock);
+&nbsp;                ObjectInputStream objectInputStream = new MockitoMockObjectInputStream(bis, typeToMock, extraInterfaces);
+&nbsp;
+&nbsp;                Object deserializedMock = objectInputStream.readObject();
+&nbsp;
+&nbsp;                bis.close();
+&nbsp;                objectInputStream.close();
+&nbsp;
+&nbsp;                return deserializedMock;
+&nbsp;            } catch (IOException ioe) {
+&nbsp;                throw new MockitoSerializationIssue(join(
+&nbsp;                        &quot;Mockito mock cannot be deserialized to a mock of &#39;&quot; + typeToMock.getCanonicalName() + &quot;&#39;. The error was :&quot;,
+&nbsp;                        &quot;  &quot; + ioe.getMessage(),
+&nbsp;                        &quot;If you are unsure what is the reason of this exception, feel free to contact us on the mailing list.&quot;
+&nbsp;                ), ioe);
+&nbsp;            } catch (ClassNotFoundException cce) {
+&nbsp;                throw new MockitoSerializationIssue(join(
+&nbsp;                        &quot;A class couldn&#39;t be found while deserializing a Mockito mock, you should check your classpath. The error was :&quot;,
+&nbsp;                        &quot;  &quot; + cce.getMessage(),
+&nbsp;                        &quot;If you are still unsure what is the reason of this exception, feel free to contact us on the mailing list.&quot;
+&nbsp;                ), cce);
+&nbsp;            }
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Special Mockito aware &lt;code&gt;ObjectInputStream&lt;/code&gt; that will resolve the Mockito proxy class.
+&nbsp;     * &lt;p/&gt;
+&nbsp;     * &lt;p&gt;
+&nbsp;     *     This specifically crafted ObjectInoutStream has the most important role to resolve the Mockito generated
+&nbsp;     *     class. It is doing so via the {@link #resolveClass(ObjectStreamClass)} which looks in the stream
+&nbsp;     *     for a Mockito marker. If this marker is found it will try to resolve the mockito class otherwise it
+&nbsp;     *     delegates class resolution to the default super behavior.
+&nbsp;     *     The mirror method used for serializing the mock is {@link MockitoMockObjectOutputStream#annotateClass(Class)}.
+&nbsp;     * &lt;/p&gt;
+&nbsp;     * &lt;p/&gt;
+&nbsp;     * &lt;p&gt;
+&nbsp;     *     When this marker is found, {@link ByteBuddyMockMaker#createMockType(MockCreationSettings)} methods are being used
+&nbsp;     *     to create the mock class.
+&nbsp;     * &lt;/p&gt;
+&nbsp;     */
+&nbsp;    public static class MockitoMockObjectInputStream extends ObjectInputStream {
+&nbsp;        private final Class&lt;?&gt; typeToMock;
+&nbsp;        private final Set&lt;Class&lt;?&gt;&gt; extraInterfaces;
+&nbsp;
+&nbsp;        public MockitoMockObjectInputStream(InputStream in, Class&lt;?&gt; typeToMock, Set&lt;Class&lt;?&gt;&gt; extraInterfaces) throws IOException {
+&nbsp;            super(in);
+&nbsp;            this.typeToMock = typeToMock;
+&nbsp;            this.extraInterfaces = extraInterfaces;
+&nbsp;            enableResolveObject(true); // ensure resolving is enabled
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Resolve the Mockito proxy class if it is marked as such.
+&nbsp;         * &lt;p/&gt;
+&nbsp;         * &lt;p&gt;Uses the fields {@link #typeToMock} and {@link #extraInterfaces} to
+&nbsp;         * create the Mockito proxy class as the &lt;code&gt;ObjectStreamClass&lt;/code&gt;
+&nbsp;         * doesn&#39;t carry useful information for this purpose.&lt;/p&gt;
+&nbsp;         *
+&nbsp;         * @param desc Description of the class in the stream, not used.
+&nbsp;         * @return The class that will be used to deserialize the instance mock.
+&nbsp;         * @throws java.io.IOException
+&nbsp;         * @throws ClassNotFoundException
+&nbsp;         */
+&nbsp;        @Override
+&nbsp;        protected Class&lt;?&gt; resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+&nbsp;            if (notMarkedAsAMockitoMock(readObject())) {
+&nbsp;                return super.resolveClass(desc);
+&nbsp;            }
+&nbsp;
+&nbsp;            // create the Mockito mock class before it can even be deserialized
+&nbsp;            try {
+&nbsp;                @SuppressWarnings(&quot;unchecked&quot;)
+&nbsp;                Class&lt;?&gt; proxyClass = ((ClassCreatingMockMaker) Plugins.getMockMaker()).createMockType(
+&nbsp;                        new CreationSettings()
+&nbsp;                                .setTypeToMock(typeToMock)
+&nbsp;                                .setExtraInterfaces(extraInterfaces)
+&nbsp;                                .setSerializableMode(SerializableMode.ACROSS_CLASSLOADERS));
+&nbsp;
+&nbsp;                hackClassNameToMatchNewlyCreatedClass(desc, proxyClass);
+&nbsp;                return proxyClass;
+&nbsp;            } catch (ClassCastException cce) {
+&nbsp;                throw new MockitoSerializationIssue(join(
+&nbsp;                        &quot;A Byte Buddy-generated mock cannot be deserialized into a non-Byte Buddy generated mock class&quot;,
+&nbsp;                        &quot;&quot;,
+&nbsp;                        &quot;The mock maker in use was: &quot; + Plugins.getMockMaker().getClass()
+&nbsp;                ), cce);
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Hack the &lt;code&gt;name&lt;/code&gt; field of the given &lt;code&gt;ObjectStreamClass&lt;/code&gt; with
+&nbsp;         * the &lt;code&gt;newProxyClass&lt;/code&gt;.
+&nbsp;         * &lt;p/&gt;
+&nbsp;         * The parent ObjectInputStream will check the name of the class in the stream matches the name of the one
+&nbsp;         * that is created in this method.
+&nbsp;         * &lt;p/&gt;
+&nbsp;         * The CGLIB classes uses a hash of the classloader and/or maybe some other data that allow them to be
+&nbsp;         * relatively unique in a JVM.
+&nbsp;         * &lt;p/&gt;
+&nbsp;         * When names differ, which happens when the mock is deserialized in another ClassLoader, a
+&nbsp;         * &lt;code&gt;java.io.InvalidObjectException&lt;/code&gt; is thrown, so this part of the code is hacking through
+&nbsp;         * the given &lt;code&gt;ObjectStreamClass&lt;/code&gt; to change the name with the newly created class.
+&nbsp;         *
+&nbsp;         * @param descInstance The &lt;code&gt;ObjectStreamClass&lt;/code&gt; that will be hacked.
+&nbsp;         * @param proxyClass   The proxy class whose name will be applied.
+&nbsp;         * @throws java.io.InvalidObjectException
+&nbsp;         */
+&nbsp;        private void hackClassNameToMatchNewlyCreatedClass(ObjectStreamClass descInstance, Class&lt;?&gt; proxyClass) throws ObjectStreamException {
+&nbsp;            try {
+&nbsp;                Field classNameField = descInstance.getClass().getDeclaredField(&quot;name&quot;);
+&nbsp;                setField(descInstance, classNameField,proxyClass.getCanonicalName());
+&nbsp;            } catch (NoSuchFieldException nsfe) {
+&nbsp;                throw new MockitoSerializationIssue(join(
+&nbsp;                        &quot;Wow, the class &#39;ObjectStreamClass&#39; in the JDK don&#39;t have the field &#39;name&#39;,&quot;,
+&nbsp;                        &quot;this is definitely a bug in our code as it means the JDK team changed a few internal things.&quot;,
+&nbsp;                        &quot;&quot;,
+&nbsp;                        &quot;Please report an issue with the JDK used, a code sample and a link to download the JDK would be welcome.&quot;
+&nbsp;                ), nsfe);
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Read the stream class annotation and identify it as a Mockito mock or not.
+&nbsp;         *
+&nbsp;         * @param marker The marker to identify.
+&nbsp;         * @return &lt;code&gt;true&lt;/code&gt; if not marked as a Mockito, &lt;code&gt;false&lt;/code&gt; if the class annotation marks a Mockito mock.
+&nbsp;         */
+&nbsp;        private boolean notMarkedAsAMockitoMock(Object marker) {
+&nbsp;            return !MOCKITO_PROXY_MARKER.equals(marker);
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Special Mockito aware &lt;code&gt;ObjectOutputStream&lt;/code&gt;.
+&nbsp;     * &lt;p/&gt;
+&nbsp;     * &lt;p&gt;
+&nbsp;     * This output stream has the role of marking in the stream the Mockito class. This
+&nbsp;     * marking process is necessary to identify the proxy class that will need to be recreated.
+&nbsp;     * &lt;p/&gt;
+&nbsp;     * The mirror method used for deserializing the mock is
+&nbsp;     * {@link MockitoMockObjectInputStream#resolveClass(ObjectStreamClass)}.
+&nbsp;     * &lt;/p&gt;
+&nbsp;     */
+&nbsp;    private static class MockitoMockObjectOutputStream extends ObjectOutputStream {
+&nbsp;        private static final String NOTHING = &quot;&quot;;
+&nbsp;
+&nbsp;        public MockitoMockObjectOutputStream(ByteArrayOutputStream out) throws IOException {
+&nbsp;            super(out);
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Annotates (marks) the class if this class is a Mockito mock.
+&nbsp;         *
+&nbsp;         * @param cl The class to annotate.
+&nbsp;         * @throws java.io.IOException
+&nbsp;         */
+&nbsp;        @Override
+&nbsp;        protected void annotateClass(Class&lt;?&gt; cl) throws IOException {
+&nbsp;            writeObject(mockitoProxyClassMarker(cl));
+&nbsp;            // might be also useful later, for embedding classloader info ...maybe ...maybe not
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Returns the Mockito marker if this class is a Mockito mock.
+&nbsp;         *
+&nbsp;         * @param cl The class to mark.
+&nbsp;         * @return The marker if this is a Mockito proxy class, otherwise returns a void marker.
+&nbsp;         */
+&nbsp;        private String mockitoProxyClassMarker(Class&lt;?&gt; cl) {
+&nbsp;            if (CrossClassLoaderSerializableMock.class.isAssignableFrom(cl)) {
+&nbsp;                return MOCKITO_PROXY_MARKER;
+&nbsp;            } else {
+&nbsp;                return NOTHING;
+&nbsp;            }
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Simple interface that hold a correct &lt;code&gt;writeReplace&lt;/code&gt; signature that can be seen by an
+&nbsp;     * &lt;code&gt;ObjectOutputStream&lt;/code&gt;.
+&nbsp;     * &lt;p/&gt;
+&nbsp;     * It will be applied before the creation of the mock when the mock setting says it should serializable.
+&nbsp;     */
+&nbsp;    public interface CrossClassLoaderSerializableMock {
+&nbsp;        Object writeReplace();
+&nbsp;    }
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>

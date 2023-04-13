@@ -1,0 +1,520 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > GAAttack</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.client.bot</a>
+</div>
+
+<h1>Coverage Summary for Class: GAAttack (megamek.client.bot)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">GAAttack</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/12)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/188)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/214)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek - Copyright (C) 2000-2003 Ben Mazur (bmazur@sev.org)
+&nbsp; *
+&nbsp; * This program is free software; you can redistribute it and/or modify it
+&nbsp; * under the terms of the GNU General Public License as published by the Free
+&nbsp; * Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; * any later version.
+&nbsp; *
+&nbsp; * This program is distributed in the hope that it will be useful, but WITHOUT
+&nbsp; * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+&nbsp; * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+&nbsp; * more details.
+&nbsp; */
+&nbsp;package megamek.client.bot;
+&nbsp;
+&nbsp;import java.util.ArrayList;
+&nbsp;import java.util.Iterator;
+&nbsp;
+&nbsp;import megamek.client.bot.ga.Chromosome;
+&nbsp;import megamek.client.bot.ga.GA;
+&nbsp;import megamek.common.Compute;
+&nbsp;import megamek.common.Entity;
+&nbsp;import megamek.common.IGame;
+&nbsp;import megamek.common.Mech;
+&nbsp;import megamek.common.Terrains;
+&nbsp;import megamek.common.ToHitData;
+&nbsp;
+&nbsp;/**
+&nbsp; * Need to test the function that moves all firing to a single target
+&nbsp; */
+&nbsp;public class GAAttack extends GA {
+&nbsp;
+&nbsp;    protected ArrayList&lt;ArrayList&lt;AttackOption&gt;&gt; attack;
+&nbsp;    protected CEntity attacker;
+&nbsp;    protected IGame game;
+&nbsp;    protected CEntity.Table targets;
+<b class="nc">&nbsp;    protected ArrayList&lt;Entity&gt; target_array = null;</b>
+<b class="nc">&nbsp;    protected ArrayList&lt;Integer&gt; valid_target_indexes = null;</b>
+<b class="nc">&nbsp;    protected boolean overheat_eligible = false;</b>
+<b class="nc">&nbsp;    protected int firing_arc = 0;</b>
+<b class="nc">&nbsp;    double[] damages = null;</b>
+&nbsp;
+&nbsp;    public GAAttack(TestBot tb, CEntity attacker,
+&nbsp;            ArrayList&lt;ArrayList&lt;AttackOption&gt;&gt; attack, int population,
+&nbsp;            int generations, boolean isEnemy) {
+<b class="nc">&nbsp;        super(attack.size() + 1, population, .7, .05, generations, .4);</b>
+<b class="nc">&nbsp;        this.attack = attack;</b>
+<b class="nc">&nbsp;        this.attacker = attacker;</b>
+<b class="nc">&nbsp;        game = tb.getGame();</b>
+<b class="nc">&nbsp;        target_array = new ArrayList&lt;Entity&gt;(game.getEntitiesVector());</b>
+<b class="nc">&nbsp;        ArrayList&lt;Integer&gt; temp = new ArrayList&lt;Integer&gt;();</b>
+<b class="nc">&nbsp;        for (int i = 0; i &lt; target_array.size(); i++) {</b>
+<b class="nc">&nbsp;            Entity entity = target_array.get(i);</b>
+<b class="nc">&nbsp;            if (entity.isEnemyOf(attacker.entity) &amp;&amp; entity.isDeployed()) {</b>
+<b class="nc">&nbsp;                temp.add(Integer.valueOf(i));</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        targets = new CEntity.Table(tb);</b>
+<b class="nc">&nbsp;        valid_target_indexes = temp;</b>
+<b class="nc">&nbsp;        if (attacker.tsm_offset) {</b>
+<b class="nc">&nbsp;            overheat_eligible = true;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (isEnemy</b>
+&nbsp;                || ((attacker.last != null) &amp;&amp; (!attacker.last.inDanger || attacker.last.doomed))) {
+<b class="nc">&nbsp;            overheat_eligible = true;</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    public int[] getResultChromosome() {
+<b class="nc">&nbsp;        return ((chromosomes[populationDim - 1]).genes);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public double getDamageUtility(CEntity to) {
+<b class="nc">&nbsp;        if (damages == null) {</b>
+<b class="nc">&nbsp;            damages = getDamageUtilities();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        for (int k = 0; k &lt; target_array.size(); k++) {</b>
+<b class="nc">&nbsp;            Entity enemy = target_array.get(k);</b>
+<b class="nc">&nbsp;            if (enemy.getId() == to.entity.getId()) {</b>
+<b class="nc">&nbsp;                return damages[k];</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        return 0;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public double[] getDamageUtilities() {
+<b class="nc">&nbsp;        int iChromIndex = populationDim - 1;</b>
+<b class="nc">&nbsp;        targets.clear(); // could use ArrayList and not hashtable</b>
+<b class="nc">&nbsp;        double[] result = new double[target_array.size()];</b>
+<b class="nc">&nbsp;        Chromosome chromArrayList = chromosomes[iChromIndex];</b>
+&nbsp;        // TODO should account for high heat?
+&nbsp;        @SuppressWarnings(&quot;unused&quot;)
+<b class="nc">&nbsp;        int heat_total = 0;</b>
+<b class="nc">&nbsp;        if (chromArrayList.genes[chromosomeDim - 1] &gt;= target_array.size()) {</b>
+<b class="nc">&nbsp;            chromArrayList.genes[chromosomeDim - 1] = valid_target_indexes.get(</b>
+<b class="nc">&nbsp;                    0).intValue();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        Entity target = target_array</b>
+<b class="nc">&nbsp;                .get(chromArrayList.genes[chromosomeDim - 1]);</b>
+<b class="nc">&nbsp;        for (int iGene = 0; iGene &lt; (chromosomeDim - 1); iGene++) {</b>
+<b class="nc">&nbsp;            AttackOption a = attack.get(iGene).get(chromArrayList.genes[iGene]);</b>
+<b class="nc">&nbsp;            if (a.target != null) { // if not the no fire option</b>
+<b class="nc">&nbsp;                targets.put(a.target);</b>
+<b class="nc">&nbsp;                double mod = 1;</b>
+<b class="nc">&nbsp;                if (a.target.entity.getId() == target.getId()) {</b>
+<b class="nc">&nbsp;                    a.target.possible_damage[a.toHit.getSideTable()] += mod</b>
+&nbsp;                            * a.primary_expected;
+&nbsp;                } else {
+<b class="nc">&nbsp;                    a.target.possible_damage[a.toHit.getSideTable()] += mod</b>
+&nbsp;                            * a.expected;
+&nbsp;                }
+<b class="nc">&nbsp;                heat_total += a.heat;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        for (int k = 0; k &lt; target_array.size(); k++) {</b>
+<b class="nc">&nbsp;            Entity en = target_array.get(k);</b>
+<b class="nc">&nbsp;            CEntity enemy = null;</b>
+<b class="nc">&nbsp;            result[k] = 0;</b>
+<b class="nc">&nbsp;            if ((enemy = targets.get(Integer.valueOf(en.getId()))) != null) {</b>
+<b class="nc">&nbsp;                result[k] = getThreadUtility(enemy);</b>
+<b class="nc">&nbsp;                enemy.resetPossibleDamage();</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        return result;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private double getThreadUtility(CEntity enemy) {
+<b class="nc">&nbsp;        if (enemy.possible_damage[ToHitData.SIDE_FRONT] &gt; 0) {</b>
+<b class="nc">&nbsp;            return enemy.getThreatUtility(</b>
+&nbsp;                    enemy.possible_damage[ToHitData.SIDE_FRONT],
+&nbsp;                    ToHitData.SIDE_FRONT);
+<b class="nc">&nbsp;        } else if (enemy.possible_damage[ToHitData.SIDE_REAR] &gt; 0) {</b>
+<b class="nc">&nbsp;            return enemy.getThreatUtility(</b>
+&nbsp;                    enemy.possible_damage[ToHitData.SIDE_REAR],
+&nbsp;                    ToHitData.SIDE_REAR);
+<b class="nc">&nbsp;        } else if (enemy.possible_damage[ToHitData.SIDE_LEFT] &gt; 0) {</b>
+<b class="nc">&nbsp;            return enemy.getThreatUtility(</b>
+&nbsp;                    enemy.possible_damage[ToHitData.SIDE_LEFT],
+&nbsp;                    ToHitData.SIDE_LEFT);
+<b class="nc">&nbsp;        } else if (enemy.possible_damage[ToHitData.SIDE_RIGHT] &gt; 0) {</b>
+<b class="nc">&nbsp;            return enemy.getThreatUtility(</b>
+&nbsp;                    enemy.possible_damage[ToHitData.SIDE_RIGHT],
+&nbsp;                    ToHitData.SIDE_RIGHT);
+&nbsp;        }
+<b class="nc">&nbsp;        return 0;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    @Override
+&nbsp;    protected double getFitness(int iChromIndex) {
+<b class="nc">&nbsp;        return this.getFitness(chromosomes[iChromIndex]);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    protected double getFitness(Chromosome chromArrayList) {
+<b class="nc">&nbsp;        targets.clear(); // could use ArrayList and not hashtable</b>
+<b class="nc">&nbsp;        int heat_total = 0;</b>
+<b class="nc">&nbsp;        Entity target = null;</b>
+&nbsp;        try {
+<b class="nc">&nbsp;            target = target_array.get(chromArrayList.genes[chromosomeDim - 1]);</b>
+<b class="nc">&nbsp;        } catch (Exception e) {</b>
+<b class="nc">&nbsp;            System.out.println(chromosomeDim</b>
+&nbsp;                    + &quot; &quot; + chromArrayList.genes.length); //$NON-NLS-1$
+<b class="nc">&nbsp;            System.out.println(target_array.size());</b>
+<b class="nc">&nbsp;            target = target_array.get(valid_target_indexes.get(0).intValue());</b>
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        for (int iGene = 0; iGene &lt; (chromosomeDim - 1); iGene++) {</b>
+<b class="nc">&nbsp;            final int[] genes = chromArrayList.genes;</b>
+<b class="nc">&nbsp;            AttackOption a = attack.get(iGene).get(genes[iGene]);</b>
+<b class="nc">&nbsp;            if (a.target != null) { // if not the no fire option</b>
+<b class="nc">&nbsp;                targets.put(a.target);</b>
+<b class="nc">&nbsp;                double mod = 1;</b>
+<b class="nc">&nbsp;                if (a.primary_odds &lt;= 0) {</b>
+<b class="nc">&nbsp;                    mod = 0; // If there&#39;s no chance to hit at all...</b>
+<b class="nc">&nbsp;                } else if (a.ammoLeft != -1) {</b>
+<b class="nc">&nbsp;                    if (attacker.overall_armor_percent &lt; .5) {</b>
+<b class="nc">&nbsp;                        mod = 1.5; // get rid of it</b>
+<b class="nc">&nbsp;                    } else if ((a.ammoLeft &lt; 12)</b>
+&nbsp;                            &amp;&amp; (attacker.overall_armor_percent &gt; .75)) {
+<b class="nc">&nbsp;                        if (a.primary_odds &lt; .1) {</b>
+<b class="nc">&nbsp;                            mod = 0;</b>
+<b class="nc">&nbsp;                        } else if ((a.ammoLeft &lt; 6) &amp;&amp; (a.primary_odds &lt; .25)) {</b>
+<b class="nc">&nbsp;                            mod = 0;</b>
+&nbsp;                        } else {
+<b class="nc">&nbsp;                            mod = a.primary_odds; // low percentage shots will</b>
+&nbsp;                            // be frowned upon
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                }
+<b class="nc">&nbsp;                if (a.target.entity.getId() == target.getId()) {</b>
+<b class="nc">&nbsp;                    a.target.possible_damage[a.toHit.getSideTable()] += mod</b>
+&nbsp;                            * a.primary_expected;
+&nbsp;                } else {
+<b class="nc">&nbsp;                    a.target.possible_damage[a.toHit.getSideTable()] += mod</b>
+&nbsp;                            * a.expected;
+&nbsp;                }
+<b class="nc">&nbsp;                heat_total += a.heat;</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        double total_utility = 0;</b>
+<b class="nc">&nbsp;        Iterator&lt;CEntity&gt; j = targets.values().iterator();</b>
+<b class="nc">&nbsp;        while (j.hasNext()) {</b>
+<b class="nc">&nbsp;            CEntity enemy = j.next();</b>
+<b class="nc">&nbsp;            total_utility += getThreadUtility(enemy);</b>
+<b class="nc">&nbsp;            enemy.resetPossibleDamage();</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;        // should be moved
+<b class="nc">&nbsp;        int capacity = attacker.entity.getHeatCapacityWithWater();</b>
+<b class="nc">&nbsp;        int currentHeat = attacker.entity.heatBuildup + attacker.entity.heat;</b>
+<b class="nc">&nbsp;        int overheat = (currentHeat + heat_total) - capacity;</b>
+&nbsp;        // Don&#39;t forget heat from stealth armor...
+<b class="nc">&nbsp;        if ((attacker.entity instanceof Mech)</b>
+<b class="nc">&nbsp;                &amp;&amp; (attacker.entity.isStealthActive()</b>
+<b class="nc">&nbsp;                        || attacker.entity.isNullSigActive() || attacker.entity</b>
+<b class="nc">&nbsp;                        .isVoidSigActive())) {</b>
+<b class="nc">&nbsp;            overheat += 10;</b>
+&nbsp;        }
+&nbsp;        // ... or chameleon lps...
+<b class="nc">&nbsp;        if ((attacker.entity instanceof Mech)</b>
+<b class="nc">&nbsp;                &amp;&amp; attacker.entity.isChameleonShieldActive()) {</b>
+<b class="nc">&nbsp;            overheat += 6;</b>
+&nbsp;        }
+&nbsp;        // ... or infernos...
+<b class="nc">&nbsp;        if (attacker.entity.infernos.isStillBurning()) {</b>
+<b class="nc">&nbsp;            overheat += 6;</b>
+&nbsp;        }
+&nbsp;        // ... or standing in fire...
+<b class="nc">&nbsp;        if (game.getBoard().getHex(attacker.entity.getPosition()) != null) {</b>
+<b class="nc">&nbsp;            if (game.getBoard().getHex(attacker.entity.getPosition())</b>
+<b class="nc">&nbsp;                    .containsTerrain(Terrains.FIRE)</b>
+<b class="nc">&nbsp;                    &amp;&amp; (game.getBoard().getHex(attacker.entity.getPosition())</b>
+<b class="nc">&nbsp;                            .getFireTurn() &gt; 0)) {</b>
+<b class="nc">&nbsp;                overheat += 5;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        // ... or from engine hits
+<b class="nc">&nbsp;        if (attacker.entity instanceof Mech) {</b>
+<b class="nc">&nbsp;            overheat += attacker.entity.getEngineCritHeat();</b>
+&nbsp;        }
+&nbsp;        // ... or ambient temperature
+<b class="nc">&nbsp;        overheat += game.getPlanetaryConditions().getTemperatureDifference(50,</b>
+&nbsp;                -30);
+<b class="nc">&nbsp;        if ((attacker.entity.heat &gt; 0) &amp;&amp; (overheat &lt; 0)) {</b>
+&nbsp;            // always perfer smaller heat numbers
+<b class="nc">&nbsp;            total_utility -= (attacker.bv / 1000) * overheat;</b>
+&nbsp;            // but add clear deliniations at the breaks
+<b class="nc">&nbsp;            if (attacker.entity.heat &gt; 4) {</b>
+<b class="nc">&nbsp;                total_utility *= 1.2;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (attacker.entity.heat &gt; 7) {</b>
+<b class="nc">&nbsp;                total_utility += attacker.bv / 50;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (attacker.tsm_offset) {</b>
+<b class="nc">&nbsp;                if (attacker.entity.heat == 9) {</b>
+<b class="nc">&nbsp;                    total_utility -= attacker.bv / 10;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if ((attacker.entity.heat &lt; 12) &amp;&amp; (attacker.entity.heat &gt; 9)) {</b>
+<b class="nc">&nbsp;                    total_utility -= attacker.bv / 20;</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            if (attacker.entity.heat &gt; 12) {</b>
+<b class="nc">&nbsp;                total_utility += attacker.bv / 20;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (attacker.entity.heat &gt; 16) {</b>
+<b class="nc">&nbsp;                total_utility += attacker.bv / 10;</b>
+&nbsp;            }
+<b class="nc">&nbsp;        } else if (overheat &gt; 0) {</b>
+<b class="nc">&nbsp;            if ((overheat &gt; 4) &amp;&amp; !attacker.tsm_offset) {</b>
+<b class="nc">&nbsp;                total_utility *= (overheat_eligible &amp;&amp; (attacker.jumpMP &gt; 2)) ? .9</b>
+<b class="nc">&nbsp;                        : .85;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if ((overheat &gt; 7) &amp;&amp; !attacker.tsm_offset) {</b>
+<b class="nc">&nbsp;                double mod = overheat_eligible ? +((attacker.jumpMP &gt; 2) ? 0</b>
+<b class="nc">&nbsp;                        : 10) : 40;</b>
+<b class="nc">&nbsp;                if (attacker.overheat &gt; CEntity.OVERHEAT_LOW) {</b>
+<b class="nc">&nbsp;                    total_utility -= attacker.bv / mod;</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    total_utility -= attacker.bv / (mod + 10);</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            if (attacker.tsm_offset) {</b>
+<b class="nc">&nbsp;                if (overheat == 9) {</b>
+<b class="nc">&nbsp;                    total_utility += attacker.bv / 10;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if ((attacker.entity.heat &lt; 12) &amp;&amp; (attacker.entity.heat &gt; 9)) {</b>
+<b class="nc">&nbsp;                    total_utility += attacker.bv / 20;</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            if (overheat &gt; 12) {</b>
+<b class="nc">&nbsp;                total_utility -= attacker.bv / (overheat_eligible ? 45 : 30);</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (overheat &gt; 16) {</b>
+&nbsp;                // only if I am going to die?
+<b class="nc">&nbsp;                total_utility -= attacker.bv / 5;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            total_utility -= overheat / 100; // small preference for less</b>
+&nbsp;            // overheat opposed to more
+&nbsp;        }
+<b class="nc">&nbsp;        return total_utility;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * since the low fitness members have the least chance of getting selected,
+&nbsp;     * but the highest chance of mutation, this is where we use the primary
+&nbsp;     * target heuristic to drive convergence
+&nbsp;     */
+&nbsp;    @Override
+&nbsp;    protected void doRandomMutation(int iChromIndex) {
+<b class="nc">&nbsp;        Chromosome c1 = chromosomes[iChromIndex];</b>
+&nbsp;        // skip if it&#39;s an empty chromosome
+<b class="nc">&nbsp;        if (c1.genes.length &lt; 1) {</b>
+&nbsp;            return;
+&nbsp;        }
+<b class="nc">&nbsp;        int r1 = (c1.genes.length &gt; 2) ? Compute.randomInt(c1.genes.length - 1)</b>
+<b class="nc">&nbsp;                : 0;</b>
+<b class="nc">&nbsp;        CEntity target = null;</b>
+<b class="nc">&nbsp;        boolean done = false;</b>
+<b class="nc">&nbsp;        if ((r1 % 2) == 1) {</b>
+<b class="nc">&nbsp;            c1.genes[r1]--;</b>
+<b class="nc">&nbsp;            if ((c1.genes[r1] &lt; 0) &amp;&amp; (attack.size() &gt; r1)) {</b>
+<b class="nc">&nbsp;                c1.genes[r1] = attack.get(r1).size() - 1;</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                c1.genes[r1] = 0; // TODO : what is a good value here?</b>
+&nbsp;            }
+&nbsp;            return;
+&nbsp;        }
+&nbsp;        // else try to move all to one target
+<b class="nc">&nbsp;        for (int i = 0; (i &lt; (c1.genes.length - 1)) &amp;&amp; !done; i++) {</b>
+<b class="nc">&nbsp;            int iGene = (i + r1) % (c1.genes.length - 1);</b>
+<b class="nc">&nbsp;            AttackOption a = attack.get(iGene).get(c1.genes[iGene]);</b>
+<b class="nc">&nbsp;            if (a.target != null) {</b>
+<b class="nc">&nbsp;                target = a.target;</b>
+<b class="nc">&nbsp;                done = true;</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        if (target == null) { // then not shooting, so shoot something</b>
+<b class="nc">&nbsp;            if ((attack.size() &gt; r1) &amp;&amp; (r1 &gt; 1)) {</b>
+<b class="nc">&nbsp;                c1.genes[r1] = Compute.randomInt(attack.get(r1).size() - 1);</b>
+&nbsp;            } else {
+&nbsp;                // TODO : Is this the correct action to take?
+<b class="nc">&nbsp;                c1.genes[r1] = Compute.randomInt(attack.get(0).size() - 1);</b>
+&nbsp;            }
+<b class="nc">&nbsp;            AttackOption a = attack.get(r1).get(c1.genes[r1]);</b>
+<b class="nc">&nbsp;            if (a.target != null) {</b>
+<b class="nc">&nbsp;                c1.genes[c1.genes.length - 1] = a.target.enemy_num;</b>
+&nbsp;            }
+<b class="nc">&nbsp;        } else { // let&#39;s switch as many attacks as we can to this guy</b>
+<b class="nc">&nbsp;            for (int i = 0; (i &lt; (c1.genes.length - 1)) &amp;&amp; (i &lt; attack.size()); i++) {</b>
+<b class="nc">&nbsp;                Object[] weapon = attack.get(i).toArray();</b>
+<b class="nc">&nbsp;                if (c1.genes[i] != (weapon.length - 1)) {</b>
+<b class="nc">&nbsp;                    done = false;</b>
+<b class="nc">&nbsp;                    for (int w = 0; (w &lt; (weapon.length - 1)) &amp;&amp; !done; w++) {</b>
+<b class="nc">&nbsp;                        AttackOption a = (AttackOption) weapon[w];</b>
+<b class="nc">&nbsp;                        if (a.target.enemy_num == target.enemy_num) {</b>
+<b class="nc">&nbsp;                            c1.genes[i] = w;</b>
+<b class="nc">&nbsp;                            done = true;</b>
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            (chromosomes[0]).genes[chromosomeDim - 1] = target.enemy_num;</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    @Override
+&nbsp;    protected void initPopulation() {
+&nbsp;        // promote max
+<b class="nc">&nbsp;        for (int iGene = 0; iGene &lt; (chromosomeDim - 1); iGene++) {</b>
+<b class="nc">&nbsp;            (chromosomes[0]).genes[iGene] = 0;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // use first weapon target as primary, not smart but good enough...
+<b class="nc">&nbsp;        AttackOption a = attack.get(0).get(0);</b>
+<b class="nc">&nbsp;        (chromosomes[0]).genes[chromosomeDim - 1] = a.target.enemy_num;</b>
+&nbsp;
+<b class="nc">&nbsp;        for (int i = 1; i &lt; populationDim; i++) {</b>
+<b class="nc">&nbsp;            Chromosome cv = chromosomes[i];</b>
+<b class="nc">&nbsp;            for (int iGene = 0; iGene &lt; (chromosomeDim - 1); iGene++) {</b>
+<b class="nc">&nbsp;                cv.genes[iGene] = Compute.randomInt(attack.get(iGene).size());</b>
+<b class="nc">&nbsp;                if (i &lt;= attack.size()) {</b>
+<b class="nc">&nbsp;                    if ((iGene + 1) == i) {</b>
+<b class="nc">&nbsp;                        cv.genes[iGene] = 0; // fire</b>
+&nbsp;                    } else {
+<b class="nc">&nbsp;                        cv.genes[iGene] = attack.get(iGene).size() - 1;</b>
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            cv.genes[chromosomeDim - 1] = valid_target_indexes.get(</b>
+<b class="nc">&nbsp;                    Compute.randomInt(valid_target_indexes.size())).intValue();</b>
+<b class="nc">&nbsp;            chromosomes[i].fitness = getFitness(i);</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getFiringArc() {
+<b class="nc">&nbsp;        return firing_arc;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setFiringArc(int firing_arc) {
+<b class="nc">&nbsp;        this.firing_arc = firing_arc;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public ArrayList&lt;ArrayList&lt;AttackOption&gt;&gt; getAttack() {
+<b class="nc">&nbsp;        return attack;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>

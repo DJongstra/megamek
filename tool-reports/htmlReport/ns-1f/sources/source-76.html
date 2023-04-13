@@ -1,0 +1,888 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > MechSummaryCache</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.common</a>
+</div>
+
+<h1>Coverage Summary for Class: MechSummaryCache (megamek.common)</h1>
+
+<table class="coverageStats">
+
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">MechSummaryCache</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/24)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/186)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/426)
+  </span>
+</td>
+</tr>
+  <tr>
+    <td class="name">MechSummaryCache$Listener</td>
+  </tr>
+<tr>
+  <td class="name"><strong>Total</strong></td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/24)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/186)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/426)
+  </span>
+</td>
+</tr>
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek - Copyright (C) 2000,2001,2002,2003,2004 Ben Mazur (bmazur@sev.org)
+&nbsp; * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+&nbsp; *
+&nbsp; *  This program is free software; you can redistribute it and/or modify it
+&nbsp; *  under the terms of the GNU General Public License as published by the Free
+&nbsp; *  Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; *  any later version.
+&nbsp; *
+&nbsp; *  This program is distributed in the hope that it will be useful, but
+&nbsp; *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+&nbsp; *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+&nbsp; *  for more details.
+&nbsp; */
+&nbsp;
+&nbsp;package megamek.common;
+&nbsp;
+&nbsp;import java.io.BufferedInputStream;
+&nbsp;import java.io.BufferedOutputStream;
+&nbsp;import java.io.BufferedReader;
+&nbsp;import java.io.File;
+&nbsp;import java.io.FileInputStream;
+&nbsp;import java.io.FileOutputStream;
+&nbsp;import java.io.IOException;
+&nbsp;import java.io.InputStream;
+&nbsp;import java.io.InputStreamReader;
+&nbsp;import java.io.ObjectInputStream;
+&nbsp;import java.io.ObjectOutputStream;
+&nbsp;import java.io.PrintWriter;
+&nbsp;import java.io.StringWriter;
+&nbsp;import java.nio.charset.StandardCharsets;
+&nbsp;import java.util.*;
+&nbsp;import java.util.zip.ZipEntry;
+&nbsp;import java.util.zip.ZipFile;
+&nbsp;
+&nbsp;import megamek.MegaMek;
+&nbsp;import megamek.common.loaders.EntityLoadingException;
+&nbsp;import megamek.common.logging.*;
+&nbsp;import megamek.common.util.fileUtils.MegaMekFile;
+&nbsp;import megamek.common.verifier.*;
+&nbsp;
+&nbsp;/**
+&nbsp; * Cache of the Mech summary information. Implemented as Singleton so a client
+&nbsp; * and server running in the same process can share it
+&nbsp; *
+&nbsp; * @author arlith
+&nbsp; * @author Others...
+&nbsp; */
+&nbsp;public class MechSummaryCache {
+&nbsp;    
+<b class="nc">&nbsp;    private static final LogLevel LOGLVL = LogLevel.WARNING;</b>
+&nbsp;
+&nbsp;    public interface Listener {
+&nbsp;        void doneLoading();
+&nbsp;    }
+&nbsp;
+&nbsp;    private static final String FILENAME_UNITS_CACHE = &quot;units.cache&quot;;
+&nbsp;    private static final String FILENAME_LOOKUP = &quot;name_changes.txt&quot;;
+&nbsp;
+&nbsp;    private static MechSummaryCache m_instance;
+<b class="nc">&nbsp;    private static boolean disposeInstance = false;</b>
+<b class="nc">&nbsp;    private static boolean interrupted = false;</b>
+&nbsp;
+<b class="nc">&nbsp;    private boolean initialized = false;</b>
+<b class="nc">&nbsp;    private boolean initializing = false;</b>
+&nbsp;
+<b class="nc">&nbsp;    private final List&lt;Listener&gt; listeners = new ArrayList&lt;&gt;();</b>
+&nbsp;
+<b class="nc">&nbsp;    private StringBuffer loadReport = new StringBuffer();</b>
+<b class="nc">&nbsp;    private EntityVerifier entityVerifier = null;</b>
+&nbsp;    private Thread loader;
+<b class="nc">&nbsp;    private static final Object lock = new Object();</b>
+&nbsp;
+&nbsp;    public static synchronized MechSummaryCache getInstance() {
+<b class="nc">&nbsp;        return getInstance(false);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public static synchronized MechSummaryCache getInstance(
+&nbsp;            boolean ignoreUnofficial) {
+<b class="nc">&nbsp;        final boolean ignoringUnofficial = ignoreUnofficial;</b>
+<b class="nc">&nbsp;        if (m_instance == null) {</b>
+<b class="nc">&nbsp;            m_instance = new MechSummaryCache();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (!m_instance.initialized &amp;&amp; !m_instance.initializing) {</b>
+<b class="nc">&nbsp;            m_instance.initializing = true;</b>
+<b class="nc">&nbsp;            m_instance.initialized = false;</b>
+<b class="nc">&nbsp;            interrupted = false;</b>
+<b class="nc">&nbsp;            disposeInstance = false;</b>
+<b class="nc">&nbsp;            m_instance.loader = new Thread(() -&gt; m_instance.loadMechData(ignoringUnofficial),</b>
+&nbsp;                    &quot;Mech Cache Loader&quot;);
+<b class="nc">&nbsp;            m_instance.loader.setPriority(Thread.NORM_PRIORITY - 1);</b>
+<b class="nc">&nbsp;            m_instance.loader.start();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return m_instance;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public static void dispose() {
+<b class="nc">&nbsp;        if (m_instance != null) {</b>
+<b class="nc">&nbsp;            synchronized (lock) {</b>
+<b class="nc">&nbsp;                interrupted = true;</b>
+<b class="nc">&nbsp;                m_instance.loader.interrupt();</b>
+&nbsp;                // We can&#39;t do this, otherwise we can&#39;t notifyAll()
+&nbsp;                // m_instance = null;
+<b class="nc">&nbsp;                disposeInstance = true;</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Get the directory for the unit cache file.
+&nbsp;     *
+&nbsp;     * @return The path to the directory containing the unit cache.
+&nbsp;     */
+&nbsp;    public static File getUnitCacheDir() {
+<b class="nc">&nbsp;        return Configuration.unitsDir();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public boolean isInitialized() {
+<b class="nc">&nbsp;        return initialized;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void addListener(Listener listener) {
+<b class="nc">&nbsp;        synchronized (listeners) {</b>
+<b class="nc">&nbsp;            listeners.add(listener);</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void removeListener(Listener listener) {
+<b class="nc">&nbsp;        synchronized (listeners) {</b>
+<b class="nc">&nbsp;            listeners.remove(listener);</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private MechSummary[] m_data;
+&nbsp;    private Map&lt;String, MechSummary&gt; m_nameMap;
+&nbsp;    private Map&lt;String, MechSummary&gt; m_fileNameMap;
+&nbsp;    private Map&lt;String, String&gt; hFailedFiles;
+&nbsp;    private int cacheCount;
+&nbsp;    private int fileCount;
+&nbsp;    private int zipCount;
+&nbsp;
+<b class="nc">&nbsp;    private MechSummaryCache() {</b>
+<b class="nc">&nbsp;        m_nameMap = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        m_fileNameMap = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        MegaMek.getLogger().setLogLevel(LOGLVL);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public MechSummary[] getAllMechs() {
+<b class="nc">&nbsp;        block();</b>
+<b class="nc">&nbsp;        return m_data;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private void block() {
+<b class="nc">&nbsp;        if (!initialized) {</b>
+<b class="nc">&nbsp;            synchronized (lock) {</b>
+&nbsp;                try {
+<b class="nc">&nbsp;                    lock.wait();</b>
+<b class="nc">&nbsp;                } catch (Exception e) {</b>
+&nbsp;                    // Ignore
+<b class="nc">&nbsp;                }</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    public MechSummary getMech(String sRef) {
+<b class="nc">&nbsp;        block();</b>
+<b class="nc">&nbsp;        if (m_nameMap.containsKey(sRef)) {</b>
+<b class="nc">&nbsp;            return m_nameMap.get(sRef);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return m_fileNameMap.get(sRef);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Map&lt;String, String&gt; getFailedFiles() {
+<b class="nc">&nbsp;        block();</b>
+<b class="nc">&nbsp;        return hFailedFiles;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void loadMechData() {
+<b class="nc">&nbsp;        loadMechData(false);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void loadMechData(boolean ignoreUnofficial) {
+<b class="nc">&nbsp;        Vector&lt;MechSummary&gt; vMechs = new Vector&lt;&gt;();</b>
+<b class="nc">&nbsp;        Set&lt;String&gt; sKnownFiles = new HashSet&lt;&gt;();</b>
+<b class="nc">&nbsp;        long lLastCheck = 0;</b>
+<b class="nc">&nbsp;        entityVerifier = EntityVerifier.getInstance(new MegaMekFile(getUnitCacheDir(),</b>
+<b class="nc">&nbsp;                EntityVerifier.CONFIG_FILENAME).getFile());</b>
+<b class="nc">&nbsp;        hFailedFiles = new HashMap&lt;&gt;();</b>
+&nbsp;
+<b class="nc">&nbsp;        EquipmentType.initializeTypes(); // load master equipment lists</b>
+&nbsp;
+<b class="nc">&nbsp;        loadReport.append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;        loadReport.append(&quot;Reading unit files:\n&quot;);</b>
+&nbsp;
+<b class="nc">&nbsp;        if (!ignoreUnofficial) {</b>
+<b class="nc">&nbsp;            File unit_cache_path = new MegaMekFile(getUnitCacheDir(),</b>
+<b class="nc">&nbsp;                    FILENAME_UNITS_CACHE).getFile();</b>
+&nbsp;            // check the cache
+&nbsp;            try {
+<b class="nc">&nbsp;                if (unit_cache_path.exists()</b>
+<b class="nc">&nbsp;                        &amp;&amp; (unit_cache_path.lastModified() &gt;= megamek.MegaMek.TIMESTAMP)) {</b>
+<b class="nc">&nbsp;                    loadReport.append(&quot;  Reading from unit cache file...\n&quot;);</b>
+<b class="nc">&nbsp;                    lLastCheck = unit_cache_path.lastModified();</b>
+<b class="nc">&nbsp;                    InputStream istream = new BufferedInputStream(</b>
+&nbsp;                            new FileInputStream(unit_cache_path));
+<b class="nc">&nbsp;                    ObjectInputStream fin = new ObjectInputStream(istream);</b>
+<b class="nc">&nbsp;                    Integer num_units = (Integer) fin.readObject();</b>
+<b class="nc">&nbsp;                    for (int i = 0; i &lt; num_units; i++) {</b>
+<b class="nc">&nbsp;                        if (interrupted) {</b>
+<b class="nc">&nbsp;                            done();</b>
+<b class="nc">&nbsp;                            fin.close();</b>
+<b class="nc">&nbsp;                            istream.close();</b>
+&nbsp;                            return;
+&nbsp;                        }
+<b class="nc">&nbsp;                        MechSummary ms = (MechSummary) fin.readObject();</b>
+&nbsp;                        // Verify that this file still exists and is older than
+&nbsp;                        // the cache.
+<b class="nc">&nbsp;                        File fSource = ms.getSourceFile();</b>
+<b class="nc">&nbsp;                        if (fSource.exists()) {</b>
+<b class="nc">&nbsp;                            vMechs.addElement(ms);</b>
+<b class="nc">&nbsp;                            if (null == ms.getEntryName()) {</b>
+<b class="nc">&nbsp;                                sKnownFiles.add(fSource.toString());</b>
+&nbsp;                            } else {
+<b class="nc">&nbsp;                                sKnownFiles.add(ms.getEntryName());</b>
+&nbsp;                            }
+<b class="nc">&nbsp;                            cacheCount++;</b>
+&nbsp;                        }
+&nbsp;                    }
+<b class="nc">&nbsp;                    fin.close();</b>
+<b class="nc">&nbsp;                    istream.close();</b>
+&nbsp;                }
+<b class="nc">&nbsp;            } catch (Exception e) {</b>
+<b class="nc">&nbsp;                loadReport.append(&quot;  Unable to load unit cache: &quot;)</b>
+<b class="nc">&nbsp;                        .append(e.getMessage()).append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;                MegaMek.getLogger().error(e);</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // load any changes since the last check time
+<b class="nc">&nbsp;        boolean bNeedsUpdate = loadMechsFromDirectory(vMechs, sKnownFiles,</b>
+<b class="nc">&nbsp;                lLastCheck, Configuration.unitsDir(), ignoreUnofficial);</b>
+&nbsp;
+<b class="nc">&nbsp;        File userDataUnits = new File(Configuration.userdataDir(), Configuration.unitsDir().toString());</b>
+<b class="nc">&nbsp;        if (userDataUnits.isDirectory()) {</b>
+<b class="nc">&nbsp;            bNeedsUpdate |= loadMechsFromDirectory(vMechs, sKnownFiles, lLastCheck, userDataUnits, ignoreUnofficial);</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // convert to array
+<b class="nc">&nbsp;        m_data = new MechSummary[vMechs.size()];</b>
+<b class="nc">&nbsp;        vMechs.copyInto(m_data);</b>
+&nbsp;
+&nbsp;        // store map references
+<b class="nc">&nbsp;        for (MechSummary element : m_data) {</b>
+<b class="nc">&nbsp;            if (interrupted) {</b>
+<b class="nc">&nbsp;                done();</b>
+&nbsp;                return;
+&nbsp;            }
+<b class="nc">&nbsp;            m_nameMap.put(element.getName(), element);</b>
+<b class="nc">&nbsp;            String entryName = element.getEntryName();</b>
+<b class="nc">&nbsp;            if (entryName == null) {</b>
+<b class="nc">&nbsp;                m_fileNameMap.put(element.getSourceFile().getName(), element);</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                String unitName = entryName;</b>
+&nbsp;
+<b class="nc">&nbsp;                if (unitName.contains(&quot;\\&quot;)) {</b>
+<b class="nc">&nbsp;                    unitName = unitName</b>
+<b class="nc">&nbsp;                            .substring(unitName.lastIndexOf(&quot;\\&quot;) + 1);</b>
+&nbsp;                }
+&nbsp;
+<b class="nc">&nbsp;                if (unitName.contains(&quot;/&quot;)) {</b>
+<b class="nc">&nbsp;                    unitName = unitName</b>
+<b class="nc">&nbsp;                            .substring(unitName.lastIndexOf(&quot;/&quot;) + 1);</b>
+&nbsp;                }
+&nbsp;
+<b class="nc">&nbsp;                m_fileNameMap.put(unitName, element);</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        bNeedsUpdate |= addLookupNames();</b>
+&nbsp;
+&nbsp;        // save updated cache back to disk
+<b class="nc">&nbsp;        if (bNeedsUpdate) {</b>
+&nbsp;            try {
+<b class="nc">&nbsp;                saveCache();</b>
+<b class="nc">&nbsp;            } catch (Exception e) {</b>
+<b class="nc">&nbsp;                loadReport.append(&quot;  Unable to save mech cache\n&quot;);</b>
+<b class="nc">&nbsp;                MegaMek.getLogger().error(e);</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        loadReport.append(m_data.length).append(&quot; units loaded.\n&quot;);</b>
+&nbsp;
+<b class="nc">&nbsp;        if (hFailedFiles.size() &gt; 0) {</b>
+<b class="nc">&nbsp;            loadReport.append(&quot;  &quot;).append(hFailedFiles.size())</b>
+<b class="nc">&nbsp;                    .append(&quot; units failed to load...\n&quot;);</b>
+&nbsp;        }
+&nbsp;        /*
+&nbsp;         * Enumeration failedUnits = hFailedFiles.keys(); Enumeration
+&nbsp;         * failedUnitsDesc = hFailedFiles.elements(); while
+&nbsp;         * (failedUnits.hasMoreElements()) { loadReport.append(&quot;
+&nbsp;         * &quot;).append(failedUnits.nextElement()) .append(&quot;\n&quot;);
+&nbsp;         * loadReport.append(&quot; --&quot;)
+&nbsp;         * .append(failedUnitsDesc.nextElement()).append(&quot;\n&quot;); }
+&nbsp;         */
+&nbsp;
+<b class="nc">&nbsp;        MegaMek.getLogger().info(loadReport.toString());</b>
+&nbsp;
+<b class="nc">&nbsp;        done();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private void done() {
+<b class="nc">&nbsp;        synchronized (lock) {</b>
+<b class="nc">&nbsp;            lock.notifyAll();</b>
+&nbsp;
+<b class="nc">&nbsp;            initialized = true;</b>
+&nbsp;
+<b class="nc">&nbsp;            for (Listener listener : listeners) {</b>
+<b class="nc">&nbsp;                listener.doneLoading();</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;
+<b class="nc">&nbsp;            if (disposeInstance) {</b>
+<b class="nc">&nbsp;                m_instance = null;</b>
+<b class="nc">&nbsp;                initialized = false;</b>
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private void saveCache() throws Exception {
+<b class="nc">&nbsp;        loadReport.append(&quot;Saving unit cache.\n&quot;);</b>
+<b class="nc">&nbsp;        File unit_cache_path = new MegaMekFile(getUnitCacheDir(), FILENAME_UNITS_CACHE).getFile();</b>
+<b class="nc">&nbsp;        ObjectOutputStream wr = new ObjectOutputStream(</b>
+&nbsp;                new BufferedOutputStream(new FileOutputStream(unit_cache_path)));
+<b class="nc">&nbsp;        wr.writeObject(m_data.length);</b>
+<b class="nc">&nbsp;        for (MechSummary element : m_data) {</b>
+<b class="nc">&nbsp;            wr.writeObject(element);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        wr.flush();</b>
+<b class="nc">&nbsp;        wr.close();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private MechSummary getSummary(Entity e, File f, String entry) {
+<b class="nc">&nbsp;        MechSummary ms = new MechSummary();</b>
+<b class="nc">&nbsp;        ms.setName(e.getShortNameRaw());</b>
+<b class="nc">&nbsp;        ms.setChassis(e.getChassis());</b>
+<b class="nc">&nbsp;        ms.setModel(e.getModel());</b>
+<b class="nc">&nbsp;        ms.setUnitType(UnitType.getTypeName(e.getUnitType()));</b>
+<b class="nc">&nbsp;        ms.setSourceFile(f);</b>
+<b class="nc">&nbsp;        ms.setEntryName(entry);</b>
+<b class="nc">&nbsp;        ms.setYear(e.getYear());</b>
+<b class="nc">&nbsp;        ms.setType(e.getTechLevel());</b>
+<b class="nc">&nbsp;        if (TechConstants.convertFromNormalToSimple(e.getTechLevel()) == TechConstants.T_SIMPLE_UNOFFICIAL) {</b>
+<b class="nc">&nbsp;            int[] alt = new int[3];</b>
+<b class="nc">&nbsp;            Arrays.fill(alt, e.getTechLevel());</b>
+<b class="nc">&nbsp;            ms.setAltTypes(alt);</b>
+<b class="nc">&nbsp;        } else if (e.isClan()) {</b>
+<b class="nc">&nbsp;            ms.setAltTypes(new int[] { TechConstants.T_CLAN_TW, TechConstants.T_CLAN_ADVANCED,</b>
+&nbsp;                    TechConstants.T_CLAN_EXPERIMENTAL });
+<b class="nc">&nbsp;        } else if (e.getTechLevel() == TechConstants.T_INTRO_BOXSET) {</b>
+<b class="nc">&nbsp;            ms.setAltTypes(new int[] { TechConstants.T_INTRO_BOXSET, TechConstants.T_IS_ADVANCED,</b>
+&nbsp;                    TechConstants.T_IS_EXPERIMENTAL });
+&nbsp;        } else {
+<b class="nc">&nbsp;            ms.setAltTypes(new int[] { TechConstants.T_IS_TW_NON_BOX, TechConstants.T_IS_ADVANCED,</b>
+&nbsp;                    TechConstants.T_IS_EXPERIMENTAL });
+&nbsp;        }
+<b class="nc">&nbsp;        ms.setTons(e.getWeight());</b>
+<b class="nc">&nbsp;        if (e instanceof BattleArmor){</b>
+<b class="nc">&nbsp;            ms.setTOweight(((BattleArmor)e).getAlternateWeight());</b>
+<b class="nc">&nbsp;            ms.setTWweight(e.getWeight());</b>
+<b class="nc">&nbsp;            ms.setSuitWeight(((BattleArmor)e).getTrooperWeight());</b>
+&nbsp;        }
+<b class="nc">&nbsp;        ms.setBV(e.calculateBattleValue());</b>
+<b class="nc">&nbsp;        e.setUseGeometricBV(true);</b>
+<b class="nc">&nbsp;        ms.setGMBV(e.calculateBattleValue());</b>
+<b class="nc">&nbsp;        e.setUseGeometricBV(false);</b>
+<b class="nc">&nbsp;        e.setUseReducedOverheatModifierBV(true);</b>
+<b class="nc">&nbsp;        ms.setRHBV(e.calculateBattleValue());</b>
+<b class="nc">&nbsp;        e.setUseGeometricBV(true);</b>
+<b class="nc">&nbsp;        ms.setRHGMBV(e.calculateBattleValue());</b>
+<b class="nc">&nbsp;        e.setUseGeometricBV(false);</b>
+<b class="nc">&nbsp;        e.setUseReducedOverheatModifierBV(false);</b>
+<b class="nc">&nbsp;        ms.setLevel(TechConstants.T_SIMPLE_LEVEL[e.getTechLevel()]);</b>
+<b class="nc">&nbsp;        ms.setAdvancedYear(e.getProductionDate(e.isClan()));</b>
+<b class="nc">&nbsp;        ms.setStandardYear(e.getCommonDate(e.isClan()));</b>
+<b class="nc">&nbsp;        ms.setCost((long) e.getCost(false));</b>
+<b class="nc">&nbsp;        ms.setUnloadedCost(((long) e.getCost(true)));</b>
+<b class="nc">&nbsp;        ms.setAlternateCost((int) e.getAlternateCost());</b>
+<b class="nc">&nbsp;        ms.setCanon(e.isCanon());</b>
+<b class="nc">&nbsp;        ms.setWalkMp(e.getWalkMP(false, false));</b>
+<b class="nc">&nbsp;        ms.setRunMp(e.getRunMP(false, false, false));</b>
+<b class="nc">&nbsp;        ms.setJumpMp(e.getJumpMP(false));</b>
+<b class="nc">&nbsp;        ms.setClan(e.isClan());</b>
+<b class="nc">&nbsp;        if (e.isSupportVehicle()) {</b>
+<b class="nc">&nbsp;            ms.setSupport(true);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (e instanceof Mech) {</b>
+<b class="nc">&nbsp;            if (((Mech) e).isIndustrial()) {</b>
+<b class="nc">&nbsp;                ms.setUnitSubType(&quot;Industrial&quot;);</b>
+<b class="nc">&nbsp;            } else if (e.isOmni()) {</b>
+<b class="nc">&nbsp;                ms.setUnitSubType(&quot;Omni&quot;);</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                ms.setUnitSubType(&quot;BattleMech&quot;);</b>
+&nbsp;            }
+&nbsp;        } else {
+<b class="nc">&nbsp;            ms.setUnitSubType(e.getMovementModeAsString());</b>
+&nbsp;        }
+<b class="nc">&nbsp;        ms.setEquipment(e.getEquipment());</b>
+<b class="nc">&nbsp;        ms.setTotalArmor(e.getTotalArmor());</b>
+<b class="nc">&nbsp;        ms.setTotalInternal(e.getTotalInternal());</b>
+<b class="nc">&nbsp;        ms.setInternalsType(e.getStructureType());</b>
+<b class="nc">&nbsp;        int[] armorTypes = new int[e.locations()];</b>
+<b class="nc">&nbsp;        int[] armorTechTypes = new int[e.locations()];</b>
+<b class="nc">&nbsp;        for (int i = 0; i &lt; armorTypes.length; i++) {</b>
+<b class="nc">&nbsp;            armorTypes[i] = e.getArmorType(i);</b>
+<b class="nc">&nbsp;            armorTechTypes[i] = e.getArmorTechLevel(i);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        ms.setArmorType(armorTypes);</b>
+<b class="nc">&nbsp;        ms.setArmorTypes(armorTypes);</b>
+<b class="nc">&nbsp;        ms.setArmorTechTypes(armorTechTypes);</b>
+&nbsp;
+&nbsp;        // Check to see if this entity has a cockpit, and if so, set it&#39;s type
+<b class="nc">&nbsp;        if ((e instanceof Mech)) {</b>
+<b class="nc">&nbsp;            ms.setCockpitType(((Mech) e).getCockpitType());</b>
+<b class="nc">&nbsp;        } else if ((e instanceof Aero)) {</b>
+<b class="nc">&nbsp;            ms.setCockpitType(((Aero) e).getCockpitType());</b>
+&nbsp;        } else {
+&nbsp;            // TODO: There&#39;s currently no NO_COCKPIT type value, if this value
+&nbsp;            // existed, Entity could have a getCockpitType function and this
+&nbsp;            // logic could become unnecessary
+<b class="nc">&nbsp;            ms.setCockpitType(-2);</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // we can only test meks, vehicles, ASF, and Battlearmor right now
+<b class="nc">&nbsp;        TestEntity testEntity = null;</b>
+<b class="nc">&nbsp;        if (e instanceof Mech) {</b>
+<b class="nc">&nbsp;            testEntity = new TestMech((Mech) e, entityVerifier.mechOption, null);</b>
+<b class="nc">&nbsp;        } else if (e instanceof Protomech) {</b>
+<b class="nc">&nbsp;            testEntity = new TestProtomech((Protomech) e, entityVerifier.protomechOption, null);</b>
+<b class="nc">&nbsp;        } else if (e.isSupportVehicle()) {</b>
+<b class="nc">&nbsp;            testEntity = new TestSupportVehicle(e, entityVerifier.tankOption, null);</b>
+<b class="nc">&nbsp;        } else if (e instanceof Tank &amp;&amp; !(e instanceof GunEmplacement)) {</b>
+<b class="nc">&nbsp;            testEntity = new TestTank((Tank) e, entityVerifier.tankOption, null);</b>
+<b class="nc">&nbsp;        } else if (e instanceof BattleArmor) {</b>
+<b class="nc">&nbsp;            testEntity = new TestBattleArmor((BattleArmor) e, entityVerifier.baOption, null);</b>
+<b class="nc">&nbsp;        } else if (e instanceof Infantry) {</b>
+<b class="nc">&nbsp;            testEntity = new TestInfantry((Infantry) e, entityVerifier.infOption, null);</b>
+<b class="nc">&nbsp;        } else if (e instanceof Jumpship) {</b>
+<b class="nc">&nbsp;            testEntity = new TestAdvancedAerospace((Jumpship) e, entityVerifier.aeroOption, null);</b>
+<b class="nc">&nbsp;        } else if (e instanceof SmallCraft) {</b>
+<b class="nc">&nbsp;            testEntity = new TestSmallCraft((SmallCraft) e, entityVerifier.aeroOption, null);</b>
+<b class="nc">&nbsp;        } else if (e instanceof Aero) {</b>
+&nbsp;            // FighterSquadron and TeleMissile are also instanceof Aero but they won&#39;t be showing up in the unit files
+<b class="nc">&nbsp;            testEntity = new TestAero((Aero) e, entityVerifier.aeroOption, null);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (testEntity != null &amp;&amp;</b>
+<b class="nc">&nbsp;                !testEntity.correctEntity(new StringBuffer())) {</b>
+<b class="nc">&nbsp;            ms.setLevel(&quot;F&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        ms.setGyroType(e.getGyroType());</b>
+<b class="nc">&nbsp;        if (e.hasEngine()){</b>
+<b class="nc">&nbsp;            ms.setEngineName(e.getEngine().getEngineName());</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            ms.setEngineName(&quot;None&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (e instanceof Mech){</b>
+<b class="nc">&nbsp;            if (((Mech)e).hasTSM()) {</b>
+<b class="nc">&nbsp;                ms.setMyomerName(&quot;Triple-Strength&quot;);</b>
+<b class="nc">&nbsp;            } else if (((Mech)e).hasIndustrialTSM()) {</b>
+<b class="nc">&nbsp;                ms.setMyomerName(&quot;Industrial Triple-Strength&quot;);</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                ms.setMyomerName(&quot;Standard&quot;);</b>
+&nbsp;            }
+&nbsp;        } else {
+<b class="nc">&nbsp;            ms.setMyomerName(&quot;None&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        return ms;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Loading a complete {@link Entity} object for each summary is a bear and should be
+&nbsp;     * changed, but it lets me use the existing parsers
+&nbsp;     *
+&nbsp;     * @param vMechs      List to add units to as they are loaded
+&nbsp;     * @param sKnownFiles Files that have been processed so far and can be skipped
+&nbsp;     * @param lLastCheck  The timestamp of the last time the cache was updated
+&nbsp;     * @param fDir        The directory to load units from
+&nbsp;     * @return            Whether the list of units has changed, requiring rewriting the cache
+&nbsp;     */
+&nbsp;    private boolean loadMechsFromDirectory(Vector&lt;MechSummary&gt; vMechs,
+&nbsp;            Set&lt;String&gt; sKnownFiles, long lLastCheck, File fDir,
+&nbsp;            boolean ignoreUnofficial) {
+<b class="nc">&nbsp;        boolean bNeedsUpdate = false;</b>
+<b class="nc">&nbsp;        loadReport.append(&quot;  Looking in &quot;).append(fDir.getPath())</b>
+<b class="nc">&nbsp;                .append(&quot;...\n&quot;);</b>
+<b class="nc">&nbsp;        int thisDirectoriesFileCount = 0;</b>
+<b class="nc">&nbsp;        String[] sa = fDir.list();</b>
+&nbsp;
+<b class="nc">&nbsp;        if (sa != null) {</b>
+<b class="nc">&nbsp;            for (String element : sa) {</b>
+<b class="nc">&nbsp;                if (interrupted) {</b>
+<b class="nc">&nbsp;                    done();</b>
+<b class="nc">&nbsp;                    return false;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                File f = new MegaMekFile(fDir, element).getFile();</b>
+<b class="nc">&nbsp;                if (f.equals(new MegaMekFile(getUnitCacheDir(), FILENAME_UNITS_CACHE).getFile())) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.isDirectory()) {</b>
+<b class="nc">&nbsp;                    if (f.getName().toLowerCase().equals(&quot;unsupported&quot;)) {</b>
+&nbsp;                        // Mechs in this directory are ignored because
+&nbsp;                        // they have features not implemented in MM yet.
+<b class="nc">&nbsp;                        continue;</b>
+<b class="nc">&nbsp;                    } else if (f.getName().toLowerCase().equals(&quot;unofficial&quot;)</b>
+&nbsp;                            &amp;&amp; ignoreUnofficial) {
+&nbsp;                        // Mechs in this directory are ignored because
+&nbsp;                        // they are unofficial and we don&#39;t want those right
+&nbsp;                        // now.
+<b class="nc">&nbsp;                        continue;</b>
+<b class="nc">&nbsp;                    } else if (f.getName().toLowerCase().equals(&quot;_svn&quot;)</b>
+<b class="nc">&nbsp;                            || f.getName().toLowerCase().equals(&quot;.svn&quot;)) {</b>
+&nbsp;                        // This is a Subversion work directory. Lets ignore it.
+<b class="nc">&nbsp;                        continue;</b>
+&nbsp;                    }
+&nbsp;                    // recursion is fun
+<b class="nc">&nbsp;                    bNeedsUpdate |= loadMechsFromDirectory(vMechs, sKnownFiles,</b>
+&nbsp;                            lLastCheck, f, ignoreUnofficial);
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().indexOf(&#39;.&#39;) == -1) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().toLowerCase().endsWith(&quot;.gitignore&quot;)) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().toLowerCase().endsWith(&quot;.txt&quot;)) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().toLowerCase().endsWith(&quot;.log&quot;)) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().toLowerCase().endsWith(&quot;.svn-base&quot;)) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().toLowerCase().endsWith(&quot;.svn-work&quot;)) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().toLowerCase().endsWith(&quot;.ds_store&quot;)) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().toLowerCase().endsWith(&quot;.yml&quot;)) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().equals(&quot;UnitVerifierOptions.xml&quot;)) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if (f.getName().toLowerCase().endsWith(&quot;.zip&quot;)) {</b>
+<b class="nc">&nbsp;                    bNeedsUpdate |= loadMechsFromZipFile(vMechs, sKnownFiles,</b>
+&nbsp;                            lLastCheck, f);
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if ((f.lastModified() &lt; lLastCheck)</b>
+<b class="nc">&nbsp;                        &amp;&amp; sKnownFiles.contains(f.toString())) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+&nbsp;                try {
+<b class="nc">&nbsp;                    MechFileParser mfp = new MechFileParser(f);</b>
+<b class="nc">&nbsp;                    Entity e = mfp.getEntity();</b>
+<b class="nc">&nbsp;                    MechSummary ms = getSummary(e, f, null);</b>
+&nbsp;                    // if this is unit&#39;s MechSummary is already known,
+&nbsp;                    // remove it first, so we don&#39;t get duplicates
+<b class="nc">&nbsp;                    if (sKnownFiles.contains(f.toString())) {</b>
+<b class="nc">&nbsp;                        vMechs.removeElement(ms);</b>
+&nbsp;                    }
+<b class="nc">&nbsp;                    vMechs.addElement(ms);</b>
+<b class="nc">&nbsp;                    sKnownFiles.add(f.toString());</b>
+<b class="nc">&nbsp;                    bNeedsUpdate = true;</b>
+<b class="nc">&nbsp;                    thisDirectoriesFileCount++;</b>
+<b class="nc">&nbsp;                    fileCount++;</b>
+<b class="nc">&nbsp;                    Iterator&lt;String&gt; failedEquipment = e.getFailedEquipment();</b>
+<b class="nc">&nbsp;                    if (failedEquipment.hasNext()) {</b>
+<b class="nc">&nbsp;                        loadReport.append(&quot;    Loading from &quot;).append(f)</b>
+<b class="nc">&nbsp;                                .append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;                        while (failedEquipment.hasNext()) {</b>
+<b class="nc">&nbsp;                            loadReport</b>
+<b class="nc">&nbsp;                                    .append(&quot;      Failed to load equipment: &quot;)</b>
+<b class="nc">&nbsp;                                    .append(failedEquipment.next())</b>
+<b class="nc">&nbsp;                                    .append(&quot;\n&quot;);</b>
+&nbsp;                        }
+&nbsp;                    }
+<b class="nc">&nbsp;                } catch (EntityLoadingException ex) {</b>
+<b class="nc">&nbsp;                    loadReport.append(&quot;    Loading from &quot;).append(f)</b>
+<b class="nc">&nbsp;                            .append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;                    loadReport.append(&quot;***   Unable to load file: &quot;);</b>
+<b class="nc">&nbsp;                    StringWriter stringWriter = new StringWriter();</b>
+<b class="nc">&nbsp;                    PrintWriter printWriter = new PrintWriter(stringWriter);</b>
+<b class="nc">&nbsp;                    ex.printStackTrace(printWriter);</b>
+<b class="nc">&nbsp;                    loadReport.append(stringWriter.getBuffer()).append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;                    hFailedFiles.put(f.toString(), ex.getMessage());</b>
+<b class="nc">&nbsp;                }</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        loadReport.append(&quot;  ...loaded &quot;).append(thisDirectoriesFileCount)</b>
+<b class="nc">&nbsp;                .append(&quot; files.\n&quot;);</b>
+&nbsp;
+<b class="nc">&nbsp;        return bNeedsUpdate;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private boolean loadMechsFromZipFile(Vector&lt;MechSummary&gt; vMechs,
+&nbsp;            Set&lt;String&gt; sKnownFiles, long lLastCheck, File fZipFile) {
+<b class="nc">&nbsp;        boolean bNeedsUpdate = false;</b>
+&nbsp;        ZipFile zFile;
+<b class="nc">&nbsp;        int thisZipFileCount = 0;</b>
+&nbsp;        try {
+<b class="nc">&nbsp;            zFile = new ZipFile(fZipFile);</b>
+<b class="nc">&nbsp;        } catch (Exception ex) {</b>
+<b class="nc">&nbsp;            loadReport.append(&quot;  Unable to load file &quot;)</b>
+<b class="nc">&nbsp;                    .append(fZipFile.getName()).append(&quot;: &quot;);</b>
+<b class="nc">&nbsp;            StringWriter stringWriter = new StringWriter();</b>
+<b class="nc">&nbsp;            PrintWriter printWriter = new PrintWriter(stringWriter);</b>
+<b class="nc">&nbsp;            ex.printStackTrace(printWriter);</b>
+<b class="nc">&nbsp;            loadReport.append(stringWriter.getBuffer()).append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;            return false;</b>
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        loadReport.append(&quot;  Looking in zip file &quot;).append(fZipFile.getPath())</b>
+<b class="nc">&nbsp;                .append(&quot;...\n&quot;);</b>
+&nbsp;
+<b class="nc">&nbsp;        for (Enumeration&lt;?&gt; i = zFile.entries(); i.hasMoreElements();) {</b>
+<b class="nc">&nbsp;            if (interrupted) {</b>
+<b class="nc">&nbsp;                done();</b>
+&nbsp;                try {
+<b class="nc">&nbsp;                    zFile.close();</b>
+<b class="nc">&nbsp;                    return false;</b>
+<b class="nc">&nbsp;                } catch (IOException e) {</b>
+<b class="nc">&nbsp;                    MegaMek.getLogger().error(e);</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            ZipEntry zEntry = (ZipEntry) i.nextElement();</b>
+&nbsp;
+<b class="nc">&nbsp;            if (zEntry.isDirectory()) {</b>
+<b class="nc">&nbsp;                if (zEntry.getName().toLowerCase().equals(&quot;unsupported&quot;)) {</b>
+<b class="nc">&nbsp;                    loadReport</b>
+<b class="nc">&nbsp;                            .append(&quot;  Do not place special &#39;unsupported&#39; type folders in zip files, they must\n    be uncompressed directories to work properly.  Note that you may place\n    zip files inside of &#39;unsupported&#39; type folders, though.\n&quot;);</b>
+&nbsp;                }
+&nbsp;                continue;
+&nbsp;            }
+<b class="nc">&nbsp;            if (zEntry.getName().toLowerCase().endsWith(&quot;.txt&quot;)) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (zEntry.getName().toLowerCase().endsWith(&quot;.yml&quot;)) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if ((Math.max(fZipFile.lastModified(), zEntry.getTime()) &lt; lLastCheck)</b>
+<b class="nc">&nbsp;                    &amp;&amp; sKnownFiles.contains(zEntry.getName())) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+&nbsp;
+&nbsp;            try {
+<b class="nc">&nbsp;                MechFileParser mfp = new MechFileParser(</b>
+<b class="nc">&nbsp;                        zFile.getInputStream(zEntry), zEntry.getName());</b>
+<b class="nc">&nbsp;                Entity e = mfp.getEntity();</b>
+<b class="nc">&nbsp;                MechSummary ms = getSummary(e, fZipFile, zEntry.getName());</b>
+<b class="nc">&nbsp;                vMechs.addElement(ms);</b>
+<b class="nc">&nbsp;                sKnownFiles.add(zEntry.getName());</b>
+<b class="nc">&nbsp;                bNeedsUpdate = true;</b>
+<b class="nc">&nbsp;                thisZipFileCount++;</b>
+<b class="nc">&nbsp;                zipCount++;</b>
+<b class="nc">&nbsp;                Iterator&lt;String&gt; failedEquipment = e.getFailedEquipment();</b>
+<b class="nc">&nbsp;                if (failedEquipment.hasNext()) {</b>
+<b class="nc">&nbsp;                    loadReport.append(&quot;    Loading from zip file&quot;)</b>
+<b class="nc">&nbsp;                            .append(&quot; &gt;&gt; &quot;).append(zEntry.getName())</b>
+<b class="nc">&nbsp;                            .append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;                    while (failedEquipment.hasNext()) {</b>
+<b class="nc">&nbsp;                        loadReport.append(&quot;      Failed to load equipment: &quot;)</b>
+<b class="nc">&nbsp;                                .append(failedEquipment.next()).append(&quot;\n&quot;);</b>
+&nbsp;                    }
+&nbsp;                }
+<b class="nc">&nbsp;            } catch (Exception ex) {</b>
+<b class="nc">&nbsp;                loadReport.append(&quot;    Loading from zip file&quot;).append(&quot; &gt;&gt; &quot;)</b>
+<b class="nc">&nbsp;                        .append(zEntry.getName()).append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;                loadReport.append(&quot;      Unable to load file: &quot;);</b>
+<b class="nc">&nbsp;                StringWriter stringWriter = new StringWriter();</b>
+<b class="nc">&nbsp;                PrintWriter printWriter = new PrintWriter(stringWriter);</b>
+<b class="nc">&nbsp;                ex.printStackTrace(printWriter);</b>
+<b class="nc">&nbsp;                loadReport.append(stringWriter.getBuffer()).append(&quot;\n&quot;);</b>
+<b class="nc">&nbsp;                if (!(ex.getMessage() == null)) {</b>
+<b class="nc">&nbsp;                    hFailedFiles.put(zEntry.getName(), ex.getMessage());</b>
+&nbsp;                }
+<b class="nc">&nbsp;            }</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;
+&nbsp;        try {
+<b class="nc">&nbsp;            zFile.close();</b>
+<b class="nc">&nbsp;        } catch (Exception ex) {</b>
+<b class="nc">&nbsp;            MegaMek.getLogger().error(ex);</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;
+<b class="nc">&nbsp;        loadReport.append(&quot;  ...loaded &quot;).append(thisZipFileCount)</b>
+<b class="nc">&nbsp;                .append(&quot; files.\n&quot;);</b>
+&nbsp;
+<b class="nc">&nbsp;        return bNeedsUpdate;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private boolean addLookupNames() {
+<b class="nc">&nbsp;        File lookupNames = new MegaMekFile(getUnitCacheDir(),</b>
+<b class="nc">&nbsp;                FILENAME_LOOKUP).getFile();</b>
+<b class="nc">&nbsp;        boolean needsUpdate = false;</b>
+<b class="nc">&nbsp;        if (lookupNames.exists()) {</b>
+&nbsp;            try {
+<b class="nc">&nbsp;                InputStream is = new FileInputStream(lookupNames);</b>
+<b class="nc">&nbsp;                BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));</b>
+&nbsp;                String line;
+&nbsp;                String lookupName;
+&nbsp;                String entryName;
+<b class="nc">&nbsp;                while (null != (line = reader.readLine())) {</b>
+<b class="nc">&nbsp;                    if (line.startsWith(&quot;#&quot;)) {</b>
+<b class="nc">&nbsp;                        continue;</b>
+&nbsp;                    }
+<b class="nc">&nbsp;                    int index = line.indexOf(&quot;|&quot;);</b>
+<b class="nc">&nbsp;                    if (index &gt; 0) {</b>
+<b class="nc">&nbsp;                        lookupName = line.substring(0, index);</b>
+<b class="nc">&nbsp;                        entryName = line.substring(index + 1);</b>
+<b class="nc">&nbsp;                        if (!m_nameMap.containsKey(lookupName)) {</b>
+<b class="nc">&nbsp;                            MechSummary ms = m_nameMap.get(entryName);</b>
+<b class="nc">&nbsp;                            if (null != ms) {</b>
+<b class="nc">&nbsp;                                m_nameMap.put(lookupName, ms);</b>
+<b class="nc">&nbsp;                                needsUpdate = true;</b>
+&nbsp;                            }
+&nbsp;                        }
+&nbsp;                    }
+<b class="nc">&nbsp;                }</b>
+<b class="nc">&nbsp;                reader.close();</b>
+<b class="nc">&nbsp;            } catch (IOException ex) {</b>
+<b class="nc">&nbsp;                MegaMek.getLogger().error(ex);</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return needsUpdate;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;
+&nbsp;    public int getCacheCount() {
+<b class="nc">&nbsp;        return cacheCount;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getFileCount() {
+<b class="nc">&nbsp;        return fileCount;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getZipCount() {
+<b class="nc">&nbsp;        return zipCount;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:57</div>
+</div>
+</body>
+</html>

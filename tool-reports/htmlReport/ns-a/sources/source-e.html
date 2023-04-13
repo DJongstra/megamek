@@ -1,0 +1,1365 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > RATGenerator</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.client.ratgenerator</a>
+</div>
+
+<h1>Coverage Summary for Class: RATGenerator (megamek.client.ratgenerator)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">RATGenerator</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/49)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/682)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek - Copyright (C) 2016 The MegaMek Team
+&nbsp; *
+&nbsp; *  This program is free software; you can redistribute it and/or modify it
+&nbsp; *  under the terms of the GNU General Public License as published by the Free
+&nbsp; *  Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; *  any later version.
+&nbsp; *
+&nbsp; *  This program is distributed in the hope that it will be useful, but
+&nbsp; *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+&nbsp; *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+&nbsp; *  for more details.
+&nbsp; */
+&nbsp;package megamek.client.ratgenerator;
+&nbsp;
+&nbsp;import java.awt.event.ActionEvent;
+&nbsp;import java.awt.event.ActionListener;
+&nbsp;import java.io.File;
+&nbsp;import java.io.FileInputStream;
+&nbsp;import java.io.FileNotFoundException;
+&nbsp;import java.io.PrintWriter;
+&nbsp;import java.util.*;
+&nbsp;import java.util.stream.Collectors;
+&nbsp;import java.util.stream.Stream;
+&nbsp;
+&nbsp;import javax.xml.parsers.DocumentBuilder;
+&nbsp;
+&nbsp;import org.w3c.dom.Document;
+&nbsp;import org.w3c.dom.Element;
+&nbsp;import org.w3c.dom.Node;
+&nbsp;import org.w3c.dom.NodeList;
+&nbsp;
+&nbsp;import megamek.MegaMek;
+&nbsp;import megamek.common.Configuration;
+&nbsp;import megamek.common.EntityMovementMode;
+&nbsp;import megamek.common.MechSummary;
+&nbsp;import megamek.common.MechSummaryCache;
+&nbsp;import megamek.common.UnitType;
+&nbsp;import megamek.common.util.fileUtils.MegaMekFile;
+&nbsp;import megamek.utils.MegaMekXmlUtil;
+&nbsp;
+&nbsp;/**
+&nbsp; * Generates a random assignment table (RAT) dynamically based on a variety of criteria,
+&nbsp; * including faction, era, unit type, weight class, equipment rating, faction subcommand, vehicle
+&nbsp; * movement mode, and mission role.
+&nbsp; * 
+&nbsp; * @author Neoancient
+&nbsp; *
+&nbsp; */
+&nbsp;public class RATGenerator {
+&nbsp;    
+&nbsp;    private final HashMap&lt;String, ModelRecord&gt; models;
+&nbsp;    private final HashMap&lt;String, ChassisRecord&gt; chassis;
+&nbsp;    private final HashMap&lt;String, FactionRecord&gt; factions;
+&nbsp;    private final HashMap&lt;Integer, HashMap&lt;String, HashMap&lt;String, AvailabilityRating&gt;&gt;&gt; modelIndex;
+&nbsp;    private final HashMap&lt;Integer, HashMap&lt;String, HashMap&lt;String, AvailabilityRating&gt;&gt;&gt; chassisIndex;
+&nbsp;
+&nbsp;    private final TreeSet&lt;Integer&gt; eraSet;
+&nbsp;
+<b class="nc">&nbsp;    private static RATGenerator rg = null;</b>
+<b class="nc">&nbsp;    private static boolean interrupted = false;</b>
+<b class="nc">&nbsp;    private static boolean dispose = false;</b>
+&nbsp;    private Thread loader;
+&nbsp;    private boolean initialized;
+&nbsp;    private boolean initializing;
+&nbsp;
+&nbsp;    private ArrayList&lt;ActionListener&gt; listeners;
+&nbsp;    
+<b class="nc">&nbsp;    protected RATGenerator() {</b>
+<b class="nc">&nbsp;        models = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        chassis = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        factions = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        modelIndex = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        chassisIndex = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        eraSet = new TreeSet&lt;&gt;();</b>
+&nbsp;        
+<b class="nc">&nbsp;        listeners = new ArrayList&lt;&gt;();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public static RATGenerator getInstance() {
+<b class="nc">&nbsp;        if (rg == null) {</b>
+<b class="nc">&nbsp;            rg = new RATGenerator();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (!rg.initialized &amp;&amp; !rg.initializing) {</b>
+<b class="nc">&nbsp;            rg.initializing = true;</b>
+<b class="nc">&nbsp;            interrupted = false;</b>
+<b class="nc">&nbsp;            dispose = false;</b>
+<b class="nc">&nbsp;            rg.loader = new Thread(() -&gt; rg.initialize(Configuration.forceGeneratorDir()),</b>
+&nbsp;                    &quot;RAT Generator unit populator&quot;);
+<b class="nc">&nbsp;            rg.loader.setPriority(Thread.NORM_PRIORITY - 1);</b>
+<b class="nc">&nbsp;            rg.loader.start();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return rg;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public boolean isInitialized() {
+<b class="nc">&nbsp;        return initialized;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Clears all data and loads from the given directory
+&nbsp;     * @param dir The directory to load from
+&nbsp;     */
+&nbsp;    public void reloadFromDir(File dir) {
+<b class="nc">&nbsp;        models.clear();</b>
+<b class="nc">&nbsp;        chassis.clear();</b>
+<b class="nc">&nbsp;        factions.clear();</b>
+<b class="nc">&nbsp;        chassisIndex.clear();</b>
+<b class="nc">&nbsp;        modelIndex.clear();</b>
+<b class="nc">&nbsp;        eraSet.clear();</b>
+<b class="nc">&nbsp;        initialized = false;</b>
+<b class="nc">&nbsp;        initializing = false;</b>
+<b class="nc">&nbsp;        initialize(dir);</b>
+<b class="nc">&nbsp;        rg.getEraSet().forEach(e -&gt; rg.loadEra(e, dir));</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public AvailabilityRating findChassisAvailabilityRecord(int era, String unit, String faction,
+&nbsp;            int year) {
+<b class="nc">&nbsp;        if (factions.containsKey(faction)) {</b>
+<b class="nc">&nbsp;            return findChassisAvailabilityRecord(era, unit, factions.get(faction), year);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (chassisIndex.containsKey(era) &amp;&amp; chassisIndex.get(era).containsKey(unit)) {</b>
+<b class="nc">&nbsp;            AvailabilityRating av = chassisIndex.get(era).get(unit).get(&quot;General&quot;);</b>
+<b class="nc">&nbsp;            if (av != null &amp;&amp; year &gt;= av.getStartYear()) {</b>
+<b class="nc">&nbsp;                return av;</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        return null;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public AvailabilityRating findChassisAvailabilityRecord(int era, String unit, FactionRecord fRec,
+&nbsp;            int year) {
+<b class="nc">&nbsp;        if (fRec == null) {</b>
+<b class="nc">&nbsp;            return null;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        AvailabilityRating retVal = null;</b>
+<b class="nc">&nbsp;        if (chassisIndex.containsKey(era) &amp;&amp; chassisIndex.get(era).containsKey(unit)) {</b>
+<b class="nc">&nbsp;            if (chassisIndex.get(era).get(unit).containsKey(fRec.getKey())) {</b>
+<b class="nc">&nbsp;                retVal = chassisIndex.get(era).get(unit).get(fRec.getKey());</b>
+<b class="nc">&nbsp;            } else if (fRec.getParentFactions().size() == 1) {</b>
+<b class="nc">&nbsp;                retVal = findChassisAvailabilityRecord(era, unit, fRec.getParentFactions().get(0), year);</b>
+<b class="nc">&nbsp;            } else if (fRec.getParentFactions().size() &gt; 0) {</b>
+<b class="nc">&nbsp;                ArrayList&lt;AvailabilityRating&gt; list = new ArrayList&lt;&gt;();</b>
+<b class="nc">&nbsp;                for (String alt : fRec.getParentFactions()) {</b>
+<b class="nc">&nbsp;                    AvailabilityRating ar = findChassisAvailabilityRecord(era, unit, alt, year);</b>
+<b class="nc">&nbsp;                    if (ar != null) {</b>
+<b class="nc">&nbsp;                        list.add(ar);</b>
+&nbsp;                    }
+<b class="nc">&nbsp;                }</b>
+<b class="nc">&nbsp;                retVal = mergeFactionAvailability(fRec.getKey(), list);</b>
+<b class="nc">&nbsp;            } else {</b>
+<b class="nc">&nbsp;                retVal = chassisIndex.get(era).get(unit).get(&quot;General&quot;);</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        if (retVal != null &amp;&amp; year &gt;= retVal.getStartYear()) {</b>
+<b class="nc">&nbsp;            return retVal;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return null;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public AvailabilityRating findModelAvailabilityRecord(int era, String unit, String faction) {
+<b class="nc">&nbsp;        if (factions.containsKey(faction)) {</b>
+<b class="nc">&nbsp;            return findModelAvailabilityRecord(era, unit, factions.get(faction));</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (modelIndex.containsKey(era) &amp;&amp; modelIndex.get(era).containsKey(unit)) {</b>
+<b class="nc">&nbsp;            return modelIndex.get(era).get(unit).get(&quot;General&quot;);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return null;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public AvailabilityRating findModelAvailabilityRecord(int era, String unit, FactionRecord fRec) {
+<b class="nc">&nbsp;        if (null == models.get(unit)) {</b>
+<b class="nc">&nbsp;            MegaMek.getLogger().error(&quot;Trying to find record for unknown model &quot; + unit);</b>
+<b class="nc">&nbsp;            return null;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (fRec == null || models.get(unit).factionIsExcluded(fRec)) {</b>
+<b class="nc">&nbsp;            return null;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (modelIndex.containsKey(era) &amp;&amp; modelIndex.get(era).containsKey(unit)) {</b>
+<b class="nc">&nbsp;            if (modelIndex.get(era).get(unit).containsKey(fRec.getKey())) {</b>
+<b class="nc">&nbsp;                return modelIndex.get(era).get(unit).get(fRec.getKey());</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (fRec.getParentFactions().size() == 1) {</b>
+<b class="nc">&nbsp;                return findModelAvailabilityRecord(era, unit, fRec.getParentFactions().get(0));</b>
+<b class="nc">&nbsp;            } else if (fRec.getParentFactions().size() &gt; 0) {</b>
+<b class="nc">&nbsp;                ArrayList&lt;AvailabilityRating&gt; list = new ArrayList&lt;&gt;();</b>
+<b class="nc">&nbsp;                for (String alt : fRec.getParentFactions()) {</b>
+<b class="nc">&nbsp;                    AvailabilityRating ar = findModelAvailabilityRecord(era, unit, alt);</b>
+<b class="nc">&nbsp;                    if (ar != null) {</b>
+<b class="nc">&nbsp;                        list.add(ar);</b>
+&nbsp;                    }
+<b class="nc">&nbsp;                }</b>
+<b class="nc">&nbsp;                return mergeFactionAvailability(fRec.getKey(), list);</b>
+&nbsp;            }
+<b class="nc">&nbsp;            return modelIndex.get(era).get(unit).get(&quot;General&quot;);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return null;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Provides a list of availability ratings for a unit in a given era. Used in editing and reporting.
+&nbsp;     * 
+&nbsp;     * @param era  The year of the record. This must be one of the years in the &lt;code&gt;eraSet&lt;/code&gt;.
+&nbsp;     * @param unit The lookup name of the unit to find records for.
+&nbsp;     * @return     A &lt;code&gt;Collection&lt;/code&gt; of all the availability ratings for the unit in the era,
+&nbsp;     *             or null if there are no records for that era.
+&nbsp;     */
+&nbsp;    public Collection&lt;AvailabilityRating&gt; getModelFactionRatings(int era, String unit) {
+<b class="nc">&nbsp;        if (modelIndex.containsKey(era) &amp;&amp; modelIndex.get(era).containsKey(unit)) {</b>
+<b class="nc">&nbsp;            return modelIndex.get(era).get(unit).values();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return null;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Adds or changes an availability rating entry for a model.
+&nbsp;     * 
+&nbsp;     * @param era  The year of the record to change
+&nbsp;     * @param unitKey The model key for the unit which is having its model record updated
+&nbsp;     * @param ar   The new &lt;code&gt;AvailabilityRating&lt;/code&gt; for the unit in the era. This provides the
+&nbsp;     *             faction.
+&nbsp;     */
+&nbsp;    public void setModelFactionRating(int era, String unitKey, AvailabilityRating ar) {
+<b class="nc">&nbsp;        modelIndex.get(era).computeIfAbsent(unitKey, k -&gt; new HashMap&lt;&gt;());</b>
+<b class="nc">&nbsp;        modelIndex.get(era).get(unitKey).put(ar.getFactionCode(), ar);</b>
+<b class="nc">&nbsp;        models.get(unitKey).getIncludedFactions().add(ar.getFactionCode());</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Removes the availability rating entry.
+&nbsp;     * 
+&nbsp;     * @param era      The year of the record to remove.
+&nbsp;     * @param unit     The model to remove the record for.
+&nbsp;     * @param faction  The faction to remove the record for.
+&nbsp;     */
+&nbsp;    public void removeModelFactionRating(int era, String unit, String faction) {
+<b class="nc">&nbsp;        if (modelIndex.containsKey(era) &amp;&amp; modelIndex.get(era).containsKey(unit)) {</b>
+<b class="nc">&nbsp;            modelIndex.get(era).get(unit).remove(faction);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        for (int e : eraSet) {</b>
+<b class="nc">&nbsp;            if (modelIndex.get(e).containsKey(unit) &amp;&amp;</b>
+<b class="nc">&nbsp;                    modelIndex.get(e).get(unit).containsKey(faction)) {</b>
+&nbsp;                return;
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        models.get(unit).getIncludedFactions().remove(faction);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Provides a list of availability ratings for a chassis in a given era. Used in editing and reporting.
+&nbsp;     * 
+&nbsp;     * @param era  The year of the record. This must be one of the years in the &lt;code&gt;eraSet&lt;/code&gt;.
+&nbsp;     * @param chassisKey The chassis name to find records for.
+&nbsp;     * @return     A &lt;code&gt;Collection&lt;/code&gt; of all the availability ratings for the chassis in the era,
+&nbsp;     *             or null if there are no records for that era.
+&nbsp;     */
+&nbsp;    public Collection&lt;AvailabilityRating&gt; getChassisFactionRatings(int era, String chassisKey) {
+<b class="nc">&nbsp;        if (chassisIndex.containsKey(era) &amp;&amp; chassisIndex.get(era).containsKey(chassisKey)) {</b>
+<b class="nc">&nbsp;            return chassisIndex.get(era).get(chassisKey).values();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return null;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Adds or changes an availability rating entry for a chassis.
+&nbsp;     * 
+&nbsp;     * @param era  The year of the record to change
+&nbsp;     * @param unit The name of the chassis for which to change the record
+&nbsp;     * @param ar   The new &lt;code&gt;AvailabilityRating&lt;/code&gt; for the unit in the era. This provides the
+&nbsp;     *             faction.
+&nbsp;     */
+&nbsp;    public void setChassisFactionRating(int era, String unit, AvailabilityRating ar) {
+<b class="nc">&nbsp;        chassisIndex.get(era).computeIfAbsent(unit, k -&gt; new HashMap&lt;&gt;());</b>
+<b class="nc">&nbsp;        chassisIndex.get(era).get(unit).put(ar.getFactionCode(), ar);</b>
+<b class="nc">&nbsp;        chassis.get(unit).getIncludedFactions().add(ar.getFactionCode());</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Removes the availability rating entry.
+&nbsp;     * 
+&nbsp;     * @param era      The year of the record to remove.
+&nbsp;     * @param unit     The chassis to remove the record for.
+&nbsp;     * @param faction  The faction to remove the record for.
+&nbsp;     */
+&nbsp;    public void removeChassisFactionRating(int era, String unit, String faction) {
+<b class="nc">&nbsp;        if (chassisIndex.containsKey(era) &amp;&amp; chassisIndex.get(era).containsKey(unit)) {</b>
+<b class="nc">&nbsp;            chassisIndex.get(era).get(unit).remove(faction);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        for (int e : eraSet) {</b>
+<b class="nc">&nbsp;            if (chassisIndex.get(e).containsKey(unit) &amp;&amp;</b>
+<b class="nc">&nbsp;                    chassisIndex.get(e).get(unit).containsKey(faction)) {</b>
+&nbsp;                return;
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        chassis.get(unit).getIncludedFactions().remove(faction);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public TreeSet&lt;Integer&gt; getEraSet() {
+<b class="nc">&nbsp;        return eraSet;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public Collection&lt;ModelRecord&gt; getModelList() {
+<b class="nc">&nbsp;        return models.values();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public ModelRecord getModelRecord(String key) {
+<b class="nc">&nbsp;        return models.get(key);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Collection&lt;ChassisRecord&gt; getChassisList() {
+<b class="nc">&nbsp;        return chassis.values();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public ChassisRecord getChassisRecord(String key) {
+<b class="nc">&nbsp;        return chassis.get(key);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Collection&lt;FactionRecord&gt; getFactionList() {
+<b class="nc">&nbsp;        return factions.values();</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public FactionRecord getFaction(String key) {
+<b class="nc">&nbsp;        return factions.get(key);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void addFaction(FactionRecord rec) {
+<b class="nc">&nbsp;        factions.put(rec.getKey(), rec);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void removeFaction(FactionRecord rec) {
+<b class="nc">&nbsp;        factions.remove(rec.getKey());</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void removeFaction(String key) {
+<b class="nc">&nbsp;        factions.remove(key);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Collection&lt;String&gt; getFactionKeySet() {
+<b class="nc">&nbsp;        return factions.keySet();</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public int eraForYear(int year) {
+<b class="nc">&nbsp;        if (year &lt; eraSet.first()) {</b>
+<b class="nc">&nbsp;            return eraSet.first();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return eraSet.floor(year);</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public boolean eraIsLoaded(int era) {
+<b class="nc">&nbsp;        return chassisIndex.containsKey(era);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Used for a faction with multiple parent factions (e.g. FC == FS + LA) to find the average
+&nbsp;     * availability among the parents. Based on average weight rather than av rating.
+&nbsp;     * 
+&nbsp;     * @param faction The faction code to use for the new AvailabilityRecord
+&nbsp;     * @param list A list of ARs for the various parent factions
+&nbsp;     * @return A new AR with the average availability code from the various factions.
+&nbsp;     */
+&nbsp;    private AvailabilityRating mergeFactionAvailability(String faction, List&lt;AvailabilityRating&gt; list) {
+<b class="nc">&nbsp;        if (list.size() == 0) {</b>
+<b class="nc">&nbsp;            return null;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        double totalWt = 0;</b>
+<b class="nc">&nbsp;        int totalAdj = 0;</b>
+<b class="nc">&nbsp;        for (AvailabilityRating ar : list) {</b>
+<b class="nc">&nbsp;            totalWt += AvailabilityRating.calcWeight(ar.availability);</b>
+<b class="nc">&nbsp;            totalAdj += ar.ratingAdjustment;</b>
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        AvailabilityRating retVal = list.get(0).makeCopy(faction);</b>
+&nbsp;        
+<b class="nc">&nbsp;        retVal.availability = (int)(AvailabilityRating.calcAvRating(totalWt / list.size()));</b>
+<b class="nc">&nbsp;        if (totalAdj &lt; 0) {</b>
+<b class="nc">&nbsp;            retVal.ratingAdjustment = (totalAdj - 1)/ list.size();</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            retVal.ratingAdjustment = (totalAdj + 1)/ list.size();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return retVal;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Given values for two years, interpolates or extrapolates value for another given year.
+&nbsp;     * If one of the two values is null, it is treated as 0.
+&nbsp;     * 
+&nbsp;     * @param av1 The first value.
+&nbsp;     * @param av2 The second value.
+&nbsp;     * @param year1 The year for the first value.
+&nbsp;     * @param year2 The year for the second value.
+&nbsp;     * @param now The year for which to calculate a value.
+&nbsp;     * @return The value for the year in question. Returns null if av1 and av2 are both null.
+&nbsp;     */
+&nbsp;    
+&nbsp;    private Double interpolate(Number av1, Number av2, int year1, int year2, int now) {
+<b class="nc">&nbsp;        if (av1 == null &amp;&amp; av2 == null) {</b>
+<b class="nc">&nbsp;            return null;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (av1 == null) {</b>
+<b class="nc">&nbsp;            av1 = 0.0;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (av2 == null) {</b>
+<b class="nc">&nbsp;            av2 = 0.0;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (year1 == year2) {</b>
+<b class="nc">&nbsp;            return av1.doubleValue();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return av1.doubleValue()</b>
+<b class="nc">&nbsp;                + (av2.doubleValue() - av1.doubleValue()) * (now - year1) / (year2 - year1);</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public List&lt;UnitTable.TableEntry&gt; generateTable(FactionRecord fRec, int unitType, int year,
+&nbsp;            String rating, Collection&lt;Integer&gt; weightClasses, int networkMask,
+&nbsp;            Collection&lt;EntityMovementMode&gt; movementModes,
+&nbsp;            Collection&lt;MissionRole&gt; roles, int roleStrictness,
+&nbsp;            FactionRecord user) {
+<b class="nc">&nbsp;        HashMap&lt;ModelRecord, Double&gt; unitWeights = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        HashMap&lt;FactionRecord, Double&gt; salvageWeights = new HashMap&lt;&gt;();</b>
+&nbsp;        
+<b class="nc">&nbsp;        loadYear(year);</b>
+&nbsp;        
+<b class="nc">&nbsp;        if (fRec == null) {</b>
+<b class="nc">&nbsp;            fRec = new FactionRecord();</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        Integer early = eraSet.floor(year);</b>
+<b class="nc">&nbsp;        if (early == null) {</b>
+<b class="nc">&nbsp;            early = eraSet.first();</b>
+&nbsp;        }
+<b class="nc">&nbsp;        Integer late = null;</b>
+<b class="nc">&nbsp;        if (!eraSet.contains(year)) {</b>
+<b class="nc">&nbsp;            late = eraSet.ceiling(year);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (late == null) {</b>
+<b class="nc">&nbsp;            late = early;</b>
+&nbsp;        }
+&nbsp;        
+&nbsp;        /* Adjustments for unit rating require knowing both how many ratings are available
+&nbsp;         * to the faction and where the rating falls within the whole. If a faction does
+&nbsp;         * not have designated rating levels, it inherits those of the parent faction;
+&nbsp;         * if there are multiple parent factions the first match is used. Some very minor
+&nbsp;         * or generic factions do not use rating adjustments, indicated by a rating level
+&nbsp;         * of -1. A faction that has one rating level is a special case that always has
+&nbsp;         * the indicated rating within the parent faction&#39;s system.
+&nbsp;         */
+&nbsp;        
+<b class="nc">&nbsp;        int ratingLevel = -1;</b>
+<b class="nc">&nbsp;        ArrayList&lt;String&gt; factionRatings = fRec.getRatingLevelSystem();</b>
+<b class="nc">&nbsp;        int numRatingLevels = factionRatings.size();</b>
+<b class="nc">&nbsp;        if (rating == null &amp;&amp; fRec.getRatingLevels().size() == 1) {</b>
+<b class="nc">&nbsp;            ratingLevel = factionRatings.indexOf(fRec.getRatingLevels().get(0));</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (rating != null &amp;&amp; numRatingLevels &gt; 1) {</b>
+<b class="nc">&nbsp;            ratingLevel = factionRatings.indexOf(rating);</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        for (String chassisKey : chassisIndex.get(early).keySet()) {</b>
+<b class="nc">&nbsp;            ChassisRecord cRec = chassis.get(chassisKey);</b>
+<b class="nc">&nbsp;            if (cRec == null) {</b>
+<b class="nc">&nbsp;                MegaMek.getLogger().error(&quot;Could not locate chassis &quot; + chassisKey);</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if (cRec.getUnitType() != unitType &amp;&amp;</b>
+&nbsp;                    !(unitType == UnitType.TANK
+<b class="nc">&nbsp;                        &amp;&amp; cRec.getUnitType() == UnitType.VTOL</b>
+<b class="nc">&nbsp;                        &amp;&amp; movementModes.contains(EntityMovementMode.VTOL))) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+&nbsp;
+<b class="nc">&nbsp;            AvailabilityRating ar = findChassisAvailabilityRecord(early,</b>
+<b class="nc">&nbsp;                        cRec.getChassisKey(), fRec, year);</b>
+<b class="nc">&nbsp;            if (ar == null) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            double cAv = cRec.calcAvailability(ar, ratingLevel, numRatingLevels, early);</b>
+<b class="nc">&nbsp;            cAv = interpolate(cAv,</b>
+<b class="nc">&nbsp;                    cRec.calcAvailability(ar, ratingLevel, numRatingLevels, late),</b>
+<b class="nc">&nbsp;                    Math.max(early, cRec.getIntroYear()), late, year);</b>
+<b class="nc">&nbsp;            if (cAv &gt; 0) {</b>
+<b class="nc">&nbsp;                double totalModelWeight = cRec.totalModelWeight(early,</b>
+<b class="nc">&nbsp;                        cRec.isOmni()?user : fRec);</b>
+<b class="nc">&nbsp;                for (ModelRecord mRec : cRec.getModels()) {</b>
+<b class="nc">&nbsp;                    if (mRec.getIntroYear() &gt;= year</b>
+<b class="nc">&nbsp;                            || (weightClasses.size() &gt; 0</b>
+<b class="nc">&nbsp;                                    &amp;&amp; !weightClasses.contains(mRec.getWeightClass()))</b>
+<b class="nc">&nbsp;                            || (networkMask &amp; mRec.getNetworkMask()) != networkMask) {</b>
+<b class="nc">&nbsp;                        continue;</b>
+&nbsp;                    }
+<b class="nc">&nbsp;                    if (movementModes.size() &gt; 0 &amp;&amp; !movementModes.contains(mRec.getMovementMode())) {</b>
+<b class="nc">&nbsp;                        continue;</b>
+&nbsp;                    }
+<b class="nc">&nbsp;                    ar = findModelAvailabilityRecord(early,</b>
+<b class="nc">&nbsp;                            mRec.getKey(), fRec);</b>
+<b class="nc">&nbsp;                    if (ar == null || ar.getAvailability() == 0) {</b>
+<b class="nc">&nbsp;                        continue;</b>
+&nbsp;                    }
+<b class="nc">&nbsp;                    double mAv = mRec.calcAvailability(ar, ratingLevel, numRatingLevels, early);</b>
+<b class="nc">&nbsp;                    mAv = interpolate(mAv,</b>
+<b class="nc">&nbsp;                            mRec.calcAvailability(ar, ratingLevel, numRatingLevels, late),</b>
+<b class="nc">&nbsp;                            Math.max(early, mRec.getIntroYear()), late, year);</b>
+<b class="nc">&nbsp;                    Double adjMAv = MissionRole.adjustAvailabilityByRole(mAv, roles, mRec, year, roleStrictness);</b>
+<b class="nc">&nbsp;                    if (adjMAv != null) {</b>
+<b class="nc">&nbsp;                        double mWt = AvailabilityRating.calcWeight(adjMAv) / totalModelWeight</b>
+<b class="nc">&nbsp;                                * AvailabilityRating.calcWeight(cAv);</b>
+&nbsp;
+<b class="nc">&nbsp;                        if (mWt &gt; 0) {</b>
+<b class="nc">&nbsp;                            unitWeights.put(mRec, mWt);</b>
+&nbsp;                        }
+&nbsp;                    }
+<b class="nc">&nbsp;                }</b>
+&nbsp;            }                        
+<b class="nc">&nbsp;        }</b>
+&nbsp;
+<b class="nc">&nbsp;        if (unitWeights.size() == 0) {</b>
+<b class="nc">&nbsp;            return new ArrayList&lt;&gt;();</b>
+&nbsp;        }
+&nbsp;        
+&nbsp;        /* If there is more than one weight class and the faction record (or parent)
+&nbsp;         * indicates a certain distribution of weight classes, adjust the weight value
+&nbsp;         * to conform to the given ratio.
+&nbsp;         */
+&nbsp;
+<b class="nc">&nbsp;        if (weightClasses.size() &gt; 1) {</b>
+&nbsp;            // Get standard weight class distribution for faction
+<b class="nc">&nbsp;            ArrayList&lt;Integer&gt; wcd = fRec.getWeightDistribution(early, unitType);</b>
+&nbsp;            
+<b class="nc">&nbsp;            if (wcd != null &amp;&amp; wcd.size() &gt; 0) {</b>
+&nbsp;                /* Ultra-light and superheavy are too rare to warrant their own values and
+&nbsp;                 * for weight class distribution purposes are grouped with light and
+&nbsp;                 * assault, respectively.
+&nbsp;                 */
+<b class="nc">&nbsp;                final int[] wcdIndex = {0, 0, 1, 2, 3, 3};</b>
+&nbsp;                //Find the totals of the weight for the generated table 
+<b class="nc">&nbsp;                double totalMRWeight = unitWeights.values().stream().mapToDouble(Double::doubleValue).sum();</b>
+&nbsp;                //Find the sum of the weight distribution values for all weight classes in use.
+<b class="nc">&nbsp;                int totalWCDWeights = weightClasses.stream().filter(wc -&gt; wcdIndex[wc] &lt; wcd.size())</b>
+<b class="nc">&nbsp;                        .mapToInt(wc -&gt; wcd.get(wcdIndex[wc])).sum();</b>
+&nbsp;                
+<b class="nc">&nbsp;                if (totalWCDWeights &gt; 0) {</b>
+&nbsp;                    //Group all the models of the generated table by weight class.
+<b class="nc">&nbsp;                    java.util.function.Function&lt;ModelRecord,Integer&gt; grouper =</b>
+<b class="nc">&nbsp;                            mr -&gt; wcdIndex[mr.getWeightClass()];</b>
+<b class="nc">&nbsp;                    Map&lt;Integer,List&lt;ModelRecord&gt;&gt; weightGroups = unitWeights.keySet().stream()</b>
+<b class="nc">&nbsp;                            .collect(Collectors.groupingBy(grouper));</b>
+&nbsp;                    
+&nbsp;                    /* Go through the weight class groups and adjust the table weights so the
+&nbsp;                     * total of each group corresponds to the distribution for this faction. */
+<b class="nc">&nbsp;                    for (int i : weightGroups.keySet()) {</b>
+<b class="nc">&nbsp;                        double totalWeight = weightGroups.get(i).stream()</b>
+<b class="nc">&nbsp;                                .mapToDouble(unitWeights::get).sum();</b>
+<b class="nc">&nbsp;                        if (totalWeight &gt; 0) {</b>
+<b class="nc">&nbsp;                            double adj = totalMRWeight * wcd.get(i) / (totalWeight * totalWCDWeights);</b>
+<b class="nc">&nbsp;                            weightGroups.get(i).forEach(mr -&gt; unitWeights.merge(mr, adj, (x,y) -&gt; x*y));</b>
+&nbsp;                        }
+<b class="nc">&nbsp;                    }</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        double total = unitWeights.values().stream().mapToDouble(Double::doubleValue).sum();</b>
+&nbsp;
+<b class="nc">&nbsp;        if (fRec.getPctSalvage(early) != null) {</b>
+<b class="nc">&nbsp;            HashMap&lt;String,Double&gt; salvageEntries = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;            for (Map.Entry&lt;String,Integer&gt; entry : fRec.getSalvage(early).entrySet()) {</b>
+<b class="nc">&nbsp;                salvageEntries.put(entry.getKey(),</b>
+<b class="nc">&nbsp;                        interpolate(entry.getValue(),</b>
+<b class="nc">&nbsp;                                fRec.getSalvage(late).get(entry.getKey()),</b>
+<b class="nc">&nbsp;                                        early, late, year));</b>
+<b class="nc">&nbsp;            }</b>
+<b class="nc">&nbsp;            if (!late.equals(early)) {</b>
+<b class="nc">&nbsp;                for (Map.Entry&lt;String,Integer&gt; entry : fRec.getSalvage(late).entrySet()) {</b>
+<b class="nc">&nbsp;                    if (!salvageEntries.containsKey(entry.getKey())) {</b>
+<b class="nc">&nbsp;                        salvageEntries.put(entry.getKey(), interpolate(0.0,</b>
+<b class="nc">&nbsp;                                entry.getValue(), early, late, year));</b>
+&nbsp;                    }
+<b class="nc">&nbsp;                }</b>
+&nbsp;            }            
+&nbsp;            
+<b class="nc">&nbsp;            double salvage = fRec.getPctSalvage(early);</b>
+<b class="nc">&nbsp;            if (salvage &gt;= 100) {</b>
+<b class="nc">&nbsp;                salvage = total;</b>
+<b class="nc">&nbsp;                unitWeights.clear();</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                salvage = salvage * total / (100 - salvage);</b>
+&nbsp;            }
+<b class="nc">&nbsp;            double totalFactionWeight = salvageEntries.values().stream()</b>
+<b class="nc">&nbsp;                    .mapToDouble(Double::doubleValue).sum();</b>
+<b class="nc">&nbsp;            for (String fKey : salvageEntries.keySet()) {</b>
+<b class="nc">&nbsp;                FactionRecord salvageFaction = factions.get(fKey);</b>
+<b class="nc">&nbsp;                if (salvageFaction == null) {</b>
+<b class="nc">&nbsp;                    MegaMek.getLogger().debug(&quot;Could not locate faction &quot; + fKey </b>
+<b class="nc">&nbsp;                            + &quot; for &quot; + fRec.getKey() + &quot; salvage&quot;);</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    double wt = salvage * salvageEntries.get(fKey) / totalFactionWeight;</b>
+<b class="nc">&nbsp;                    salvageWeights.put(salvageFaction, wt);</b>
+&nbsp;                }
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        if (ratingLevel &gt;= 0) {</b>
+<b class="nc">&nbsp;            adjustForRating(fRec, unitType, year, ratingLevel,</b>
+&nbsp;                    unitWeights, salvageWeights, early, late);
+&nbsp;        }
+&nbsp;        
+&nbsp;        
+&nbsp;        /* Increase weights if necessary to keep smallest from rounding down to zero */
+&nbsp;        
+<b class="nc">&nbsp;        double adj = 1.0;</b>
+<b class="nc">&nbsp;        DoubleSummaryStatistics stats = Stream.concat(salvageWeights.values().stream(),</b>
+<b class="nc">&nbsp;                unitWeights.values().stream())</b>
+<b class="nc">&nbsp;                .mapToDouble(Double::doubleValue)</b>
+<b class="nc">&nbsp;                .filter(d -&gt; d &gt; 0)</b>
+<b class="nc">&nbsp;                .summaryStatistics();</b>
+<b class="nc">&nbsp;        if (stats.getMin() &lt; 0.5 || stats.getMax() &gt; 1000) {</b>
+<b class="nc">&nbsp;            adj = 0.5 / stats.getMin();</b>
+<b class="nc">&nbsp;            if (stats.getMax() * adj &gt; 1000.0) {</b>
+<b class="nc">&nbsp;                adj = 1000.0 / stats.getMax();</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        List&lt;UnitTable.TableEntry&gt; retVal = new ArrayList&lt;&gt;();</b>
+<b class="nc">&nbsp;        for (FactionRecord faction : salvageWeights.keySet()) {</b>
+<b class="nc">&nbsp;            int wt = (int)(salvageWeights.get(faction) * adj + 0.5);</b>
+<b class="nc">&nbsp;            if (wt &gt; 0) {</b>
+<b class="nc">&nbsp;                retVal.add(new UnitTable.TableEntry(wt, faction));</b>
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        for (ModelRecord mRec : unitWeights.keySet()) {</b>
+<b class="nc">&nbsp;            int wt = (int)(unitWeights.get(mRec) * adj + 0.5);</b>
+<b class="nc">&nbsp;            if (wt &gt; 0) {</b>
+<b class="nc">&nbsp;                retVal.add(new UnitTable.TableEntry(wt, mRec.getMechSummary()));</b>
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        return retVal;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    private void adjustForRating(FactionRecord fRec, int unitType, int year,
+&nbsp;            int rating, HashMap&lt;ModelRecord, Double&gt; unitWeights,
+&nbsp;            HashMap&lt;FactionRecord, Double&gt; salvageWeights, Integer early,
+&nbsp;            Integer late) {
+<b class="nc">&nbsp;        double total = 0.0;</b>
+<b class="nc">&nbsp;        double totalOmni = 0.0;</b>
+<b class="nc">&nbsp;        double totalClan = 0.0;</b>
+<b class="nc">&nbsp;        double totalSL = 0.0;</b>
+<b class="nc">&nbsp;        for (Map.Entry&lt;ModelRecord, Double&gt; entry : unitWeights.entrySet()) {</b>
+<b class="nc">&nbsp;            total += entry.getValue();</b>
+<b class="nc">&nbsp;            if (entry.getKey().isOmni()) {</b>
+<b class="nc">&nbsp;                totalOmni += entry.getValue();</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (entry.getKey().isClan()) {</b>
+<b class="nc">&nbsp;                totalClan += entry.getValue();</b>
+<b class="nc">&nbsp;            } else if (entry.getKey().isSL()) {</b>
+<b class="nc">&nbsp;                totalSL += entry.getValue();</b>
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        Double pctOmni = null;</b>
+<b class="nc">&nbsp;        Double pctNonOmni = null;</b>
+<b class="nc">&nbsp;        Double pctSL = null;</b>
+<b class="nc">&nbsp;        Double pctClan = null;</b>
+<b class="nc">&nbsp;        Double pctOther = null;</b>
+<b class="nc">&nbsp;        if (unitType == UnitType.MEK) {</b>
+<b class="nc">&nbsp;            pctOmni = interpolate(fRec.findPctTech(FactionRecord.TechCategory.OMNI, early, rating),</b>
+<b class="nc">&nbsp;                    fRec.findPctTech(FactionRecord.TechCategory.OMNI, late, rating), early, late, year);</b>
+<b class="nc">&nbsp;            pctClan = interpolate(fRec.findPctTech(FactionRecord.TechCategory.CLAN, early, rating),</b>
+<b class="nc">&nbsp;                    fRec.findPctTech(FactionRecord.TechCategory.CLAN, late, rating), early, late, year);</b>
+<b class="nc">&nbsp;            pctSL = interpolate(fRec.findPctTech(FactionRecord.TechCategory.IS_ADVANCED, early, rating),</b>
+<b class="nc">&nbsp;                    fRec.findPctTech(FactionRecord.TechCategory.IS_ADVANCED, late, rating), early, late, year);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (unitType == UnitType.AERO) {</b>
+<b class="nc">&nbsp;            pctOmni = interpolate(fRec.findPctTech(FactionRecord.TechCategory.OMNI_AERO, early, rating),</b>
+<b class="nc">&nbsp;                    fRec.findPctTech(FactionRecord.TechCategory.OMNI_AERO, late, rating), early, late, year);</b>
+<b class="nc">&nbsp;            pctClan = interpolate(fRec.findPctTech(FactionRecord.TechCategory.CLAN_AERO, early, rating),</b>
+<b class="nc">&nbsp;                    fRec.findPctTech(FactionRecord.TechCategory.CLAN_AERO, late, rating), early, late, year);</b>
+<b class="nc">&nbsp;            pctSL = interpolate(fRec.findPctTech(FactionRecord.TechCategory.IS_ADVANCED_AERO, early, rating),</b>
+<b class="nc">&nbsp;                    fRec.findPctTech(FactionRecord.TechCategory.IS_ADVANCED_AERO, late, rating), early, late, year);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (unitType == UnitType.TANK || unitType == UnitType.VTOL) {</b>
+<b class="nc">&nbsp;            pctClan = interpolate(fRec.findPctTech(FactionRecord.TechCategory.CLAN_VEE, early, rating),</b>
+<b class="nc">&nbsp;                    fRec.findPctTech(FactionRecord.TechCategory.CLAN_VEE, late, rating), early, late, year);</b>
+<b class="nc">&nbsp;            pctSL = interpolate(fRec.findPctTech(FactionRecord.TechCategory.IS_ADVANCED_VEE, early, rating),</b>
+<b class="nc">&nbsp;                    fRec.findPctTech(FactionRecord.TechCategory.IS_ADVANCED_VEE, late, rating), early, late, year);</b>
+&nbsp;        }
+&nbsp;        /* Adjust for lack of precision in post-FM:Updates extrapolations */
+<b class="nc">&nbsp;        if (pctSL != null || pctClan != null) {</b>
+<b class="nc">&nbsp;            pctOther = 100.0;</b>
+<b class="nc">&nbsp;            if (pctSL != null) {</b>
+<b class="nc">&nbsp;                pctOther -= pctSL;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (pctClan != null) {</b>
+<b class="nc">&nbsp;                pctOther -= pctClan;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            Double techMargin = interpolate(fRec.getTechMargin(early),</b>
+<b class="nc">&nbsp;                    fRec.getTechMargin(late),</b>
+<b class="nc">&nbsp;                    early, late, year);</b>
+<b class="nc">&nbsp;            if (techMargin != null &amp;&amp; techMargin &gt; 0) {</b>
+<b class="nc">&nbsp;                if (pctClan != null) {</b>
+<b class="nc">&nbsp;                    double pct = 100.0 * totalClan / total;</b>
+<b class="nc">&nbsp;                    if (pct &lt; pctClan - techMargin) {</b>
+<b class="nc">&nbsp;                        pctClan -= techMargin;</b>
+<b class="nc">&nbsp;                    } else if (pct &gt; pctClan + techMargin) {</b>
+<b class="nc">&nbsp;                        pctClan += techMargin;</b>
+&nbsp;                    }
+&nbsp;                }
+<b class="nc">&nbsp;                if (pctSL != null) {</b>
+<b class="nc">&nbsp;                    double pct = 100.0 * totalSL / total;</b>
+<b class="nc">&nbsp;                    if (pct &lt; pctSL - techMargin) {</b>
+<b class="nc">&nbsp;                        pctSL -= techMargin;</b>
+<b class="nc">&nbsp;                    } else if (pct &gt; pctSL + techMargin) {</b>
+<b class="nc">&nbsp;                        pctSL += techMargin;</b>
+&nbsp;                    }
+&nbsp;                }                    
+&nbsp;            }
+<b class="nc">&nbsp;            Double upgradeMargin = interpolate(fRec.getUpgradeMargin(early),</b>
+<b class="nc">&nbsp;                    fRec.getUpgradeMargin(late),</b>
+<b class="nc">&nbsp;                    early, late, year);</b>
+<b class="nc">&nbsp;            if (upgradeMargin != null &amp;&amp; upgradeMargin &gt; 0) {</b>
+<b class="nc">&nbsp;                double pct = 100.0 * (total - totalClan - totalSL) / total;</b>
+<b class="nc">&nbsp;                if (pct &lt; pctOther - upgradeMargin) {</b>
+<b class="nc">&nbsp;                    pctOther -= upgradeMargin;</b>
+<b class="nc">&nbsp;                } else if (pct &gt; pctOther + upgradeMargin) {</b>
+<b class="nc">&nbsp;                    pctOther += upgradeMargin;</b>
+&nbsp;                }
+&nbsp;                /* If clan, sl, and other are all adjusted, the values probably
+&nbsp;                 * don&#39;t add up to 100, which is fine unless the upgradeMargin is
+&nbsp;                 * &lt;= techMargin. Then pctOther is more certain, and we adjust 
+&nbsp;                 * the values of clan and sl to keep the value of &quot;other&quot; equal to
+&nbsp;                 * a percentage. 
+&nbsp;                 */
+<b class="nc">&nbsp;                if (techMargin != null) {</b>
+<b class="nc">&nbsp;                    if (upgradeMargin &lt;= techMargin) {</b>
+<b class="nc">&nbsp;                        if (pctClan == null || pctClan == 0) {</b>
+<b class="nc">&nbsp;                            pctSL = 100.0 - pctOther;</b>
+<b class="nc">&nbsp;                        } else if (pctSL == null || pctSL == 0) {</b>
+<b class="nc">&nbsp;                            pctClan = 100.0 - pctOther;</b>
+&nbsp;                        } else {
+<b class="nc">&nbsp;                            pctSL = (100.0 - pctOther) * pctSL / (pctSL + pctClan);</b>
+<b class="nc">&nbsp;                            pctClan = 100.0 - pctOther - pctSL;</b>
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        if (pctOmni != null) {</b>
+<b class="nc">&nbsp;            Double omniMargin = interpolate(fRec.getOmniMargin(early),</b>
+<b class="nc">&nbsp;                    fRec.getOmniMargin(late),</b>
+<b class="nc">&nbsp;                    early, late, year);</b>
+<b class="nc">&nbsp;            if (omniMargin != null &amp;&amp; omniMargin &gt; 0) {</b>
+<b class="nc">&nbsp;                double pct = 100.0 * totalOmni / total;</b>
+<b class="nc">&nbsp;                if (pct &lt; pctOmni - omniMargin) {</b>
+<b class="nc">&nbsp;                    pctOmni -= omniMargin;</b>
+<b class="nc">&nbsp;                } else if (pct &gt; pctOmni + omniMargin) {</b>
+<b class="nc">&nbsp;                    pctOmni += omniMargin;</b>
+&nbsp;                }
+&nbsp;            }
+<b class="nc">&nbsp;            pctNonOmni = 100.0 - pctOmni;</b>
+&nbsp;        }            
+&nbsp;                
+&nbsp;        /* For non-Clan factions, the amount of salvage from Clan factions is
+&nbsp;         * part of the overall Clan percentage.
+&nbsp;         */
+<b class="nc">&nbsp;        if (!fRec.isClan() &amp;&amp; pctClan != null &amp;&amp; totalClan &gt; 0) {</b>
+<b class="nc">&nbsp;            double clanSalvage = salvageWeights.keySet().stream().filter(FactionRecord::isClan)</b>
+<b class="nc">&nbsp;                    .mapToDouble(salvageWeights::get).sum();</b>
+<b class="nc">&nbsp;            total += clanSalvage;</b>
+<b class="nc">&nbsp;            totalClan += clanSalvage;</b>
+<b class="nc">&nbsp;            for (FactionRecord fr : salvageWeights.keySet()) {</b>
+<b class="nc">&nbsp;                if (fr.isClan()) {</b>
+<b class="nc">&nbsp;                    salvageWeights.put(fr, salvageWeights.get(fr)</b>
+<b class="nc">&nbsp;                            * (pctClan / 100.0) * (total / totalClan));</b>
+&nbsp;                }
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+<b class="nc">&nbsp;        double totalOther = total - totalClan - totalSL;</b>
+<b class="nc">&nbsp;        for (ModelRecord mRec : unitWeights.keySet()) {</b>
+<b class="nc">&nbsp;            if (pctOmni != null &amp;&amp; mRec.isOmni() &amp;&amp; totalOmni &lt; total) {</b>
+<b class="nc">&nbsp;                unitWeights.put(mRec, unitWeights.get(mRec) * (pctOmni / 100.0) * (total / totalOmni));</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (pctNonOmni != null &amp;&amp; !mRec.isOmni() &amp;&amp; totalOmni &gt; 0) {</b>
+<b class="nc">&nbsp;                unitWeights.put(mRec, unitWeights.get(mRec) * (pctNonOmni / 100.0) * (total / (total - totalOmni)));                        </b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (pctSL != null &amp;&amp; mRec.isSL()</b>
+&nbsp;                    &amp;&amp; totalSL &gt; 0) {
+<b class="nc">&nbsp;                unitWeights.put(mRec, unitWeights.get(mRec) * (pctSL / 100.0) * (total / totalSL));</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (pctClan != null &amp;&amp; mRec.isClan()</b>
+&nbsp;                    &amp;&amp; totalClan &gt; 0) {
+<b class="nc">&nbsp;                unitWeights.put(mRec, unitWeights.get(mRec) * (pctClan / 100.0) * (total / totalClan));</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (pctOther != null &amp;&amp; pctOther &gt; 0 &amp;&amp; !mRec.isClan() &amp;&amp; !mRec.isSL()) {</b>
+<b class="nc">&nbsp;                unitWeights.put(mRec, unitWeights.get(mRec) * (pctOther / 100.0)</b>
+&nbsp;                        * (total / totalOther));
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        double multiplier = total / unitWeights.values().stream().mapToDouble(Double::doubleValue).sum();</b>
+<b class="nc">&nbsp;        for (ModelRecord mRec : unitWeights.keySet()) {</b>
+<b class="nc">&nbsp;            unitWeights.merge(mRec, multiplier, (a, b) -&gt; a * b);</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void dispose() {
+<b class="nc">&nbsp;        interrupted = true;</b>
+<b class="nc">&nbsp;        dispose = true;</b>
+<b class="nc">&nbsp;        if (initialized){</b>
+<b class="nc">&nbsp;            rg = null;</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private synchronized void initialize(File dir) {
+&nbsp;        // Give the MSC some time to initialize
+<b class="nc">&nbsp;        MechSummaryCache msc = MechSummaryCache.getInstance();</b>
+<b class="nc">&nbsp;        long waitLimit = System.currentTimeMillis() + 3000; /* 3 seconds */</b>
+<b class="nc">&nbsp;        while( !interrupted &amp;&amp; !msc.isInitialized() &amp;&amp; waitLimit &gt; System.currentTimeMillis() ) {</b>
+&nbsp;            try {
+<b class="nc">&nbsp;                Thread.sleep(50);</b>
+<b class="nc">&nbsp;            } catch(InterruptedException e) {</b>
+&nbsp;                // Ignore
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (!(dir.exists() &amp;&amp; dir.isDirectory())) {</b>
+<b class="nc">&nbsp;            MegaMek.getLogger().error(dir + &quot; is not a directory&quot;);</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            loadFactions(dir);</b>
+&nbsp;
+<b class="nc">&nbsp;            for (File f : dir.listFiles()) {</b>
+<b class="nc">&nbsp;                if (f.getName().matches(&quot;\\d+\\.xml&quot;)) {</b>
+<b class="nc">&nbsp;                    eraSet.add(Integer.parseInt(f.getName().replace(&quot;.xml&quot;, &quot;&quot;)));</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (!interrupted) {</b>
+<b class="nc">&nbsp;            rg.initialized = true;</b>
+<b class="nc">&nbsp;            rg.notifyListenersOfInitialization();</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (dispose) {</b>
+<b class="nc">&nbsp;            rg = null;</b>
+<b class="nc">&nbsp;            dispose = false;</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * If year is equal to one of the era marks, loads that era. If it is between,
+&nbsp;     * loads eras on both sides.
+&nbsp;     */
+&nbsp;    public void loadYear(int year) {
+<b class="nc">&nbsp;        if (eraSet.contains(year)) {</b>
+<b class="nc">&nbsp;            loadEra(year);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (year &gt; eraSet.first()) {</b>
+<b class="nc">&nbsp;            loadEra(eraSet.floor(year));</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if (year &lt; eraSet.last()) {</b>
+<b class="nc">&nbsp;            loadEra(eraSet.ceiling(year));</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;    
+&nbsp;    private void loadFactions(File dir) {
+<b class="nc">&nbsp;        File file = new MegaMekFile(dir, &quot;factions.xml&quot;).getFile();</b>
+&nbsp;        FileInputStream fis;
+&nbsp;        try {
+<b class="nc">&nbsp;            fis = new FileInputStream(file);</b>
+<b class="nc">&nbsp;        } catch (FileNotFoundException e) {</b>
+<b class="nc">&nbsp;            MegaMek.getLogger().error(&quot;Unable to read RAT generator factions file&quot;);</b>
+&nbsp;            return;
+<b class="nc">&nbsp;        }</b>
+&nbsp;
+&nbsp;        Document xmlDoc;
+&nbsp;
+&nbsp;        try {
+<b class="nc">&nbsp;            DocumentBuilder db = MegaMekXmlUtil.newSafeDocumentBuilder();</b>
+<b class="nc">&nbsp;            xmlDoc = db.parse(fis);</b>
+<b class="nc">&nbsp;        } catch (Exception ex) {</b>
+<b class="nc">&nbsp;            MegaMek.getLogger().error(ex);</b>
+&nbsp;            return;
+<b class="nc">&nbsp;        }</b>
+&nbsp;
+<b class="nc">&nbsp;        Element element = xmlDoc.getDocumentElement();</b>
+<b class="nc">&nbsp;        NodeList nl = element.getChildNodes();</b>
+&nbsp;
+<b class="nc">&nbsp;        element.normalize();</b>
+&nbsp;
+<b class="nc">&nbsp;        for (int x = 0; x &lt; nl.getLength(); x++) {</b>
+<b class="nc">&nbsp;            Node wn = nl.item(x);</b>
+<b class="nc">&nbsp;            if (wn.getNodeName().equalsIgnoreCase(&quot;faction&quot;)) {</b>
+<b class="nc">&nbsp;                if (wn.getAttributes().getNamedItem(&quot;key&quot;) != null) {</b>
+<b class="nc">&nbsp;                    FactionRecord rec = FactionRecord.createFromXml(wn);</b>
+<b class="nc">&nbsp;                    factions.put(rec.getKey(), rec);</b>
+<b class="nc">&nbsp;                } else {</b>
+<b class="nc">&nbsp;                    MegaMek.getLogger().warning(&quot;Faction key not found in &quot; + file.getPath());</b>
+&nbsp;                }
+&nbsp;            }            
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private void loadEra(int era) {
+<b class="nc">&nbsp;        loadEra(era, Configuration.forceGeneratorDir());</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    private synchronized void loadEra(int era, File dir) {
+<b class="nc">&nbsp;        if (eraIsLoaded(era)) {</b>
+&nbsp;            return;
+&nbsp;        }
+<b class="nc">&nbsp;        chassisIndex.put(era, new HashMap&lt;&gt;());</b>
+<b class="nc">&nbsp;        modelIndex.put(era, new HashMap&lt;&gt;());</b>
+<b class="nc">&nbsp;        File file = new MegaMekFile(dir, era + &quot;.xml&quot;).getFile();</b>
+&nbsp;        FileInputStream fis;
+&nbsp;        try {
+<b class="nc">&nbsp;            fis = new FileInputStream(file);</b>
+<b class="nc">&nbsp;        } catch (FileNotFoundException e) {</b>
+<b class="nc">&nbsp;            MegaMek.getLogger().error(&quot;Unable to read RAT generator file for era &quot; + era);</b>
+&nbsp;            return;
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        while (!MechSummaryCache.getInstance().isInitialized()) {</b>
+&nbsp;            try {
+<b class="nc">&nbsp;                Thread.sleep(50);</b>
+<b class="nc">&nbsp;            } catch (InterruptedException ex) {</b>
+&nbsp;                //do nothing
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        Document xmlDoc;
+&nbsp;
+&nbsp;        try {
+<b class="nc">&nbsp;            DocumentBuilder db = MegaMekXmlUtil.newSafeDocumentBuilder();</b>
+<b class="nc">&nbsp;            xmlDoc = db.parse(fis);</b>
+<b class="nc">&nbsp;        } catch (Exception ex) {</b>
+<b class="nc">&nbsp;            MegaMek.getLogger().error(ex);</b>
+&nbsp;            return;
+<b class="nc">&nbsp;        }</b>
+&nbsp;
+<b class="nc">&nbsp;        Element element = xmlDoc.getDocumentElement();</b>
+<b class="nc">&nbsp;        NodeList nl = element.getChildNodes();</b>
+&nbsp;
+<b class="nc">&nbsp;        element.normalize();</b>
+&nbsp;
+<b class="nc">&nbsp;        for (int x = 0; x &lt; nl.getLength(); x++) {</b>
+<b class="nc">&nbsp;            Node mainNode = nl.item(x);</b>
+<b class="nc">&nbsp;            if (mainNode.getNodeName().equalsIgnoreCase(&quot;factions&quot;)) {</b>
+<b class="nc">&nbsp;                for (int i = 0; i &lt; mainNode.getChildNodes().getLength(); i++) {</b>
+<b class="nc">&nbsp;                    Node wn = mainNode.getChildNodes().item(i);</b>
+<b class="nc">&nbsp;                    if (wn.getNodeName().equalsIgnoreCase(&quot;faction&quot;)) {</b>
+<b class="nc">&nbsp;                        String fKey = wn.getAttributes().getNamedItem(&quot;key&quot;).getTextContent();</b>
+<b class="nc">&nbsp;                        if (fKey != null) {</b>
+<b class="nc">&nbsp;                            FactionRecord rec = factions.get(fKey);</b>
+<b class="nc">&nbsp;                            if (rec != null) {</b>
+<b class="nc">&nbsp;                                rec.loadEra(wn, era);</b>
+&nbsp;                            } else {
+<b class="nc">&nbsp;                                MegaMek.getLogger().error(&quot;Faction &quot; + fKey + &quot; not found in &quot;</b>
+<b class="nc">&nbsp;                                        + file.getPath());</b>
+&nbsp;                            }
+<b class="nc">&nbsp;                        } else {</b>
+<b class="nc">&nbsp;                            MegaMek.getLogger().error(&quot;Faction key not found in &quot; + file.getPath());</b>
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                }
+<b class="nc">&nbsp;            } else if (mainNode.getNodeName().equalsIgnoreCase(&quot;units&quot;)) {</b>
+<b class="nc">&nbsp;                for (int i = 0; i &lt; mainNode.getChildNodes().getLength(); i++) {</b>
+<b class="nc">&nbsp;                    Node wn = mainNode.getChildNodes().item(i);</b>
+<b class="nc">&nbsp;                    if (wn.getNodeName().equalsIgnoreCase(&quot;chassis&quot;)) {</b>
+<b class="nc">&nbsp;                        parseChassisNode(era, wn);</b>
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        notifyListenersEraLoaded();</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Creates model and chassis records for all units that don&#39;t already have entries. This should
+&nbsp;     * only be called after all availability records are loaded, otherwise they will be overwritten.
+&nbsp;     * 
+&nbsp;     * Used for editing.
+&nbsp;     */
+&nbsp;    public void initRemainingUnits() {
+<b class="nc">&nbsp;        for (MechSummary ms : MechSummaryCache.getInstance().getAllMechs()) {</b>
+<b class="nc">&nbsp;            if (models.containsKey(ms.getName())) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            ModelRecord mr = new ModelRecord(ms);</b>
+&nbsp;
+<b class="nc">&nbsp;            models.put(mr.getKey(), mr);</b>
+<b class="nc">&nbsp;            String chassisKey = mr.getChassisKey();</b>
+<b class="nc">&nbsp;            if (chassis.containsKey(chassisKey)) {</b>
+<b class="nc">&nbsp;                if (chassis.get(chassisKey).getIntroYear() == 0 ||</b>
+<b class="nc">&nbsp;                        chassis.get(chassisKey).getIntroYear() &gt; ms.getYear()) {</b>
+<b class="nc">&nbsp;                    chassis.get(chassisKey).setIntroYear(ms.getYear());</b>
+&nbsp;                }
+<b class="nc">&nbsp;                chassis.get(chassisKey).addModel(mr);</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                ChassisRecord cr = new ChassisRecord(mr.getChassis());</b>
+<b class="nc">&nbsp;                cr.setIntroYear(mr.getIntroYear());</b>
+<b class="nc">&nbsp;                cr.setOmni(mr.isOmni());</b>
+<b class="nc">&nbsp;                cr.setClan(mr.isClan());</b>
+<b class="nc">&nbsp;                cr.setUnitType(mr.getUnitType());</b>
+<b class="nc">&nbsp;                cr.addModel(mr);</b>
+<b class="nc">&nbsp;                chassis.put(chassisKey, cr);</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private void parseChassisNode(int era, Node wn) {
+<b class="nc">&nbsp;        boolean omni = false;</b>
+<b class="nc">&nbsp;        String chassisName = wn.getAttributes().getNamedItem(&quot;name&quot;).getTextContent();</b>
+<b class="nc">&nbsp;        String unitType = wn.getAttributes().getNamedItem(&quot;unitType&quot;).getTextContent();</b>
+<b class="nc">&nbsp;        String chassisKey = chassisName + &quot;[&quot; + unitType + &quot;]&quot;;</b>
+<b class="nc">&nbsp;        if (wn.getAttributes().getNamedItem(&quot;omni&quot;) != null) {</b>
+<b class="nc">&nbsp;            omni = true;</b>
+<b class="nc">&nbsp;            if (wn.getAttributes().getNamedItem(&quot;omni&quot;).getTextContent().equalsIgnoreCase(&quot;IS&quot;)) {</b>
+<b class="nc">&nbsp;                chassisKey += &quot;ISOmni&quot;;</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                chassisKey += &quot;ClanOmni&quot;;</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        ChassisRecord cr = chassis.get(chassisKey);</b>
+<b class="nc">&nbsp;        if (cr == null) {</b>
+<b class="nc">&nbsp;            cr = new ChassisRecord(chassisName);</b>
+<b class="nc">&nbsp;            cr.setOmni(omni);</b>
+<b class="nc">&nbsp;            cr.setUnitType(unitType);</b>
+<b class="nc">&nbsp;            cr.setClan(chassisKey.endsWith(&quot;ClanOmni&quot;));</b>
+<b class="nc">&nbsp;            chassis.put(chassisKey, cr);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        for (int j = 0; j &lt; wn.getChildNodes().getLength(); j++) {</b>
+<b class="nc">&nbsp;            Node wn2 = wn.getChildNodes().item(j);</b>
+<b class="nc">&nbsp;            if (wn2.getNodeName().equalsIgnoreCase(&quot;availability&quot;)) {</b>
+<b class="nc">&nbsp;                chassisIndex.get(era).put(chassisKey,</b>
+&nbsp;                        new HashMap&lt;&gt;());
+<b class="nc">&nbsp;                String [] codes = wn2.getTextContent().trim().split(&quot;,&quot;);</b>
+<b class="nc">&nbsp;                for (String code : codes) {</b>
+<b class="nc">&nbsp;                    AvailabilityRating ar = new AvailabilityRating(chassisKey, era, code);</b>
+<b class="nc">&nbsp;                    cr.getIncludedFactions().add(code.split(&quot;:&quot;)[0]);</b>
+<b class="nc">&nbsp;                    chassisIndex.get(era).get(chassisKey).put(ar.getFactionCode(), ar);</b>
+&nbsp;                }
+<b class="nc">&nbsp;            } else if (wn2.getNodeName().equalsIgnoreCase(&quot;model&quot;)) {</b>
+<b class="nc">&nbsp;                parseModelNode(era, cr, wn2);</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;    }
+&nbsp;    
+&nbsp;    private void parseModelNode(int era, ChassisRecord cr, Node wn) {
+<b class="nc">&nbsp;        String modelKey = (cr.getChassis() + &quot; &quot; + wn.getAttributes().getNamedItem(&quot;name&quot;).getTextContent()).trim();</b>
+<b class="nc">&nbsp;        boolean newEntry = false;</b>
+<b class="nc">&nbsp;        ModelRecord mr = models.get(modelKey);</b>
+<b class="nc">&nbsp;        if (mr == null) {</b>
+<b class="nc">&nbsp;            newEntry = true;</b>
+<b class="nc">&nbsp;            MechSummary ms = MechSummaryCache.getInstance().getMech(modelKey);</b>
+<b class="nc">&nbsp;            if (ms != null) {</b>
+<b class="nc">&nbsp;                mr = new ModelRecord(ms);</b>
+<b class="nc">&nbsp;                mr.setOmni(cr.isOmni());</b>
+<b class="nc">&nbsp;                models.put(modelKey, mr);</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (mr == null) {</b>
+<b class="nc">&nbsp;                MegaMek.getLogger().error(cr.getChassis() + &quot; &quot; </b>
+<b class="nc">&nbsp;                        + wn.getAttributes().getNamedItem(&quot;name&quot;).getTextContent() + &quot; not found.&quot;);</b>
+&nbsp;                return;
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        cr.addModel(mr);</b>
+<b class="nc">&nbsp;        if (wn.getAttributes().getNamedItem(&quot;mechanized&quot;) != null) {</b>
+<b class="nc">&nbsp;            mr.setMechanizedBA(Boolean.parseBoolean(wn.getAttributes().getNamedItem(&quot;mechanized&quot;).getTextContent()));</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        for (int k = 0; k &lt; wn.getChildNodes().getLength(); k++) {</b>
+<b class="nc">&nbsp;            Node wn2 = wn.getChildNodes().item(k);</b>
+<b class="nc">&nbsp;            if (wn2.getNodeName().equalsIgnoreCase(&quot;roles&quot;) &amp;&amp; newEntry) {</b>
+<b class="nc">&nbsp;                mr.addRoles(wn2.getTextContent().trim());</b>
+<b class="nc">&nbsp;            } else if (wn2.getNodeName().equalsIgnoreCase(&quot;deployedWith&quot;) &amp;&amp; newEntry) {</b>
+<b class="nc">&nbsp;                mr.setRequiredUnits(wn2.getTextContent().trim());                                        </b>
+<b class="nc">&nbsp;            } else if (wn2.getNodeName().equalsIgnoreCase(&quot;availability&quot;)) {</b>
+<b class="nc">&nbsp;                modelIndex.get(era).put(mr.getKey(), new HashMap&lt;&gt;());</b>
+<b class="nc">&nbsp;                String [] codes = wn2.getTextContent().trim().split(&quot;,&quot;);</b>
+<b class="nc">&nbsp;                for (String code : codes) {</b>
+<b class="nc">&nbsp;                    AvailabilityRating ar = new AvailabilityRating(mr.getKey(), era, code);</b>
+<b class="nc">&nbsp;                    mr.getIncludedFactions().add(code.split(&quot;:&quot;)[0]);</b>
+<b class="nc">&nbsp;                    modelIndex.get(era).get(mr.getKey()).put(ar.getFactionCode(), ar);</b>
+&nbsp;                }
+&nbsp;            } 
+&nbsp;        }        
+&nbsp;    }
+&nbsp;
+&nbsp;    public synchronized void registerListener(ActionListener l){
+<b class="nc">&nbsp;        listeners.add(l);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public synchronized void removeListener(ActionListener l){
+<b class="nc">&nbsp;        listeners.remove(l);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Notifies all the listeners that initialization is finished
+&nbsp;     */
+&nbsp;    public void notifyListenersOfInitialization(){
+<b class="nc">&nbsp;        if (initialized){</b>
+&nbsp;            // Possibility of adding a new listener during notification.
+<b class="nc">&nbsp;            for (ActionListener l : new ArrayList&lt;&gt;(listeners)){</b>
+<b class="nc">&nbsp;                l.actionPerformed(new ActionEvent(</b>
+&nbsp;                        this,ActionEvent.ACTION_PERFORMED,&quot;ratGenInitialized&quot;));
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Notifies all the listeners that era is loaded
+&nbsp;     */
+&nbsp;    public void notifyListenersEraLoaded(){
+<b class="nc">&nbsp;        if (initialized){</b>
+<b class="nc">&nbsp;            for (ActionListener l : listeners){</b>
+<b class="nc">&nbsp;                l.actionPerformed(new ActionEvent(</b>
+&nbsp;                        this,ActionEvent.ACTION_PERFORMED,&quot;ratGenEraLoaded&quot;));
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;    
+&nbsp;    public void exportRATGen(File dir) {
+&nbsp;        File file;
+&nbsp;        PrintWriter pw;
+&nbsp;        
+<b class="nc">&nbsp;        FactionRecord[] factionRecs = factions.values().toArray(new FactionRecord[0]);</b>
+<b class="nc">&nbsp;        Arrays.sort(factionRecs, (arg0, arg1) -&gt; {</b>
+<b class="nc">&nbsp;            if (arg0.getParentFactions() == null &amp;&amp; arg1.getParentFactions() != null) {</b>
+<b class="nc">&nbsp;                return -1;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (arg0.getParentFactions() != null &amp;&amp; arg1.getParentFactions() == null) {</b>
+<b class="nc">&nbsp;                return 1;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (arg0.getKey().contains(&quot;.&quot;) &amp;&amp; !arg1.getKey().contains(&quot;.&quot;)) {</b>
+<b class="nc">&nbsp;                return 1;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if (!arg0.getKey().contains(&quot;.&quot;) &amp;&amp; arg1.getKey().contains(&quot;.&quot;)) {</b>
+<b class="nc">&nbsp;                return -1;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            return arg0.getName().compareTo(arg1.getName());</b>
+&nbsp;        });
+&nbsp;
+<b class="nc">&nbsp;        file = new File(dir + &quot;/factions.xml&quot;);</b>
+&nbsp;        try {
+<b class="nc">&nbsp;            pw = new PrintWriter(file, &quot;UTF-8&quot;);</b>
+<b class="nc">&nbsp;        } catch (Exception e1) {</b>
+<b class="nc">&nbsp;            e1.printStackTrace();</b>
+&nbsp;            return;
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        pw.println(&quot;&lt;?xml version=&#39;1.0&#39; encoding=&#39;UTF-8&#39;?&gt;&quot;);</b>
+<b class="nc">&nbsp;        pw.println(&quot;&lt;factions&gt;&quot;);</b>
+<b class="nc">&nbsp;        for (FactionRecord fRec : factionRecs) {</b>
+<b class="nc">&nbsp;            fRec.writeToXml(pw);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        pw.println(&quot;&lt;/factions&gt;&quot;);</b>
+<b class="nc">&nbsp;        pw.close();</b>
+&nbsp;
+<b class="nc">&nbsp;        ChassisRecord[] chassisRecs = chassis.values().toArray(new ChassisRecord[0]);</b>
+<b class="nc">&nbsp;        Arrays.sort(chassisRecs, Comparator.comparing(AbstractUnitRecord::getKey));</b>
+<b class="nc">&nbsp;        ArrayList&lt;String&gt; avFields = new ArrayList&lt;&gt;();</b>
+&nbsp;        
+<b class="nc">&nbsp;        final List&lt;Integer&gt; ERAS = new ArrayList&lt;&gt;(eraSet);</b>
+&nbsp;
+<b class="nc">&nbsp;        for (int i = 0; i &lt; ERAS.size(); i++) {</b>
+<b class="nc">&nbsp;            int era = ERAS.get(i);</b>
+<b class="nc">&nbsp;            int nextEra = (i &lt; ERAS.size() - 1)? ERAS.get(i + 1) : era;</b>
+&nbsp;            try {
+<b class="nc">&nbsp;                file = new File(dir + &quot;/&quot; + era + &quot;.xml&quot;);</b>
+<b class="nc">&nbsp;                pw = new PrintWriter(file, &quot;UTF-8&quot;);</b>
+<b class="nc">&nbsp;                pw.println(&quot;&lt;?xml version=&#39;1.0&#39; encoding=&#39;UTF-8&#39;?&gt;&quot;);</b>
+<b class="nc">&nbsp;                pw.println(&quot;&lt;!-- Era &quot; + era + &quot;--&gt;&quot;);</b>
+<b class="nc">&nbsp;                pw.println(&quot;&lt;ratgen&gt;&quot;);</b>
+<b class="nc">&nbsp;                pw.println(&quot;&lt;factions&gt;&quot;);</b>
+<b class="nc">&nbsp;                for (FactionRecord fRec : factionRecs) {</b>
+<b class="nc">&nbsp;                    if (fRec.isInEra(era)) {</b>
+<b class="nc">&nbsp;                        fRec.writeToXml(pw, era);</b>
+&nbsp;                    }
+&nbsp;                }
+<b class="nc">&nbsp;                pw.println(&quot;&lt;/factions&gt;&quot;);</b>
+<b class="nc">&nbsp;                pw.println(&quot;&lt;units&gt;&quot;);</b>
+<b class="nc">&nbsp;                for (ChassisRecord cr : chassisRecs) {</b>
+<b class="nc">&nbsp;                    if (cr.getIntroYear() &lt; nextEra &amp;&amp; chassisIndex.get(era).containsKey(cr.getKey())) {</b>
+<b class="nc">&nbsp;                        avFields.clear();</b>
+<b class="nc">&nbsp;                        for (AvailabilityRating av : chassisIndex.get(era).get(cr.getKey()).values()) {</b>
+<b class="nc">&nbsp;                            if (shouldExportAv(av, era)) {</b>
+<b class="nc">&nbsp;                                avFields.add(av.toString());</b>
+&nbsp;                            }
+<b class="nc">&nbsp;                        }</b>
+<b class="nc">&nbsp;                        if (avFields.size() &gt; 0) {</b>
+<b class="nc">&nbsp;                            String omni = &quot;&quot;;</b>
+<b class="nc">&nbsp;                            if (cr.isOmni() &amp;&amp; cr.getModels().size() &gt; 0) {</b>
+<b class="nc">&nbsp;                                omni = cr.getModels().iterator().next().isClan()?</b>
+<b class="nc">&nbsp;                                        &quot;&#39; omni=&#39;Clan&quot; : &quot;&#39; omni=&#39;IS&quot;;</b>
+&nbsp;                            }
+<b class="nc">&nbsp;                            pw.println(&quot;\t&lt;chassis name=&#39;&quot; + cr.getChassis().replaceAll(&quot;&#39;&quot;, &quot;&amp;apos;&quot;)</b>
+<b class="nc">&nbsp;                                    + &quot;&#39; unitType=&#39;&quot; + UnitType.getTypeName(cr.getUnitType())</b>
+&nbsp;                                    + omni + &quot;&#39;&gt;&quot;);
+<b class="nc">&nbsp;                            pw.print(&quot;\t\t&lt;availability&gt;&quot;);</b>
+<b class="nc">&nbsp;                            for (Iterator&lt;String&gt; iter = avFields.iterator(); iter.hasNext();) {</b>
+<b class="nc">&nbsp;                                pw.print(iter.next());</b>
+<b class="nc">&nbsp;                                if (iter.hasNext()) {</b>
+<b class="nc">&nbsp;                                    pw.print(&quot;,&quot;);</b>
+&nbsp;                                }
+&nbsp;                            }
+<b class="nc">&nbsp;                            pw.println(&quot;&lt;/availability&gt;&quot;);</b>
+&nbsp;
+<b class="nc">&nbsp;                            for (ModelRecord mr : cr.getModels()) {</b>
+<b class="nc">&nbsp;                                if (cr.getIntroYear() &lt; nextEra</b>
+<b class="nc">&nbsp;                                        &amp;&amp; modelIndex.get(era).containsKey(mr.getKey())) {</b>
+<b class="nc">&nbsp;                                    avFields.clear();</b>
+<b class="nc">&nbsp;                                    for (AvailabilityRating av : modelIndex.get(era).get(mr.getKey()).values()) {</b>
+<b class="nc">&nbsp;                                        if (shouldExportAv(av, era)) {</b>
+<b class="nc">&nbsp;                                            avFields.add(av.toString());</b>
+&nbsp;                                        }
+<b class="nc">&nbsp;                                    }</b>
+<b class="nc">&nbsp;                                    for (String fKey : mr.getExcludedFactions()) {</b>
+<b class="nc">&nbsp;                                        avFields.add(fKey + &quot;:0&quot;);</b>
+<b class="nc">&nbsp;                                    }</b>
+<b class="nc">&nbsp;                                    if (avFields.size() &gt; 0) {</b>
+<b class="nc">&nbsp;                                        pw.print(&quot;\t\t&lt;model name=&#39;&quot; + mr.getModel().replaceAll(&quot;&#39;&quot;, &quot;&amp;apos;&quot;));</b>
+<b class="nc">&nbsp;                                        if (mr.getUnitType() == UnitType.BATTLE_ARMOR) {</b>
+<b class="nc">&nbsp;                                            pw.print(&quot;&#39; mechanized=&#39;&quot; + mr.canDoMechanizedBA());</b>
+&nbsp;                                        }
+<b class="nc">&nbsp;                                        pw.println(&quot;&#39;&gt;&quot;);</b>
+<b class="nc">&nbsp;                                        if (mr.getRoles().size() &gt; 0) {</b>
+<b class="nc">&nbsp;                                            String str = mr.getRoles().stream().map(Object::toString).collect(Collectors.joining(&quot;,&quot;));</b>
+<b class="nc">&nbsp;                                            if (str.length() &gt; 0) {</b>
+<b class="nc">&nbsp;                                                pw.println(&quot;\t\t\t&lt;roles&gt;&quot; + str + &quot;&lt;/roles&gt;&quot;);</b>
+&nbsp;                                            }
+&nbsp;                                        }
+<b class="nc">&nbsp;                                        if (mr.getDeployedWith().size() &gt; 0 || mr.getRequiredUnits().size() &gt; 0) {</b>
+<b class="nc">&nbsp;                                            pw.print(&quot;\t\t\t&lt;deployedWith&gt;&quot;);</b>
+<b class="nc">&nbsp;                                            StringJoiner sj = new StringJoiner(&quot;,&quot;);</b>
+<b class="nc">&nbsp;                                            mr.getDeployedWith().forEach(sj::add);</b>
+<b class="nc">&nbsp;                                            mr.getRequiredUnits().forEach(s -&gt; sj.add(&quot;req:&quot; + s));</b>
+<b class="nc">&nbsp;                                            pw.print(sj.toString());</b>
+<b class="nc">&nbsp;                                            pw.println(&quot;&lt;/deployedWith&gt;&quot;);</b>
+&nbsp;                                        }
+<b class="nc">&nbsp;                                        pw.print(&quot;\t\t\t&lt;availability&gt;&quot;);</b>
+<b class="nc">&nbsp;                                        for (Iterator&lt;String&gt; iter = avFields.iterator(); iter.hasNext();) {</b>
+<b class="nc">&nbsp;                                            pw.print(iter.next());</b>
+<b class="nc">&nbsp;                                            if (iter.hasNext()) {</b>
+<b class="nc">&nbsp;                                                pw.print(&quot;,&quot;);</b>
+&nbsp;                                            }
+&nbsp;                                        }
+<b class="nc">&nbsp;                                        pw.println(&quot;&lt;/availability&gt;&quot;);</b>
+<b class="nc">&nbsp;                                        pw.println(&quot;\t\t&lt;/model&gt;&quot;);                         </b>
+&nbsp;                                    }
+&nbsp;                                }
+<b class="nc">&nbsp;                            }</b>
+<b class="nc">&nbsp;                            pw.println(&quot;\t&lt;/chassis&gt;&quot;);</b>
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                }
+<b class="nc">&nbsp;                pw.println(&quot;&lt;/units&gt;&quot;);</b>
+<b class="nc">&nbsp;                pw.println(&quot;&lt;/ratgen&gt;&quot;);</b>
+<b class="nc">&nbsp;                pw.close();</b>
+<b class="nc">&nbsp;            } catch (Exception e) {</b>
+<b class="nc">&nbsp;                e.printStackTrace();</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private boolean shouldExportAv(AvailabilityRating av, int era) {
+<b class="nc">&nbsp;        FactionRecord fRec = factions.get(av.getFaction());</b>
+<b class="nc">&nbsp;        return fRec == null || fRec.isInEra(era);</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:46</div>
+</div>
+</body>
+</html>

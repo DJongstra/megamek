@@ -1,0 +1,305 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > InfantryPathFinder</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.common.pathfinder</a>
+</div>
+
+<h1>Coverage Summary for Class: InfantryPathFinder (megamek.common.pathfinder)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">InfantryPathFinder</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/6)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/40)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/59)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;package megamek.common.pathfinder;
+&nbsp;
+&nbsp;import java.util.ArrayList;
+&nbsp;import java.util.Collection;
+&nbsp;import java.util.HashSet;
+&nbsp;import java.util.List;
+&nbsp;import java.util.Set;
+&nbsp;
+&nbsp;import megamek.client.bot.princess.AeroPathUtil;
+&nbsp;import megamek.client.bot.princess.FireControl;
+&nbsp;import megamek.common.Coords;
+&nbsp;import megamek.common.IGame;
+&nbsp;import megamek.common.IHex;
+&nbsp;import megamek.common.MovePath;
+&nbsp;import megamek.common.MovePath.MoveStepType;
+&nbsp;import megamek.common.Terrains;
+&nbsp;import megamek.common.logging.DefaultMmLogger;
+&nbsp;import megamek.common.logging.LogLevel;
+&nbsp;import megamek.common.logging.MMLogger;
+&nbsp;
+&nbsp;/**
+&nbsp; * This set of classes is intended to be used by AI players to generate paths for infantry units.
+&nbsp; * This includes both foot and jump paths.
+&nbsp; * @author NickAragua
+&nbsp; *
+&nbsp; */
+&nbsp;public class InfantryPathFinder {
+&nbsp;    private IGame game;
+&nbsp;    private List&lt;MovePath&gt; infantryPaths;
+&nbsp;    private MMLogger logger;
+&nbsp;    private static final String LOGGER_CATEGORY = &quot;megamek.common.pathfinder.InfantryPathFinder&quot;;
+&nbsp;    
+<b class="nc">&nbsp;    private Set&lt;Coords&gt; visitedCoords = new HashSet&lt;&gt;();</b>
+&nbsp;    
+&nbsp;    
+<b class="nc">&nbsp;    private InfantryPathFinder(IGame game) {</b>
+<b class="nc">&nbsp;        this.game = game;</b>
+<b class="nc">&nbsp;        getLogger().setLogLevel(LOGGER_CATEGORY, LogLevel.DEBUG);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Collection&lt;MovePath&gt; getAllComputedPathsUncategorized() {
+<b class="nc">&nbsp;        return infantryPaths;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    private MMLogger getLogger() {
+<b class="nc">&nbsp;        return logger == null ? logger = DefaultMmLogger.getInstance() : logger;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Computes paths to nodes in the graph.
+&nbsp;     * 
+&nbsp;     * @param startingEdge the starting node. Should be empty.
+&nbsp;     */
+&nbsp;    public void run(MovePath startingEdge) {
+&nbsp;        try {
+<b class="nc">&nbsp;            infantryPaths = new ArrayList&lt;MovePath&gt;();</b>
+&nbsp;            // add an option to stand still
+<b class="nc">&nbsp;            infantryPaths.add(startingEdge);</b>
+&nbsp;            
+&nbsp;            // if, for some reason, the entity has already moved this turn or otherwise can&#39;t move, don&#39;t bother calculating paths for it
+<b class="nc">&nbsp;            if(!startingEdge.getEntity().isSelectableThisTurn()) {</b>
+&nbsp;                return;
+&nbsp;            }
+&nbsp;            
+&nbsp;            // for an infantry unit with n MP, the total number of paths should be 6 * n*(n+1)/2 + 1 (triangular rule, plus &quot;stand still&quot;)
+<b class="nc">&nbsp;            infantryPaths.addAll(generateChildren(startingEdge));</b>
+&nbsp;            
+<b class="nc">&nbsp;            visitedCoords.clear();</b>
+&nbsp;            
+&nbsp;            // add possible jump paths, if any
+<b class="nc">&nbsp;            MovePath jumpEdge = startingEdge.clone();</b>
+<b class="nc">&nbsp;            jumpEdge.addStep(MoveStepType.START_JUMP);</b>
+<b class="nc">&nbsp;            infantryPaths.addAll(generateChildren(jumpEdge));</b>
+&nbsp;            
+&nbsp;            // now that we&#39;ve got all our possible destinations, make sure to try every possible rotation,
+&nbsp;            // since facing matters for field guns and if using the &quot;dig in&quot; and &quot;vehicle cover&quot; tacops rules.
+<b class="nc">&nbsp;            List&lt;MovePath&gt; rotatedPaths = new ArrayList&lt;&gt;();</b>
+&nbsp;            
+<b class="nc">&nbsp;            for(MovePath path : infantryPaths) {</b>
+<b class="nc">&nbsp;                rotatedPaths.addAll(AeroPathUtil.generateValidRotations(path));</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;            
+<b class="nc">&nbsp;            infantryPaths.addAll(rotatedPaths);</b>
+&nbsp;            
+&nbsp;            // add &quot;flee&quot; option if we haven&#39;t done anything else
+<b class="nc">&nbsp;            if(game.getBoard().isOnBoardEdge(startingEdge.getFinalCoords()) &amp;&amp;</b>
+<b class="nc">&nbsp;                    startingEdge.getStepVector().size() == 0) {</b>
+<b class="nc">&nbsp;                MovePath fleePath = startingEdge.clone();</b>
+<b class="nc">&nbsp;                fleePath.addStep(MoveStepType.FLEE);</b>
+<b class="nc">&nbsp;                infantryPaths.add(fleePath);</b>
+&nbsp;            }
+<b class="nc">&nbsp;        } catch (OutOfMemoryError e) {</b>
+&nbsp;            /*
+&nbsp;             * Some implementations can run out of memory if they consider and
+&nbsp;             * save in memory too many paths. Usually we can recover from this
+&nbsp;             * by ending prematurely while preserving already computed results.
+&nbsp;             */
+&nbsp;
+<b class="nc">&nbsp;            final String memoryMessage = &quot;Not enough memory to analyse all options.&quot;//$NON-NLS-1$</b>
+&nbsp;                    + &quot; Try setting time limit to lower value, or &quot;//$NON-NLS-1$
+&nbsp;                    + &quot;increase java memory limit.&quot;;
+&nbsp;            
+<b class="nc">&nbsp;            getLogger().error(memoryMessage, e);</b>
+<b class="nc">&nbsp;        } catch(Exception e) {</b>
+<b class="nc">&nbsp;            getLogger().error(e); //do something, don&#39;t just swallow the exception, good lord</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public static InfantryPathFinder getInstance(IGame game) {
+<b class="nc">&nbsp;        InfantryPathFinder ipf = new InfantryPathFinder(game);</b>
+&nbsp;
+<b class="nc">&nbsp;        return ipf;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Recursive method that generates the possible child paths from the given path.
+&nbsp;     * Eliminates paths to hexes we&#39;ve already visited.
+&nbsp;     * Generates *shortest* paths to destination hexes, because, look, infantry isn&#39;t going to get beyond a move 1 mod anyway.
+&nbsp;     * @param startingPath
+&nbsp;     * @return
+&nbsp;     */
+&nbsp;    private List&lt;MovePath&gt; generateChildren(MovePath startingPath) {
+<b class="nc">&nbsp;        List&lt;MovePath&gt; retval = new ArrayList&lt;&gt;();</b>
+&nbsp;        
+&nbsp;        // terminator conditions:
+&nbsp;        // we&#39;ve visited this hex already
+&nbsp;        // we are walking and at or past our movement mp
+&nbsp;        // we are jumping and at or past our jump mp
+<b class="nc">&nbsp;        if(visitedCoords.contains(startingPath.getFinalCoords()) ||</b>
+<b class="nc">&nbsp;                (!startingPath.isJumping() &amp;&amp; (startingPath.getMpUsed() &gt;= startingPath.getEntity().getRunMP()))||</b>
+<b class="nc">&nbsp;                (startingPath.isJumping() &amp;&amp; (startingPath.getMpUsed() &gt;= startingPath.getEntity().getJumpMP()))) {</b>
+<b class="nc">&nbsp;            return retval;</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        visitedCoords.add(startingPath.getFinalCoords());</b>
+&nbsp;        
+&nbsp;        // generate all possible children, add them to list
+&nbsp;        // for infantry, facing changes are free, so children are always
+&nbsp;        // forward, left-forward, left-left-forward, right-forward, right-right-forward, right-right-right-forward
+&nbsp;        // there is never a reason to &quot;back up&quot;
+<b class="nc">&nbsp;        for(int direction = 0; direction &lt;= 5; direction++) {</b>
+&nbsp;            // carry out some preliminary checks:
+&nbsp;            // are we going off board?
+&nbsp;            // are we going into a building?
+&nbsp;            // are we going onto a bridge?
+&nbsp;            // make sure we&#39;re adjusting facing relative to the unit&#39;s current facing
+<b class="nc">&nbsp;            IHex destinationHex = game.getBoard().getHexInDir(startingPath.getFinalCoords(), </b>
+<b class="nc">&nbsp;                    FireControl.correctFacing(startingPath.getFinalFacing() + direction));</b>
+&nbsp;            
+&nbsp;            // if we&#39;re going off board, we may as well not bother continuing
+&nbsp;            // additionally, if we&#39;re definitely going to collapse a bridge we&#39;re stepping on let&#39;s just stop right here.
+&nbsp;            // we&#39;re walking *through* buildings, so collapsing them isn&#39;t going to be a problem
+<b class="nc">&nbsp;            if(destinationHex == null || </b>
+<b class="nc">&nbsp;                    destinationHex.containsTerrain(Terrains.BRIDGE_CF) &amp;&amp; </b>
+<b class="nc">&nbsp;                    (destinationHex.getTerrain(Terrains.BRIDGE_CF).getLevel() &lt; startingPath.getEntity().getWeight())) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            MovePath childPath = startingPath.clone();</b>
+&nbsp;            
+&nbsp;            // for each child, we first turn in the appropriate direction
+<b class="nc">&nbsp;            for(MoveStepType stepType : AeroPathUtil.TURNS.get(direction)) {</b>
+<b class="nc">&nbsp;                childPath.addStep(stepType);</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;            
+&nbsp;            // then, if we&#39;re going to wind up on a building or bridge, set CLIMB_MODE appropriately
+&nbsp;            // go *through* buildings
+<b class="nc">&nbsp;            if(destinationHex.containsTerrain(Terrains.BLDG_CF) &amp;&amp; childPath.getFinalClimbMode()) {</b>
+<b class="nc">&nbsp;                childPath.addStep(MoveStepType.CLIMB_MODE_OFF);</b>
+&nbsp;            // go *over* bridges
+<b class="nc">&nbsp;            } else if (destinationHex.containsTerrain(Terrains.BRIDGE_CF) &amp;&amp; !childPath.getFinalClimbMode()) {</b>
+<b class="nc">&nbsp;                childPath.addStep(MoveStepType.CLIMB_MODE_ON);</b>
+&nbsp;            }
+&nbsp;            
+&nbsp;            // finally, move forward
+<b class="nc">&nbsp;            childPath.addStep(MoveStepType.FORWARDS);</b>
+&nbsp;            
+&nbsp;            // having generated the child, we add it and (recursively) any of its children to the list of children to be returned            
+&nbsp;            // of course, if it winds up not being legal anyway for some other reason, then we discard it and move on
+<b class="nc">&nbsp;            if(!childPath.isMoveLegal()) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            retval.add(childPath.clone());</b>
+<b class="nc">&nbsp;            retval.addAll(generateChildren(childPath));</b>
+&nbsp;        }
+&nbsp;                
+<b class="nc">&nbsp;        return retval;</b>
+&nbsp;    }
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:57</div>
+</div>
+</body>
+</html>

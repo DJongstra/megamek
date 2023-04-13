@@ -1,0 +1,1497 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > HMVWeaponLocation</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.common.loaders</a>
+</div>
+
+<h1>Coverage Summary for Class: HMVWeaponLocation (megamek.common.loaders)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">HMVWeaponLocation</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/3)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/10)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek - Copyright (C) 2004 Ben Mazur (bmazur@sev.org)
+&nbsp; *
+&nbsp; *  This program is free software; you can redistribute it and/or modify it
+&nbsp; *  under the terms of the GNU General Public License as published by the Free
+&nbsp; *  Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; *  any later version.
+&nbsp; *
+&nbsp; *  This program is distributed in the hope that it will be useful, but
+&nbsp; *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+&nbsp; *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+&nbsp; *  for more details.
+&nbsp; */
+&nbsp;
+&nbsp;package megamek.common.loaders;
+&nbsp;
+&nbsp;import java.io.DataInputStream;
+&nbsp;import java.io.IOException;
+&nbsp;import java.io.InputStream;
+&nbsp;import java.util.ArrayList;
+&nbsp;import java.util.Enumeration;
+&nbsp;import java.util.Hashtable;
+&nbsp;import java.util.List;
+&nbsp;import java.util.Objects;
+&nbsp;
+&nbsp;import megamek.common.AmmoType;
+&nbsp;import megamek.common.Engine;
+&nbsp;import megamek.common.Entity;
+&nbsp;import megamek.common.EntityMovementMode;
+&nbsp;import megamek.common.EquipmentType;
+&nbsp;import megamek.common.Mounted;
+&nbsp;import megamek.common.Tank;
+&nbsp;import megamek.common.TechConstants;
+&nbsp;import megamek.common.TroopSpace;
+&nbsp;import megamek.common.VTOL;
+&nbsp;import megamek.common.WeaponType;
+&nbsp;
+&nbsp;/**
+&nbsp; * Based on the hmpread.c program and the MtfFile object. This class can not
+&nbsp; * load any Mixed tech or Level 3 vehicles.
+&nbsp; *
+&nbsp; * @author &lt;a href=&quot;mailto:mnewcomb@sourceforge.net&quot;&gt;Michael Newcomb&lt;/a&gt;
+&nbsp; */
+&nbsp;public class HmvFile implements IMechLoader {
+&nbsp;    private String name;
+&nbsp;    private String model;
+&nbsp;
+&nbsp;    private HMVMovementType movementType;
+&nbsp;    private int rulesLevel;
+&nbsp;    private int year;
+&nbsp;    private boolean isOmni = false;
+&nbsp;    private HMVTechType techType;
+&nbsp;
+&nbsp;    private HMVTechType engineTechType;
+&nbsp;    private HMVTechType baseTechType;
+&nbsp;    private HMVTechType targetingComputerTechType;
+&nbsp;
+&nbsp;    private int engineRating;
+&nbsp;    private HMVEngineType engineType;
+&nbsp;
+&nbsp;    private int cruiseMP;
+&nbsp;    private int jumpMP;
+&nbsp;
+&nbsp;    private HMVArmorType armorType;
+&nbsp;    private HMVTechType armorTechType;
+&nbsp;
+&nbsp;    private int roundedInternalStructure;
+&nbsp;
+&nbsp;    private int turretArmor;
+&nbsp;    private int frontArmor;
+&nbsp;    private int leftArmor;
+&nbsp;    private int rightArmor;
+&nbsp;    private int rearArmor;
+&nbsp;
+&nbsp;    private int artemisType;
+&nbsp;
+&nbsp;    private Hashtable&lt;HMVWeaponLocation, Hashtable&lt;EquipmentType, Integer&gt;&gt; equipment = new Hashtable&lt;HMVWeaponLocation, Hashtable&lt;EquipmentType, Integer&gt;&gt;();
+&nbsp;
+&nbsp;    private double troopSpace = 0;
+&nbsp;
+&nbsp;    private String fluff;
+&nbsp;
+&nbsp;    private List&lt;String&gt; failedEquipment = new ArrayList&lt;String&gt;();
+&nbsp;
+&nbsp;    private boolean hasTurret = false;
+&nbsp;
+&nbsp;    public HmvFile(InputStream is) throws EntityLoadingException {
+&nbsp;        try {
+&nbsp;            DataInputStream dis = new DataInputStream(is);
+&nbsp;
+&nbsp;            byte[] buffer = new byte[5];
+&nbsp;            dis.read(buffer);
+&nbsp;
+&nbsp;            // version is never used.
+&nbsp;            // String version = new String(buffer);
+&nbsp;
+&nbsp;            // ??
+&nbsp;            dis.skipBytes(2);
+&nbsp;
+&nbsp;            int type = readUnsignedShort(dis);
+&nbsp;            movementType = HMVMovementType.getType(type);
+&nbsp;            if (null == movementType) {
+&nbsp;                throw new EntityLoadingException(&quot;Could not locate movement type for &quot; + type + &quot;.&quot;);
+&nbsp;            }
+&nbsp;
+&nbsp;            // ??
+&nbsp;            dis.skipBytes(12);
+&nbsp;
+&nbsp;            buffer = new byte[readUnsignedShort(dis)];
+&nbsp;            dis.read(buffer);
+&nbsp;            name = new String(buffer);
+&nbsp;
+&nbsp;            buffer = new byte[readUnsignedShort(dis)];
+&nbsp;            dis.read(buffer);
+&nbsp;            model = new String(buffer);
+&nbsp;
+&nbsp;            // This next one appears to be wrong. FIXME
+&nbsp;            rulesLevel = readUnsignedShort(dis);
+&nbsp;
+&nbsp;            year = readUnsignedShort(dis);
+&nbsp;
+&nbsp;            // ??
+&nbsp;            dis.skipBytes(8);
+&nbsp;            type = readUnsignedByte(dis);
+&nbsp;            // FIXME: this is not correct
+&nbsp;            // structureType = HMVStructureType.getType(type);
+&nbsp;            // ??
+&nbsp;            dis.skipBytes(23);
+&nbsp;
+&nbsp;            // The &quot;bf2&quot; buffer contains the word &quot;omni&quot; for OmniVehicles.
+&nbsp;            int bf2Length = readUnsignedShort(dis);
+&nbsp;            byte[] bf2Buffer = new byte[bf2Length];
+&nbsp;            dis.read(bf2Buffer);
+&nbsp;            isOmni = containsOmni(bf2Buffer);
+&nbsp;
+&nbsp;            techType = HMVTechType.getType(readUnsignedShort(dis));
+&nbsp;
+&nbsp;            if (techType.equals(HMVTechType.MIXED)) {
+&nbsp;                // THESE ARE GUESSES. Need example hmv files to verify.
+&nbsp;                baseTechType = HMVTechType.getType(readUnsignedShort(dis));
+&nbsp;                engineTechType = HMVTechType.getType(readUnsignedShort(dis));
+&nbsp;                targetingComputerTechType = HMVTechType.getType(readUnsignedShort(dis));
+&nbsp;
+&nbsp;                armorTechType = HMVTechType.getType(readUnsignedShort(dis));
+&nbsp;            } else if (techType.equals(HMVTechType.CLAN)) {
+&nbsp;                engineTechType = HMVTechType.CLAN;
+&nbsp;                baseTechType = HMVTechType.CLAN;
+&nbsp;                targetingComputerTechType = HMVTechType.CLAN;
+&nbsp;                armorTechType = HMVTechType.CLAN;
+&nbsp;            } else {
+&nbsp;                engineTechType = HMVTechType.INNER_SPHERE;
+&nbsp;                baseTechType = HMVTechType.INNER_SPHERE;
+&nbsp;                targetingComputerTechType = HMVTechType.INNER_SPHERE;
+&nbsp;                armorTechType = HMVTechType.INNER_SPHERE;
+&nbsp;            }
+&nbsp;
+&nbsp;            // ??
+&nbsp;            dis.skipBytes(4);
+&nbsp;
+&nbsp;            engineRating = readUnsignedShort(dis);
+&nbsp;            engineType = HMVEngineType.getType(readUnsignedShort(dis));
+&nbsp;
+&nbsp;            cruiseMP = readUnsignedShort(dis);
+&nbsp;            jumpMP = readUnsignedShort(dis);
+&nbsp;
+&nbsp;            // Even if we aren&#39;t using this, we need to read past its location.
+&nbsp;            readUnsignedShort(dis);
+&nbsp;            // heatSinks = readUnsignedShort(dis);
+&nbsp;            armorType = HMVArmorType.getType(readUnsignedShort(dis));
+&nbsp;
+&nbsp;            roundedInternalStructure = readUnsignedShort(dis);
+&nbsp;
+&nbsp;            turretArmor = readUnsignedShort(dis);
+&nbsp;
+&nbsp;            if (turretArmor &gt; 0) {
+&nbsp;                hasTurret = true;
+&nbsp;            }
+&nbsp;
+&nbsp;            // internal structure again ??
+&nbsp;            dis.skipBytes(2);
+&nbsp;
+&nbsp;            frontArmor = readUnsignedShort(dis);
+&nbsp;
+&nbsp;            // internal structure again ??
+&nbsp;            dis.skipBytes(2);
+&nbsp;
+&nbsp;            leftArmor = readUnsignedShort(dis);
+&nbsp;
+&nbsp;            // internal structure again ??
+&nbsp;            dis.skipBytes(2);
+&nbsp;
+&nbsp;            rightArmor = readUnsignedShort(dis);
+&nbsp;
+&nbsp;            // internal structure again ??
+&nbsp;            dis.skipBytes(2);
+&nbsp;
+&nbsp;            rearArmor = readUnsignedShort(dis);
+&nbsp;            // ??
+&nbsp;            if (isOmni) {
+&nbsp;                // Skip 12 bytes for OmniVehicles
+&nbsp;                dis.skipBytes(12);
+&nbsp;
+&nbsp;                // Decide whether or not the turret is a fixed weight
+&nbsp;                int lockedTurret = readUnsignedShort(dis);
+&nbsp;
+&nbsp;                if (lockedTurret == 2) {
+&nbsp;                    // Skip something else?...
+&nbsp;                    dis.skipBytes(12);
+&nbsp;                }
+&nbsp;            } else {
+&nbsp;                // Skip 14 bytes for non-OmniVehicles
+&nbsp;                dis.skipBytes(14);
+&nbsp;            }
+&nbsp;
+&nbsp;            int weapons = readUnsignedShort(dis);
+&nbsp;            for (int i = 1; i &lt;= weapons; i++) {
+&nbsp;                int weaponCount = readUnsignedShort(dis);
+&nbsp;                int weaponType = readUnsignedShort(dis);
+&nbsp;
+&nbsp;                // manufacturer name
+&nbsp;                dis.skipBytes(readUnsignedShort(dis));
+&nbsp;
+&nbsp;                HMVWeaponLocation weaponLocation = HMVWeaponLocation.getType(readUnsignedShort(dis));
+&nbsp;                if (weaponLocation == HMVWeaponLocation.TURRET) {
+&nbsp;                    hasTurret = true;
+&nbsp;                }
+&nbsp;
+&nbsp;                int weaponAmmo = readUnsignedShort(dis);
+&nbsp;
+&nbsp;                EquipmentType equipmentType = getEquipmentType(weaponType, techType);
+&nbsp;                if (equipmentType != null) {
+&nbsp;                    addEquipmentType(equipmentType, weaponCount, weaponLocation);
+&nbsp;
+&nbsp;                    if (weaponAmmo &gt; 0) {
+&nbsp;                        AmmoType ammoType = getAmmoType(weaponType, techType);
+&nbsp;
+&nbsp;                        if (ammoType != null) {
+&nbsp;                            // Need to play games for half ton MG ammo.
+&nbsp;                            if ((weaponAmmo &lt; ammoType.getShots()) || ((weaponAmmo % ammoType.getShots()) &gt; 0)) {
+&nbsp;                                switch (ammoType.getAmmoType()) {
+&nbsp;                                    case AmmoType.T_MG:
+&nbsp;                                        if (ammoType.getTechLevel(year) == TechConstants.T_INTRO_BOXSET) {
+&nbsp;                                            ammoType = (AmmoType) EquipmentType.get(&quot;ISMG Ammo (100)&quot;);
+&nbsp;                                        } else {
+&nbsp;                                            ammoType = (AmmoType) EquipmentType.get(&quot;CLMG Ammo (100)&quot;);
+&nbsp;                                        }
+&nbsp;                                        break;
+&nbsp;                                    case AmmoType.T_MG_LIGHT:
+&nbsp;                                        ammoType = (AmmoType) EquipmentType.get(&quot;CLLightMG Ammo (100)&quot;);
+&nbsp;                                        break;
+&nbsp;                                    case AmmoType.T_MG_HEAVY:
+&nbsp;                                        ammoType = (AmmoType) EquipmentType.get(&quot;CLHeavyMG Ammo (50)&quot;);
+&nbsp;                                        break;
+&nbsp;                                    default:
+&nbsp;                                        // Only MG ammo comes in half ton lots.
+&nbsp;                                        throw new EntityLoadingException(ammoType.getName() + &quot; has &quot; + ammoType.getShots() + &quot; shots per ton, but &quot; + name + &quot; &quot; + model + &quot; wants &quot; + weaponAmmo + &quot; shots.&quot;);
+&nbsp;                                }
+&nbsp;                            }
+&nbsp;
+&nbsp;                            // Add as many copies of the AmmoType as needed.
+&nbsp;                            addEquipmentType(ammoType, weaponAmmo / ammoType.getShots(), HMVWeaponLocation.BODY);
+&nbsp;
+&nbsp;                        } // End found-ammoType
+&nbsp;
+&nbsp;                    } // End have-rounds-of-ammo
+&nbsp;
+&nbsp;                } // End found-equipmentType
+&nbsp;
+&nbsp;                // ??
+&nbsp;                dis.skipBytes(4);
+&nbsp;
+&nbsp;            } // Handle the next piece of equipment
+&nbsp;
+&nbsp;            // Read the amount of troop/cargo bays.
+&nbsp;            int bayCount = readUnsignedShort(dis);
+&nbsp;            for (int loop = 0; loop &lt; bayCount; loop++) {
+&nbsp;
+&nbsp;                // Read the size of this bay.
+&nbsp;                // dis.skipBytes(2);
+&nbsp;                float baySize = readFloat(dis);
+&nbsp;
+&nbsp;                // bay name (this is free text, so we can&#39;t be certain if it is
+&nbsp;                // an infantry bay or something else)
+&nbsp;                dis.skipBytes(readUnsignedShort(dis));
+&nbsp;
+&nbsp;                // Add the troopSpace of this bay to our running total.
+&nbsp;                troopSpace += baySize;
+&nbsp;
+&nbsp;            } // Handle the next bay.
+&nbsp;
+&nbsp;            dis.skipBytes(12);
+&nbsp;            int CASE = readUnsignedShort(dis);
+&nbsp;            if (CASE == 0xFFFF) {
+&nbsp;                if (techType.equals(HMVTechType.INNER_SPHERE)) {
+&nbsp;                    addEquipmentType(EquipmentType.get(&quot;ISCASE&quot;), 1, HMVWeaponLocation.REAR);
+&nbsp;                } else {
+&nbsp;                    addEquipmentType(EquipmentType.get(&quot;CLCASE&quot;), 1, HMVWeaponLocation.REAR);
+&nbsp;                }
+&nbsp;            }
+&nbsp;            int targetingComp = readUnsignedShort(dis);
+&nbsp;            if (targetingComp == 1) {
+&nbsp;                if (targetingComputerTechType.equals(HMVTechType.CLAN)) {
+&nbsp;                    addEquipmentType(EquipmentType.get(&quot;CLTargeting Computer&quot;), 1, HMVWeaponLocation.BODY);
+&nbsp;                } else {
+&nbsp;                    addEquipmentType(EquipmentType.get(&quot;ISTargeting Computer&quot;), 1, HMVWeaponLocation.BODY);
+&nbsp;                }
+&nbsp;            }
+&nbsp;
+&nbsp;            artemisType = readUnsignedShort(dis);
+&nbsp;            // the artemis is a bit field: 1 = SRM artemis IV, 2 = LRM artemis
+&nbsp;            // IV,
+&nbsp;            // 4 = SRM artemis V, 8 = LRM artemis V
+&nbsp;            dis.skipBytes(4);
+&nbsp;            int VTOLoptions = readUnsignedShort(dis);
+&nbsp;            // Yuck, a decimal field: 10 = main/tail, 20 = dual, 30 = coax
+&nbsp;            // rotors
+&nbsp;            // 100 = beagle/clan AP, 200 = bloodhound/light AP, 300 = c3 slave
+&nbsp;            // mast mount
+&nbsp;            int mastEq = VTOLoptions / 100;
+&nbsp;            // int rotorType = VTOLoptions % 100; //rorottype is never read
+&nbsp;            // TODO read rotottype from a file.
+&nbsp;            // Mast mounted equipment is not supported - put it in the rotor and
+&nbsp;            // hope for the best
+&nbsp;            if (mastEq == 1) {
+&nbsp;                if (baseTechType.equals(HMVTechType.CLAN)) {
+&nbsp;                    addEquipmentType(EquipmentType.get(&quot;CLActiveProbe&quot;), 1, HMVWeaponLocation.TURRET);
+&nbsp;                } else {
+&nbsp;                    addEquipmentType(EquipmentType.get(&quot;BeagleActiveProbe&quot;), 1, HMVWeaponLocation.TURRET);
+&nbsp;                }
+&nbsp;            } else if (mastEq == 2) {
+&nbsp;                if (baseTechType.equals(HMVTechType.CLAN)) {
+&nbsp;                    addEquipmentType(EquipmentType.get(&quot;CLLightActiveProbe&quot;), 1, HMVWeaponLocation.TURRET);
+&nbsp;                } else {
+&nbsp;                    addEquipmentType(EquipmentType.get(&quot;BloodhoundActiveProbe&quot;), 1, HMVWeaponLocation.TURRET);
+&nbsp;                }
+&nbsp;            } else if (mastEq == 3) {
+&nbsp;                addEquipmentType(EquipmentType.get(&quot;ISC3SlaveUnit&quot;), 1, HMVWeaponLocation.TURRET);
+&nbsp;            }
+&nbsp;            dis.skipBytes(4);
+&nbsp;
+&nbsp;            int fluffSize = 0;
+&nbsp;            fluff = &quot;Overview:\n\r&quot;;
+&nbsp;            buffer = new byte[readUnsignedShort(dis)];
+&nbsp;            dis.read(buffer);
+&nbsp;            fluff += new String(buffer);
+&nbsp;            fluffSize += new String(buffer).length();
+&nbsp;
+&nbsp;            fluff += &quot;\n\rCapability:\n\r&quot;;
+&nbsp;            buffer = new byte[readUnsignedShort(dis)];
+&nbsp;            dis.read(buffer);
+&nbsp;            fluff += new String(buffer);
+&nbsp;            fluffSize += new String(buffer).length();
+&nbsp;
+&nbsp;            fluff += &quot;\n\rBattle History:\n\r&quot;;
+&nbsp;            buffer = new byte[readUnsignedShort(dis)];
+&nbsp;            dis.read(buffer);
+&nbsp;            fluff += new String(buffer);
+&nbsp;            fluffSize += new String(buffer).length();
+&nbsp;
+&nbsp;            fluff += &quot;\n\rVariants:\n\r&quot;;
+&nbsp;            buffer = new byte[readUnsignedShort(dis)];
+&nbsp;            dis.read(buffer);
+&nbsp;            fluff += new String(buffer);
+&nbsp;            fluffSize += new String(buffer).length();
+&nbsp;
+&nbsp;            fluff += &quot;\n\rFamous Vehicles and Pilots:\n\r&quot;;
+&nbsp;            buffer = new byte[readUnsignedShort(dis)];
+&nbsp;            dis.read(buffer);
+&nbsp;            fluff += new String(buffer);
+&nbsp;            fluffSize += new String(buffer).length();
+&nbsp;
+&nbsp;            fluff += &quot;\n\rDeployment:\n\r&quot;;
+&nbsp;            buffer = new byte[readUnsignedShort(dis)];
+&nbsp;            dis.read(buffer);
+&nbsp;            fluff += new String(buffer);
+&nbsp;            fluffSize += new String(buffer).length();
+&nbsp;
+&nbsp;            dis.skipBytes(readUnsignedShort(dis)); // notes
+&nbsp;
+&nbsp;            // just a catch all for small Fluffs anything well less then 10
+&nbsp;            // characters, per section, isn&#39;t worth printing.
+&nbsp;            if (fluffSize &lt;= 60) {
+&nbsp;                fluff = null;
+&nbsp;            }
+&nbsp;
+&nbsp;            int supercharger = readUnsignedShort(dis);
+&nbsp;            if (supercharger &gt; 0) {
+&nbsp;                addEquipmentType(EquipmentType.get(&quot;Supercharger&quot;), 1, HMVWeaponLocation.BODY);
+&nbsp;            }
+&nbsp;
+&nbsp;            dis.close();
+&nbsp;        } catch (IOException ex) {
+&nbsp;            ex.printStackTrace();
+&nbsp;            throw new EntityLoadingException(&quot;I/O Error reading file&quot;);
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private short readUnsignedByte(DataInputStream dis) throws IOException {
+&nbsp;        short b = dis.readByte();
+&nbsp;        b += b &lt; 0 ? 256 : 0;
+&nbsp;        return b;
+&nbsp;    }
+&nbsp;
+&nbsp;    private int readUnsignedShort(DataInputStream dis) throws IOException {
+&nbsp;        int b2 = readUnsignedByte(dis);
+&nbsp;
+&nbsp;        int b1 = readUnsignedByte(dis);
+&nbsp;        b1 &lt;&lt;= 8;
+&nbsp;
+&nbsp;        return b1 + b2;
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Read a single precision float from a file in little endian format
+&nbsp;     *
+&nbsp;     * @param dis
+&nbsp;     * @return
+&nbsp;     * @throws IOException
+&nbsp;     */
+&nbsp;    private float readFloat(DataInputStream dis) throws IOException {
+&nbsp;        int bits = dis.readInt();
+&nbsp;        // Integer.reverseBytes is not supported in 1.4
+&nbsp;        // return Float.intBitsToFloat(Integer.reverseBytes(bits));
+&nbsp;        bits = ((bits &amp; 0xFF000000) &gt;&gt; 24) | ((bits &amp; 0x00FF0000) &gt;&gt; 8) | ((bits &amp; 0x0000FF00) &lt;&lt; 8) | ((bits &amp; 0x000000FF) &lt;&lt; 24);
+&nbsp;        return Float.intBitsToFloat(bits);
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Determine if the buffer contains the &quot;is omni&quot; flag.
+&nbsp;     *
+&nbsp;     * @param buffer
+&nbsp;     *            the array of &lt;code&gt;byte&lt;/code&gt;s to be scanned.
+&nbsp;     * @return &lt;code&gt;true&lt;/code&gt; if the buffer contains the &quot;is omni&quot; flag.
+&nbsp;     */
+&nbsp;    private boolean containsOmni(byte[] buffer) {
+&nbsp;        int index;
+&nbsp;
+&nbsp;        // Look for the 4 byte flag.
+&nbsp;        for (index = buffer.length - 4; index &gt;= 0; index--) {
+&nbsp;            if ((0x6f == buffer[index]) &amp;&amp; // &#39;o&#39;
+&nbsp;                    (0x6d == buffer[index + 1]) &amp;&amp; // &#39;m&#39;
+&nbsp;                    (0x6e == buffer[index + 2]) &amp;&amp; // &#39;n&#39;
+&nbsp;                    (0x69 == buffer[index + 3])) { // &#39;i&#39;
+&nbsp;
+&nbsp;                // We found it!
+&nbsp;                return true;
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // We didn&#39;t find the &quot;is omni&quot; flag;
+&nbsp;        return false;
+&nbsp;    }
+&nbsp;
+&nbsp;    public Entity getEntity() throws EntityLoadingException {
+&nbsp;        try {
+&nbsp;            Tank vehicle = null;
+&nbsp;
+&nbsp;            if ((movementType == HMVMovementType.TRACKED) || (movementType == HMVMovementType.WHEELED) || (movementType == HMVMovementType.HOVER) || (movementType == HMVMovementType.DISPLACEMENT_HULL) || (movementType == HMVMovementType.HYDROFOIL) || (movementType == HMVMovementType.SUBMARINE)) {
+&nbsp;                vehicle = new Tank();
+&nbsp;            } else if (movementType == HMVMovementType.VTOL) {
+&nbsp;                vehicle = new VTOL();
+&nbsp;            } else {
+&nbsp;                throw new EntityLoadingException(&quot;Unsupported vehicle movement type:&quot; + movementType);
+&nbsp;            }
+&nbsp;
+&nbsp;            vehicle.setChassis(name);
+&nbsp;            vehicle.setModel(model);
+&nbsp;            vehicle.setYear(year);
+&nbsp;            vehicle.setOmni(isOmni);
+&nbsp;            vehicle.getFluff().setCapabilities(fluff);
+&nbsp;
+&nbsp;            int techLevel = TechConstants.T_IS_ADVANCED;
+&nbsp;            if (rulesLevel == 1) {
+&nbsp;                techLevel = TechConstants.T_INTRO_BOXSET;
+&nbsp;            } else if (rulesLevel == 2) {
+&nbsp;                techLevel = techType == HMVTechType.CLAN ? TechConstants.T_CLAN_TW : TechConstants.T_IS_TW_NON_BOX;
+&nbsp;            } else if (techType == HMVTechType.CLAN) {
+&nbsp;                techLevel = TechConstants.T_CLAN_ADVANCED;
+&nbsp;            }
+&nbsp;
+&nbsp;            vehicle.setTechLevel(techLevel);
+&nbsp;
+&nbsp;            if (vehicle instanceof VTOL) {
+&nbsp;                vehicle.setMovementMode(EntityMovementMode.VTOL);
+&nbsp;            } else {
+&nbsp;                vehicle.setMovementMode(movementType == HMVMovementType.DISPLACEMENT_HULL ? EntityMovementMode.NAVAL : movementType == HMVMovementType.HYDROFOIL ? EntityMovementMode.HYDROFOIL : movementType == HMVMovementType.HOVER ? EntityMovementMode.HOVER : movementType == HMVMovementType.WHEELED ? EntityMovementMode.WHEELED : movementType == HMVMovementType.SUBMARINE ? EntityMovementMode.SUBMARINE : EntityMovementMode.TRACKED);
+&nbsp;            }
+&nbsp;            //vehicle.setStructureType(EquipmentType.getStructureType(&quot;Standard&quot;, false));
+&nbsp;            // FIXME: structureType is being read wrong
+&nbsp;            // stupid not-consistent file format
+&nbsp;            // vehicle.setStructureType(EquipmentType.getStructureType(structureType.toString()));
+&nbsp;
+&nbsp;            // This next line sets the weight to a rounded value
+&nbsp;            // so that the suspension factor can be retrieved. The
+&nbsp;            // real weight is set below that. Why is tonnage not directly
+&nbsp;            // stated in the HMV file?!
+&nbsp;            vehicle.setWeight(roundedInternalStructure * 10); // temporary
+&nbsp;            int suspensionFactor = vehicle.getSuspensionFactor();
+&nbsp;            vehicle.setWeight((engineRating + suspensionFactor) / cruiseMP);
+&nbsp;
+&nbsp;            int engineFlags = Engine.TANK_ENGINE;
+&nbsp;            if ((techType == HMVTechType.CLAN) || (engineTechType == HMVTechType.CLAN)) {
+&nbsp;                engineFlags |= Engine.CLAN_ENGINE;
+&nbsp;            }
+&nbsp;            vehicle.setEngine(new Engine(engineRating, Engine.getEngineTypeByString(engineType.toString()), engineFlags));
+&nbsp;
+&nbsp;            vehicle.setOriginalWalkMP(cruiseMP);
+&nbsp;            vehicle.setOriginalJumpMP(jumpMP);
+&nbsp;
+&nbsp;            // hmmm...
+&nbsp;            vehicle.setHasNoTurret(!hasTurret);
+&nbsp;            // HMV vehicles NEVER have dual turrets.
+&nbsp;            vehicle.setHasNoDualTurret(true);
+&nbsp;
+&nbsp;            vehicle.autoSetInternal();
+&nbsp;            vehicle.setArmorType(vehicle.isClan()?&quot;Clan &quot;:&quot;IS &quot;+armorType.toString());
+&nbsp;            if (armorTechType == HMVTechType.CLAN) {
+&nbsp;                switch (rulesLevel) {
+&nbsp;                    case 2:
+&nbsp;                        vehicle.setArmorTechLevel(TechConstants.T_CLAN_TW);
+&nbsp;                        break;
+&nbsp;                    case 3:
+&nbsp;                        vehicle.setArmorTechLevel(TechConstants.T_CLAN_ADVANCED);
+&nbsp;                        break;
+&nbsp;                    default:
+&nbsp;                        throw new EntityLoadingException(&quot;Unsupported tech level: &quot; + rulesLevel);
+&nbsp;                }
+&nbsp;            } else {
+&nbsp;                switch (rulesLevel) {
+&nbsp;                    case 1:
+&nbsp;                        vehicle.setArmorTechLevel(TechConstants.T_INTRO_BOXSET);
+&nbsp;                        break;
+&nbsp;                    case 2:
+&nbsp;                        vehicle.setArmorTechLevel(TechConstants.T_IS_TW_NON_BOX);
+&nbsp;                        break;
+&nbsp;                    case 3:
+&nbsp;                        vehicle.setArmorTechLevel(TechConstants.T_IS_ADVANCED);
+&nbsp;                        break;
+&nbsp;                    default:
+&nbsp;                        throw new EntityLoadingException(&quot;Unsupported tech level: &quot; + rulesLevel);
+&nbsp;                }
+&nbsp;            }
+&nbsp;
+&nbsp;            vehicle.initializeArmor(frontArmor, Tank.LOC_FRONT);
+&nbsp;            vehicle.initializeArmor(leftArmor, Tank.LOC_LEFT);
+&nbsp;            vehicle.initializeArmor(rightArmor, Tank.LOC_RIGHT);
+&nbsp;            vehicle.initializeArmor(rearArmor, Tank.LOC_REAR);
+&nbsp;            if (vehicle instanceof VTOL) {
+&nbsp;                vehicle.initializeArmor(turretArmor, VTOL.LOC_ROTOR);
+&nbsp;            } else if (!vehicle.hasNoTurret()) {
+&nbsp;                vehicle.initializeArmor(turretArmor, Tank.LOC_TURRET);
+&nbsp;            }
+&nbsp;
+&nbsp;            addEquipment(vehicle, HMVWeaponLocation.FRONT, Tank.LOC_FRONT);
+&nbsp;            addEquipment(vehicle, HMVWeaponLocation.LEFT, Tank.LOC_LEFT);
+&nbsp;            addEquipment(vehicle, HMVWeaponLocation.RIGHT, Tank.LOC_RIGHT);
+&nbsp;            addEquipment(vehicle, HMVWeaponLocation.REAR, Tank.LOC_REAR);
+&nbsp;            if (!vehicle.hasNoTurret()) {
+&nbsp;                addEquipment(vehicle, HMVWeaponLocation.TURRET, Tank.LOC_TURRET);
+&nbsp;            }
+&nbsp;
+&nbsp;            addEquipment(vehicle, HMVWeaponLocation.BODY, Tank.LOC_BODY);
+&nbsp;
+&nbsp;            // Do we have any infantry/cargo bays?
+&nbsp;            if (troopSpace &gt; 0) {
+&nbsp;                vehicle.addTransporter(new TroopSpace(troopSpace));
+&nbsp;            }
+&nbsp;
+&nbsp;            addFailedEquipment(vehicle);
+&nbsp;
+&nbsp;            return vehicle;
+&nbsp;        } catch (Exception e) {
+&nbsp;            // System.out.println(structureType.toString());
+&nbsp;            e.printStackTrace();
+&nbsp;            throw new EntityLoadingException(e.getMessage());
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private void addEquipmentType(EquipmentType equipmentType, int weaponCount, HMVWeaponLocation weaponLocation) {
+&nbsp;        Hashtable&lt;EquipmentType, Integer&gt; equipmentAtLocation = equipment.get(weaponLocation);
+&nbsp;        if (equipmentAtLocation == null) {
+&nbsp;            equipmentAtLocation = new Hashtable&lt;EquipmentType, Integer&gt;();
+&nbsp;            equipment.put(weaponLocation, equipmentAtLocation);
+&nbsp;        }
+&nbsp;        Integer prevCount = equipmentAtLocation.get(equipmentType);
+&nbsp;        if (null != prevCount) {
+&nbsp;            weaponCount += prevCount.intValue();
+&nbsp;        }
+&nbsp;        equipmentAtLocation.put(equipmentType, Integer.valueOf(weaponCount));
+&nbsp;    }
+&nbsp;
+&nbsp;    private void addEquipment(Tank tank, HMVWeaponLocation weaponLocation, int location) throws Exception {
+&nbsp;        Hashtable&lt;EquipmentType, Integer&gt; equipmentAtLocation = equipment.get(weaponLocation);
+&nbsp;        if (equipmentAtLocation != null) {
+&nbsp;            for (Enumeration&lt;EquipmentType&gt; e = equipmentAtLocation.keys(); e.hasMoreElements();) {
+&nbsp;                EquipmentType equipmentType = e.nextElement();
+&nbsp;                Integer count = equipmentAtLocation.get(equipmentType);
+&nbsp;
+&nbsp;                for (int i = 0; i &lt; count.intValue(); i++) {
+&nbsp;                    // for experimental or unofficial equipment, we need
+&nbsp;                    // to adjust the mech&#39;s techlevel, because HMV only
+&nbsp;                    // knows lvl1/2/3
+&nbsp;                    if ((equipmentType.getTechLevel(year) &gt; tank.getTechLevel()) &amp;&amp; (tank.getTechLevel() &gt;= TechConstants.T_IS_ADVANCED)) {
+&nbsp;                        boolean isClan = tank.isClan();
+&nbsp;                        if ((equipmentType.getTechLevel(year) == TechConstants.T_IS_EXPERIMENTAL) || (equipmentType.getTechLevel(year) == TechConstants.T_CLAN_EXPERIMENTAL)) {
+&nbsp;                            tank.setTechLevel(isClan ? TechConstants.T_CLAN_EXPERIMENTAL : TechConstants.T_IS_EXPERIMENTAL);
+&nbsp;                        } else if ((equipmentType.getTechLevel(year) == TechConstants.T_IS_UNOFFICIAL) || (equipmentType.getTechLevel(year) == TechConstants.T_CLAN_UNOFFICIAL)) {
+&nbsp;                            tank.setTechLevel(isClan ? TechConstants.T_CLAN_UNOFFICIAL : TechConstants.T_IS_UNOFFICIAL);
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                    Mounted weapon = tank.addEquipment(equipmentType, location);
+&nbsp;
+&nbsp;                    // Add artemis?
+&nbsp;                    // Note this is done here because SRM without artemis and
+&nbsp;                    // LRM with artemis
+&nbsp;                    // can be in the same location on a tank. (and might be
+&nbsp;                    // mislinked)
+&nbsp;                    if ((artemisType != 0) &amp;&amp; (equipmentType instanceof WeaponType)) {
+&nbsp;                        String artemis = null;
+&nbsp;                        int ammoType = ((WeaponType) equipmentType).getAmmoType();
+&nbsp;                        if (ammoType == AmmoType.T_LRM) {
+&nbsp;                            if ((artemisType &amp; 2) == 2) {
+&nbsp;                                artemis = &quot;ArtemisIV&quot;;
+&nbsp;                            } else if ((artemisType &amp; 8) == 8) {
+&nbsp;                                artemis = &quot;ArtemisV&quot;;
+&nbsp;                            }
+&nbsp;                        } else if (ammoType == AmmoType.T_SRM) {
+&nbsp;                            if ((artemisType &amp; 1) == 1) {
+&nbsp;                                artemis = &quot;ArtemisIV&quot;;
+&nbsp;                            } else if ((artemisType &amp; 4) == 4) {
+&nbsp;                                artemis = &quot;ArtemisV&quot;;
+&nbsp;                            }
+&nbsp;                        }
+&nbsp;                        if (artemis != null) {
+&nbsp;                            EquipmentType artEq;
+&nbsp;                            if ((equipmentType.getTechLevel(year) == TechConstants.T_CLAN_TW) || (equipmentType.getTechLevel(year) == TechConstants.T_CLAN_ADVANCED)) {
+&nbsp;                                artEq = EquipmentType.get(&quot;CL&quot; + artemis);
+&nbsp;                            } else {
+&nbsp;                                artEq = EquipmentType.get(&quot;IS&quot; + artemis);
+&nbsp;                            }
+&nbsp;                            if (artEq != null) {
+&nbsp;                                Mounted fcs = tank.addEquipment(artEq, location);
+&nbsp;                                fcs.setLinked(weapon);
+&nbsp;                            }
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private void addFailedEquipment(Tank tank) {
+&nbsp;        for (String s : failedEquipment) {
+&nbsp;            tank.addFailedEquipment(s);
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private static final Hashtable&lt;HMVTechType, Hashtable&lt;Long, String&gt;&gt; EQUIPMENT = new Hashtable&lt;HMVTechType, Hashtable&lt;Long, String&gt;&gt;();
+&nbsp;    private static final Hashtable&lt;HMVTechType, Hashtable&lt;Long, String&gt;&gt; AMMO = new Hashtable&lt;HMVTechType, Hashtable&lt;Long, String&gt;&gt;();
+&nbsp;    static {
+&nbsp;        // inner sphere equipment
+&nbsp;        // note all weapons should be matched by an ammo entry with the same
+&nbsp;        // index
+&nbsp;        //
+&nbsp;        Hashtable&lt;Long, String&gt; isEquipment = new Hashtable&lt;Long, String&gt;();
+&nbsp;        EQUIPMENT.put(HMVTechType.INNER_SPHERE, isEquipment);
+&nbsp;        isEquipment.put(Long.valueOf(0x0A), &quot;ISDouble Heat Sink&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x0B), &quot;Jump Jet&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x12), &quot;ISTargeting Computer&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x14), &quot;Endo Steel&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x15), &quot;Ferro-Fibrous&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x17), &quot;ISMASC&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x18), &quot;ISArtemisIV&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x19), &quot;ISCASE&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x33), &quot;ISERLargeLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x34), &quot;ISERPPC&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x35), &quot;ISFlamer&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x36), &quot;ISLaserAMS&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x37), &quot;ISLargeLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x38), &quot;ISMediumLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x39), &quot;ISSmallLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x3A), &quot;ISPPC&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x3B), &quot;ISLargePulseLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x3C), &quot;ISMediumPulseLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x3D), &quot;ISSmallPulseLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x3E), &quot;ISAC2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x3F), &quot;ISAC5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x40), &quot;ISAC10&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x41), &quot;ISAC20&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x42), &quot;ISAntiMissileSystem&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x43), &quot;Long Tom Cannon&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x44), &quot;Sniper Cannon&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x45), &quot;Thumper Cannon&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x46), &quot;ISLightGaussRifle&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x47), &quot;ISGaussRifle&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x48), &quot;ISLargeXPulseLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x49), &quot;ISMediumXPulseLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x4A), &quot;ISSmallXPulseLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x4B), &quot;ISLBXAC2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x4C), &quot;ISLBXAC5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x4D), &quot;ISLBXAC10&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x4E), &quot;ISLBXAC20&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x4F), &quot;ISMachine Gun&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x50), &quot;ISLAC2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x51), &quot;ISLAC5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x52), &quot;ISHeavyFlamer&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x53), &quot;ISPPCCapacitor&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x54), &quot;ISUltraAC2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x55), &quot;ISUltraAC5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x56), &quot;ISUltraAC10&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x57), &quot;ISUltraAC20&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x59), &quot;ISPPCCapacitor&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x5A), &quot;ISERMediumLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x5B), &quot;ISERSmallLaser&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x5C), &quot;ISAntiPersonnelPod&quot;);
+&nbsp;
+&nbsp;        isEquipment.put(Long.valueOf(0x60), &quot;ISLRM5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x61), &quot;ISLRM10&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x62), &quot;ISLRM15&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x63), &quot;ISLRM20&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x66), &quot;ISImprovedNarc&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x67), &quot;ISSRM2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x68), &quot;ISSRM4&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x69), &quot;ISSRM6&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x6A), &quot;ISStreakSRM2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x6B), &quot;ISStreakSRM4&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x6C), &quot;ISStreakSRM6&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x6D), &quot;ISThunderbolt5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x6E), &quot;ISThunderbolt10&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x6F), &quot;ISThunderbolt15&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x70), &quot;ISThunderbolt20&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x71), &quot;ISArrowIVSystem&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x72), &quot;ISAngelECMSuite&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x73), &quot;ISBeagleActiveProbe&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x74), &quot;ISBloodhoundActiveProbe&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x75), &quot;ISC3MasterComputer&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x76), &quot;ISC3SlaveUnit&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x77), &quot;ISImprovedC3CPU&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x78), &quot;ISGuardianECM&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x79), &quot;ISNarcBeacon&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x7A), &quot;ISTAG&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x7B), &quot;ISLRM5 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x7C), &quot;ISLRM10 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x7D), &quot;ISLRM15 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x7E), &quot;ISLRM20 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x7F), &quot;ISSRM2 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x80), &quot;ISSRM4 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x81), &quot;ISSRM6 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x82), &quot;ISStreakSRM2 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x83), &quot;ISStreakSRM4 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x84), &quot;ISStreakSRM6 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x85), &quot;ISVehicleFlamer&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x86), &quot;ISLongTomArtillery&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x87), &quot;ISSniperArtillery&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x88), &quot;ISThumperArtillery&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x89), &quot;ISMRM10&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x8A), &quot;ISMRM20&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x8B), &quot;ISMRM30&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x8C), &quot;ISMRM40&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x8E), &quot;ISMRM10 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x8F), &quot;ISMRM20 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x90), &quot;ISMRM30 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x91), &quot;ISMRM40 (OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x92), &quot;ISLRTorpedo5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x93), &quot;ISLRTorpedo10&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x94), &quot;ISLRTorpedo15&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x95), &quot;ISLRTorpedo20&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x96), &quot;ISSRT2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x97), &quot;ISSRT4&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x98), &quot;ISSRT6&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x99), &quot;ISLRM5 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x9A), &quot;ISLRM10 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x9B), &quot;ISLRM15 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x9C), &quot;ISLRM20 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x9D), &quot;ISSRM2 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x9E), &quot;ISSRM4 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x9f), &quot;ISSRM6 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0xA0), &quot;ISStreakSRM2 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0xA1), &quot;ISStreakSRM4 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0xA2), &quot;ISStreakSRM6 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0xA3), &quot;ISMRM10 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0xA4), &quot;ISMRM20 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0xA5), &quot;ISMRM30 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0xA6), &quot;ISMRM40 (I-OS)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x108), &quot;ISTHBLBXAC2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x109), &quot;ISTHBLBXAC5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x10A), &quot;ISTHBLBXAC20&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x10B), &quot;ISUltraAC2 (THB)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x10C), &quot;ISUltraAC10 (THB)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x10D), &quot;ISUltraAC20 (THB)&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x11D), &quot;ISTHBAngelECMSuite&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x11e), &quot;ISTHBBloodhoundActiveProbe&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x121), &quot;ISRotaryAC2&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x122), &quot;ISRotaryAC5&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x123), &quot;ISHeavyGaussRifle&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x12B), &quot;ISRocketLauncher10&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x12C), &quot;ISRocketLauncher15&quot;);
+&nbsp;        isEquipment.put(Long.valueOf(0x12D), &quot;ISRocketLauncher20&quot;);
+&nbsp;
+&nbsp;        Hashtable&lt;Long, String&gt; isAmmo = new Hashtable&lt;Long, String&gt;();
+&nbsp;        AMMO.put(HMVTechType.INNER_SPHERE, isAmmo);
+&nbsp;        isAmmo.put(Long.valueOf(0x3E), &quot;ISAC2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x3F), &quot;ISAC5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x40), &quot;ISAC10 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x41), &quot;ISAC20 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x42), &quot;ISAMS Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x43), &quot;Long Tom Cannon Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x44), &quot;Sniper Cannon Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x45), &quot;Thumper Cannon Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x46), &quot;ISLightGauss Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x47), &quot;ISGauss Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x4B), &quot;ISLBXAC2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x4C), &quot;ISLBXAC5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x4D), &quot;ISLBXAC10 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x4E), &quot;ISLBXAC20 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x4F), &quot;ISMG Ammo (200)&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x50), &quot;ISLAC2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x51), &quot;ISLAC5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x52), &quot;ISHeavyFlamer Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x54), &quot;ISUltraAC2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x55), &quot;ISUltraAC5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x56), &quot;ISUltraAC10 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x57), &quot;ISUltraAC20 Ammo&quot;);
+&nbsp;
+&nbsp;        isAmmo.put(Long.valueOf(0x60), &quot;ISLRM5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x61), &quot;ISLRM10 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x62), &quot;ISLRM15 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x63), &quot;ISLRM20 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x66), &quot;ISiNarc Pods&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x67), &quot;ISSRM2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x68), &quot;ISSRM4 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x69), &quot;ISSRM6 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x6A), &quot;ISStreakSRM2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x6B), &quot;ISStreakSRM4 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x6C), &quot;ISStreakSRM6 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x6D), &quot;ISThunderbolt5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x6E), &quot;ISThunderbolt10 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x6F), &quot;ISThunderbolt15 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x70), &quot;ISThunderbolt20 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x71), &quot;ISArrowIV Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x79), &quot;ISNarc Pods&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x85), &quot;ISVehicleFlamer Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x86), &quot;ISLongTom Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x87), &quot;ISSniper Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x88), &quot;ISThumper Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x89), &quot;ISMRM10 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x8A), &quot;ISMRM20 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x8B), &quot;ISMRM30 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x8C), &quot;ISMRM40 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x92), &quot;ISLRTorpedo5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x93), &quot;ISLRTorpedo10 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x94), &quot;ISLRTorpedo15 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x95), &quot;ISLRTorpedo20 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x96), &quot;ISSRT2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x97), &quot;ISSRT4 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x98), &quot;ISSRT6 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x108), &quot;ISTHBLBXAC2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x109), &quot;ISTHBLBXAC5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x10A), &quot;ISTHBLBXAC20 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x10B), &quot;ISUltraAC2 (THB) Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x10C), &quot;ISUltraAC10 (THB) Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x10D), &quot;ISUltraAC20 (THB) Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x121), &quot;ISRotaryAC2 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x122), &quot;ISRotaryAC5 Ammo&quot;);
+&nbsp;        isAmmo.put(Long.valueOf(0x123), &quot;ISHeavyGauss Ammo&quot;);
+&nbsp;
+&nbsp;        // clan criticals
+&nbsp;        //
+&nbsp;        Hashtable&lt;Long, String&gt; clanEquipment = new Hashtable&lt;Long, String&gt;();
+&nbsp;        EQUIPMENT.put(HMVTechType.CLAN, clanEquipment);
+&nbsp;        clanEquipment.put(Long.valueOf(0x0A), &quot;CLDouble Heat Sink&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x0B), &quot;Jump Jet&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x12), &quot;CLTargeting Computer&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x14), &quot;Endo Steel&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x15), &quot;Ferro-Fibrous&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x17), &quot;CLMASC&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x18), &quot;CLArtemisIV&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x33), &quot;CLERLargeLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x34), &quot;CLERMediumLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x35), &quot;CLERSmallLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x36), &quot;CLERPPC&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x39), &quot;CLSmallLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x37), &quot;CLFlamer&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x38), &quot;CLMediumLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x3A), &quot;CLPPC&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x3C), &quot;CLLargePulseLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x3D), &quot;CLMediumPulseLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x3E), &quot;CLSmallPulseLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x3F), &quot;CLAngelECMSuite&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x40), &quot;CLAntiMissileSystem&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x41), &quot;CLGaussRifle&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x42), &quot;CLLBXAC2&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x43), &quot;CLLBXAC5&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x44), &quot;CLLBXAC10&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x45), &quot;CLLBXAC20&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x46), &quot;CLMG&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x47), &quot;CLUltraAC2&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x48), &quot;CLUltraAC5&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x49), &quot;CLUltraAC10&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x4A), &quot;CLUltraAC20&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x4B), &quot;CLLRM5&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x4C), &quot;CLLRM10&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x4D), &quot;CLLRM15&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x4E), &quot;CLLRM20&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x4F), &quot;CLSRM2&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x50), &quot;CLSRM4&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x51), &quot;CLSRM6&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x52), &quot;CLStreakSRM2&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x53), &quot;CLStreakSRM4&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x54), &quot;CLStreakSRM6&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x55), &quot;CLArrowIVSystem&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x56), &quot;CLAntiPersonnelPod&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x57), &quot;CLActiveProbe&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x58), &quot;CLECMSuite&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x59), &quot;CLNarcBeacon&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x5A), &quot;CLTAG&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x5B), &quot;CLERMicroLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x5C), &quot;CLLRM5 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x5D), &quot;CLLRM10 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x5E), &quot;CLLRM15 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x5F), &quot;CLLRM20 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x60), &quot;CLSRM2 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x61), &quot;CLSRM4 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x62), &quot;CLSRM6 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x63), &quot;CLStreakSRM2 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x64), &quot;CLStreakSRM4 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x65), &quot;CLStreakSRM6 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x66), &quot;CLVehicleFlamer&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x67), &quot;CLLongTomArtillery&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x68), &quot;CLSniperArtillery&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x69), &quot;CLThumperArtillery&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x6A), &quot;CLLRTorpedo5&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x6B), &quot;CLLRTorpedo10&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x6C), &quot;CLLRTorpedo15&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x6D), &quot;CLLRTorpedo20&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x6E), &quot;CLSRT2&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x6F), &quot;CLSRT4&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x70), &quot;CLSRT6&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x7B), &quot;CLLRM5 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x7C), &quot;CLLRM10 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x7D), &quot;CLLRM15 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x7E), &quot;CLLRM20 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x7F), &quot;CLSRM2 (OS)&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x80), &quot;CLHeavyLargeLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x81), &quot;CLHeavyMediumLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x82), &quot;CLHeavySmallLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x85), &quot;CLVehicleFlamer&quot;); // ?
+&nbsp;        clanEquipment.put(Long.valueOf(0x92), &quot;CLLRTorpedo5&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x93), &quot;CLLRTorpedo10&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x94), &quot;CLLRTorpedo15&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x95), &quot;CLLRTorpedo20&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x96), &quot;CLSRT2&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x97), &quot;CLSRT4&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0x98), &quot;CLSRT6&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xA8), &quot;CLMicroPulseLaser&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xAD), &quot;CLLightMG&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xAE), &quot;CLHeavyMG&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xAF), &quot;CLLightActiveProbe&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xB4), &quot;CLLightTAG&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xFC), &quot;CLATM3&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xFD), &quot;CLATM6&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xFE), &quot;CLATM9&quot;);
+&nbsp;        clanEquipment.put(Long.valueOf(0xFF), &quot;CLATM12&quot;);
+&nbsp;
+&nbsp;        Hashtable&lt;Long, String&gt; clAmmo = new Hashtable&lt;Long, String&gt;();
+&nbsp;        AMMO.put(HMVTechType.CLAN, clAmmo);
+&nbsp;        clAmmo.put(Long.valueOf(0x40), &quot;CLAMS Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x41), &quot;CLGauss Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x42), &quot;CLLBXAC2 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x43), &quot;CLLBXAC5 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x44), &quot;CLLBXAC10 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x45), &quot;CLLBXAC20 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x46), &quot;CLMG Ammo (200)&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x47), &quot;CLUltraAC2 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x48), &quot;CLUltraAC5 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x49), &quot;CLUltraAC10 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x4A), &quot;CLUltraAC20 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x4B), &quot;CLLRM5 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x4C), &quot;CLLRM10 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x4D), &quot;CLLRM15 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x4E), &quot;CLLRM20 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x4F), &quot;CLSRM2 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x50), &quot;CLSRM4 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x51), &quot;CLSRM6 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x52), &quot;CLStreakSRM2 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x53), &quot;CLStreakSRM4 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x54), &quot;CLStreakSRM6 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x55), &quot;CLArrowIV Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x66), &quot;CLVehicleFlamer Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x67), &quot;CLLongTomArtillery Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x68), &quot;CLSniperArtillery Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x69), &quot;CLThumperArtillery Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x6A), &quot;CLTorpedoLRM5 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x6B), &quot;CLTorpedoLRM10 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x6C), &quot;CLTorpedoLRM15 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x6D), &quot;CLTorpedoLRM20 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x6E), &quot;CLTorpedoSRM2 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x6F), &quot;CLTorpedoSRM4 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x70), &quot;CLTorpedoSRM6 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x85), &quot;CLVehicleFlamer Ammo&quot;); // ?
+&nbsp;        clAmmo.put(Long.valueOf(0x92), &quot;CLTorpedoLRM5 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x93), &quot;CLTorpedoLRM10 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x94), &quot;CLTorpedoLRM15 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x95), &quot;CLTorpedoLRM20 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x96), &quot;CLTorpedoSRM2 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x97), &quot;CLTorpedoSRM4 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0x98), &quot;CLTorpedoSRM6 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0xAD), &quot;CLLightMG Ammo (200)&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0xAE), &quot;CLHeavyMG Ammo (100)&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0xFC), &quot;CLATM3 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0xFD), &quot;CLATM6 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0xFE), &quot;CLATM9 Ammo&quot;);
+&nbsp;        clAmmo.put(Long.valueOf(0xFF), &quot;CLATM12 Ammo&quot;);
+&nbsp;
+&nbsp;        // mixed *seems* to be the same as IS-base for HMP files
+&nbsp;        Hashtable&lt;Long, String&gt; mixedEquipment = new Hashtable&lt;Long, String&gt;(isEquipment);
+&nbsp;        EQUIPMENT.put(HMVTechType.MIXED, mixedEquipment);
+&nbsp;        mixedEquipment.put(Long.valueOf(0x58), &quot;CLERMicroLaser&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0x5E), &quot;CLLightMG&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0x5F), &quot;CLHeavyMG&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0x64), &quot;CLLightActiveProbe&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0x65), &quot;CLLightTAG&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xA7), &quot;CLERLargeLaser&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xA8), &quot;CLERMediumLaser&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xA9), &quot;CLERSmallLaser&quot;);
+&nbsp;
+&nbsp;        mixedEquipment.put(Long.valueOf(0xAA), &quot;CLERPPC&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xAB), &quot;CLFlamer&quot;);
+&nbsp;
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB0), &quot;CLLargePulseLaser&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB1), &quot;CLMediumPulseLaser&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB2), &quot;CLSmallPulseLaser&quot;);
+&nbsp;
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB4), &quot;CLAntiMissileSystem&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB5), &quot;CLGaussRifle&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB6), &quot;CLLBXAC2&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB7), &quot;CLLBXAC5&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB8), &quot;CLLBXAC10&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xB9), &quot;CLLBXAC20&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xBA), &quot;CLMG&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xBB), &quot;CLUltraAC2&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xBC), &quot;CLUltraAC5&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xBD), &quot;CLUltraAC10&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xBE), &quot;CLUltraAC20&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xBF), &quot;CLLRM5&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC0), &quot;CLLRM10&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC1), &quot;CLLRM15&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC2), &quot;CLLRM20&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC3), &quot;CLSRM2&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC4), &quot;CLSRM4&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC5), &quot;CLSRM6&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC6), &quot;CLStreakSRM2&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC7), &quot;CLStreakSRM4&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC8), &quot;CLStreakSRM6&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xC9), &quot;CLArrowIVSystem&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xCA), &quot;CLAntiPersonnelPod&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xCB), &quot;CLActiveProbe&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xCC), &quot;CLECMSuite&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xCD), &quot;CLNarcBeacon&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xCE), &quot;CLTAG&quot;);
+&nbsp;
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD0), &quot;CLLRM5 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD1), &quot;CLLRM10 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD2), &quot;CLLRM15 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD3), &quot;CLLRM20 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD4), &quot;CLSRM2 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD5), &quot;CLSRM2 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD6), &quot;CLSRM2 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD7), &quot;CLStreakSRM2 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD8), &quot;CLStreakSRM4 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xD9), &quot;CLStreakSRM6 (OS)&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xDA), &quot;CLVehicleFlamer&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xDB), &quot;CLLongTomArtillery&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xDC), &quot;CLSniperArtillery&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xDD), &quot;CLThumperArtillery&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xDE), &quot;CLLRTorpedo5&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xDF), &quot;CLLRTorpedo10&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xE0), &quot;CLLRTorpedo15&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xE1), &quot;CLLRTorpedo20&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xE2), &quot;CLSRT2&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xE3), &quot;CLSRT4&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xE4), &quot;CLSRT6&quot;);
+&nbsp;
+&nbsp;        mixedEquipment.put(Long.valueOf(0xF4), &quot;CLHeavyLargeLaser&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xF5), &quot;CLHeavyMediumLaser&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xF6), &quot;CLHeavySmallLaser&quot;);
+&nbsp;
+&nbsp;        mixedEquipment.put(Long.valueOf(0xFC), &quot;CLATM3&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xFD), &quot;CLATM6&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xFE), &quot;CLATM9&quot;);
+&nbsp;        mixedEquipment.put(Long.valueOf(0xFF), &quot;CLATM12&quot;);
+&nbsp;
+&nbsp;        // but ammo *seems* to use the same numbers as the weapon it goes with
+&nbsp;        Hashtable&lt;Long, String&gt; mixedAmmo = new Hashtable&lt;Long, String&gt;(isAmmo);
+&nbsp;        AMMO.put(HMVTechType.MIXED, mixedAmmo);
+&nbsp;        mixedAmmo.put(Long.valueOf(0x5E), &quot;CLLightMG Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0x5F), &quot;CLHeavyMG Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xB4), &quot;CLAntiMissileSystem Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xB5), &quot;CLGaussRifle Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xB6), &quot;CLLBXAC2 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xB7), &quot;CLLBXAC5 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xB8), &quot;CLLBXAC10 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xB9), &quot;CLLBXAC20 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xBA), &quot;CLMG Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xBB), &quot;CLUltraAC2 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xBC), &quot;CLUltraAC5 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xBD), &quot;CLUltraAC10 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xBE), &quot;CLUltraAC20 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xBF), &quot;CLLRM5 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC0), &quot;CLLRM10 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC1), &quot;CLLRM15 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC2), &quot;CLLRM20 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC3), &quot;CLSRM2 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC4), &quot;CLSRM4 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC5), &quot;CLSRM6 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC6), &quot;CLStreakSRM2 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC7), &quot;CLStreakSRM4 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC8), &quot;CLStreakSRM6 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xC9), &quot;CLArrowIVSystem Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xCD), &quot;CLNarcBeacon Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xDA), &quot;CLVehicleFlamer Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xDB), &quot;CLLongTomArtillery Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xDC), &quot;CLSniperArtillery Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xDD), &quot;CLThumperArtillery Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xDE), &quot;CLLRTorpedo5 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xDF), &quot;CLLRTorpedo10 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xE0), &quot;CLLRTorpedo15 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xE1), &quot;CLLRTorpedo20 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xE2), &quot;CLSRT2 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xE3), &quot;CLSRT4 Ammo&quot;);
+&nbsp;        mixedAmmo.put(Long.valueOf(0xE4), &quot;CLSRT6 Ammo&quot;);
+&nbsp;
+&nbsp;    }
+&nbsp;
+&nbsp;    private String getEquipmentName(long equipment, HMVTechType techType) {
+&nbsp;        return getEquipmentName(Long.valueOf(equipment), techType);
+&nbsp;    }
+&nbsp;
+&nbsp;    private String getEquipmentName(Long equipment, HMVTechType techType) {
+&nbsp;        if (equipment.longValue() &gt; Short.MAX_VALUE) {
+&nbsp;            equipment = Long.valueOf(equipment.longValue() &amp; 0xFFFF);
+&nbsp;        }
+&nbsp;        final long value = equipment.longValue();
+&nbsp;
+&nbsp;        String equipName = null;
+&nbsp;        try {
+&nbsp;            equipName = EQUIPMENT.get(techType).get(equipment);
+&nbsp;        } catch (NullPointerException e) {
+&nbsp;            // is handeled by the if below.
+&nbsp;        }
+&nbsp;        if (equipName == null) {
+&nbsp;            Hashtable&lt;Long, String&gt; techEquipment = EQUIPMENT.get(techType);
+&nbsp;            if (techEquipment != null) {
+&nbsp;                equipName = techEquipment.get(equipment);
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // Report unexpected parsing failures.
+&nbsp;        if ((equipName == null) &amp;&amp; (value != 0) &amp;&amp; // 0x00 Empty
+&nbsp;                (value != 7) &amp;&amp; // 0x07 Lower Leg Actuator (on a quad)
+&nbsp;                (value != 8) &amp;&amp; // 0x08 Foot Actuator (on a quad)
+&nbsp;                (value != 15)) { // 0x0F Fusion Engine
+&nbsp;            System.out.print(&quot;unknown critical: 0x&quot;);
+&nbsp;            System.out.print(Integer.toHexString(equipment.intValue()).toUpperCase());
+&nbsp;            System.out.print(&quot; (&quot;);
+&nbsp;            System.out.print(techType);
+&nbsp;            System.out.println(&quot;)&quot;);
+&nbsp;        }
+&nbsp;
+&nbsp;        return equipName;
+&nbsp;    }
+&nbsp;
+&nbsp;    private EquipmentType getEquipmentType(long equipment, HMVTechType techType) {
+&nbsp;        EquipmentType equipmentType = null;
+&nbsp;
+&nbsp;        String equipmentName = getEquipmentName(equipment, techType);
+&nbsp;        if (equipmentName != null) {
+&nbsp;            equipmentType = EquipmentType.get(equipmentName);
+&nbsp;
+&nbsp;            if (equipmentType == null) {
+&nbsp;                failedEquipment.add(equipmentName);
+&nbsp;            }
+&nbsp;        } else {
+&nbsp;            failedEquipment.add(&quot;Unknown Equipment (&quot; + Long.toHexString(equipment) + &quot;)&quot;);
+&nbsp;        }
+&nbsp;
+&nbsp;        return equipmentType;
+&nbsp;    }
+&nbsp;
+&nbsp;    private String getAmmoName(long ammo, HMVTechType techType) {
+&nbsp;        return getAmmoName(Long.valueOf(ammo), techType);
+&nbsp;    }
+&nbsp;
+&nbsp;    private String getAmmoName(Long ammo, HMVTechType techType) {
+&nbsp;        if (ammo.longValue() &gt; Short.MAX_VALUE) {
+&nbsp;            ammo = Long.valueOf(ammo.longValue() &amp; 0xFFFF);
+&nbsp;        }
+&nbsp;        final long value = ammo.longValue();
+&nbsp;
+&nbsp;        String ammoName = null;
+&nbsp;        try {
+&nbsp;            ammoName = AMMO.get(techType).get(ammo);
+&nbsp;        } catch (NullPointerException e) {
+&nbsp;            // is handeled by the if below.
+&nbsp;        }
+&nbsp;        if (ammoName == null) {
+&nbsp;            Hashtable&lt;Long, String&gt; techAmmo = AMMO.get(techType);
+&nbsp;            if (techAmmo != null) {
+&nbsp;                ammoName = techAmmo.get(ammo);
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // Report unexpected parsing failures.
+&nbsp;        if ((ammoName == null) &amp;&amp; (value != 0)) {
+&nbsp;            System.out.print(&quot;unknown critical: 0x&quot;);
+&nbsp;            System.out.print(Integer.toHexString(ammo.intValue()).toUpperCase());
+&nbsp;            System.out.print(&quot; (&quot;);
+&nbsp;            System.out.print(techType);
+&nbsp;            System.out.println(&quot;)&quot;);
+&nbsp;        }
+&nbsp;
+&nbsp;        return ammoName;
+&nbsp;    }
+&nbsp;
+&nbsp;    private AmmoType getAmmoType(long ammo, HMVTechType techType) {
+&nbsp;        AmmoType ammoType = null;
+&nbsp;
+&nbsp;        String ammoName = getAmmoName(ammo, techType);
+&nbsp;        if (ammoName != null) {
+&nbsp;            ammoType = (AmmoType) EquipmentType.get(ammoName);
+&nbsp;        }
+&nbsp;
+&nbsp;        return ammoType;
+&nbsp;    }
+&nbsp;    /*
+&nbsp;     * public static void main(String[] args) throws Exception { for (int i = 0;
+&nbsp;     * i &lt; args.length; i++) { HmvFile hmvFile = new HmvFile(new
+&nbsp;     * FileInputStream(args[i])); System.out.println(new
+&nbsp;     * megamek.client.ui.AWT.MechView(hmvFile.getEntity()).getMechReadout()); }
+&nbsp;     * }
+&nbsp;     */
+&nbsp;}
+&nbsp;
+&nbsp;abstract class HMVType {
+&nbsp;    private String name;
+&nbsp;    private int id;
+&nbsp;
+&nbsp;    protected HMVType(String name, int id) {
+&nbsp;        this.name = name;
+&nbsp;        this.id = id;
+&nbsp;    }
+&nbsp;
+&nbsp;    @Override
+&nbsp;    public String toString() {
+&nbsp;        return name;
+&nbsp;    }
+&nbsp;
+&nbsp;    @Override
+&nbsp;    public boolean equals(Object obj) {
+&nbsp;        if(this == obj) {
+&nbsp;            return true;
+&nbsp;        }
+&nbsp;        if((null == obj) || (getClass() != obj.getClass())) {
+&nbsp;            return false;
+&nbsp;        }
+&nbsp;        final HMVType other = (HMVType) obj;
+&nbsp;        return Objects.equals(name, other.name) &amp;&amp; Objects.equals(id, other.id);
+&nbsp;    }
+&nbsp;
+&nbsp;    @Override
+&nbsp;    public int hashCode() {
+&nbsp;        return Objects.hash(name, id);
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getId() {
+&nbsp;        return id;
+&nbsp;    }
+&nbsp;}
+&nbsp;
+&nbsp;class HMVEngineType extends HMVType {
+&nbsp;    public static final Hashtable&lt;Integer, HMVEngineType&gt; types = new Hashtable&lt;Integer, HMVEngineType&gt;();
+&nbsp;
+&nbsp;    public static final HMVEngineType ICE = new HMVEngineType(&quot;I.C.E.&quot;, 0);
+&nbsp;    public static final HMVEngineType FUSION = new HMVEngineType(&quot;Fusion&quot;, 1);
+&nbsp;    public static final HMVEngineType XLFUSION = new HMVEngineType(&quot;XL Fusion&quot;, 2);
+&nbsp;    public static final HMVEngineType XXLFUSION = new HMVEngineType(&quot;XXL Fusion&quot;, 3);
+&nbsp;    public static final HMVEngineType LIGHTFUSION = new HMVEngineType(&quot;Light Fusion&quot;, 4);
+&nbsp;
+&nbsp;    private HMVEngineType(String name, int id) {
+&nbsp;        super(name, id);
+&nbsp;        types.put(Integer.valueOf(id), this);
+&nbsp;    }
+&nbsp;
+&nbsp;    public static HMVEngineType getType(int i) {
+&nbsp;        return types.get(Integer.valueOf(i));
+&nbsp;    }
+&nbsp;}
+&nbsp;
+&nbsp;class HMVArmorType extends HMVType {
+&nbsp;    public static final Hashtable&lt;Integer, HMVArmorType&gt; types = new Hashtable&lt;Integer, HMVArmorType&gt;();
+&nbsp;
+&nbsp;    public static final HMVArmorType STANDARD = new HMVArmorType(EquipmentType.getArmorTypeName(EquipmentType.T_ARMOR_STANDARD), 0);
+&nbsp;    public static final HMVArmorType FERRO = new HMVArmorType(EquipmentType.getArmorTypeName(EquipmentType.T_ARMOR_FERRO_FIBROUS), 1);
+&nbsp;
+&nbsp;    // public static final HMVArmorType COMPACT = new HMVArmorType(&quot;Compact&quot;,
+&nbsp;    // 2);
+&nbsp;    // public static final HMVArmorType LASER = new HMVArmorType(&quot;Laser&quot;, 3);
+&nbsp;
+&nbsp;    private HMVArmorType(String name, int id) {
+&nbsp;        super(name, id);
+&nbsp;        types.put(Integer.valueOf(id), this);
+&nbsp;    }
+&nbsp;
+&nbsp;    public static HMVArmorType getType(int i) {
+&nbsp;        return types.get(Integer.valueOf(i));
+&nbsp;    }
+&nbsp;}
+&nbsp;
+&nbsp;class HMVTechType extends HMVType {
+&nbsp;    public static final Hashtable&lt;Integer, HMVTechType&gt; types = new Hashtable&lt;Integer, HMVTechType&gt;();
+&nbsp;
+&nbsp;    public static final HMVTechType INNER_SPHERE = new HMVTechType(&quot;Inner Sphere&quot;, 0);
+&nbsp;    public static final HMVTechType CLAN = new HMVTechType(&quot;Clan&quot;, 1);
+&nbsp;    public static final HMVTechType MIXED = new HMVTechType(&quot;Mixed&quot;, 2);
+&nbsp;
+&nbsp;    private HMVTechType(String name, int id) {
+&nbsp;        super(name, id);
+&nbsp;        types.put(Integer.valueOf(id), this);
+&nbsp;    }
+&nbsp;
+&nbsp;    public static HMVTechType getType(int i) {
+&nbsp;        return types.get(Integer.valueOf(i));
+&nbsp;    }
+&nbsp;}
+&nbsp;
+&nbsp;class HMVMovementType extends HMVType {
+&nbsp;    public static final Hashtable&lt;Integer, HMVMovementType&gt; types = new Hashtable&lt;Integer, HMVMovementType&gt;();
+&nbsp;
+&nbsp;    public static final HMVMovementType TRACKED = new HMVMovementType(&quot;Tracked&quot;, 8);
+&nbsp;    public static final HMVMovementType WHEELED = new HMVMovementType(&quot;Wheeled&quot;, 16);
+&nbsp;    public static final HMVMovementType HOVER = new HMVMovementType(&quot;Hover&quot;, 32);
+&nbsp;    public static final HMVMovementType VTOL = new HMVMovementType(&quot;V.T.O.L&quot;, 64);
+&nbsp;    public static final HMVMovementType HYDROFOIL = new HMVMovementType(&quot;Hydrofoil&quot;, 128);
+&nbsp;    public static final HMVMovementType SUBMARINE = new HMVMovementType(&quot;Submarine&quot;, 256);
+&nbsp;    public static final HMVMovementType DISPLACEMENT_HULL = new HMVMovementType(&quot;Displacement Hull&quot;, 512);
+&nbsp;
+&nbsp;    private HMVMovementType(String name, int id) {
+&nbsp;        super(name, id);
+&nbsp;        types.put(Integer.valueOf(id), this);
+&nbsp;    }
+&nbsp;
+&nbsp;    public static HMVMovementType getType(int i) {
+&nbsp;        // Only pay attention to the movement type bits.
+&nbsp;        i &amp;= 1016;
+&nbsp;        return types.get(Integer.valueOf(i));
+&nbsp;    }
+&nbsp;
+&nbsp;}
+&nbsp;
+&nbsp;class HMVWeaponLocation extends HMVType {
+<b class="nc">&nbsp;    public static final Hashtable&lt;Integer, HMVWeaponLocation&gt; types = new Hashtable&lt;Integer, HMVWeaponLocation&gt;();</b>
+&nbsp;
+<b class="nc">&nbsp;    public static final HMVWeaponLocation TURRET = new HMVWeaponLocation(&quot;Turret&quot;, 0);</b>
+<b class="nc">&nbsp;    public static final HMVWeaponLocation FRONT = new HMVWeaponLocation(&quot;Front&quot;, 1);</b>
+<b class="nc">&nbsp;    public static final HMVWeaponLocation LEFT = new HMVWeaponLocation(&quot;Left&quot;, 2);</b>
+<b class="nc">&nbsp;    public static final HMVWeaponLocation RIGHT = new HMVWeaponLocation(&quot;Right&quot;, 3);</b>
+<b class="nc">&nbsp;    public static final HMVWeaponLocation REAR = new HMVWeaponLocation(&quot;Rear&quot;, 4);</b>
+<b class="nc">&nbsp;    public static final HMVWeaponLocation BODY = new HMVWeaponLocation(&quot;Body&quot;, 5);</b>
+&nbsp;
+&nbsp;    private HMVWeaponLocation(String name, int id) {
+<b class="nc">&nbsp;        super(name, id);</b>
+<b class="nc">&nbsp;        types.put(Integer.valueOf(id), this);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public static HMVWeaponLocation getType(int i) {
+<b class="nc">&nbsp;        return types.get(Integer.valueOf(i));</b>
+&nbsp;    }
+&nbsp;}
+&nbsp;
+&nbsp;class HMVStructureType extends HMVType {
+&nbsp;    public static final Hashtable&lt;Integer, HMVStructureType&gt; types = new Hashtable&lt;Integer, HMVStructureType&gt;();
+&nbsp;
+&nbsp;    public static final HMVStructureType STANDARD = new HMVStructureType(&quot;Standard&quot;, 179);
+&nbsp;    public static final HMVStructureType REINFORCED = new HMVStructureType(&quot;Reinforced&quot;, 193);
+&nbsp;
+&nbsp;    private HMVStructureType(String name, int id) {
+&nbsp;        super(name, id);
+&nbsp;        types.put(Integer.valueOf(id), this);
+&nbsp;    }
+&nbsp;
+&nbsp;    public static HMVStructureType getType(int i) {
+&nbsp;        return types.get(Integer.valueOf(i));
+&nbsp;    }
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>

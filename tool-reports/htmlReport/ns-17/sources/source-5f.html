@@ -1,0 +1,1726 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > LosEffects</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.common</a>
+</div>
+
+<h1>Coverage Summary for Class: LosEffects (megamek.common)</h1>
+
+<table class="coverageStats">
+
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">LosEffects</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/61)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/694)
+  </span>
+</td>
+</tr>
+  <tr>
+    <td class="name">LosEffects$AttackInfo</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/3)
+  </span>
+</td>
+  </tr>
+<tr>
+  <td class="name"><strong>Total</strong></td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/62)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/697)
+  </span>
+</td>
+</tr>
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek - Copyright (C) 2002-2003 Ben Mazur (bmazur@sev.org)
+&nbsp; *
+&nbsp; *  This program is free software; you can redistribute it and/or modify it
+&nbsp; *  under the terms of the GNU General Public License as published by the Free
+&nbsp; *  Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; *  any later version.
+&nbsp; *
+&nbsp; *  This program is distributed in the hope that it will be useful, but
+&nbsp; *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+&nbsp; *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+&nbsp; *  for more details.
+&nbsp; */
+&nbsp;
+&nbsp;/*
+&nbsp; * LosEffects.java
+&nbsp; *
+&nbsp; * Created on October 14, 2002, 11:19 PM
+&nbsp; */
+&nbsp;
+&nbsp;package megamek.common;
+&nbsp;
+&nbsp;import java.util.ArrayList;
+&nbsp;import java.util.Vector;
+&nbsp;
+&nbsp;import megamek.client.ui.Messages;
+&nbsp;import megamek.common.options.OptionsConstants;
+&nbsp;import megamek.server.SmokeCloud;
+&nbsp;
+&nbsp;/**
+&nbsp; * Keeps track of the cumulative effects of intervening terrain on LOS
+&nbsp; *
+&nbsp; * @author Ben
+&nbsp; */
+<b class="nc">&nbsp;public class LosEffects {</b>
+&nbsp;
+<b class="nc">&nbsp;    public static class AttackInfo {</b>
+&nbsp;        public boolean attUnderWater;
+&nbsp;        public boolean attInWater;
+&nbsp;        public boolean attOnLand;
+&nbsp;        public boolean targetUnderWater;
+&nbsp;        public boolean targetInWater;
+&nbsp;        public boolean targetOnLand;
+&nbsp;        public boolean underWaterCombat;
+<b class="nc">&nbsp;        public boolean targetEntity = true;</b>
+&nbsp;        public boolean targetInfantry;
+&nbsp;        public boolean targetIsMech;
+&nbsp;        public boolean attackerIsMech;
+&nbsp;        public boolean attOffBoard;
+&nbsp;        public Coords attackPos;
+&nbsp;        public Coords targetPos;
+&nbsp;        
+&nbsp;        /**
+&nbsp;         * The absolute elevation of the attacker, i.e. the number of levels
+&nbsp;         * attacker is placed above a level 0 hex.
+&nbsp;         */
+&nbsp;        public int attackAbsHeight;
+&nbsp;        
+&nbsp;        /**
+&nbsp;         * The absolute elevation of the target, i.e. the number of levels
+&nbsp;         * target is placed above a level 0 hex.
+&nbsp;         */
+&nbsp;        public int targetAbsHeight;
+&nbsp;        
+&nbsp;        /**
+&nbsp;         * The height of the attacker, that is, how many levels above its
+&nbsp;         * elevation it is for LOS purposes.
+&nbsp;         */
+&nbsp;        public int attackHeight;
+&nbsp;        
+&nbsp;        /**
+&nbsp;         * The height of the target, that is, how many levels above its
+&nbsp;         * elevation it is for LOS purposes.
+&nbsp;         */
+&nbsp;        public int targetHeight;
+&nbsp;        public int attackerId;
+&nbsp;        public int targetId;
+<b class="nc">&nbsp;        int minimumWaterDepth = -1;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    // MAXTECH BMR
+&nbsp;    public static final int COVER_NONE = 0; // no cover (none)
+&nbsp;    public static final int COVER_LOWLEFT = 0x1; // 25% cover (partial)
+&nbsp;    public static final int COVER_LOWRIGHT = 0x2; // 25% cover (partial)
+&nbsp;    public static final int COVER_LEFT = 0x4; // vertical cover (blocked)
+&nbsp;    public static final int COVER_RIGHT = 0x8; // vertical cover (blocked)
+&nbsp;    public static final int COVER_HORIZONTAL = 0x3; // 50% cover (partial)
+&nbsp;    // Upper: for underwater attacks against &#39;mechs standing in depth 1, TW 109
+&nbsp;    public static final int COVER_UPPER = 0xC; // 50% cover (partial)
+&nbsp;    public static final int COVER_FULL = 0xF; // blocked (blocked)
+&nbsp;    public static final int COVER_75LEFT = 0x7; // 75% cover (blocked)
+&nbsp;    public static final int COVER_75RIGHT = 0xB; // 75% cover (blocked)
+&nbsp;    
+&nbsp;    public static final int DAMAGABLE_COVER_NONE = 0;
+&nbsp;    public static final int DAMAGABLE_COVER_DROPSHIP = 0x1;
+&nbsp;    public static final int DAMAGABLE_COVER_BUILDING = 0x2;
+&nbsp;
+<b class="nc">&nbsp;    boolean blocked = false;</b>
+<b class="nc">&nbsp;    boolean deadZone = false;</b>
+<b class="nc">&nbsp;    boolean infProtected = false;</b>
+<b class="nc">&nbsp;    boolean hasLoS = true;</b>
+<b class="nc">&nbsp;    boolean targetIsOversized = false;</b>
+<b class="nc">&nbsp;    int plantedFields = 0;</b>
+<b class="nc">&nbsp;    int heavyIndustrial = 0;</b>
+<b class="nc">&nbsp;    int lightWoods = 0;</b>
+<b class="nc">&nbsp;    int heavyWoods = 0;</b>
+<b class="nc">&nbsp;    int ultraWoods = 0;</b>
+<b class="nc">&nbsp;    int lightSmoke = 0;</b>
+<b class="nc">&nbsp;    int heavySmoke = 0;</b>
+<b class="nc">&nbsp;    int screen = 0;</b>
+<b class="nc">&nbsp;    int softBuildings = 0;</b>
+<b class="nc">&nbsp;    int hardBuildings = 0;</b>
+<b class="nc">&nbsp;    int buildingLevelsOrHexes = 0;</b>
+<b class="nc">&nbsp;    boolean blockedByHill = false;</b>
+<b class="nc">&nbsp;    boolean blockedByWater = false;</b>
+<b class="nc">&nbsp;    int targetCover = COVER_NONE; // that means partial cover</b>
+<b class="nc">&nbsp;    int attackerCover = COVER_NONE; // ditto</b>
+<b class="nc">&nbsp;    Building thruBldg = null;</b>
+&nbsp;    Coords targetLoc;
+&nbsp;    /**
+&nbsp;     * Indicates if the primary cover is damagable.
+&nbsp;     */
+<b class="nc">&nbsp;    int damagableCoverTypePrimary   = DAMAGABLE_COVER_NONE;</b>
+&nbsp;    /**
+&nbsp;     * Indicates if the secondary cover is damagable
+&nbsp;     */   
+<b class="nc">&nbsp;    int damagableCoverTypeSecondary = DAMAGABLE_COVER_NONE;</b>
+&nbsp;    /**
+&nbsp;     * Keeps track of the building that provides cover.  This is used
+&nbsp;     * to assign damage for shots that hit cover.  The primary cover is used 
+&nbsp;     * if there is a sole piece of cover (horizontal cover, 25% cover).
+&nbsp;     * In the case of a primary and secondary, the primary cover protects the 
+&nbsp;     * right side.
+&nbsp;     */
+<b class="nc">&nbsp;    Building coverBuildingPrimary = null;</b>
+&nbsp;    /**
+&nbsp;     * Keeps track of the building that provides cover.  This is used
+&nbsp;     * to assign damage for shots that hit cover.  The secondary cover is used
+&nbsp;     * if there are two buildings that provide cover, like in the case of 75%
+&nbsp;     * cover or two buildings providing 25% cover for a total of horizontal 
+&nbsp;     * cover.  The secondary cover protects the left side.
+&nbsp;     */
+<b class="nc">&nbsp;    Building coverBuildingSecondary = null;</b>
+&nbsp;    /**
+&nbsp;     * Keeps track of the grounded Dropship that provides cover.  This is
+&nbsp;     * used to assign damage for shots that hit cover. The primary cover is used 
+&nbsp;     * if there is a sole piece of cover (horizontal cover, 25% cover).
+&nbsp;     * In the case of a primary and secondary, the primary cover protects the 
+&nbsp;     * right side.
+&nbsp;     */
+<b class="nc">&nbsp;    Entity coverDropshipPrimary = null;</b>
+&nbsp;    /**
+&nbsp;     * Keeps track of the grounded Dropship that provides cover.  This is
+&nbsp;     * used to assign damage for shots that hit cover. The secondary cover is used
+&nbsp;     * if there are two buildings that provide cover, like in the case of 75%
+&nbsp;     * cover or two buildings providing 25% cover for a total of horizontal 
+&nbsp;     * cover.  The secondary cover protects the left side.
+&nbsp;     */
+<b class="nc">&nbsp;    Entity coverDropshipSecondary = null;    </b>
+&nbsp;    /**
+&nbsp;     * Stores the hex location of the primary cover.
+&nbsp;     */
+<b class="nc">&nbsp;    Coords coverLocPrimary = null;</b>
+&nbsp;    /**
+&nbsp;     * Stores the hex location of the secondary cover.
+&nbsp;     */
+<b class="nc">&nbsp;    Coords coverLocSecondary = null;</b>
+<b class="nc">&nbsp;    int minimumWaterDepth = -1;</b>
+<b class="nc">&nbsp;    boolean arcedShot = false;</b>
+&nbsp;
+&nbsp;    
+&nbsp;    public Coords getTargetPosition() {
+<b class="nc">&nbsp;        return targetLoc;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public int getMinimumWaterDepth() {
+<b class="nc">&nbsp;        return minimumWaterDepth;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setMinimumWaterDepth(int inVal) {
+<b class="nc">&nbsp;        minimumWaterDepth = inVal;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void add(LosEffects other) {
+&nbsp;        // We need to check if we should update damagable cover
+&nbsp;        //  We need to update cover if it&#39;s present, but we don&#39;t want to
+&nbsp;        //  remove cover if no new cover is present
+&nbsp;        //  this assumes that LoS is being drawn from attacker to target
+<b class="nc">&nbsp;        if (other.damagableCoverTypePrimary != DAMAGABLE_COVER_NONE &amp;&amp; </b>
+&nbsp;                other.targetCover &gt;= targetCover){
+<b class="nc">&nbsp;            damagableCoverTypePrimary = other.damagableCoverTypePrimary;</b>
+<b class="nc">&nbsp;            coverDropshipPrimary = other.coverDropshipPrimary;</b>
+<b class="nc">&nbsp;            coverBuildingPrimary = other.coverBuildingPrimary;</b>
+<b class="nc">&nbsp;            coverLocPrimary = other.coverLocPrimary;</b>
+<b class="nc">&nbsp;            damagableCoverTypeSecondary = other.damagableCoverTypeSecondary;            </b>
+<b class="nc">&nbsp;            coverDropshipSecondary = other.coverDropshipSecondary;        </b>
+<b class="nc">&nbsp;            coverBuildingSecondary = other.coverBuildingSecondary;   </b>
+<b class="nc">&nbsp;            coverLocSecondary = other.coverLocSecondary;</b>
+&nbsp;        }           
+&nbsp;        
+<b class="nc">&nbsp;        blocked |= other.blocked;</b>
+<b class="nc">&nbsp;        infProtected |= other.infProtected;</b>
+<b class="nc">&nbsp;        plantedFields += other.plantedFields;</b>
+<b class="nc">&nbsp;        heavyIndustrial += other.heavyIndustrial;</b>
+<b class="nc">&nbsp;        lightWoods += other.lightWoods;</b>
+<b class="nc">&nbsp;        heavyWoods += other.heavyWoods;</b>
+<b class="nc">&nbsp;        ultraWoods += other.ultraWoods;</b>
+<b class="nc">&nbsp;        lightSmoke += other.lightSmoke;</b>
+<b class="nc">&nbsp;        heavySmoke += other.heavySmoke;</b>
+<b class="nc">&nbsp;        buildingLevelsOrHexes += other.buildingLevelsOrHexes;</b>
+<b class="nc">&nbsp;        screen += other.screen;</b>
+<b class="nc">&nbsp;        softBuildings += other.softBuildings;</b>
+<b class="nc">&nbsp;        hardBuildings += other.hardBuildings;</b>
+<b class="nc">&nbsp;        blockedByHill |= other.blockedByHill;</b>
+<b class="nc">&nbsp;        blockedByWater |= other.blockedByWater;</b>
+<b class="nc">&nbsp;        targetCover |= other.targetCover;</b>
+<b class="nc">&nbsp;        attackerCover |= other.attackerCover;</b>
+<b class="nc">&nbsp;        if ((null != thruBldg) &amp;&amp; !thruBldg.equals(other.thruBldg)) {</b>
+<b class="nc">&nbsp;            thruBldg = null;</b>
+&nbsp;        }     
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getPlantedFields() {
+<b class="nc">&nbsp;        return plantedFields;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getHeavyIndustrial() {
+<b class="nc">&nbsp;        return heavyIndustrial;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getLightWoods() {
+<b class="nc">&nbsp;        return lightWoods;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getHeavyWoods() {
+<b class="nc">&nbsp;        return heavyWoods;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getUltraWoods() {
+<b class="nc">&nbsp;        return ultraWoods;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getLightSmoke() {
+<b class="nc">&nbsp;        return lightSmoke;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getHeavySmoke() {
+<b class="nc">&nbsp;        return heavySmoke;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getScreen() {
+<b class="nc">&nbsp;        return screen;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getSoftBuildings() {
+<b class="nc">&nbsp;        return softBuildings;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getHardBuildings() {
+<b class="nc">&nbsp;        return hardBuildings;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public boolean isBlocked() {
+<b class="nc">&nbsp;        return blocked;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public boolean isBlockedByHill() {
+<b class="nc">&nbsp;        return blockedByHill;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public boolean isBlockedByWater() {
+<b class="nc">&nbsp;        return blockedByWater;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Getter for property targetCover.
+&nbsp;     *
+&nbsp;     * @return Value of property targetCover.
+&nbsp;     */
+&nbsp;    public boolean isTargetCover() {
+<b class="nc">&nbsp;        return targetCover &gt;= COVER_LOWLEFT;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getTargetCover() {
+<b class="nc">&nbsp;        return targetCover;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Setter for property targetCover.
+&nbsp;     *
+&nbsp;     * @param targetCover New value of property targetCover.
+&nbsp;     */
+&nbsp;    public void setTargetCover(int targetCover) {
+<b class="nc">&nbsp;        this.targetCover = targetCover;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Getter for property attackerCover.
+&nbsp;     *
+&nbsp;     * @return Value of property attackerCover.
+&nbsp;     */
+&nbsp;    public boolean isAttackerCover() {
+<b class="nc">&nbsp;        return attackerCover &gt;= COVER_LOWLEFT;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getAttackerCover() {
+<b class="nc">&nbsp;        return attackerCover;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Setter for property attackerCover.
+&nbsp;     *
+&nbsp;     * @param attackerCover New value of property attackerCover.
+&nbsp;     */
+&nbsp;    public void setAttackerCover(int attackerCover) {
+<b class="nc">&nbsp;        this.attackerCover = attackerCover;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Getter for property thruBldg.
+&nbsp;     *
+&nbsp;     * @return Value of property thruBldg.
+&nbsp;     */
+&nbsp;    public Building getThruBldg() {
+<b class="nc">&nbsp;        return thruBldg;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Setter for property thruBldg.
+&nbsp;     *
+&nbsp;     * @param thruBldg New value of property thruBldg.
+&nbsp;     */
+&nbsp;    public void setThruBldg(Building thruBldg) {
+<b class="nc">&nbsp;        this.thruBldg = thruBldg;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * LOS check from ae to te.
+&nbsp;     */
+&nbsp;    public boolean canSee() {
+<b class="nc">&nbsp;        return hasLoS;// !blocked &amp;&amp; (lightWoods + lightSmoke) + ((heavyWoods</b>
+&nbsp;                        // + heavySmoke) * 2) &lt; 3;
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Returns a LosEffects object representing the LOS effects of interveing
+&nbsp;     * terrain between the attacker and target. Checks to see if the attacker
+&nbsp;     * and target are at an angle where the LOS line will pass between two
+&nbsp;     * hexes. If so, calls losDivided, otherwise calls losStraight.
+&nbsp;     */
+&nbsp;    public static LosEffects calculateLos(IGame game, int attackerId,
+&nbsp;            Targetable target) {
+<b class="nc">&nbsp;        return calculateLos(game, attackerId, target, false);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public static LosEffects calculateLos(IGame game, int attackerId,
+&nbsp;            Targetable target, boolean spotting) {
+&nbsp;        //we need an extra step here, because units with secondary position can calculate LoS
+&nbsp;        //from hexes other than that returned from getPosition()
+<b class="nc">&nbsp;        final Entity ae = game.getEntity(attackerId);</b>
+&nbsp;        //create a vector of attacker position and a vector of target positions - double loop through them
+&nbsp;        //both and select the best one
+<b class="nc">&nbsp;        Vector&lt;Coords&gt; attackPos = new Vector&lt;Coords&gt;();</b>
+<b class="nc">&nbsp;        attackPos.add(ae.getPosition());</b>
+<b class="nc">&nbsp;        Vector&lt;Coords&gt; targetPos = new Vector&lt;Coords&gt;();</b>
+<b class="nc">&nbsp;        targetPos.add(target.getPosition());</b>
+&nbsp;        //if a grounded dropship is the attacker, then it gets to choose the best secondary position for LoS
+<b class="nc">&nbsp;        if(ae instanceof Dropship &amp;&amp; !ae.getSecondaryPositions().isEmpty()) {</b>
+<b class="nc">&nbsp;            attackPos = new Vector&lt;Coords&gt;();</b>
+<b class="nc">&nbsp;            for(int key : ae.getSecondaryPositions().keySet()) {</b>
+<b class="nc">&nbsp;                attackPos.add(ae.getSecondaryPositions().get(key));</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;        //if a grounded dropship is the target, then the attacker chooses the best secondary position
+<b class="nc">&nbsp;        if(target instanceof Dropship &amp;&amp; !((Entity)target).getSecondaryPositions().isEmpty()) {</b>
+<b class="nc">&nbsp;            targetPos = new Vector&lt;Coords&gt;();</b>
+<b class="nc">&nbsp;            for(int key : ((Entity)target).getSecondaryPositions().keySet()) {</b>
+<b class="nc">&nbsp;                targetPos.add(((Entity)target).getSecondaryPositions().get(key));</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+<b class="nc">&nbsp;        LosEffects bestLos = null;  </b>
+<b class="nc">&nbsp;        for(Coords apos : attackPos) {</b>
+<b class="nc">&nbsp;            for(Coords tpos : targetPos) {         </b>
+<b class="nc">&nbsp;                LosEffects newLos = calculateLos(game, attackerId, target, apos, tpos, spotting);</b>
+&nbsp;                //is the new one better?
+<b class="nc">&nbsp;                if(null == bestLos </b>
+<b class="nc">&nbsp;                        || bestLos.isBlocked() </b>
+<b class="nc">&nbsp;                        || newLos.losModifiers(game).getValue() &lt; bestLos.losModifiers(game).getValue()) {</b>
+<b class="nc">&nbsp;                    bestLos = newLos;</b>
+&nbsp;                }
+<b class="nc">&nbsp;            }</b>
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        bestLos.targetLoc = target.getPosition();</b>
+<b class="nc">&nbsp;        return bestLos;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;
+&nbsp;    public static LosEffects calculateLos(IGame game, int attackerId, Targetable target,
+&nbsp;            Coords attackPos, Coords targetPos, boolean spotting) {
+<b class="nc">&nbsp;        final Entity ae = game.getEntity(attackerId);</b>
+&nbsp;
+&nbsp;        // LOS fails if one of the entities is not deployed.
+<b class="nc">&nbsp;        if ((null == attackPos) || (null == targetPos)</b>
+<b class="nc">&nbsp;                || ae.isOffBoard() || target.isOffBoard()) {</b>
+<b class="nc">&nbsp;            LosEffects los = new LosEffects();</b>
+<b class="nc">&nbsp;            los.blocked = true; // TODO: come up with a better &quot;impossible&quot;</b>
+<b class="nc">&nbsp;            los.hasLoS = false;</b>
+<b class="nc">&nbsp;            los.targetLoc = target.getPosition();</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        IHex attHex = game.getBoard().getHex(attackPos);</b>
+<b class="nc">&nbsp;        IHex targetHex = game.getBoard().getHex(targetPos);</b>
+<b class="nc">&nbsp;        if ((attHex == null) || (targetHex == null)) {</b>
+<b class="nc">&nbsp;            LosEffects los = new LosEffects();</b>
+<b class="nc">&nbsp;            los.blocked = true; // TODO: come up with a better &quot;impossible&quot;</b>
+<b class="nc">&nbsp;            los.hasLoS = false;</b>
+<b class="nc">&nbsp;            los.targetLoc = target.getPosition();</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // this will adjust the effective height of a building target by 1 if the hex contains a rooftop gun emplacement
+<b class="nc">&nbsp;        int targetHeightAdjustment = game.hasRooftopGunEmplacement(targetHex.getCoords()) ? 1 : 0;</b>
+&nbsp;        
+<b class="nc">&nbsp;        final AttackInfo ai = new AttackInfo();</b>
+<b class="nc">&nbsp;        ai.attackerIsMech = ae instanceof Mech;</b>
+<b class="nc">&nbsp;        ai.attackPos = attackPos;</b>
+<b class="nc">&nbsp;        ai.attackerId = ae.getId();</b>
+<b class="nc">&nbsp;        ai.targetPos = targetPos;</b>
+<b class="nc">&nbsp;        ai.targetEntity = target.getTargetType() == Targetable.TYPE_ENTITY;</b>
+<b class="nc">&nbsp;        if(ai.targetEntity) {</b>
+<b class="nc">&nbsp;            ai.targetId = ((Entity)target).getId();</b>
+<b class="nc">&nbsp;            ai.targetIsMech = target instanceof Mech;</b>
+&nbsp;        }else {
+<b class="nc">&nbsp;            ai.targetIsMech = false;</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        ai.targetInfantry = target instanceof Infantry;</b>
+<b class="nc">&nbsp;        ai.attackHeight = ae.getHeight();</b>
+<b class="nc">&nbsp;        ai.targetHeight = target.getHeight() + targetHeightAdjustment;</b>
+&nbsp;
+<b class="nc">&nbsp;        int attEl = ae.relHeight() + attHex.getLevel();</b>
+&nbsp;        // for spotting, a mast mount raises our elevation by 1
+<b class="nc">&nbsp;        if (spotting &amp;&amp; ae.hasWorkingMisc(MiscType.F_MAST_MOUNT, -1)) {</b>
+<b class="nc">&nbsp;            attEl += 1;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        int targEl = target.relHeight() + targetHex.getLevel() + targetHeightAdjustment;</b>
+&nbsp;
+<b class="nc">&nbsp;        ai.attackAbsHeight = attEl;</b>
+<b class="nc">&nbsp;        ai.targetAbsHeight = targEl;</b>
+<b class="nc">&nbsp;        boolean attOffBoard = ae.isOffBoard();</b>
+&nbsp;        boolean attUnderWater;
+&nbsp;        boolean attInWater;
+&nbsp;        boolean attOnLand;
+<b class="nc">&nbsp;        if (attOffBoard) {</b>
+<b class="nc">&nbsp;            attUnderWater = true;</b>
+<b class="nc">&nbsp;            attInWater = false;</b>
+<b class="nc">&nbsp;            attOnLand = true;</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            attUnderWater = attHex.containsTerrain(Terrains.WATER)</b>
+<b class="nc">&nbsp;                    &amp;&amp; (attHex.depth() &gt; 0) &amp;&amp; (attEl &lt; attHex.surface());</b>
+<b class="nc">&nbsp;            attInWater = attHex.containsTerrain(Terrains.WATER)</b>
+<b class="nc">&nbsp;                    &amp;&amp; (attHex.depth() &gt; 0) &amp;&amp; (attEl == attHex.surface());</b>
+<b class="nc">&nbsp;            attOnLand = !(attUnderWater || attInWater);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        boolean targetOffBoard = !game.getBoard()</b>
+<b class="nc">&nbsp;                .contains(targetPos);</b>
+&nbsp;        boolean targetUnderWater;
+&nbsp;        boolean targetInWater;
+&nbsp;        boolean targetOnLand;
+<b class="nc">&nbsp;        if (targetOffBoard) {</b>
+<b class="nc">&nbsp;            targetUnderWater = true;</b>
+<b class="nc">&nbsp;            targetInWater = false;</b>
+<b class="nc">&nbsp;            targetOnLand = true;</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            targetUnderWater = targetHex.containsTerrain(Terrains.WATER)</b>
+<b class="nc">&nbsp;                    &amp;&amp; (targetHex.depth() &gt; 0) &amp;&amp; (targEl &lt; targetHex.surface());</b>
+<b class="nc">&nbsp;            targetInWater = targetHex.containsTerrain(Terrains.WATER)</b>
+<b class="nc">&nbsp;                    &amp;&amp; (targetHex.depth() &gt; 0) &amp;&amp; (targEl == targetHex.surface());</b>
+<b class="nc">&nbsp;            targetOnLand = !(targetUnderWater || targetInWater);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        boolean underWaterCombat = targetUnderWater || attUnderWater;</b>
+&nbsp;
+<b class="nc">&nbsp;        ai.attUnderWater = attUnderWater;</b>
+<b class="nc">&nbsp;        ai.attInWater = attInWater;</b>
+<b class="nc">&nbsp;        ai.attOnLand = attOnLand;</b>
+<b class="nc">&nbsp;        ai.targetUnderWater = targetUnderWater;</b>
+<b class="nc">&nbsp;        ai.targetInWater = targetInWater;</b>
+<b class="nc">&nbsp;        ai.targetOnLand = targetOnLand;</b>
+<b class="nc">&nbsp;        ai.underWaterCombat = underWaterCombat;</b>
+<b class="nc">&nbsp;        ai.attOffBoard = attOffBoard;</b>
+&nbsp;        // Handle minimum water depth.
+&nbsp;        // Applies to Torpedos.
+<b class="nc">&nbsp;        if (ai.attOnLand || ai.targetOnLand) {</b>
+<b class="nc">&nbsp;            ai.minimumWaterDepth = 0;</b>
+<b class="nc">&nbsp;        } else if (ai.attInWater || ai.targetInWater) {</b>
+<b class="nc">&nbsp;            ai.minimumWaterDepth = 1;</b>
+<b class="nc">&nbsp;        } else if (ai.attUnderWater || ai.targetUnderWater) {</b>
+<b class="nc">&nbsp;            ai.minimumWaterDepth = Math.min(</b>
+<b class="nc">&nbsp;                    attHex.terrainLevel(Terrains.WATER), targetHex</b>
+<b class="nc">&nbsp;                            .terrainLevel(Terrains.WATER));</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        //if this is an air to ground or ground to air attack or a ground to air,
+&nbsp;        //treat the attacker&#39;s position as the same as the target&#39;s
+<b class="nc">&nbsp;        if(Compute.isAirToGround(ae, target) || Compute.isGroundToAir(ae, target)) {</b>
+<b class="nc">&nbsp;            ai.attackPos = ai.targetPos;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        LosEffects finalLoS = calculateLos(game, ai);</b>
+<b class="nc">&nbsp;        finalLoS.setMinimumWaterDepth(ai.minimumWaterDepth);</b>
+&nbsp;        
+<b class="nc">&nbsp;        finalLoS.targetLoc = target.getPosition();</b>
+&nbsp;        
+<b class="nc">&nbsp;        finalLoS.targetIsOversized = ai.targetEntity &amp;&amp; ((Entity) target).hasQuirk(OptionsConstants.QUIRK_NEG_OVERSIZED);</b>
+&nbsp;        
+<b class="nc">&nbsp;        return finalLoS;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public static LosEffects calculateLos(IGame game, AttackInfo ai) {
+<b class="nc">&nbsp;        if (ai.attOffBoard) {</b>
+<b class="nc">&nbsp;            LosEffects los = new LosEffects();</b>
+<b class="nc">&nbsp;            los.blocked = true;</b>
+<b class="nc">&nbsp;            los.hasLoS = false;</b>
+<b class="nc">&nbsp;            los.targetLoc = ai.targetPos;</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if ((ai.attOnLand &amp;&amp; ai.targetUnderWater) || (ai.attUnderWater</b>
+&nbsp;                &amp;&amp; ai.targetOnLand)) {
+<b class="nc">&nbsp;            LosEffects los = new LosEffects();</b>
+<b class="nc">&nbsp;            los.blocked = true;</b>
+<b class="nc">&nbsp;            los.hasLoS = false;</b>
+<b class="nc">&nbsp;            los.blockedByWater = true;</b>
+<b class="nc">&nbsp;            los.targetLoc = ai.targetPos;</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if(game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_DEAD_ZONES) &amp;&amp; isDeadZone(game, ai)) {</b>
+<b class="nc">&nbsp;            LosEffects los = new LosEffects();</b>
+<b class="nc">&nbsp;            los.blocked = true;</b>
+<b class="nc">&nbsp;            los.blockedByHill = true;</b>
+<b class="nc">&nbsp;            los.deadZone = true;</b>
+<b class="nc">&nbsp;            los.hasLoS = false;</b>
+<b class="nc">&nbsp;            los.targetLoc = ai.targetPos;</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        boolean diagramLos = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_LOS1);</b>
+<b class="nc">&nbsp;        boolean partialCover = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER);</b>
+<b class="nc">&nbsp;        double degree = ai.attackPos.degree(ai.targetPos);</b>
+&nbsp;        LosEffects finalLoS;
+<b class="nc">&nbsp;        if (degree % 60 == 30) {</b>
+<b class="nc">&nbsp;            finalLoS = LosEffects.losDivided(game, ai, diagramLos, partialCover);</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            finalLoS = LosEffects.losStraight(game, ai, diagramLos, partialCover);</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        finalLoS.hasLoS = !finalLoS.blocked &amp;&amp; </b>
+&nbsp;                            (finalLoS.screen &lt; 1) &amp;&amp; 
+&nbsp;                            (finalLoS.plantedFields &lt; 6) &amp;&amp; 
+&nbsp;                            (finalLoS.heavyIndustrial &lt; 3) &amp;&amp; 
+&nbsp;                           ((finalLoS.lightWoods + finalLoS.lightSmoke)
+&nbsp;                             + ((finalLoS.heavyWoods + finalLoS.heavySmoke) * 2)
+&nbsp;                             + (finalLoS.ultraWoods * 3) &lt; 3);
+&nbsp;        
+<b class="nc">&nbsp;        finalLoS.targetLoc = ai.targetPos;</b>
+<b class="nc">&nbsp;        return finalLoS;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Returns ToHitData indicating the modifiers to fire for the specified LOS
+&nbsp;     * effects data.
+&nbsp;     */
+&nbsp;    public ToHitData losModifiers(IGame game) {
+<b class="nc">&nbsp;        return losModifiers(game, 0, false);</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public ToHitData losModifiers(IGame game, boolean underWaterWeapon) {
+<b class="nc">&nbsp;        return losModifiers(game, 0, underWaterWeapon);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public ToHitData losModifiers(IGame game, int eistatus, boolean underwaterWeapon) {
+<b class="nc">&nbsp;        ToHitData modifiers = new ToHitData();</b>
+&nbsp;
+<b class="nc">&nbsp;        if ( arcedShot ) {</b>
+<b class="nc">&nbsp;            return modifiers;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        /*
+&nbsp;        if (deadZone) {
+&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE,
+&nbsp;                    &quot;LOS blocked by dead zone.&quot;);
+&nbsp;        }
+&nbsp;        */
+&nbsp;
+<b class="nc">&nbsp;        if (blocked) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE,</b>
+&nbsp;                    &quot;LOS blocked by terrain.&quot;);
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (infProtected) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE,</b>
+&nbsp;                    &quot;Infantry protected by building.&quot;);
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (buildingLevelsOrHexes &gt; 2) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by building hexes or levels.&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if ((ultraWoods &gt;= 1) || (lightWoods + (heavyWoods * 2) &gt; 2)) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by woods.&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (!underwaterWeapon &amp;&amp; (lightSmoke + (heavySmoke * 2) &gt; 2)) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by smoke.&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if(plantedFields &gt; 5) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by planted fields.&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if(heavyIndustrial &gt; 2) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by heavy industrial zones.&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (screen &gt; 0) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by screen.&quot;);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (!underwaterWeapon &amp;&amp; (lightSmoke + (heavySmoke * 2) + lightWoods + (heavyWoods * 2) &gt; 2)) {</b>
+<b class="nc">&nbsp;            return new ToHitData(TargetRoll.IMPOSSIBLE,</b>
+&nbsp;                    &quot;LOS blocked by smoke and woods.&quot;);
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if(plantedFields &gt; 0) {</b>
+<b class="nc">&nbsp;            modifiers.addModifier((int)Math.floor(plantedFields / 2.0), plantedFields</b>
+&nbsp;                    + &quot; intervening planted fields&quot;);
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if(heavyIndustrial &gt; 0) {</b>
+<b class="nc">&nbsp;            modifiers.addModifier(heavyIndustrial, heavyIndustrial</b>
+&nbsp;                    + &quot; intervening heavy industrial zones&quot;);
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (lightWoods &gt; 0) {</b>
+<b class="nc">&nbsp;            if (eistatus &gt; 0) {</b>
+<b class="nc">&nbsp;                modifiers.addModifier(1,</b>
+&nbsp;                        &quot;firing through light woods with EI system&quot;);
+&nbsp;            } else {
+<b class="nc">&nbsp;                modifiers.addModifier(lightWoods, lightWoods</b>
+&nbsp;                        + &quot; intervening light woods&quot;);
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (buildingLevelsOrHexes &gt; 0) {</b>
+<b class="nc">&nbsp;            if (eistatus &gt; 0) {</b>
+<b class="nc">&nbsp;                modifiers.addModifier(1,</b>
+&nbsp;                        &quot;firing through building hex/level with EI system&quot;);
+&nbsp;            } else {
+<b class="nc">&nbsp;                modifiers.addModifier(buildingLevelsOrHexes, buildingLevelsOrHexes</b>
+&nbsp;                        + &quot; intervening building levels or hexes&quot;);
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (heavyWoods &gt; 0) {</b>
+<b class="nc">&nbsp;            if (eistatus &gt; 0) {</b>
+<b class="nc">&nbsp;                modifiers.addModifier(heavyWoods, heavyWoods</b>
+&nbsp;                        + &quot; intervening heavy woods&quot;);
+&nbsp;            } else {
+<b class="nc">&nbsp;                modifiers.addModifier(heavyWoods * 2, heavyWoods</b>
+&nbsp;                        + &quot; intervening heavy woods&quot;);
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (lightSmoke &gt; 0 &amp;&amp; !underwaterWeapon) {</b>
+<b class="nc">&nbsp;            modifiers.addModifier(lightSmoke, lightSmoke</b>
+&nbsp;                    + &quot; intervening light smoke&quot;);
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if (heavySmoke &gt; 0 &amp;&amp; !underwaterWeapon) {</b>
+<b class="nc">&nbsp;            StringBuffer text = new StringBuffer(heavySmoke);</b>
+<b class="nc">&nbsp;            text.append(&quot; intervening&quot;);</b>
+<b class="nc">&nbsp;            text.append(&quot; heavy&quot;);</b>
+<b class="nc">&nbsp;            text.append(&quot; smoke&quot;);</b>
+<b class="nc">&nbsp;            if (eistatus &gt; 0) {</b>
+<b class="nc">&nbsp;                modifiers.addModifier(heavySmoke, text.toString());</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                modifiers.addModifier(heavySmoke * 2, text.toString());</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // partial cover modifiers apply unless the target is oversized
+<b class="nc">&nbsp;        if ((targetCover != COVER_NONE) &amp;&amp; !targetIsOversized) {</b>
+<b class="nc">&nbsp;            if (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER)) {</b>
+<b class="nc">&nbsp;                if ((targetCover == COVER_75LEFT) || (targetCover == COVER_75RIGHT)) {</b>
+<b class="nc">&nbsp;                    modifiers.addModifier(1, &quot;target has 75% cover&quot;);</b>
+<b class="nc">&nbsp;                } else if (targetCover &gt;= COVER_HORIZONTAL) {</b>
+<b class="nc">&nbsp;                    modifiers.addModifier(1, &quot;target has 50% cover&quot;);</b>
+&nbsp;                } else {
+&nbsp;                    // no bth mod for 25% cover
+<b class="nc">&nbsp;                    modifiers.addModifier(0, &quot;target has 25% cover&quot;);</b>
+&nbsp;                }
+&nbsp;            } else {
+<b class="nc">&nbsp;                modifiers.addModifier(1, &quot;target has partial cover&quot;);</b>
+<b class="nc">&nbsp;                modifiers.setHitTable(ToHitData.HIT_PARTIAL_COVER);</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        return modifiers;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Returns LosEffects for a line that never passes exactly between two
+&nbsp;     * hexes. Since intervening() returns all the coordinates, we just add the
+&nbsp;     * effects of all those hexes.
+&nbsp;     */
+&nbsp;    private static LosEffects losStraight(IGame game, AttackInfo ai, 
+&nbsp;            boolean diagramLoS, boolean partialCover) {
+<b class="nc">&nbsp;        ArrayList&lt;Coords&gt; in = Coords.intervening(ai.attackPos, ai.targetPos);</b>
+<b class="nc">&nbsp;        LosEffects los = new LosEffects();</b>
+<b class="nc">&nbsp;        boolean targetInBuilding = false;</b>
+<b class="nc">&nbsp;        if (ai.targetEntity) {</b>
+<b class="nc">&nbsp;            targetInBuilding = Compute.isInBuilding(game, ai.targetAbsHeight</b>
+<b class="nc">&nbsp;                    - game.getBoard().getHex(ai.targetPos).surface(),</b>
+&nbsp;                    ai.targetPos);
+&nbsp;        }
+&nbsp;
+&nbsp;        // If the target and attacker are both in a
+&nbsp;        // building, set that as the first LOS effect.
+<b class="nc">&nbsp;        if (targetInBuilding</b>
+<b class="nc">&nbsp;                &amp;&amp; Compute.isInBuilding(game, ai.attackAbsHeight</b>
+<b class="nc">&nbsp;                        - game.getBoard().getHex(ai.attackPos).surface(),</b>
+&nbsp;                        ai.attackPos)) {
+<b class="nc">&nbsp;            los.setThruBldg(game.getBoard().getBuildingAt(in.get(0)));</b>
+&nbsp;            //elevation differences count as building hexes passed through
+<b class="nc">&nbsp;            los.buildingLevelsOrHexes += (Math.abs((ai.attackAbsHeight-ai.attackHeight) - (ai.targetAbsHeight-ai.targetHeight)));</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        for (Coords c : in) {</b>
+<b class="nc">&nbsp;            los.add(LosEffects.losForCoords(game, ai, c, los.getThruBldg(),</b>
+&nbsp;                    diagramLoS, partialCover));
+<b class="nc">&nbsp;        }      </b>
+&nbsp;
+<b class="nc">&nbsp;        if ((ai.minimumWaterDepth &lt; 1) &amp;&amp; ai.underWaterCombat) {</b>
+<b class="nc">&nbsp;            los.blocked = true;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // Infantry inside a building can only be
+&nbsp;        // targeted by units in the same building.
+<b class="nc">&nbsp;        if (ai.targetInfantry &amp;&amp; targetInBuilding &amp;&amp; (null == los.getThruBldg())) {</b>
+<b class="nc">&nbsp;            los.infProtected = true;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        return los;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Returns LosEffects for a line that passes between two hexes at least
+&nbsp;     * once. The rules say that this situation is resolved in favor of the
+&nbsp;     * defender.
+&nbsp;     *
+&nbsp;     * The intervening() function returns both hexes in these
+&nbsp;     * circumstances, and, when they are in line order, it&#39;s not hard to figure
+&nbsp;     * out which hexes are split and which are not.
+&nbsp;     *
+&nbsp;     * The line always looks like:
+&nbsp;     *        ___     ___
+&nbsp;     *    ___/ 1 \___/...\___
+&nbsp;     *   / 0 \___/ 3 \___/etc\
+&nbsp;     *   \___/ 2 \___/...\___/
+&nbsp;     *       \___/   \___/
+&nbsp;     * We go thru and figure out the modifiers for the non-split hexes first.
+&nbsp;     * Then we go to each of the two split hexes and determine
+&nbsp;     * which gives us the bigger modifier. We use the bigger modifier.
+&nbsp;     *
+&nbsp;     * This is not perfect as it takes partial cover as soon as it can, when
+&nbsp;     * perhaps later might be better.
+&nbsp;     * Also, it doesn&#39;t account for the fact that
+&nbsp;     * attacker partial cover blocks leg weapons, as we want to return the same
+&nbsp;     * sequence regardless of what weapon is attacking.
+&nbsp;     */
+&nbsp;    private static LosEffects losDivided(IGame game, AttackInfo ai,
+&nbsp;            boolean diagramLoS, boolean partialCover) {
+<b class="nc">&nbsp;        ArrayList&lt;Coords&gt; in = Coords.intervening(ai.attackPos, ai.targetPos,</b>
+&nbsp;                true);
+<b class="nc">&nbsp;        LosEffects los = new LosEffects();</b>
+<b class="nc">&nbsp;        boolean targetInBuilding = false;</b>
+<b class="nc">&nbsp;        if (ai.targetEntity) {</b>
+<b class="nc">&nbsp;            targetInBuilding = Compute.isInBuilding(game, ai.targetAbsHeight</b>
+<b class="nc">&nbsp;                    - game.getBoard().getHex(ai.targetPos).surface(),</b>
+&nbsp;                    ai.targetPos);
+&nbsp;        }
+&nbsp;
+&nbsp;        // If the target and attacker are both in a
+&nbsp;        // building, set that as the first LOS effect.
+<b class="nc">&nbsp;        if (targetInBuilding</b>
+<b class="nc">&nbsp;                &amp;&amp; Compute.isInBuilding(game, ai.attackAbsHeight</b>
+<b class="nc">&nbsp;                        - game.getBoard().getHex(ai.attackPos).surface(),</b>
+&nbsp;                        ai.attackPos)) {
+<b class="nc">&nbsp;            los.setThruBldg(game.getBoard().getBuildingAt(in.get(0)));</b>
+&nbsp;            //elevation differences count as building hexes passed through
+<b class="nc">&nbsp;            los.buildingLevelsOrHexes += (Math</b>
+<b class="nc">&nbsp;                    .abs((ai.attackAbsHeight - ai.attackHeight)</b>
+&nbsp;                            - (ai.targetAbsHeight - ai.targetHeight)));
+&nbsp;        }
+&nbsp;
+&nbsp;        // add non-divided line segments
+<b class="nc">&nbsp;        for (int i = 3; i &lt; in.size() - 2; i += 3) {</b>
+<b class="nc">&nbsp;            los.add(losForCoords(game, ai, in.get(i), los.getThruBldg(),</b>
+&nbsp;                    diagramLoS, partialCover));
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if ((ai.minimumWaterDepth &lt; 1) &amp;&amp; ai.underWaterCombat) {</b>
+<b class="nc">&nbsp;            los.blocked = true;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // if blocked already, return that
+<b class="nc">&nbsp;        if (los.losModifiers(game).getValue() == TargetRoll.IMPOSSIBLE) {</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // If there src &amp; dst hexes are the same, nothing to do
+<b class="nc">&nbsp;        if (in.size() &lt; 2) {</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // go through divided line segments
+<b class="nc">&nbsp;        LosEffects totalLeftLos = new LosEffects();</b>
+<b class="nc">&nbsp;        LosEffects totalRightLos = new LosEffects();</b>
+<b class="nc">&nbsp;        for (int i = 1; i &lt; in.size() - 2; i += 3) {</b>
+<b class="nc">&nbsp;            LosEffects leftLos = losForCoords(game, ai, in.get(i), los</b>
+<b class="nc">&nbsp;                    .getThruBldg(), diagramLoS, partialCover);</b>
+<b class="nc">&nbsp;            LosEffects rightLos = losForCoords(game, ai, in.get(i + 1), los</b>
+<b class="nc">&nbsp;                    .getThruBldg(), diagramLoS, partialCover);</b>
+&nbsp;
+&nbsp;            // Infantry inside a building can only be
+&nbsp;            // targeted by units in the same building.
+<b class="nc">&nbsp;            if (ai.targetInfantry &amp;&amp; targetInBuilding) {</b>
+<b class="nc">&nbsp;                if (null == leftLos.getThruBldg()) {</b>
+<b class="nc">&nbsp;                    leftLos.infProtected = true;</b>
+<b class="nc">&nbsp;                } else if (null == rightLos.getThruBldg()) {</b>
+<b class="nc">&nbsp;                    rightLos.infProtected = true;</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;       
+&nbsp;            // Check for advanced cover, only &#39;mechs can get partial cover
+<b class="nc">&nbsp;            if (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER) &amp;&amp; </b>
+&nbsp;                    ai.targetIsMech) {
+&nbsp;                // 75% and vertical cover will have blocked LoS
+<b class="nc">&nbsp;                boolean losBlockedByCover = false;</b>
+<b class="nc">&nbsp;                if(leftLos.targetCover == COVER_HORIZONTAL &amp;&amp; </b>
+&nbsp;                        rightLos.targetCover == COVER_NONE) {
+&nbsp;                    //25% cover, left
+<b class="nc">&nbsp;                    leftLos.targetCover  = COVER_LOWLEFT;</b>
+<b class="nc">&nbsp;                    rightLos.targetCover = COVER_LOWLEFT;</b>
+<b class="nc">&nbsp;                    rightLos.setCoverBuildingPrimary(leftLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setCoverDropshipPrimary(leftLos.getCoverDropshipPrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setDamagableCoverTypePrimary(leftLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setCoverLocPrimary(leftLos.getCoverLocPrimary());</b>
+<b class="nc">&nbsp;                }else if ((leftLos.targetCover == COVER_NONE &amp;&amp; </b>
+&nbsp;                          rightLos.targetCover == COVER_HORIZONTAL)) {
+&nbsp;                    //25% cover, right
+<b class="nc">&nbsp;                    leftLos.targetCover  = COVER_LOWRIGHT;</b>
+<b class="nc">&nbsp;                    rightLos.targetCover = COVER_LOWRIGHT;</b>
+<b class="nc">&nbsp;                    leftLos.setCoverBuildingPrimary(rightLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setCoverDropshipPrimary(rightLos.getCoverDropshipPrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setDamagableCoverTypePrimary(rightLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setCoverLocPrimary(rightLos.getCoverLocPrimary());</b>
+<b class="nc">&nbsp;                } else if(leftLos.targetCover == COVER_FULL &amp;&amp; </b>
+&nbsp;                         rightLos.targetCover == COVER_NONE){
+&nbsp;                    //vertical cover, left
+<b class="nc">&nbsp;                    leftLos.targetCover  = COVER_LEFT;</b>
+<b class="nc">&nbsp;                    rightLos.targetCover = COVER_LEFT;</b>
+<b class="nc">&nbsp;                    rightLos.setCoverBuildingPrimary(leftLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setCoverDropshipPrimary(leftLos.getCoverDropshipPrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setDamagableCoverTypePrimary(leftLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setCoverLocPrimary(leftLos.getCoverLocPrimary());</b>
+<b class="nc">&nbsp;                    losBlockedByCover = true;</b>
+<b class="nc">&nbsp;                }else if (leftLos.targetCover == COVER_NONE &amp;&amp; </b>
+&nbsp;                         rightLos.targetCover == COVER_FULL) {
+&nbsp;                    //vertical cover, right
+<b class="nc">&nbsp;                    leftLos.targetCover  = COVER_RIGHT;</b>
+<b class="nc">&nbsp;                    rightLos.targetCover = COVER_RIGHT;</b>
+<b class="nc">&nbsp;                    leftLos.setCoverBuildingPrimary(rightLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setCoverDropshipPrimary(rightLos.getCoverDropshipPrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setDamagableCoverTypePrimary(rightLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setCoverLocPrimary(rightLos.getCoverLocPrimary());</b>
+<b class="nc">&nbsp;                    losBlockedByCover = true;</b>
+<b class="nc">&nbsp;                } else if(leftLos.targetCover == COVER_FULL &amp;&amp; </b>
+&nbsp;                         rightLos.targetCover == COVER_HORIZONTAL){
+&nbsp;                    //75% cover, left
+<b class="nc">&nbsp;                    leftLos.targetCover  = COVER_75LEFT;</b>
+<b class="nc">&nbsp;                    rightLos.targetCover = COVER_75LEFT;</b>
+<b class="nc">&nbsp;                    setSecondaryCover(leftLos,rightLos);                                       </b>
+<b class="nc">&nbsp;                    losBlockedByCover = true;                    </b>
+<b class="nc">&nbsp;                } else if (leftLos.targetCover == COVER_HORIZONTAL &amp;&amp; </b>
+&nbsp;                          rightLos.targetCover == COVER_FULL) { 
+&nbsp;                    //75% cover, right
+<b class="nc">&nbsp;                    leftLos.targetCover  = COVER_75RIGHT;</b>
+<b class="nc">&nbsp;                    rightLos.targetCover = COVER_75RIGHT;</b>
+<b class="nc">&nbsp;                    setSecondaryCover(leftLos,rightLos);</b>
+<b class="nc">&nbsp;                    losBlockedByCover = true;</b>
+<b class="nc">&nbsp;                } else if (leftLos.targetCover == COVER_HORIZONTAL &amp;&amp; </b>
+&nbsp;                        rightLos.targetCover == COVER_HORIZONTAL) { 
+&nbsp;                    //50% cover
+&nbsp;                    //Cover will be set properly, but we need to set secondary
+&nbsp;                    // cover in case there are two buildings providing 25% cover
+<b class="nc">&nbsp;                    setSecondaryCover(leftLos,rightLos);</b>
+&nbsp;                }
+&nbsp;                //In the case of vertical and 75% cover, LoS will be blocked.  
+&nbsp;                // We need to unblock it, unless Los is already blocked.
+<b class="nc">&nbsp;                if (!los.blocked &amp;&amp; (!leftLos.blocked || !rightLos.blocked) &amp;&amp;</b>
+&nbsp;                        losBlockedByCover){                   
+<b class="nc">&nbsp;                    leftLos.blocked = false;</b>
+<b class="nc">&nbsp;                    rightLos.blocked = false;</b>
+&nbsp;                }                
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER) &amp;&amp; </b>
+&nbsp;                    ai.attackerIsMech) {
+&nbsp;                // 75% and vertical cover will have blocked LoS
+<b class="nc">&nbsp;                boolean losBlockedByCover = false;</b>
+<b class="nc">&nbsp;                if(leftLos.attackerCover == COVER_HORIZONTAL &amp;&amp; </b>
+&nbsp;                        rightLos.attackerCover == COVER_NONE) {
+&nbsp;                    //25% cover, left
+<b class="nc">&nbsp;                    leftLos.attackerCover  = COVER_LOWLEFT;</b>
+<b class="nc">&nbsp;                    rightLos.attackerCover = COVER_LOWLEFT;</b>
+<b class="nc">&nbsp;                    rightLos.targetCover = COVER_LOWLEFT;</b>
+<b class="nc">&nbsp;                    rightLos.setCoverBuildingPrimary(leftLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setCoverDropshipPrimary(leftLos.getCoverDropshipPrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setDamagableCoverTypePrimary(leftLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;                    rightLos.setCoverLocPrimary(leftLos.getCoverLocPrimary());</b>
+<b class="nc">&nbsp;                }else if ((leftLos.attackerCover == COVER_NONE &amp;&amp; </b>
+&nbsp;                          rightLos.attackerCover == COVER_HORIZONTAL)) {
+&nbsp;                    //25% cover, right
+<b class="nc">&nbsp;                    leftLos.attackerCover  = COVER_LOWRIGHT;</b>
+<b class="nc">&nbsp;                    rightLos.attackerCover = COVER_LOWRIGHT;</b>
+<b class="nc">&nbsp;                    leftLos.setCoverBuildingPrimary(rightLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setCoverDropshipPrimary(rightLos.getCoverDropshipPrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setDamagableCoverTypePrimary(rightLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;                    leftLos.setCoverLocPrimary(rightLos.getCoverLocPrimary());</b>
+<b class="nc">&nbsp;                } else if(leftLos.attackerCover == COVER_FULL &amp;&amp; </b>
+&nbsp;                         rightLos.attackerCover == COVER_NONE){
+&nbsp;                    //vertical cover, left
+<b class="nc">&nbsp;                    leftLos.attackerCover  = COVER_LEFT;</b>
+<b class="nc">&nbsp;                    rightLos.attackerCover = COVER_LEFT;</b>
+<b class="nc">&nbsp;                    losBlockedByCover = true;</b>
+<b class="nc">&nbsp;                }else if (leftLos.attackerCover == COVER_NONE &amp;&amp; </b>
+&nbsp;                         rightLos.attackerCover == COVER_FULL) {
+&nbsp;                    //vertical cover, right
+<b class="nc">&nbsp;                    leftLos.attackerCover  = COVER_RIGHT;</b>
+<b class="nc">&nbsp;                    rightLos.attackerCover = COVER_RIGHT;</b>
+<b class="nc">&nbsp;                    losBlockedByCover = true;</b>
+<b class="nc">&nbsp;                } else if(leftLos.attackerCover == COVER_FULL &amp;&amp; </b>
+&nbsp;                         rightLos.attackerCover == COVER_HORIZONTAL){
+&nbsp;                    //75% cover, left
+<b class="nc">&nbsp;                    leftLos.attackerCover  = COVER_75LEFT;</b>
+<b class="nc">&nbsp;                    rightLos.attackerCover = COVER_75LEFT;   </b>
+<b class="nc">&nbsp;                    losBlockedByCover = true;</b>
+<b class="nc">&nbsp;                } else if (leftLos.attackerCover == COVER_HORIZONTAL &amp;&amp; </b>
+&nbsp;                          rightLos.attackerCover == COVER_FULL) { 
+&nbsp;                    //75% cover, right
+<b class="nc">&nbsp;                    leftLos.attackerCover  = COVER_75RIGHT;</b>
+<b class="nc">&nbsp;                    rightLos.attackerCover = COVER_75RIGHT;</b>
+<b class="nc">&nbsp;                    losBlockedByCover = true;</b>
+&nbsp;                }
+&nbsp;                
+&nbsp;                //In the case of vertical and 75% cover, LoS will be blocked.  
+&nbsp;                // We need to unblock it, unless Los is already blocked.
+<b class="nc">&nbsp;                if (!los.blocked &amp;&amp; (!leftLos.blocked || !rightLos.blocked) &amp;&amp;</b>
+&nbsp;                        losBlockedByCover){                   
+<b class="nc">&nbsp;                    leftLos.blocked = false;</b>
+<b class="nc">&nbsp;                    rightLos.blocked = false;</b>
+&nbsp;                }                
+&nbsp;            }
+<b class="nc">&nbsp;            totalLeftLos.add(leftLos);</b>
+<b class="nc">&nbsp;            totalRightLos.add(rightLos);           </b>
+&nbsp;        }
+&nbsp;        //Determine whether left or right is worse and update los with it
+<b class="nc">&nbsp;        int lVal = totalLeftLos.losModifiers(game).getValue();</b>
+<b class="nc">&nbsp;        int rVal = totalRightLos.losModifiers(game).getValue();</b>
+<b class="nc">&nbsp;        if ((lVal &gt; rVal) || </b>
+<b class="nc">&nbsp;                ((lVal == rVal) &amp;&amp; totalLeftLos.isAttackerCover())) {</b>
+<b class="nc">&nbsp;            los.add(totalLeftLos);</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            los.add(totalRightLos);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return los;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Convenience method for setting the secondary cover values.  The left LoS
+&nbsp;     * has retains it&#39;s primary cover, and its secondary cover becomes the 
+&nbsp;     * primary of the right los while the right los has its primary become 
+&nbsp;     * secondary and its primary becomes the primary of the left side.
+&nbsp;     * This ensures that the primary protects the left side and the secondary
+&nbsp;     * protects the right side which is important to determine which to pick
+&nbsp;     * later on when damage is handled.
+&nbsp;     * 
+&nbsp;     * @param leftLos  The left side of the line of sight for a divided hex 
+&nbsp;     *                  LoS computation
+&nbsp;     * @param rightLos The right side of the line of sight for a dividied hex
+&nbsp;     *                  LoS computation
+&nbsp;     */
+&nbsp;    private static void setSecondaryCover(LosEffects leftLos, LosEffects rightLos){
+&nbsp;        //Set left secondary to right primary
+<b class="nc">&nbsp;        leftLos.setDamagableCoverTypeSecondary(rightLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;        leftLos.setCoverBuildingSecondary(rightLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;        leftLos.setCoverDropshipSecondary(rightLos.getCoverDropshipPrimary());</b>
+<b class="nc">&nbsp;        leftLos.setCoverLocSecondary(rightLos.getCoverLocPrimary());        </b>
+&nbsp;        //Set right secondary to right primary
+<b class="nc">&nbsp;        rightLos.setDamagableCoverTypeSecondary(rightLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;        rightLos.setCoverBuildingSecondary(rightLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;        rightLos.setCoverDropshipSecondary(rightLos.getCoverDropshipPrimary());</b>
+<b class="nc">&nbsp;        rightLos.setCoverLocSecondary(rightLos.getCoverLocPrimary());</b>
+&nbsp;        //Set right primary to left primary
+<b class="nc">&nbsp;        rightLos.setDamagableCoverTypePrimary(leftLos.getDamagableCoverTypePrimary());</b>
+<b class="nc">&nbsp;        rightLos.setCoverBuildingPrimary(leftLos.getCoverBuildingPrimary());</b>
+<b class="nc">&nbsp;        rightLos.setCoverDropshipPrimary(leftLos.getCoverDropshipPrimary());        </b>
+<b class="nc">&nbsp;        rightLos.setCoverLocPrimary(leftLos.getCoverLocPrimary());</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Returns a LosEffects object representing the LOS effects of anything at
+&nbsp;     * the specified coordinate.
+&nbsp;     */
+&nbsp;    private static LosEffects losForCoords(IGame game, AttackInfo ai,
+&nbsp;            Coords coords, Building thruBldg, 
+&nbsp;            boolean diagramLoS, boolean partialCover) {
+<b class="nc">&nbsp;        LosEffects los = new LosEffects();</b>
+&nbsp;        // ignore hexes not on board
+<b class="nc">&nbsp;        if (!game.getBoard().contains(coords)) {</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // Is there a building in this hex?
+<b class="nc">&nbsp;        Building bldg = game.getBoard().getBuildingAt(coords);</b>
+&nbsp;
+&nbsp;        // We&#39;re only tracing thru a single building if there
+&nbsp;        // is a building in this hex, and if it isn&#39;t the same
+&nbsp;        // building that we&#39;be been tracing LOS thru.
+<b class="nc">&nbsp;        if ((bldg != null) &amp;&amp; bldg.equals(thruBldg)) {</b>
+<b class="nc">&nbsp;            los.setThruBldg(thruBldg);</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // ignore hexes the attacker or target are in
+<b class="nc">&nbsp;        if (coords.equals(ai.attackPos) || coords.equals(ai.targetPos)) {</b>
+<b class="nc">&nbsp;            return los;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // we are an attack in a building, +1 for each building hex between the
+&nbsp;        // 2 units
+<b class="nc">&nbsp;        if ((game.getBoard().getBuildingAt(ai.attackPos) != null)</b>
+<b class="nc">&nbsp;                &amp;&amp; (game.getBoard().getBuildingAt(ai.targetPos) != null)</b>
+&nbsp;                &amp;&amp; (thruBldg != null)
+<b class="nc">&nbsp;                &amp;&amp; game.getBoard().getBuildingAt(ai.attackPos).equals(game.getBoard().getBuildingAt(ai.targetPos))</b>
+<b class="nc">&nbsp;                &amp;&amp; ai.targetEntity &amp;&amp; thruBldg.equals(game.getBoard().getBuildingAt(ai.attackPos))) {</b>
+<b class="nc">&nbsp;            los.buildingLevelsOrHexes += 1;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        IHex hex = game.getBoard().getHex(coords);</b>
+<b class="nc">&nbsp;        int hexEl = ai.underWaterCombat ? hex.floor() : hex.surface();</b>
+&nbsp;
+&nbsp;        // Handle minimum water depth.
+&nbsp;        // Applies to Torpedos.
+<b class="nc">&nbsp;        if (!(hex.containsTerrain(Terrains.WATER))) {</b>
+<b class="nc">&nbsp;            ai.minimumWaterDepth = 0;</b>
+<b class="nc">&nbsp;        } else if ((hex.terrainLevel(Terrains.WATER) &gt;= 0)</b>
+&nbsp;                &amp;&amp; ((ai.minimumWaterDepth == -1) || (hex
+<b class="nc">&nbsp;                        .terrainLevel(Terrains.WATER) &lt; ai.minimumWaterDepth))) {</b>
+<b class="nc">&nbsp;            ai.minimumWaterDepth = hex.terrainLevel(Terrains.WATER);</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // Handle building elevation.
+&nbsp;        // Attacks thru a building are not blocked by that building.
+&nbsp;        // ASSUMPTION: bridges don&#39;t block LOS.
+<b class="nc">&nbsp;        int bldgEl = 0;</b>
+<b class="nc">&nbsp;        if ((null == los.getThruBldg())</b>
+<b class="nc">&nbsp;                &amp;&amp; hex.containsTerrain(Terrains.BLDG_ELEV)) {</b>
+<b class="nc">&nbsp;            bldgEl = hex.terrainLevel(Terrains.BLDG_ELEV);</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        if ((null == los.getThruBldg())</b>
+<b class="nc">&nbsp;                &amp;&amp; hex.containsTerrain(Terrains.FUEL_TANK_ELEV)</b>
+<b class="nc">&nbsp;                &amp;&amp; hex.terrainLevel(Terrains.FUEL_TANK_ELEV) &gt; bldgEl) {</b>
+<b class="nc">&nbsp;            bldgEl = hex.terrainLevel(Terrains.FUEL_TANK_ELEV);</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        boolean coveredByDropship = false;</b>
+<b class="nc">&nbsp;        Entity coveringDropship = null;</b>
+&nbsp;        //check for grounded dropships - treat like a building 10 elevations tall
+<b class="nc">&nbsp;        if(bldgEl &lt; 10) {</b>
+<b class="nc">&nbsp;            for (Entity inHex : game.getEntitiesVector(coords)) {</b>
+<b class="nc">&nbsp;                if(ai.attackerId == inHex.getId() || ai.targetId == inHex.getId()) {</b>
+<b class="nc">&nbsp;                    continue;</b>
+&nbsp;                }
+<b class="nc">&nbsp;                if(inHex instanceof Dropship &amp;&amp; !inHex.isAirborne() &amp;&amp; !inHex.isSpaceborne()) {</b>
+<b class="nc">&nbsp;                    bldgEl = 10;</b>
+<b class="nc">&nbsp;                    coveredByDropship = true;</b>
+<b class="nc">&nbsp;                    coveringDropship = inHex;</b>
+&nbsp;                }
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;        
+&nbsp;        // check for block by terrain
+&nbsp;        
+&nbsp;        
+&nbsp;        // All unit heights report as 1 less in MM than what they really are 
+&nbsp;        // (1 for mechs, 0 for tanks...)
+&nbsp;        // A level 4 hill will not block a mech on a level 3 hill
+&nbsp;        // (height of the mech in here = 3+&quot;1&quot; = &quot;4&quot;), as 
+&nbsp;        // hill elevation is not &gt; unit elevation (normal LOS rules)
+&nbsp;        // With diagramming LOS it will block LOS as soon as the sightline
+&nbsp;        // drops by 0.1 to 3.9, even though that means it would be at 4.9 in
+&nbsp;        // &quot;real&quot; height values, so still well above the level 4 hill
+&nbsp;        // Therefore we need to add 1 from the diagramming LOS elevation
+&nbsp;        // to correct the calculation
+&nbsp;        // This is still hacky as Entity should simply report the real heights 
+&nbsp;        // and the comparison in here should follow TW/TO &quot;higher or equal&quot; rules.
+&nbsp;        
+&nbsp;        // The interpolated elevation for TacOps LOS diagramming
+<b class="nc">&nbsp;        double weightedHeight = ai.targetAbsHeight * ai.attackPos.distance(coords) </b>
+<b class="nc">&nbsp;                + ai.attackAbsHeight * ai.targetPos.distance(coords);</b>
+<b class="nc">&nbsp;        double totalDistance = ai.targetPos.distance(coords) + ai.attackPos.distance(coords);</b>
+<b class="nc">&nbsp;        double losElevation = 1 + weightedHeight / totalDistance;</b>
+&nbsp;        
+&nbsp;        // The higher of the attacker&#39;s height and defender&#39;s height
+<b class="nc">&nbsp;        int maxUnitHeight = Math.max(ai.attackAbsHeight, ai.targetAbsHeight);</b>
+<b class="nc">&nbsp;        boolean attackerAdjc = ai.attackPos.distance(coords) == 1;</b>
+<b class="nc">&nbsp;        boolean targetAdjc = ai.targetPos.distance(coords) == 1;</b>
+&nbsp;        boolean affectsLos;
+&nbsp;
+&nbsp;        // Intervening building or hill
+<b class="nc">&nbsp;        int totalEl = hexEl + bldgEl;</b>
+<b class="nc">&nbsp;        if (diagramLoS) {</b>
+<b class="nc">&nbsp;            affectsLos = totalEl &gt;= losElevation;</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            affectsLos = (totalEl &gt; maxUnitHeight)</b>
+&nbsp;                    || ((totalEl &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+&nbsp;                    || ((totalEl &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc);
+&nbsp;        }
+<b class="nc">&nbsp;        if (affectsLos) {</b>
+<b class="nc">&nbsp;            los.blocked = true;</b>
+<b class="nc">&nbsp;            if (hex.terrainLevel(Terrains.BLDG_CF) &gt; 90) {</b>
+<b class="nc">&nbsp;                los.hardBuildings++;</b>
+<b class="nc">&nbsp;            } else if (bldgEl &gt; 0) {</b>
+<b class="nc">&nbsp;                los.softBuildings++;</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                los.blockedByHill = true;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // check if there&#39;s a clear hex between the targets that&#39;s higher than
+&nbsp;        // one of them, if we&#39;re in underwater combat
+<b class="nc">&nbsp;        if (ai.underWaterCombat</b>
+<b class="nc">&nbsp;                &amp;&amp; (hex.terrainLevel(Terrains.WATER) == ITerrain.LEVEL_NONE)</b>
+&nbsp;                &amp;&amp; ((totalEl &gt; ai.attackAbsHeight) || (totalEl &gt; ai.targetAbsHeight))) {
+<b class="nc">&nbsp;            los.blocked = true;</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // check for woods or smoke only if not under water
+<b class="nc">&nbsp;        if (!ai.underWaterCombat) {</b>
+<b class="nc">&nbsp;            if(hex.containsTerrain(Terrains.SCREEN)) {</b>
+&nbsp;                //number of screens doesn&#39;t matter. One is enough to block
+<b class="nc">&nbsp;                los.screen++;</b>
+&nbsp;            }
+&nbsp;            //heavy industrial zones can vary in height up to 10 levels, so lets
+&nbsp;            //put all of this into a for loop
+<b class="nc">&nbsp;            int industrialLevel = hex.terrainLevel(Terrains.INDUSTRIAL);</b>
+<b class="nc">&nbsp;            if (industrialLevel != ITerrain.LEVEL_NONE) {</b>
+<b class="nc">&nbsp;                for (int level = 1; level &lt; 11; level++) {</b>
+<b class="nc">&nbsp;                    if ((hexEl + level &gt; maxUnitHeight)</b>
+&nbsp;                            || ((hexEl + level &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+&nbsp;                            || ((hexEl + level &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc)) {
+&nbsp;                        // check industrial zone
+<b class="nc">&nbsp;                        if (industrialLevel == level) {</b>
+<b class="nc">&nbsp;                            los.heavyIndustrial++;</b>
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+&nbsp;            //planted fields only rise one level above the terrain
+<b class="nc">&nbsp;            if (hex.containsTerrain(Terrains.FIELDS)) {</b>
+<b class="nc">&nbsp;                if (((hexEl + 1 &gt; ai.attackAbsHeight) &amp;&amp; (hexEl + 2 &gt; ai.targetAbsHeight))</b>
+&nbsp;                        || ((hexEl + 1 &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+&nbsp;                        || ((hexEl + 1 &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc)) {
+<b class="nc">&nbsp;                    los.plantedFields++;</b>
+&nbsp;
+&nbsp;                }
+&nbsp;            }
+&nbsp;            
+&nbsp;            // Intervening Smoke and Woods
+<b class="nc">&nbsp;            int smokeLevel = hex.terrainLevel(Terrains.SMOKE);</b>
+<b class="nc">&nbsp;            int woodsLevel = hex.terrainLevel(Terrains.WOODS);</b>
+<b class="nc">&nbsp;            int jungleLevel = hex.terrainLevel(Terrains.JUNGLE);</b>
+<b class="nc">&nbsp;            int foliageElev = hex.terrainLevel(Terrains.FOLIAGE_ELEV);</b>
+<b class="nc">&nbsp;            boolean hasFoliage = (woodsLevel != ITerrain.LEVEL_NONE) || (jungleLevel != ITerrain.LEVEL_NONE);</b>
+&nbsp;            
+&nbsp;            // Check 1 level high woods and jungle
+<b class="nc">&nbsp;            if (hasFoliage &amp;&amp; foliageElev == 1) {</b>
+<b class="nc">&nbsp;                int terrainEl = hexEl + 1;</b>
+<b class="nc">&nbsp;                if (diagramLoS) {</b>
+<b class="nc">&nbsp;                    affectsLos = terrainEl &gt;= losElevation;</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    affectsLos = (terrainEl &gt; maxUnitHeight)</b>
+&nbsp;                            || ((terrainEl &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+&nbsp;                            || ((terrainEl &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc);
+&nbsp;                }
+<b class="nc">&nbsp;                if (affectsLos) {</b>
+<b class="nc">&nbsp;                    if ((woodsLevel == 1) || (jungleLevel == 1)) {</b>
+<b class="nc">&nbsp;                        los.lightWoods++;</b>
+<b class="nc">&nbsp;                    } else if ((woodsLevel == 2) || (jungleLevel == 2)) {</b>
+<b class="nc">&nbsp;                        los.heavyWoods++;</b>
+&nbsp;                    } else {
+<b class="nc">&nbsp;                        los.ultraWoods++;</b>
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+&nbsp;            
+&nbsp;            // Intervening smoke and elevation 2 light/heavy woods/jungle
+<b class="nc">&nbsp;            if (smokeLevel != ITerrain.LEVEL_NONE </b>
+&nbsp;                    || (hasFoliage &amp;&amp; foliageElev &gt; 1)) {
+<b class="nc">&nbsp;                int terrainEl = hexEl + 2;</b>
+<b class="nc">&nbsp;                if (diagramLoS) {</b>
+<b class="nc">&nbsp;                    affectsLos = terrainEl &gt;= losElevation;</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    affectsLos = (terrainEl &gt; maxUnitHeight) </b>
+&nbsp;                            || ((terrainEl &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+&nbsp;                            || ((terrainEl &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc);
+&nbsp;                }
+<b class="nc">&nbsp;                if (affectsLos) {</b>
+&nbsp;                    // smoke and woods stack for LOS so check them both
+<b class="nc">&nbsp;                    if ((smokeLevel == SmokeCloud.SMOKE_LIGHT)</b>
+&nbsp;                            || (smokeLevel == SmokeCloud.SMOKE_LI_LIGHT)
+&nbsp;                            || (smokeLevel == SmokeCloud.SMOKE_LI_HEAVY)
+&nbsp;                            || (smokeLevel == SmokeCloud.SMOKE_CHAFF_LIGHT)) {
+<b class="nc">&nbsp;                        los.lightSmoke++;</b>
+<b class="nc">&nbsp;                    } else if ((smokeLevel == SmokeCloud.SMOKE_HEAVY)) {</b>
+<b class="nc">&nbsp;                        los.heavySmoke++;</b>
+&nbsp;                    }
+&nbsp;                    // Check woods/jungle
+<b class="nc">&nbsp;                    if ((woodsLevel == 1) || (jungleLevel == 1)) {</b>
+<b class="nc">&nbsp;                        los.lightWoods++;</b>
+<b class="nc">&nbsp;                    } else if ((woodsLevel == 2) || (jungleLevel == 2)) {</b>
+<b class="nc">&nbsp;                        los.heavyWoods++;</b>
+&nbsp;                    }
+&nbsp;                }
+&nbsp;                
+&nbsp;                // Ultra woods/jungle rise 3 levels above the hex level
+<b class="nc">&nbsp;                terrainEl = hexEl + 3;</b>
+<b class="nc">&nbsp;                if (diagramLoS) {</b>
+<b class="nc">&nbsp;                    affectsLos = terrainEl &gt;= losElevation;</b>
+&nbsp;                } else {
+<b class="nc">&nbsp;                    affectsLos = (terrainEl &gt; maxUnitHeight) </b>
+&nbsp;                            || ((terrainEl &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+&nbsp;                            || ((terrainEl &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc);
+&nbsp;                }
+<b class="nc">&nbsp;                if (affectsLos) {</b>
+<b class="nc">&nbsp;                    if ((woodsLevel == 3) || (jungleLevel == 3)) {</b>
+<b class="nc">&nbsp;                        los.ultraWoods++;</b>
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        // Partial Cover related code        
+<b class="nc">&nbsp;        boolean potentialCover = false;</b>
+&nbsp;        // check for target partial cover
+<b class="nc">&nbsp;        if (targetAdjc &amp;&amp; ai.targetIsMech){</b>
+<b class="nc">&nbsp;            if (los.blocked &amp;&amp; partialCover) {</b>
+<b class="nc">&nbsp;                los.targetCover = COVER_FULL; </b>
+<b class="nc">&nbsp;                potentialCover = true;</b>
+<b class="nc">&nbsp;            } else if  ((totalEl == ai.targetAbsHeight)</b>
+&nbsp;                    &amp;&amp; (ai.attackAbsHeight &lt;= ai.targetAbsHeight)
+&nbsp;                    &amp;&amp; (ai.targetHeight &gt; 0)) {
+<b class="nc">&nbsp;                los.targetCover |= COVER_HORIZONTAL; </b>
+<b class="nc">&nbsp;                potentialCover = true;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        // check for attacker partial (horizontal) cover
+<b class="nc">&nbsp;        if (attackerAdjc &amp;&amp; ai.attackerIsMech) {</b>
+<b class="nc">&nbsp;            if (los.blocked &amp;&amp; partialCover) {</b>
+<b class="nc">&nbsp;                los.attackerCover = COVER_FULL; </b>
+<b class="nc">&nbsp;                potentialCover = true;</b>
+<b class="nc">&nbsp;            } else if  ((totalEl == ai.attackAbsHeight)</b>
+&nbsp;                    &amp;&amp; (ai.attackAbsHeight &gt;= ai.targetAbsHeight)
+&nbsp;                    &amp;&amp; (ai.attackHeight &gt; 0)) {
+<b class="nc">&nbsp;                los.attackerCover |= COVER_HORIZONTAL; </b>
+<b class="nc">&nbsp;                potentialCover = true;</b>
+&nbsp;            }
+&nbsp;        }    
+&nbsp;        
+&nbsp;        //If there&#39;s a partial cover situation, we may need to keep track of 
+&nbsp;        // damagable assets that are providing cover, so we can damage them if
+&nbsp;        // they block a shot.
+<b class="nc">&nbsp;        if (potentialCover){</b>
+<b class="nc">&nbsp;            if (coveredByDropship){</b>
+<b class="nc">&nbsp;                los.setDamagableCoverTypePrimary(DAMAGABLE_COVER_DROPSHIP);</b>
+<b class="nc">&nbsp;                los.coverDropshipPrimary = coveringDropship;</b>
+<b class="nc">&nbsp;            }else if (bldg != null){</b>
+<b class="nc">&nbsp;                los.setDamagableCoverTypePrimary(DAMAGABLE_COVER_BUILDING);</b>
+<b class="nc">&nbsp;                los.coverBuildingPrimary = bldg;                    </b>
+&nbsp;            }
+&nbsp;            else {
+<b class="nc">&nbsp;                los.setDamagableCoverTypePrimary(DAMAGABLE_COVER_NONE);</b>
+&nbsp;            }
+<b class="nc">&nbsp;            los.coverLocPrimary = coords;</b>
+&nbsp;        }      
+&nbsp;
+<b class="nc">&nbsp;        return los;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public static boolean hasFireBetween(Coords start, Coords end, IGame game) {
+&nbsp;
+<b class="nc">&nbsp;        ArrayList&lt;Coords&gt; in = Coords.intervening(start, end);</b>
+<b class="nc">&nbsp;        for ( Coords hex : in ) {</b>
+&nbsp;            // ignore off-board hexes
+<b class="nc">&nbsp;            if (!game.getBoard().contains(hex)) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if ( game.getBoard().getHex(hex).containsTerrain(Terrains.FIRE) ) {</b>
+<b class="nc">&nbsp;                return true;</b>
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+<b class="nc">&nbsp;        return false;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setArcedAttack(boolean attack){
+<b class="nc">&nbsp;        arcedShot = attack;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Build line of sight effects between coordinates c1 and c2 at height h1
+&nbsp;     * and h2 respectivly.
+&nbsp;     *
+&nbsp;     * @param c1 the source coordiantes.
+&nbsp;     * @param c2 the target coordinates.
+&nbsp;     * @param h1 the height in the source tile that is being shot from.
+&nbsp;     * @param h2 the height of the target tile to shoot for.
+&nbsp;     * @return an attackInfo object that describes the apliable modifiers.
+&nbsp;     */
+&nbsp;    public static LosEffects.AttackInfo buildAttackInfo(Coords c1, Coords c2, int h1,
+&nbsp;            int h2, int h1Floor, int h2Floor) {
+<b class="nc">&nbsp;        LosEffects.AttackInfo ai = new LosEffects.AttackInfo();</b>
+<b class="nc">&nbsp;        ai.attackPos = c1;</b>
+<b class="nc">&nbsp;        ai.targetPos = c2;</b>
+<b class="nc">&nbsp;        ai.attackHeight = h1;</b>
+<b class="nc">&nbsp;        ai.targetHeight = h2;</b>
+<b class="nc">&nbsp;        ai.attackAbsHeight = h1Floor + h1;</b>
+<b class="nc">&nbsp;        ai.targetAbsHeight = h2Floor + h2;</b>
+<b class="nc">&nbsp;        return ai;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * find out if the left or right side of the divided LOS is better for the
+&nbsp;     * target
+&nbsp;     * return 0 if right is better, 1 if left is better, 2 if both are equal
+&nbsp;     * @param in
+&nbsp;     * @param game
+&nbsp;     * @param ai
+&nbsp;     * @param targetInBuilding
+&nbsp;     * @param los
+&nbsp;     */
+&nbsp;    public static int dividedLeftBetter(ArrayList&lt;Coords&gt; in, IGame game,
+&nbsp;            AttackInfo ai, boolean targetInBuilding, LosEffects los) {
+<b class="nc">&nbsp;        boolean diagramLos = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_LOS1);</b>
+<b class="nc">&nbsp;        boolean partialCover = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER);</b>
+<b class="nc">&nbsp;        LosEffects leftTotal = new LosEffects();</b>
+<b class="nc">&nbsp;        LosEffects rightTotal = new LosEffects();</b>
+<b class="nc">&nbsp;        for (int i = 1; i &lt; in.size() - 2; i += 3) {</b>
+&nbsp;            // get effects of each side
+<b class="nc">&nbsp;            LosEffects left = losForCoords(game, ai, in.get(i), los</b>
+<b class="nc">&nbsp;                    .getThruBldg(), diagramLos, partialCover);</b>
+<b class="nc">&nbsp;            LosEffects right = losForCoords(game, ai, in.get(i + 1), los</b>
+<b class="nc">&nbsp;                    .getThruBldg(), diagramLos, partialCover);</b>
+&nbsp;
+&nbsp;            // Include all previous LOS effects.
+<b class="nc">&nbsp;            left.add(los);</b>
+<b class="nc">&nbsp;            right.add(los);</b>
+&nbsp;
+&nbsp;            // Infantry inside a building can only be
+&nbsp;            // targeted by units in the same building.
+<b class="nc">&nbsp;            if (ai.targetInfantry &amp;&amp; targetInBuilding) {</b>
+<b class="nc">&nbsp;                if (null == left.getThruBldg()) {</b>
+<b class="nc">&nbsp;                    left.infProtected = true;</b>
+<b class="nc">&nbsp;                } else if (null == right.getThruBldg()) {</b>
+<b class="nc">&nbsp;                    right.infProtected = true;</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;
+&nbsp;            // which is better?
+<b class="nc">&nbsp;            int lVal = left.losModifiers(game).getValue();</b>
+<b class="nc">&nbsp;            int rVal = right.losModifiers(game).getValue();</b>
+<b class="nc">&nbsp;            if ((lVal &gt; rVal) || ((lVal == rVal) &amp;&amp; left.isAttackerCover())) {</b>
+<b class="nc">&nbsp;                leftTotal.add(left);</b>
+&nbsp;            } else {
+<b class="nc">&nbsp;                rightTotal.add(right);</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        int leftTotalValue = leftTotal.losModifiers(game).getValue();</b>
+<b class="nc">&nbsp;        int rightTotalValue = rightTotal.losModifiers(game).getValue();</b>
+<b class="nc">&nbsp;        if (leftTotalValue &gt; rightTotalValue) {</b>
+<b class="nc">&nbsp;            return 1;</b>
+<b class="nc">&nbsp;        } else if (leftTotalValue &lt; rightTotalValue) {</b>
+<b class="nc">&nbsp;            return 0;</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            return 2;</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    private static boolean isDeadZone(IGame game, AttackInfo ai) {
+&nbsp;        //determine who is higher and who is lower
+<b class="nc">&nbsp;        int highElev = ai.attackAbsHeight;</b>
+<b class="nc">&nbsp;        int lowElev = ai.targetAbsHeight;</b>
+<b class="nc">&nbsp;        Coords highPos = ai.attackPos;</b>
+<b class="nc">&nbsp;        Coords lowPos = ai.targetPos;</b>
+<b class="nc">&nbsp;        if(highElev &lt; lowElev) {</b>
+<b class="nc">&nbsp;            highElev = ai.targetAbsHeight;</b>
+<b class="nc">&nbsp;            lowElev = ai.attackAbsHeight;</b>
+<b class="nc">&nbsp;            highPos = ai.targetPos;</b>
+<b class="nc">&nbsp;            lowPos = ai.attackPos;</b>
+&nbsp;        }
+&nbsp;        //TODO: check if this works right for splits (thinks like expanded partial cover for example)
+<b class="nc">&nbsp;        ArrayList&lt;Coords&gt; in = Coords.intervening(lowPos, highPos, true);</b>
+<b class="nc">&nbsp;        int IntElev = lowElev;</b>
+<b class="nc">&nbsp;        Coords IntPos = lowPos;</b>
+<b class="nc">&nbsp;        for(Coords c : in) {</b>
+&nbsp;            // ignore off-board coords
+<b class="nc">&nbsp;            if (!game.getBoard().contains(c)) {</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+<b class="nc">&nbsp;           if(!c.equals(lowPos)) {</b>
+<b class="nc">&nbsp;               IHex hex = game.getBoard().getHex(c);</b>
+<b class="nc">&nbsp;               int hexEl = ai.underWaterCombat ? hex.floor() : hex.surface();</b>
+&nbsp;               // Handle building elevation.
+&nbsp;               // Attacks thru a building are not blocked by that building.
+&nbsp;               // ASSUMPTION: bridges don&#39;t block LOS.
+<b class="nc">&nbsp;               int bldgEl = 0;</b>
+<b class="nc">&nbsp;               if (hex.containsTerrain(Terrains.BLDG_ELEV)) {</b>
+<b class="nc">&nbsp;                   bldgEl = hex.terrainLevel(Terrains.BLDG_ELEV);</b>
+&nbsp;               }
+&nbsp;               //check for grounded dropships - treat like a building 10 elevations tall
+<b class="nc">&nbsp;               if(bldgEl &lt; 10) {</b>
+<b class="nc">&nbsp;                   for (Entity inHex : game.getEntitiesVector(c)) {</b>
+<b class="nc">&nbsp;                       if(ai.attackerId == inHex.getId() || ai.targetId == inHex.getId()) {</b>
+<b class="nc">&nbsp;                           continue;</b>
+&nbsp;                       }
+<b class="nc">&nbsp;                       if(inHex instanceof Dropship &amp;&amp; !inHex.isAirborne() &amp;&amp; !inHex.isSpaceborne()) {</b>
+<b class="nc">&nbsp;                           bldgEl = 10;</b>
+&nbsp;                       }
+<b class="nc">&nbsp;                   }</b>
+&nbsp;               }
+<b class="nc">&nbsp;               int totalEl = hexEl + bldgEl;</b>
+<b class="nc">&nbsp;               if(totalEl &gt; IntElev) {</b>
+<b class="nc">&nbsp;                   IntElev = totalEl;</b>
+<b class="nc">&nbsp;                   IntPos = c;</b>
+&nbsp;               }
+&nbsp;           }
+<b class="nc">&nbsp;        }</b>
+&nbsp;        //the intervening hex cannot be either the low or high position
+<b class="nc">&nbsp;        if(!IntPos.equals(lowPos) &amp;&amp; !IntPos.equals(highPos)) {</b>
+<b class="nc">&nbsp;            return  0 &lt; 2 * (2*IntElev - highElev - lowElev) + IntPos.distance(highPos) - IntPos.distance(lowPos);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return false;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;     
+&nbsp;    /**
+&nbsp;     * Returns the text name of a particular type of cover, given its id.
+&nbsp;     * TacOps partial cover is assigned from the perspective of the attacker,
+&nbsp;     * so it&#39;s possible that the sides should be switched to make sense
+&nbsp;     * from the perspective of the target.
+&nbsp;     * 
+&nbsp;     * @param cover  The int id that represents the cover type.
+&nbsp;     * @param switchSides A boolean that determines if left/right side should
+&nbsp;     *                     be switched.  This is useful since cover is given
+&nbsp;     *                     from the perspective of the attacker, and the sides
+&nbsp;     *                     need to be switched for the target.
+&nbsp;     * @return
+&nbsp;     */
+&nbsp;    static public String getCoverName(int cover, boolean switchSides){
+<b class="nc">&nbsp;        switch (cover)</b>
+&nbsp;        {
+&nbsp;            case COVER_NONE:
+<b class="nc">&nbsp;                return Messages.getString(&quot;LosEffects.name_cover_none&quot;);</b>
+&nbsp;            case COVER_LOWLEFT:
+<b class="nc">&nbsp;                if (switchSides)</b>
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_lowright&quot;);</b>
+&nbsp;                else
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_lowleft&quot;);</b>
+&nbsp;            case COVER_LOWRIGHT:
+<b class="nc">&nbsp;                if (switchSides)</b>
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_lowleft&quot;);</b>
+&nbsp;                else
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_lowright&quot;);</b>
+&nbsp;            case COVER_LEFT:
+<b class="nc">&nbsp;                if (switchSides)</b>
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_right&quot;);</b>
+&nbsp;                else
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_left&quot;);</b>
+&nbsp;            case COVER_RIGHT:
+<b class="nc">&nbsp;                if (switchSides)</b>
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_left&quot;);</b>
+&nbsp;                else
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_right&quot;);</b>
+&nbsp;            case COVER_HORIZONTAL:
+<b class="nc">&nbsp;                return Messages.getString(&quot;LosEffects.name_cover_horizontal&quot;);</b>
+&nbsp;            case COVER_UPPER:
+<b class="nc">&nbsp;                return Messages.getString(&quot;LosEffects.name_cover_upper&quot;);                                                  </b>
+&nbsp;            case COVER_FULL:
+<b class="nc">&nbsp;                return Messages.getString(&quot;LosEffects.name_cover_full&quot;);</b>
+&nbsp;            case COVER_75LEFT:
+<b class="nc">&nbsp;                if (switchSides)</b>
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_75right&quot;);</b>
+&nbsp;                else
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_75left&quot;);</b>
+&nbsp;            case COVER_75RIGHT:
+<b class="nc">&nbsp;                if (switchSides)</b>
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_75left&quot;);</b>
+&nbsp;                else
+<b class="nc">&nbsp;                    return Messages.getString(&quot;LosEffects.name_cover_75right&quot;);</b>
+&nbsp;            default:
+<b class="nc">&nbsp;                return Messages.getString(&quot;LosEffects.name_cover_unknown&quot;);</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;    
+&nbsp;    public Building getCoverBuildingPrimary() {
+<b class="nc">&nbsp;        return coverBuildingPrimary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setCoverBuildingPrimary(Building coverBuilding) {
+<b class="nc">&nbsp;        this.coverBuildingPrimary = coverBuilding;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Entity getCoverDropshipPrimary() {
+<b class="nc">&nbsp;        return coverDropshipPrimary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setCoverDropshipPrimary(Entity coverDropship) {
+<b class="nc">&nbsp;        this.coverDropshipPrimary = coverDropship;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getDamagableCoverTypePrimary() {
+<b class="nc">&nbsp;        return damagableCoverTypePrimary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setDamagableCoverTypePrimary(int damagableCover) {
+<b class="nc">&nbsp;        this.damagableCoverTypePrimary = damagableCover;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Coords getCoverLocPrimary() {
+<b class="nc">&nbsp;        return coverLocPrimary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setCoverLocPrimary(Coords coverLoc) {
+<b class="nc">&nbsp;        this.coverLocPrimary = coverLoc;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Building getCoverBuildingSecondary() {
+<b class="nc">&nbsp;        return coverBuildingSecondary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setCoverBuildingSecondary(Building coverBuildingSecondary) {
+<b class="nc">&nbsp;        this.coverBuildingSecondary = coverBuildingSecondary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Entity getCoverDropshipSecondary() {
+<b class="nc">&nbsp;        return coverDropshipSecondary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setCoverDropshipSecondary(Entity coverDropshipSecondary) {
+<b class="nc">&nbsp;        this.coverDropshipSecondary = coverDropshipSecondary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public int getDamagableCoverTypeSecondary() {
+<b class="nc">&nbsp;        return damagableCoverTypeSecondary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setDamagableCoverTypeSecondary(int damagableCoverTypeSecondary) {
+<b class="nc">&nbsp;        this.damagableCoverTypeSecondary = damagableCoverTypeSecondary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Coords getCoverLocSecondary() {
+<b class="nc">&nbsp;        return coverLocSecondary;</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setCoverLocSecondary(Coords coverLocSecondary) {
+<b class="nc">&nbsp;        this.coverLocSecondary = coverLocSecondary;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public boolean infantryProtected() {
+<b class="nc">&nbsp;        return infProtected;</b>
+&nbsp;    }
+&nbsp;}
+&nbsp;
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:46</div>
+</div>
+</body>
+</html>

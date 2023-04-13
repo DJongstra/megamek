@@ -1,0 +1,379 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > WeatherProcessor</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.server</a>
+</div>
+
+<h1>Coverage Summary for Class: WeatherProcessor (megamek.server)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">WeatherProcessor</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/4)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/126)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/120)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek -
+&nbsp; * Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+&nbsp; *
+&nbsp; *  This program is free software; you can redistribute it and/or modify it
+&nbsp; *  under the terms of the GNU General Public License as published by the Free
+&nbsp; *  Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; *  any later version.
+&nbsp; *
+&nbsp; *  This program is distributed in the hope that it will be useful, but
+&nbsp; *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+&nbsp; *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+&nbsp; *  for more details.
+&nbsp; */
+&nbsp;package megamek.server;
+&nbsp;
+&nbsp;import java.util.Vector;
+&nbsp;
+&nbsp;import megamek.common.Coords;
+&nbsp;import megamek.common.IBoard;
+&nbsp;import megamek.common.IGame;
+&nbsp;import megamek.common.IHex;
+&nbsp;import megamek.common.ITerrainFactory;
+&nbsp;import megamek.common.PlanetaryConditions;
+&nbsp;import megamek.common.Report;
+&nbsp;import megamek.common.Terrains;
+&nbsp;
+&nbsp;/**
+&nbsp; * Cycle through hexes on a map and make any necessary adjustments based on weather
+&nbsp; * What will happen here:
+&nbsp; *  - add light and heavy snow for snowfall
+&nbsp; *  - add ice for snowfall, sleet, and ice storm
+&nbsp; *  - add/take away(?) rapids and torrent for winds
+&nbsp; *  - add mud, rapids, and torrent for rain (no that has to be done before play starts so it is in
+&nbsp; *    server.applyBoardSettings()
+&nbsp; *  - put out fires (DONE)
+&nbsp; */
+&nbsp;
+&nbsp;public class WeatherProcessor extends DynamicTerrainProcessor {
+&nbsp;
+&nbsp;    private IGame game;
+&nbsp;    Vector&lt;Report&gt; vPhaseReport;
+&nbsp;
+&nbsp;    //track turns of snow, sleet, and ice
+&nbsp;    //do it this way because we may eventually implement more customizable conditions
+<b class="nc">&nbsp;    int modSnowTurn = 0;</b>
+<b class="nc">&nbsp;    int heavySnowTurn = 0;</b>
+<b class="nc">&nbsp;    int sleetTurn = 0;</b>
+<b class="nc">&nbsp;    int iceTurn = 0;</b>
+&nbsp;
+&nbsp;    public WeatherProcessor(Server server) {
+<b class="nc">&nbsp;        super(server);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    @Override
+&nbsp;    void doEndPhaseChanges(Vector&lt;Report&gt; vPhaseReport) {
+<b class="nc">&nbsp;        game = server.getGame();</b>
+<b class="nc">&nbsp;        this.vPhaseReport = vPhaseReport;</b>
+<b class="nc">&nbsp;        resolveWeather();</b>
+<b class="nc">&nbsp;        this.vPhaseReport = null;</b>
+&nbsp;
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * This debug/profiling function will print the current time
+&nbsp;     * (in milliseconds) to the log.  If the boolean is true, the
+&nbsp;     * garbage collector will be called in an attempt to minimize
+&nbsp;     * timing errors.  You should try and minimize applications
+&nbsp;     * being run in the background when using this function.
+&nbsp;     * Note that MS Windows only has 10 milisecond resolution.
+&nbsp;     *
+&nbsp;     * The function should be optimized completely out of the code
+&nbsp;     * when the first if-statement below reads &quot;if (false)...&quot;, so
+&nbsp;     * performance shouldn&#39;t be impacted if you leave calls to this
+&nbsp;     * function in the code (I think).
+&nbsp;     */
+&nbsp;    @SuppressWarnings(&quot;unused&quot;)
+&nbsp;    private void debugTime(String s, boolean collectGarbage) {
+&nbsp;        //Change the &quot;false&quot; below to &quot;true&quot; to enable this function
+&nbsp;        if (false) {
+&nbsp;            if (collectGarbage)
+&nbsp;                System.gc();
+&nbsp;            System.out.println(s + &quot;: &quot; + System.currentTimeMillis());
+&nbsp;        }
+<b class="nc">&nbsp;    }</b>
+&nbsp;
+&nbsp;    private void resolveWeather() {
+<b class="nc">&nbsp;        ITerrainFactory tf = Terrains.getTerrainFactory();</b>
+<b class="nc">&nbsp;        IBoard board = game.getBoard();</b>
+<b class="nc">&nbsp;        int width = board.getWidth();</b>
+<b class="nc">&nbsp;        int height = board.getHeight();</b>
+<b class="nc">&nbsp;        PlanetaryConditions conditions = game.getPlanetaryConditions();</b>
+<b class="nc">&nbsp;        boolean lightSnow = false;</b>
+<b class="nc">&nbsp;        boolean deepSnow = false;</b>
+<b class="nc">&nbsp;        boolean ice = false;</b>
+&nbsp;
+<b class="nc">&nbsp;        if(!conditions.isTerrainAffected())</b>
+&nbsp;            return;
+&nbsp;
+<b class="nc">&nbsp;        debugTime(&quot;resolve weather 1&quot;, true);</b>
+&nbsp;
+&nbsp;        //first we need to increment the conditions
+<b class="nc">&nbsp;        if(conditions.getWeather() == PlanetaryConditions.WE_MOD_SNOW</b>
+<b class="nc">&nbsp;                || conditions.getWeather() == PlanetaryConditions.WE_SNOW_FLURRIES</b>
+<b class="nc">&nbsp;                &amp;&amp; game.getBoard().onGround()) {</b>
+<b class="nc">&nbsp;            modSnowTurn = modSnowTurn + 1;</b>
+<b class="nc">&nbsp;            if(modSnowTurn == 9) {</b>
+<b class="nc">&nbsp;                lightSnow = true;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if(modSnowTurn == 19) {</b>
+<b class="nc">&nbsp;                deepSnow = true;</b>
+<b class="nc">&nbsp;                ice = true;</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        if(((conditions.getWeather() == PlanetaryConditions.WE_HEAVY_SNOW)</b>
+<b class="nc">&nbsp;                || (conditions.getWeather() == PlanetaryConditions.WE_BLIZZARD)</b>
+<b class="nc">&nbsp;                &amp;&amp; game.getBoard().onGround())) {</b>
+<b class="nc">&nbsp;            heavySnowTurn = heavySnowTurn + 1;</b>
+<b class="nc">&nbsp;            if(heavySnowTurn == 4) {</b>
+<b class="nc">&nbsp;                lightSnow = true;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if(heavySnowTurn == 14) {</b>
+<b class="nc">&nbsp;                deepSnow = true;</b>
+&nbsp;            }
+<b class="nc">&nbsp;            if(heavySnowTurn == 19) {</b>
+<b class="nc">&nbsp;                ice = true;</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        if(conditions.getWeather() == PlanetaryConditions.WE_SLEET </b>
+<b class="nc">&nbsp;                &amp;&amp; game.getBoard().onGround()) {</b>
+<b class="nc">&nbsp;            sleetTurn = sleetTurn + 1;</b>
+<b class="nc">&nbsp;            if(sleetTurn == 14) {</b>
+<b class="nc">&nbsp;                ice = true;</b>
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        if(conditions.getWeather() == PlanetaryConditions.WE_ICE_STORM </b>
+<b class="nc">&nbsp;                &amp;&amp; game.getBoard().onGround()) {</b>
+<b class="nc">&nbsp;            iceTurn = iceTurn + 1;</b>
+<b class="nc">&nbsp;            if(iceTurn == 9) {</b>
+<b class="nc">&nbsp;                ice = true;</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        if(lightSnow) {</b>
+<b class="nc">&nbsp;            Report r = new Report(5505, Report.PUBLIC);</b>
+<b class="nc">&nbsp;            vPhaseReport.addElement(r);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if(deepSnow) {</b>
+<b class="nc">&nbsp;            Report r = new Report(5510, Report.PUBLIC);</b>
+<b class="nc">&nbsp;            vPhaseReport.addElement(r);</b>
+&nbsp;        }
+<b class="nc">&nbsp;        if(ice) {</b>
+<b class="nc">&nbsp;            Report r = new Report(5515, Report.PUBLIC);</b>
+<b class="nc">&nbsp;            vPhaseReport.addElement(r);</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        // Cycle through all hexes, checking for the appropriate weather changes
+<b class="nc">&nbsp;        for (int currentXCoord = 0; currentXCoord &lt; width; currentXCoord++ ) {</b>
+<b class="nc">&nbsp;            for (int currentYCoord = 0; currentYCoord &lt; height; currentYCoord++) {</b>
+<b class="nc">&nbsp;                Coords currentCoords = new Coords(currentXCoord, currentYCoord);</b>
+<b class="nc">&nbsp;                IHex currentHex = board.getHex(currentXCoord, currentYCoord);</b>
+&nbsp;
+&nbsp;                //check for fires and potentially put them out
+<b class="nc">&nbsp;                if (currentHex.containsTerrain(Terrains.FIRE)) {</b>
+&nbsp;                    //only standard fires get put out
+<b class="nc">&nbsp;                    if(currentHex.terrainLevel(Terrains.FIRE) </b>
+&nbsp;                            == Terrains.FIRE_LVL_NORMAL) {
+<b class="nc">&nbsp;                        if(conditions.putOutFire()) {</b>
+<b class="nc">&nbsp;                            server.removeFire(currentCoords, &quot;weather conditions&quot;);</b>
+&nbsp;                        }
+&nbsp;                    // Downgrade Inferno fires so they can burn out
+<b class="nc">&nbsp;                    } else if (currentHex.terrainLevel(Terrains.FIRE) </b>
+&nbsp;                            == Terrains.FIRE_LVL_INFERNO) {
+&nbsp;                        //inferno fires should become regular fires
+<b class="nc">&nbsp;                        currentHex.removeTerrain(Terrains.FIRE);</b>
+<b class="nc">&nbsp;                        currentHex.addTerrain(tf.createTerrain(Terrains.FIRE,1));</b>
+<b class="nc">&nbsp;                        server.getHexUpdateSet().add(currentCoords);</b>
+&nbsp;                    // Check Inferno Bombs
+<b class="nc">&nbsp;                    } else if (currentHex.terrainLevel(Terrains.FIRE) </b>
+&nbsp;                            == Terrains.FIRE_LVL_INFERNO_BOMB) {
+<b class="nc">&nbsp;                        if (currentHex.getFireTurn() &gt; 30) {</b>
+<b class="nc">&nbsp;                            server.removeFire(currentCoords, </b>
+&nbsp;                                    &quot;inferno bomb burning out&quot;);
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                    // Inferno IV doesn&#39;t burn out, TO pg 356
+&nbsp;                }
+&nbsp;
+<b class="nc">&nbsp;                if(ice &amp;&amp; !currentHex.containsTerrain(Terrains.ICE)</b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.containsTerrain(Terrains.WATER)) {</b>
+<b class="nc">&nbsp;                    currentHex.addTerrain(tf.createTerrain(Terrains.ICE, 1));</b>
+<b class="nc">&nbsp;                    server.getHexUpdateSet().add(currentCoords);</b>
+&nbsp;                }
+&nbsp;
+<b class="nc">&nbsp;                if(lightSnow</b>
+<b class="nc">&nbsp;                        &amp;&amp; !currentHex.containsTerrain(Terrains.SNOW)</b>
+<b class="nc">&nbsp;                        &amp;&amp; !(currentHex.containsTerrain(Terrains.WATER) </b>
+<b class="nc">&nbsp;                                &amp;&amp; !currentHex.containsTerrain(Terrains.ICE))</b>
+<b class="nc">&nbsp;                        &amp;&amp; !currentHex.containsTerrain(Terrains.MAGMA)) {</b>
+<b class="nc">&nbsp;                    currentHex.addTerrain(tf.createTerrain(Terrains.SNOW, 1));</b>
+<b class="nc">&nbsp;                    server.getHexUpdateSet().add(currentCoords);</b>
+&nbsp;                }
+&nbsp;
+<b class="nc">&nbsp;                if(deepSnow &amp;&amp; !(currentHex.terrainLevel(Terrains.SNOW) &gt; 1)</b>
+<b class="nc">&nbsp;                        &amp;&amp; !(currentHex.containsTerrain(Terrains.WATER) </b>
+<b class="nc">&nbsp;                                &amp;&amp; !currentHex.containsTerrain(Terrains.ICE))</b>
+<b class="nc">&nbsp;                        &amp;&amp; !currentHex.containsTerrain(Terrains.MAGMA)) {</b>
+<b class="nc">&nbsp;                    currentHex.addTerrain(tf.createTerrain(Terrains.SNOW, 2));</b>
+<b class="nc">&nbsp;                    server.getHexUpdateSet().add(currentCoords);</b>
+&nbsp;                }
+&nbsp;
+&nbsp;                //check for the melting of any snow or ice
+<b class="nc">&nbsp;                if(currentHex.terrainLevel(Terrains.SNOW) &gt; 1</b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.containsTerrain(Terrains.FIRE) </b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.getFireTurn() == 3) {</b>
+<b class="nc">&nbsp;                    currentHex.removeTerrain(Terrains.SNOW);</b>
+<b class="nc">&nbsp;                    if(!currentHex.containsTerrain(Terrains.MUD) </b>
+<b class="nc">&nbsp;                            &amp;&amp; !currentHex.containsTerrain(Terrains.WATER)) {</b>
+<b class="nc">&nbsp;                        currentHex.addTerrain(tf.createTerrain(Terrains.MUD, 1));</b>
+&nbsp;                    }
+&nbsp;                }
+&nbsp;
+<b class="nc">&nbsp;                if(currentHex.terrainLevel(Terrains.SNOW) == 1</b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.containsTerrain(Terrains.FIRE) </b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.getFireTurn() == 1) {</b>
+<b class="nc">&nbsp;                    currentHex.removeTerrain(Terrains.SNOW);</b>
+<b class="nc">&nbsp;                    if(!currentHex.containsTerrain(Terrains.MUD) </b>
+<b class="nc">&nbsp;                            &amp;&amp; !currentHex.containsTerrain(Terrains.WATER)) {</b>
+<b class="nc">&nbsp;                        currentHex.addTerrain(tf.createTerrain(Terrains.MUD, 1));</b>
+&nbsp;                    }
+&nbsp;                }
+&nbsp;
+<b class="nc">&nbsp;                if(currentHex.containsTerrain(Terrains.ICE)</b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.containsTerrain(Terrains.FIRE) </b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.getFireTurn() == 2) {</b>
+<b class="nc">&nbsp;                    currentHex.removeTerrain(Terrains.ICE);</b>
+<b class="nc">&nbsp;                    if(!currentHex.containsTerrain(Terrains.MUD) </b>
+<b class="nc">&nbsp;                            &amp;&amp; !currentHex.containsTerrain(Terrains.WATER)) {</b>
+<b class="nc">&nbsp;                        currentHex.addTerrain(tf.createTerrain(Terrains.MUD, 1));</b>
+&nbsp;                    }
+&nbsp;                }
+&nbsp;
+&nbsp;                //check for rapids/torrents created by wind
+&nbsp;                //FIXME: This doesn&#39;t seem to be doing anything
+<b class="nc">&nbsp;                if(conditions.getWindStrength() &gt; PlanetaryConditions.WI_MOD_GALE</b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.containsTerrain(Terrains.WATER) </b>
+<b class="nc">&nbsp;                        &amp;&amp; currentHex.depth(true) &gt; 0) {</b>
+&nbsp;
+<b class="nc">&nbsp;                    if(conditions.getWindStrength() &gt; PlanetaryConditions.WI_STORM) {</b>
+<b class="nc">&nbsp;                        if(!(currentHex.terrainLevel(Terrains.RAPIDS) &gt; 1)) {</b>
+<b class="nc">&nbsp;                            currentHex.addTerrain(tf.createTerrain(Terrains.RAPIDS, 2));</b>
+&nbsp;                        }
+&nbsp;                    } else {
+<b class="nc">&nbsp;                        if(!currentHex.containsTerrain(Terrains.RAPIDS)) {</b>
+<b class="nc">&nbsp;                            currentHex.addTerrain(tf.createTerrain(Terrains.RAPIDS, 1));</b>
+&nbsp;                        }
+&nbsp;                    }
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+<b class="nc">&nbsp;        debugTime(&quot;resolve weather 1 end&quot;, true);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>

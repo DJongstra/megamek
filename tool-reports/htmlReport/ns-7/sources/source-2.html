@@ -1,0 +1,525 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > AbstractUnmarshallerImpl</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">javax.xml.bind.helpers</a>
+</div>
+
+<h1>Coverage Summary for Class: AbstractUnmarshallerImpl (javax.xml.bind.helpers)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">AbstractUnmarshallerImpl</td>
+<td class="coverageStat">
+  <span class="percent">
+    100%
+  </span>
+  <span class="absValue">
+    (1/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    15,2%
+  </span>
+  <span class="absValue">
+    (5/33)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    11,1%
+  </span>
+  <span class="absValue">
+    (4/36)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    13,3%
+  </span>
+  <span class="absValue">
+    (13/98)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * Copyright (c) 2003, 2018 Oracle and/or its affiliates. All rights reserved.
+&nbsp; *
+&nbsp; * This program and the accompanying materials are made available under the
+&nbsp; * terms of the Eclipse Distribution License v. 1.0, which is available at
+&nbsp; * http://www.eclipse.org/org/documents/edl-v10.php.
+&nbsp; *
+&nbsp; * SPDX-License-Identifier: BSD-3-Clause
+&nbsp; */
+&nbsp;
+&nbsp;package javax.xml.bind.helpers;
+&nbsp;
+&nbsp;import org.xml.sax.InputSource;
+&nbsp;import org.xml.sax.SAXException;
+&nbsp;import org.xml.sax.XMLReader;
+&nbsp;import org.w3c.dom.Node;
+&nbsp;
+&nbsp;import javax.xml.bind.JAXBException;
+&nbsp;import javax.xml.bind.PropertyException;
+&nbsp;import javax.xml.bind.UnmarshalException;
+&nbsp;import javax.xml.bind.Unmarshaller;
+&nbsp;import javax.xml.bind.ValidationEventHandler;
+&nbsp;import javax.xml.bind.JAXBElement;
+&nbsp;import javax.xml.bind.annotation.adapters.XmlAdapter;
+&nbsp;import javax.xml.bind.attachment.AttachmentUnmarshaller;
+&nbsp;import javax.xml.parsers.ParserConfigurationException;
+&nbsp;import javax.xml.parsers.SAXParserFactory;
+&nbsp;import javax.xml.stream.XMLEventReader;
+&nbsp;import javax.xml.stream.XMLStreamReader;
+&nbsp;import javax.xml.transform.Source;
+&nbsp;import javax.xml.transform.dom.DOMSource;
+&nbsp;import javax.xml.transform.sax.SAXSource;
+&nbsp;import javax.xml.transform.stream.StreamSource;
+&nbsp;import javax.xml.validation.Schema;
+&nbsp;import java.io.*;
+&nbsp;import java.net.URL;
+&nbsp;
+&nbsp;/**
+&nbsp; * Partial default {@code Unmarshaller} implementation.
+&nbsp; * 
+&nbsp; * &lt;p&gt;
+&nbsp; * This class provides a partial default implementation for the
+&nbsp; * {@link javax.xml.bind.Unmarshaller}interface.
+&nbsp; * 
+&nbsp; * &lt;p&gt;
+&nbsp; * A JAXB Provider has to implement five methods (getUnmarshallerHandler,
+&nbsp; * unmarshal(Node), unmarshal(XMLReader,InputSource),
+&nbsp; * unmarshal(XMLStreamReader), and unmarshal(XMLEventReader).
+&nbsp; * 
+&nbsp; * @author &lt;ul&gt;
+&nbsp; *         &lt;li&gt;Kohsuke Kawaguchi, Sun Microsystems, Inc.&lt;/li&gt;
+&nbsp; *         &lt;/ul&gt;
+&nbsp; * @see javax.xml.bind.Unmarshaller
+&nbsp; * @since 1.6, JAXB 1.0
+&nbsp; */
+<b class="fc">&nbsp;public abstract class AbstractUnmarshallerImpl implements Unmarshaller</b>
+&nbsp;{    
+&nbsp;    /** handler that will be used to process errors and warnings during unmarshal */
+<b class="fc">&nbsp;    private ValidationEventHandler eventHandler = </b>
+&nbsp;        new DefaultValidationEventHandler();
+&nbsp;    
+&nbsp;    /** whether or not the unmarshaller will validate */
+<b class="fc">&nbsp;    protected boolean validating = false;</b>
+&nbsp;
+&nbsp;    /**
+&nbsp;     * XMLReader that will be used to parse a document.
+&nbsp;     */
+<b class="fc">&nbsp;    private XMLReader reader = null;</b>
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Obtains a configured XMLReader.
+&nbsp;     * 
+&nbsp;     * This method is used when the client-specified
+&nbsp;     * {@link SAXSource} object doesn&#39;t have XMLReader.
+&nbsp;     * 
+&nbsp;     * {@link Unmarshaller} is not re-entrant, so we will
+&nbsp;     * only use one instance of XMLReader.
+&nbsp;     */
+&nbsp;    protected XMLReader getXMLReader() throws JAXBException {
+<b class="nc">&nbsp;        if(reader==null) {</b>
+&nbsp;            try {
+&nbsp;                SAXParserFactory parserFactory;
+<b class="nc">&nbsp;                parserFactory = SAXParserFactory.newInstance();</b>
+<b class="nc">&nbsp;                parserFactory.setNamespaceAware(true);</b>
+&nbsp;                // there is no point in asking a validation because 
+&nbsp;                // there is no guarantee that the document will come with
+&nbsp;                // a proper schemaLocation.
+<b class="nc">&nbsp;                parserFactory.setValidating(false);</b>
+<b class="nc">&nbsp;                reader = parserFactory.newSAXParser().getXMLReader();</b>
+<b class="nc">&nbsp;            } catch( ParserConfigurationException e ) {</b>
+<b class="nc">&nbsp;                throw new JAXBException(e);</b>
+<b class="nc">&nbsp;            } catch( SAXException e ) {</b>
+<b class="nc">&nbsp;                throw new JAXBException(e);</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+<b class="nc">&nbsp;        return reader;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public Object unmarshal( Source source ) throws JAXBException {
+<b class="pc">&nbsp;        if( source == null ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(</b>
+<b class="nc">&nbsp;                Messages.format( Messages.MUST_NOT_BE_NULL, &quot;source&quot; ) );</b>
+&nbsp;        }
+&nbsp;        
+<b class="pc">&nbsp;        if(source instanceof SAXSource)</b>
+<b class="fc">&nbsp;            return unmarshal( (SAXSource)source );</b>
+<b class="nc">&nbsp;        if(source instanceof StreamSource)</b>
+<b class="nc">&nbsp;            return unmarshal( streamSourceToInputSource((StreamSource)source));</b>
+<b class="nc">&nbsp;        if(source instanceof DOMSource)</b>
+<b class="nc">&nbsp;            return unmarshal( ((DOMSource)source).getNode() );</b>
+&nbsp;        
+&nbsp;        // we don&#39;t handle other types of Source
+<b class="nc">&nbsp;        throw new IllegalArgumentException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    // use the client specified XMLReader contained in the SAXSource.
+&nbsp;    private Object unmarshal( SAXSource source ) throws JAXBException {
+&nbsp;        
+<b class="fc">&nbsp;        XMLReader r = source.getXMLReader();</b>
+<b class="pc">&nbsp;        if( r == null )</b>
+<b class="nc">&nbsp;            r = getXMLReader();</b>
+&nbsp;        
+<b class="fc">&nbsp;        return unmarshal( r, source.getInputSource() );</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Unmarshals an object by using the specified XMLReader and the InputSource.
+&nbsp;     * 
+&nbsp;     * The callee should call the setErrorHandler method of the XMLReader
+&nbsp;     * so that errors are passed to the client-specified ValidationEventHandler.
+&nbsp;     */
+&nbsp;    protected abstract Object unmarshal( XMLReader reader, InputSource source ) throws JAXBException;
+&nbsp;    
+&nbsp;    public final Object unmarshal( InputSource source ) throws JAXBException {
+<b class="nc">&nbsp;        if( source == null ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(</b>
+<b class="nc">&nbsp;                Messages.format( Messages.MUST_NOT_BE_NULL, &quot;source&quot; ) );</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        return unmarshal( getXMLReader(), source );</b>
+&nbsp;    }
+&nbsp;        
+&nbsp;
+&nbsp;    private Object unmarshal( String url ) throws JAXBException {
+<b class="nc">&nbsp;        return unmarshal( new InputSource(url) );</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public final Object unmarshal( URL url ) throws JAXBException {
+<b class="nc">&nbsp;        if( url == null ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(</b>
+<b class="nc">&nbsp;                Messages.format( Messages.MUST_NOT_BE_NULL, &quot;url&quot; ) );</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        return unmarshal( url.toExternalForm() );</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public final Object unmarshal( File f ) throws JAXBException {
+<b class="nc">&nbsp;        if( f == null ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(</b>
+<b class="nc">&nbsp;                Messages.format( Messages.MUST_NOT_BE_NULL, &quot;file&quot; ) );</b>
+&nbsp;        }
+&nbsp;
+&nbsp;        try {
+<b class="nc">&nbsp;            return unmarshal(new BufferedInputStream(new FileInputStream(f)));</b>
+<b class="nc">&nbsp;        } catch( FileNotFoundException e ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(e.getMessage());</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;    
+&nbsp;    public final Object unmarshal( java.io.InputStream is ) 
+&nbsp;        throws JAXBException {
+&nbsp;            
+<b class="nc">&nbsp;        if( is == null ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(</b>
+<b class="nc">&nbsp;                Messages.format( Messages.MUST_NOT_BE_NULL, &quot;is&quot; ) );</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        InputSource isrc = new InputSource( is );</b>
+<b class="nc">&nbsp;        return unmarshal( isrc );</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public final Object unmarshal( Reader reader ) throws JAXBException {
+<b class="nc">&nbsp;        if( reader == null ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(</b>
+<b class="nc">&nbsp;                Messages.format( Messages.MUST_NOT_BE_NULL, &quot;reader&quot; ) );</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        InputSource isrc = new InputSource( reader );</b>
+<b class="nc">&nbsp;        return unmarshal( isrc );</b>
+&nbsp;    }
+&nbsp;
+&nbsp;
+&nbsp;    private static InputSource streamSourceToInputSource( StreamSource ss ) {
+<b class="nc">&nbsp;        InputSource is = new InputSource();</b>
+<b class="nc">&nbsp;        is.setSystemId( ss.getSystemId() );</b>
+<b class="nc">&nbsp;        is.setByteStream( ss.getInputStream() );</b>
+<b class="nc">&nbsp;        is.setCharacterStream( ss.getReader() );</b>
+&nbsp;        
+<b class="nc">&nbsp;        return is;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Indicates whether or not the Unmarshaller is configured to validate
+&nbsp;     * during unmarshal operations.
+&nbsp;     * &lt;p&gt;
+&nbsp;     * &lt;i&gt;&lt;b&gt;Note:&lt;/b&gt; I named this method isValidating() to stay in-line
+&nbsp;     * with JAXP, as opposed to naming it getValidating(). &lt;/i&gt;
+&nbsp;     *
+&nbsp;     * @return true if the Unmarshaller is configured to validate during
+&nbsp;     *        unmarshal operations, false otherwise
+&nbsp;     * @throws JAXBException if an error occurs while retrieving the validating
+&nbsp;     *        flag
+&nbsp;     */
+&nbsp;    public boolean isValidating() throws JAXBException {
+<b class="nc">&nbsp;        return validating;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Allow an application to register a validation event handler.
+&nbsp;     * &lt;p&gt;
+&nbsp;     * The validation event handler will be called by the JAXB Provider if any
+&nbsp;     * validation errors are encountered during calls to any of the
+&nbsp;     * {@code unmarshal} methods.  If the client application does not register
+&nbsp;     * a validation event handler before invoking the unmarshal methods, then
+&nbsp;     * all validation events will be silently ignored and may result in
+&nbsp;     * unexpected behaviour.
+&nbsp;     *
+&nbsp;     * @param handler the validation event handler
+&nbsp;     * @throws JAXBException if an error was encountered while setting the
+&nbsp;     *        event handler
+&nbsp;     */
+&nbsp;    public void setEventHandler(ValidationEventHandler handler) 
+&nbsp;        throws JAXBException {
+&nbsp;        
+<b class="pc">&nbsp;        if( handler == null ) {</b>
+<b class="nc">&nbsp;            eventHandler = new DefaultValidationEventHandler();</b>
+&nbsp;        } else {
+<b class="fc">&nbsp;            eventHandler = handler;</b>
+&nbsp;        }
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Specifies whether or not the Unmarshaller should validate during
+&nbsp;     * unmarshal operations. By default, the {@code Unmarshaller} does
+&nbsp;     * not validate.
+&nbsp;     * &lt;p&gt;
+&nbsp;     * This method may only be invoked before or after calling one of the
+&nbsp;     * unmarshal methods.
+&nbsp;     *
+&nbsp;     * @param validating true if the Unmarshaller should validate during
+&nbsp;     *       unmarshal, false otherwise
+&nbsp;     * @throws JAXBException if an error occurred while enabling or disabling
+&nbsp;     * validation at unmarshal time
+&nbsp;     */
+&nbsp;    public void setValidating(boolean validating) throws JAXBException {
+<b class="nc">&nbsp;        this.validating = validating;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Return the current event handler or the default event handler if one
+&nbsp;     * hasn&#39;t been set.
+&nbsp;     *
+&nbsp;     * @return the current ValidationEventHandler or the default event handler
+&nbsp;     *        if it hasn&#39;t been set
+&nbsp;     * @throws JAXBException if an error was encountered while getting the
+&nbsp;     *        current event handler
+&nbsp;     */
+&nbsp;    public ValidationEventHandler getEventHandler() throws JAXBException {
+<b class="fc">&nbsp;        return eventHandler;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Creates an UnmarshalException from a SAXException.
+&nbsp;     * 
+&nbsp;     * This is an utility method provided for the derived classes.
+&nbsp;     * 
+&nbsp;     * &lt;p&gt;
+&nbsp;     * When a provider-implemented ContentHandler wants to throw a
+&nbsp;     * JAXBException, it needs to wrap the exception by a SAXException.
+&nbsp;     * If the unmarshaller implementation blindly wrap SAXException
+&nbsp;     * by JAXBException, such an exception will be a JAXBException
+&nbsp;     * wrapped by a SAXException wrapped by another JAXBException.
+&nbsp;     * This is silly.
+&nbsp;     * 
+&nbsp;     * &lt;p&gt;
+&nbsp;     * This method checks the nested exception of SAXException
+&nbsp;     * and reduce those excessive wrapping.
+&nbsp;     * 
+&nbsp;     * @return the resulting UnmarshalException
+&nbsp;     */
+&nbsp;    protected UnmarshalException createUnmarshalException( SAXException e ) {
+&nbsp;        // check the nested exception to see if it&#39;s an UnmarshalException
+<b class="nc">&nbsp;        Exception nested = e.getException();</b>
+<b class="nc">&nbsp;        if(nested instanceof UnmarshalException)</b>
+<b class="nc">&nbsp;            return (UnmarshalException)nested;</b>
+&nbsp;        
+<b class="nc">&nbsp;        if(nested instanceof RuntimeException)</b>
+&nbsp;            // typically this is an unexpected exception,
+&nbsp;            // just throw it rather than wrap it, so that the full stack
+&nbsp;            // trace can be displayed.
+<b class="nc">&nbsp;            throw (RuntimeException)nested;</b>
+&nbsp;                
+&nbsp;        
+&nbsp;        // otherwise simply wrap it
+<b class="nc">&nbsp;        if(nested!=null)</b>
+<b class="nc">&nbsp;            return new UnmarshalException(nested);</b>
+&nbsp;        else
+<b class="nc">&nbsp;            return new UnmarshalException(e);</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Default implementation of the setProperty method always 
+&nbsp;     * throws PropertyException since there are no required
+&nbsp;     * properties. If a provider needs to handle additional 
+&nbsp;     * properties, it should override this method in a derived class.
+&nbsp;     */
+&nbsp;    public void setProperty( String name, Object value )
+&nbsp;        throws PropertyException {
+&nbsp;
+<b class="nc">&nbsp;        if( name == null ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(</b>
+<b class="nc">&nbsp;                Messages.format( Messages.MUST_NOT_BE_NULL, &quot;name&quot; ) );</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        throw new PropertyException(name, value);</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Default implementation of the getProperty method always 
+&nbsp;     * throws PropertyException since there are no required
+&nbsp;     * properties. If a provider needs to handle additional 
+&nbsp;     * properties, it should override this method in a derived class.
+&nbsp;     */
+&nbsp;    public Object getProperty( String name )
+&nbsp;        throws PropertyException {
+&nbsp;            
+<b class="nc">&nbsp;        if( name == null ) {</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException(</b>
+<b class="nc">&nbsp;                Messages.format( Messages.MUST_NOT_BE_NULL, &quot;name&quot; ) );</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        throw new PropertyException(name);</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    public Object unmarshal(XMLEventReader reader) throws JAXBException {
+&nbsp;        
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Object unmarshal(XMLStreamReader reader) throws JAXBException {
+&nbsp;        
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public &lt;T&gt; JAXBElement&lt;T&gt; unmarshal(Node node, Class&lt;T&gt; expectedType) throws JAXBException {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public &lt;T&gt; JAXBElement&lt;T&gt; unmarshal(Source source, Class&lt;T&gt; expectedType) throws JAXBException {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public &lt;T&gt; JAXBElement&lt;T&gt; unmarshal(XMLStreamReader reader, Class&lt;T&gt; expectedType) throws JAXBException {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public &lt;T&gt; JAXBElement&lt;T&gt; unmarshal(XMLEventReader reader, Class&lt;T&gt; expectedType) throws JAXBException {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setSchema(Schema schema) {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Schema getSchema() {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setAdapter(XmlAdapter adapter) {
+<b class="nc">&nbsp;        if(adapter==null)</b>
+<b class="nc">&nbsp;            throw new IllegalArgumentException();</b>
+<b class="nc">&nbsp;        setAdapter((Class)adapter.getClass(),adapter);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public &lt;A extends XmlAdapter&gt; void setAdapter(Class&lt;A&gt; type, A adapter) {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public &lt;A extends XmlAdapter&gt; A getAdapter(Class&lt;A&gt; type) {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setAttachmentUnmarshaller(AttachmentUnmarshaller au) {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public AttachmentUnmarshaller getAttachmentUnmarshaller() {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public void setListener(Listener listener) {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    public Listener getListener() {
+<b class="nc">&nbsp;        throw new UnsupportedOperationException();</b>
+&nbsp;    }
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,326 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > AvailabilityRating</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.client.ratgenerator</a>
+</div>
+
+<h1>Coverage Summary for Class: AvailabilityRating (megamek.client.ratgenerator)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">AvailabilityRating</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/24)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/26)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/66)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp;* MegaMek -
+&nbsp;* Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+&nbsp;* Copyright (C) 2018 The MegaMek Team
+&nbsp;*
+&nbsp;* This program is free software; you can redistribute it and/or modify it under
+&nbsp;* the terms of the GNU General Public License as published by the Free Software
+&nbsp;* Foundation; either version 2 of the License, or (at your option) any later
+&nbsp;* version.
+&nbsp;*
+&nbsp;* This program is distributed in the hope that it will be useful, but WITHOUT
+&nbsp;* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+&nbsp;* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+&nbsp;* details.
+&nbsp;*/
+&nbsp;
+&nbsp;package megamek.client.ratgenerator;
+&nbsp;
+&nbsp;import megamek.MegaMek;
+&nbsp;
+&nbsp;/**
+&nbsp; * Handles availability rating values and calculations for RAT generator.
+&nbsp; * Availability is rated on a base-2 logarithmic scale from 0 (non-existent) to 10 (ubiquitous),
+&nbsp; * with 6 being a typical value when the source material does not give an indication of frequency.
+&nbsp; * The availability rating is actually twice the exponent, which allows more precision
+&nbsp; * while still storing values as integers (so it&#39;s really a base-(sqrt(2)) scale, but using
+&nbsp; * 2 as the base should theoretically be faster).
+&nbsp; *
+&nbsp; * These values are stored separately for chassis and models; for example, there is
+&nbsp; * one value to indicate the likelihood that a medium Mek is a Phoenix Hawk and another
+&nbsp; * set of values to indicate the likelihood that a give Phoenix Hawk is a 1D or 1K, etc.
+&nbsp; *
+&nbsp; * @author Neoancient
+&nbsp; *
+&nbsp; */
+&nbsp;
+&nbsp;public class AvailabilityRating {
+&nbsp;	//Used to calculate av rating from weight.
+<b class="nc">&nbsp;	public static final double LOG_BASE = Math.log(2);</b>
+&nbsp;
+<b class="nc">&nbsp;	String faction = &quot;General&quot;;</b>
+<b class="nc">&nbsp;	int availability = 0;</b>
+<b class="nc">&nbsp;	String ratings = null;</b>
+<b class="nc">&nbsp;	int ratingAdjustment = 0;</b>
+&nbsp;	int era;
+&nbsp;	int startYear;
+<b class="nc">&nbsp;	String unitName = null;</b>
+&nbsp;
+&nbsp;	/**
+&nbsp;	 *
+&nbsp;	 * @param unit The chassis or model key
+&nbsp;	 * @param era  The era that this availability code applies to.
+&nbsp;	 * @param code A string with the format FKEY[!RATING]:AV[+/-][:YEAR]
+&nbsp;	 * 				FKEY: the faction key
+&nbsp;	 * 				RATING: if supplied, will limit this record to units with the indicated equipment rating
+&nbsp;	 * 				AV: a value that indicates how common this unit is, from 0 (non-existent)
+&nbsp;	 *                  to 10 (ubiquitous)
+&nbsp;	 * 				+: the indicated av rating applies to the highest equipment rating for the faction
+&nbsp;	 * 					(usually A or Keshik) and decreases for each step the rating is reduced.
+&nbsp;	 * 				-: as +, but applies to the lowest equipment rating (F or PGC) and decreases
+&nbsp;	 * 					as rating increases.
+&nbsp;	 * 				YEAR: when the unit becomes available to the faction, if later than the
+&nbsp;	 * 					beginning of the era. Any year before this within the era will be treated
+&nbsp;	 * 					as having no availability.
+&nbsp;	 */
+<b class="nc">&nbsp;	public AvailabilityRating(String unit, int era, String code) {</b>
+<b class="nc">&nbsp;		unitName = unit;</b>
+<b class="nc">&nbsp;		this.era = era;</b>
+<b class="nc">&nbsp;		startYear = era;</b>
+<b class="nc">&nbsp;		this.ratingAdjustment = 0;</b>
+<b class="nc">&nbsp;		String[] fields = code.split(&quot;:&quot;);</b>
+<b class="nc">&nbsp;		if (fields[0].contains(&quot;!&quot;)) {</b>
+<b class="nc">&nbsp;			String[] subfields = fields[0].split(&quot;!&quot;);</b>
+<b class="nc">&nbsp;			ratings = subfields[1];</b>
+<b class="nc">&nbsp;			fields[0] = subfields[0];</b>
+&nbsp;		}
+<b class="nc">&nbsp;		faction = fields[0];</b>
+&nbsp;
+<b class="nc">&nbsp;		if (fields.length &lt; 2) {</b>
+<b class="nc">&nbsp;		    MegaMek.getLogger().warning(&quot;No availability code given for &quot; + unit +</b>
+&nbsp;					&quot; (&quot; + era + &quot;): &quot; + faction);
+&nbsp;			return;
+&nbsp;		}
+<b class="nc">&nbsp;		if (fields[1].endsWith(&quot;+&quot;)) {</b>
+<b class="nc">&nbsp;			this.ratingAdjustment++;</b>
+<b class="nc">&nbsp;			fields[1] = fields[1].replace(&quot;+&quot;, &quot;&quot;);</b>
+&nbsp;		}
+<b class="nc">&nbsp;		if (fields[1].endsWith(&quot;-&quot;)) {</b>
+<b class="nc">&nbsp;			this.ratingAdjustment--;</b>
+<b class="nc">&nbsp;			fields[1] = fields[1].replace(&quot;-&quot;, &quot;&quot;);</b>
+&nbsp;		}
+<b class="nc">&nbsp;		availability = Integer.parseInt(fields[1]);</b>
+<b class="nc">&nbsp;		if (fields.length &gt; 2) {</b>
+&nbsp;			try {
+<b class="nc">&nbsp;				startYear = Integer.parseInt(fields[2]);</b>
+<b class="nc">&nbsp;			} catch (NumberFormatException ex) {</b>
+<b class="nc">&nbsp;			    MegaMek.getLogger().warning(&quot;Could not parse start year &quot; + fields[2] + &quot; for &quot;</b>
+&nbsp;						+ unit + &quot; in &quot; + era);
+<b class="nc">&nbsp;			}</b>
+&nbsp;		}
+&nbsp;	}
+&nbsp;
+&nbsp;	public String getFaction() {
+<b class="nc">&nbsp;		return faction;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public void setFaction(String faction) {
+<b class="nc">&nbsp;		this.faction = faction;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public int getAvailability() {
+<b class="nc">&nbsp;		return availability;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public int adjustForRating(int rating, int numLevels) {
+<b class="nc">&nbsp;		if (rating &lt; 0 || ratingAdjustment == 0) {</b>
+<b class="nc">&nbsp;			return availability;</b>
+<b class="nc">&nbsp;		} else if (ratingAdjustment &lt; 0) {</b>
+<b class="nc">&nbsp;			return availability - rating;</b>
+&nbsp;		} else {
+<b class="nc">&nbsp;			return availability - (numLevels - rating);</b>
+&nbsp;		}
+&nbsp;	}
+&nbsp;
+&nbsp;	public void setAvailability(int availability) {
+<b class="nc">&nbsp;		this.availability = availability;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public String getRatings() {
+<b class="nc">&nbsp;		return ratings;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public void setRatings(String ratings) {
+<b class="nc">&nbsp;		this.ratings = ratings;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public int getRatingAdjustment() {
+<b class="nc">&nbsp;		return ratingAdjustment;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public void setRatingAdjustment(int ratingAdjustment) {
+<b class="nc">&nbsp;		this.ratingAdjustment = ratingAdjustment;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public int getEra() {
+<b class="nc">&nbsp;		return era;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public void setEra(int era) {
+<b class="nc">&nbsp;		this.era = era;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public int getStartYear() {
+<b class="nc">&nbsp;		return startYear;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public void setStartYear(int year) {
+<b class="nc">&nbsp;		startYear = year;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public String getUnitName() {
+<b class="nc">&nbsp;		return unitName;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public void setUnitName(String unitName) {
+<b class="nc">&nbsp;		this.unitName = unitName;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public String getFactionCode() {
+<b class="nc">&nbsp;		String retVal = faction;</b>
+<b class="nc">&nbsp;		if (ratings != null &amp;&amp; ratings.length() &gt; 0) {</b>
+<b class="nc">&nbsp;			retVal += &quot;!&quot; + ratings;</b>
+&nbsp;		}
+<b class="nc">&nbsp;		return retVal;</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public String getAvailabilityCode() {
+<b class="nc">&nbsp;		if (ratingAdjustment == 0) {</b>
+<b class="nc">&nbsp;			return Integer.toString(availability);</b>
+<b class="nc">&nbsp;		} else if (ratingAdjustment &lt; 0) {</b>
+<b class="nc">&nbsp;			return availability + &quot;-&quot;;</b>
+&nbsp;		} else {
+<b class="nc">&nbsp;			return availability + &quot;+&quot;;</b>
+&nbsp;		}
+&nbsp;	}
+&nbsp;
+&nbsp;	@Override
+&nbsp;	public String toString() {
+<b class="nc">&nbsp;		if (era != startYear) {</b>
+<b class="nc">&nbsp;			return getFactionCode() + &quot;:&quot; + getAvailabilityCode()</b>
+&nbsp;					+ &quot;:&quot; + startYear;
+&nbsp;		}
+<b class="nc">&nbsp;		return getFactionCode() + &quot;:&quot; + getAvailabilityCode();</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public AvailabilityRating makeCopy(String newFaction) {
+<b class="nc">&nbsp;		return new AvailabilityRating(unitName, era, newFaction + &quot;:&quot; + getAvailabilityCode());</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	public double getWeight() {
+<b class="nc">&nbsp;		return calcWeight(availability);</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	static double calcWeight(double avRating) {
+<b class="nc">&nbsp;		return Math.pow(2, avRating / 2.0);</b>
+&nbsp;	}
+&nbsp;
+&nbsp;	static double calcAvRating(double weight) {
+<b class="nc">&nbsp;		return 2.0 * Math.log(weight) / LOG_BASE;</b>
+&nbsp;	}
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:57</div>
+</div>
+</body>
+</html>

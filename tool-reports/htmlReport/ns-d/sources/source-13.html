@@ -1,0 +1,506 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > MultiTargetFireControl</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">megamek.client.bot.princess</a>
+</div>
+
+<h1>Coverage Summary for Class: MultiTargetFireControl (megamek.client.bot.princess)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+<th class="coverageStat 
+">
+  Class, %
+</th>
+<th class="coverageStat 
+">
+  Method, %
+</th>
+<th class="coverageStat 
+">
+  Branch, %
+</th>
+<th class="coverageStat 
+">
+  Line, %
+</th>
+</tr>
+<tr>
+  <td class="name">MultiTargetFireControl</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/1)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/7)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/98)
+  </span>
+</td>
+<td class="coverageStat">
+  <span class="percent">
+    0%
+  </span>
+  <span class="absValue">
+    (0/157)
+  </span>
+</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;/*
+&nbsp; * MegaMek - Copyright (C) 2019 Megamek Team
+&nbsp; *
+&nbsp; *  This program is free software; you can redistribute it and/or modify it
+&nbsp; *  under the terms of the GNU General Public License as published by the Free
+&nbsp; *  Software Foundation; either version 2 of the License, or (at your option)
+&nbsp; *  any later version.
+&nbsp; *
+&nbsp; *  This program is distributed in the hope that it will be useful, but
+&nbsp; *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+&nbsp; *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+&nbsp; *  for more details.
+&nbsp; */
+&nbsp;
+&nbsp;package megamek.client.bot.princess;
+&nbsp;
+&nbsp;import java.util.ArrayList;
+&nbsp;import java.util.HashMap;
+&nbsp;import java.util.List;
+&nbsp;import java.util.Map;
+&nbsp;
+&nbsp;import megamek.common.Entity;
+&nbsp;import megamek.common.IGame;
+&nbsp;import megamek.common.Mounted;
+&nbsp;import megamek.common.Targetable;
+&nbsp;import megamek.common.options.OptionsConstants;
+&nbsp;
+&nbsp;/**
+&nbsp; * Princess-Bot fire control class used to calculate firing plans for units that
+&nbsp; * can shoot at multiple targets without incurring a penalty.
+&nbsp; * @author NickAragua
+&nbsp; *
+&nbsp; */
+&nbsp;public class MultiTargetFireControl extends FireControl {
+&nbsp;
+&nbsp;    public MultiTargetFireControl(Princess owningPrincess) {
+<b class="nc">&nbsp;        super(owningPrincess);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Calculates the best firing plan for a particular entity, assuming that everybody has already moved.
+&nbsp;     * Assumes no restriction on number of units that may be targeted.
+&nbsp;     */
+&nbsp;    @Override
+&nbsp;    public FiringPlan getBestFiringPlan(final Entity shooter,
+&nbsp;            final IHonorUtil honorUtil,
+&nbsp;            final IGame game,
+&nbsp;            final Map&lt;Mounted, Double&gt; ammoConservation) { 
+<b class="nc">&nbsp;        FiringPlan bestPlan = new FiringPlan();</b>
+&nbsp;        
+&nbsp;        // optimal firing patterns for units such as dropships, Thunderbolts with multi-trac
+&nbsp;        // units with &#39;multi-tasker&#39; quirk, multi-gunner vehicles, etc.
+&nbsp;        // are different (and easier to calculate) than optimal firing patterns for other units
+&nbsp;        // because there is no secondary target penalty.
+&nbsp;        // 
+&nbsp;        // So, the basic algorithm is as follows:
+&nbsp;        // For each weapon, calculate the easiest shot. 
+&nbsp;        // Then, solve the backpack problem.
+&nbsp;        
+&nbsp;        List&lt;Mounted&gt; weaponList;
+&nbsp;        
+<b class="nc">&nbsp;        if(shooter.usesWeaponBays()) {</b>
+<b class="nc">&nbsp;            weaponList = shooter.getWeaponBayList();</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            weaponList = shooter.getWeaponList();</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        int originalFacing = shooter.getSecondaryFacing();</b>
+&nbsp;        
+&nbsp;        // check all valid secondary facings (turret rotations/torso twists) and arm/flip combination
+&nbsp;        // to see if there&#39;s a better firing plan
+<b class="nc">&nbsp;        List&lt;Integer&gt; facingChanges = getValidFacingChanges(shooter);</b>
+<b class="nc">&nbsp;        facingChanges.add(0); // &quot;no facing change&quot;</b>
+&nbsp;        
+<b class="nc">&nbsp;        for(int currentTwist : facingChanges) {</b>
+<b class="nc">&nbsp;            shooter.setSecondaryFacing(correctFacing(originalFacing + currentTwist), false);</b>
+&nbsp;            
+<b class="nc">&nbsp;            FiringPlan currentPlan = calculateFiringPlan(shooter, weaponList);</b>
+<b class="nc">&nbsp;            currentPlan.setTwist(currentTwist);</b>
+&nbsp;            
+<b class="nc">&nbsp;            if(currentPlan.getUtility() &gt; bestPlan.getUtility()) {</b>
+<b class="nc">&nbsp;                bestPlan = currentPlan;</b>
+&nbsp;            }
+&nbsp;            
+&nbsp;            // check the plan where the shooter flips its arms
+<b class="nc">&nbsp;            if(shooter.canFlipArms()) {</b>
+<b class="nc">&nbsp;                shooter.setArmsFlipped(true);</b>
+&nbsp;                
+<b class="nc">&nbsp;                currentPlan = calculateFiringPlan(shooter, weaponList);</b>
+<b class="nc">&nbsp;                currentPlan.setFlipArms(true);</b>
+&nbsp;                
+<b class="nc">&nbsp;                if(currentPlan.getUtility() &gt; bestPlan.getUtility()) {</b>
+<b class="nc">&nbsp;                    bestPlan = currentPlan;</b>
+&nbsp;                }
+&nbsp;                
+&nbsp;                // put it back as we found it
+<b class="nc">&nbsp;                shooter.setArmsFlipped(false);</b>
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+&nbsp;        
+&nbsp;        // put it back as we found it
+<b class="nc">&nbsp;        shooter.setSecondaryFacing(originalFacing, false);        </b>
+&nbsp;        
+<b class="nc">&nbsp;        return bestPlan;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Get me the best shot that this particular weapon can take. 
+&nbsp;     * @param weapon Weapon to fire.
+&nbsp;     * @return The weapon fire info with the most expected damage. Null if no such thing.
+&nbsp;     */
+&nbsp;    WeaponFireInfo getBestShot(Mounted weapon) {
+<b class="nc">&nbsp;        WeaponFireInfo bestShot = null;</b>
+&nbsp;        
+<b class="nc">&nbsp;        for(Targetable target : getTargetableEnemyEntities(weapon.getEntity(), owner.getGame(), owner.getFireControlState())) {</b>
+<b class="nc">&nbsp;            final int ownerID = (target instanceof Entity) ? ((Entity) target).getOwnerId() : -1;</b>
+<b class="nc">&nbsp;            if(owner.getHonorUtil().isEnemyBroken(target.getTargetId(), ownerID, owner.getBehaviorSettings().isForcedWithdrawal())) {</b>
+<b class="nc">&nbsp;                owner.getLogger().info(target.getDisplayName() + &quot; is broken - ignoring&quot;);</b>
+<b class="nc">&nbsp;                continue;</b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            WeaponFireInfo shot = buildWeaponFireInfo(weapon.getEntity(), target, weapon, owner.getGame(), false);</b>
+&nbsp;            // this is a better shot if it has a chance of doing damage and the damage is better than the previous best shot
+<b class="nc">&nbsp;            if((shot.getExpectedDamage() &gt; 0) &amp;&amp;</b>
+<b class="nc">&nbsp;                    ((bestShot == null) || (shot.getExpectedDamage() &gt; bestShot.getExpectedDamage()))) {</b>
+<b class="nc">&nbsp;                bestShot = shot;</b>
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+&nbsp;        
+<b class="nc">&nbsp;        return bestShot;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * calculates the &#39;utility&#39; of a firing plan. This particular function
+&nbsp;     * ignores any characteristics of the firing plan that depend on having a single target.
+&nbsp;     *
+&nbsp;     * @param firingPlan
+&nbsp;     *            The {@link FiringPlan} to be calculated.
+&nbsp;     * @param overheatTolerance
+&nbsp;     *            How much overheat we&#39;re willing to forgive.
+&nbsp;     * @param shooterIsAero
+&nbsp;     *            Set TRUE if the shooter is an Aero unit. Overheating Aeros
+&nbsp;     *            take stiffer penalties.
+&nbsp;     */
+&nbsp;    @Override
+&nbsp;    void calculateUtility(final FiringPlan firingPlan,
+&nbsp;                          final int overheatTolerance,
+&nbsp;                          final boolean shooterIsAero) {
+<b class="nc">&nbsp;        int overheat = 0;</b>
+<b class="nc">&nbsp;        if (firingPlan.getHeat() &gt; overheatTolerance) {</b>
+<b class="nc">&nbsp;            overheat = firingPlan.getHeat() - overheatTolerance;</b>
+&nbsp;        }
+&nbsp;
+<b class="nc">&nbsp;        double modifier = 1;</b>
+&nbsp;        // eliminated calls to calcCommandUtility, calcStrategicBuildingTargetUtility, calcPriorityUnitTargetUtility
+&nbsp;        
+<b class="nc">&nbsp;        double expectedDamage = firingPlan.getExpectedDamage();</b>
+<b class="nc">&nbsp;        double utility = 0;</b>
+<b class="nc">&nbsp;        utility += DAMAGE_UTILITY * expectedDamage;</b>
+<b class="nc">&nbsp;        utility += CRITICAL_UTILITY * firingPlan.getExpectedCriticals();</b>
+<b class="nc">&nbsp;        utility += KILL_UTILITY * firingPlan.getKillProbability();</b>
+&nbsp;        // eliminated calcTargetPotentialDamageMultiplier, calcDamageAllocationUtility, calcCivilianTargetDisutility
+&nbsp;        // Multiply the combined damage/crit/kill utility for a target by a log-scaled factor based on the target&#39;s damage potential.
+<b class="nc">&nbsp;        utility *= modifier;</b>
+<b class="nc">&nbsp;        utility -= (shooterIsAero ? OVERHEAT_DISUTILITY_AERO : OVERHEAT_DISUTILITY) * overheat;</b>
+&nbsp;        // eliminated ejected pilot disutility, as it&#39;s superflous - we will ignore ejected mechwarriors altogether.
+<b class="nc">&nbsp;        firingPlan.setUtility(utility);</b>
+&nbsp;    }
+&nbsp;
+&nbsp;    FiringPlan calculateFiringPlan(Entity shooter, List&lt;Mounted&gt; weaponList) {
+<b class="nc">&nbsp;        FiringPlan retVal = new FiringPlan();</b>
+&nbsp;        
+<b class="nc">&nbsp;        List&lt;WeaponFireInfo&gt; shotList = new ArrayList&lt;&gt;();</b>
+<b class="nc">&nbsp;        for(Mounted weapon : weaponList) {</b>
+<b class="nc">&nbsp;            WeaponFireInfo shot = getBestShot(weapon);</b>
+<b class="nc">&nbsp;            if(shot != null) {</b>
+<b class="nc">&nbsp;                shotList.add(shot);</b>
+&nbsp;            }
+<b class="nc">&nbsp;        }</b>
+&nbsp;        
+<b class="nc">&nbsp;        boolean shooterIsLarge =</b>
+<b class="nc">&nbsp;                shooter.hasETypeFlag(Entity.ETYPE_DROPSHIP) ||</b>
+<b class="nc">&nbsp;                shooter.hasETypeFlag(Entity.ETYPE_JUMPSHIP) ||</b>
+<b class="nc">&nbsp;                shooter.hasETypeFlag(Entity.ETYPE_SMALL_CRAFT);</b>
+&nbsp;        
+&nbsp;        // the logic is significantly different when heat is generated by firing arc, rather than by individual weapon/bay
+<b class="nc">&nbsp;        if(!owner.getGame().getOptions().booleanOption(OptionsConstants.ADVAERORULES_HEAT_BY_BAY) &amp;&amp; shooterIsLarge) {</b>
+<b class="nc">&nbsp;            retVal = calculatePerArcFiringPlan(shooter, shotList);</b>
+&nbsp;        } else {
+<b class="nc">&nbsp;            retVal = calculateIndividualWeaponFiringPlan(shooter, shotList, shooterIsLarge);</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        calculateUtility(retVal, calcHeatTolerance(shooter, shooter.isAero()), true);</b>
+<b class="nc">&nbsp;        return retVal;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Worker function that calculates a firing plan for a shooter under the &quot;heat per weapon arc&quot; rules
+&nbsp;     * (which are the default), given a list of optimal shots for each weapon.
+&nbsp;     * @param shooter The unit doing the shooting.
+&nbsp;     * @param shotList The list of optimal weapon shots.
+&nbsp;     * @return An optimal firing plan.
+&nbsp;     */
+&nbsp;    FiringPlan calculatePerArcFiringPlan(Entity shooter, List&lt;WeaponFireInfo&gt; shotList) {
+<b class="nc">&nbsp;        FiringPlan retVal = new FiringPlan();</b>
+&nbsp;        
+&nbsp;        // Arc # &lt; 0 indicates that same arc, but rear firing
+&nbsp;        // organize weapon fire infos: arc #, list of weapon fire info
+<b class="nc">&nbsp;        Map&lt;Integer, List&lt;WeaponFireInfo&gt;&gt; arcShots = new HashMap&lt;&gt;();</b>
+&nbsp;        // heat values by arc: arc #, arc heat. 
+<b class="nc">&nbsp;        Map&lt;Integer, Integer&gt; arcHeat = new HashMap&lt;&gt;();</b>
+&nbsp;        // damage values by arc: arc #, arc damage
+<b class="nc">&nbsp;        Map&lt;Integer, Double&gt; arcDamage = new HashMap&lt;&gt;();</b>
+&nbsp;        
+&nbsp;        // assemble the data we&#39;ll need to solve the backpack problem
+<b class="nc">&nbsp;        for(WeaponFireInfo shot : shotList) {</b>
+<b class="nc">&nbsp;            int arc = shooter.getWeaponArc(shooter.getEquipmentNum(shot.getWeapon()));</b>
+&nbsp;            // flip the # if it&#39;s a rear-mounted weapon
+<b class="nc">&nbsp;            if(shot.getWeapon().isRearMounted()) {</b>
+<b class="nc">&nbsp;                arc = -arc;</b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            if(!arcShots.containsKey(arc)) {</b>
+<b class="nc">&nbsp;                arcShots.put(arc, new ArrayList&lt;&gt;());</b>
+<b class="nc">&nbsp;                arcHeat.put(arc, shooter.getHeatInArc(shot.getWeapon().getLocation(), shot.getWeapon().isRearMounted()));</b>
+<b class="nc">&nbsp;                arcDamage.put(arc, 0.0);</b>
+&nbsp;            }
+&nbsp;            
+<b class="nc">&nbsp;            arcShots.get(arc).add(shot);</b>
+<b class="nc">&nbsp;            arcDamage.put(arc, arcDamage.get(arc) + shot.getExpectedDamage());</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;        
+&nbsp;        // initialize the backpack
+<b class="nc">&nbsp;        Map&lt;Integer, Map&lt;Integer, List&lt;Integer&gt;&gt;&gt; arcBackpack = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        for(int x = 0; x &lt; arcShots.keySet().size(); x++) {</b>
+<b class="nc">&nbsp;            arcBackpack.put(x, new HashMap&lt;&gt;());</b>
+&nbsp;            
+<b class="nc">&nbsp;            for(int y = 0; y &lt; shooter.getHeatCapacity(); y++) {</b>
+<b class="nc">&nbsp;                arcBackpack.get(x).put(y, new ArrayList&lt;&gt;());</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        double[][] damageBackpack = new double[arcShots.keySet().size()][shooter.getHeatCapacity()];</b>
+<b class="nc">&nbsp;        Integer[] arcHeatKeyArray = new Integer[arcHeat.keySet().size()];</b>
+<b class="nc">&nbsp;        System.arraycopy(arcHeat.keySet().toArray(), 0, arcHeatKeyArray, 0, arcHeat.keySet().size());       </b>
+&nbsp;        
+&nbsp;        // now, we essentially solve the backpack problem, where the arcs are the items:
+&nbsp;        // arc expected damage is the &quot;value&quot;, and arc heat is the &quot;weight&quot;, while the backpack capacity is the unit&#39;s heat capacity.
+&nbsp;        // while we&#39;re at it, we assemble the list of arcs fired for each cell
+<b class="nc">&nbsp;        for(int arcIndex = 0; arcIndex &lt; arcHeatKeyArray.length; arcIndex++) {</b>
+<b class="nc">&nbsp;            for(int heatIndex = 0; heatIndex &lt; shooter.getHeatCapacity(); heatIndex++) {</b>
+<b class="nc">&nbsp;                int previousArc = arcIndex &gt; 0 ? arcHeatKeyArray[arcIndex - 1] : 0;</b>
+&nbsp;                
+<b class="nc">&nbsp;                if(arcIndex == 0 || heatIndex == 0) {</b>
+<b class="nc">&nbsp;                    damageBackpack[arcIndex][heatIndex] = 0;</b>
+<b class="nc">&nbsp;                } else if(arcHeat.get(previousArc) &lt;= heatIndex) {</b>
+<b class="nc">&nbsp;                    int previousHeatIndex = heatIndex - arcHeat.get(previousArc);</b>
+<b class="nc">&nbsp;                    double currentArcDamage = arcDamage.get(previousArc) + damageBackpack[arcIndex - 1][previousHeatIndex];</b>
+<b class="nc">&nbsp;                    double accumulatedPreviousArcDamage = damageBackpack[arcIndex - 1][heatIndex];</b>
+&nbsp;                    
+<b class="nc">&nbsp;                    if(currentArcDamage &gt; accumulatedPreviousArcDamage) {</b>
+&nbsp;                        // we can add this arc to the list and it&#39;ll improve the damage done
+&nbsp;                        // so let&#39;s do it
+<b class="nc">&nbsp;                        damageBackpack[arcIndex][heatIndex] = currentArcDamage;</b>
+&nbsp;                        // make sure we don&#39;t accidentally update the cell we&#39;re examining
+<b class="nc">&nbsp;                        List&lt;Integer&gt; appendedArcList = new ArrayList&lt;&gt;(arcBackpack.get(arcIndex - 1).get(previousHeatIndex));</b>
+<b class="nc">&nbsp;                        appendedArcList.add(previousArc);</b>
+<b class="nc">&nbsp;                        arcBackpack.get(arcIndex).put(heatIndex, appendedArcList);</b>
+<b class="nc">&nbsp;                    } else {</b>
+&nbsp;                        // we *can* add this arc to the list, but it won&#39;t take us past the damage
+&nbsp;                        // provided by the previous arc, so carry value from left to right
+<b class="nc">&nbsp;                        damageBackpack[arcIndex][heatIndex] = accumulatedPreviousArcDamage;</b>
+<b class="nc">&nbsp;                        arcBackpack.get(arcIndex).put(heatIndex, arcBackpack.get(arcIndex - 1).get(heatIndex));</b>
+&nbsp;                    }
+&nbsp;                    
+<b class="nc">&nbsp;                } else {</b>
+&nbsp;                    // in this case, we&#39;re simply carrying the value from the left to the right
+<b class="nc">&nbsp;                    damageBackpack[arcIndex][heatIndex] = damageBackpack[arcIndex - 1][heatIndex];</b>
+<b class="nc">&nbsp;                    arcBackpack.get(arcIndex).put(heatIndex, arcBackpack.get(arcIndex - 1).get(heatIndex));</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+&nbsp;        // now, we look at the bottom right cell, which contains our optimal firing solution
+&nbsp;        // unless there is no firing solution at all, in which case we skip this part
+<b class="nc">&nbsp;        if(arcBackpack.size() &gt; 0) {</b>
+<b class="nc">&nbsp;            for(int arc : arcBackpack.get(arcBackpack.size() - 1).get(shooter.getHeatCapacity() - 1)) {</b>
+<b class="nc">&nbsp;                retVal.addAll(arcShots.get(arc));</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        return retVal;</b>
+&nbsp;    }
+&nbsp;    
+&nbsp;    /**
+&nbsp;     * Worker function that calculates a firing plan for a shooter under the &quot;individual weapon heat&quot; rules,
+&nbsp;     * given a list of optimal shots for each weapon.
+&nbsp;     * @param shooter The unit doing the shooting.
+&nbsp;     * @param shotList The list of optimal weapon shots.
+&nbsp;     * @return An optimal firing plan.
+&nbsp;     */
+&nbsp;    FiringPlan calculateIndividualWeaponFiringPlan(Entity shooter, List&lt;WeaponFireInfo&gt; shotList, boolean shooterIsLarge) {
+<b class="nc">&nbsp;        FiringPlan retVal = new FiringPlan();</b>
+&nbsp;
+&nbsp;        // the &#39;heat capacity&#39; is affected negatively by having existing heat and by being an aerospace fighter
+&nbsp;        // it is affected positively by being a mech (you can overheat a little)
+&nbsp;        // and by having the combat computer quirk
+<b class="nc">&nbsp;        int heatCapacityModifier = -shooter.getHeat();</b>
+<b class="nc">&nbsp;        heatCapacityModifier += shooter.isAero() ? 0 : 4;</b>
+<b class="nc">&nbsp;        heatCapacityModifier += shooter.hasQuirk(OptionsConstants.QUIRK_POS_COMBAT_COMPUTER) ? 4 : 0;</b>
+&nbsp;        
+&nbsp;        // if firing every gun won&#39;t bring heat above the shooter&#39;s heat capacity (this includes non-heat-tracking units)
+&nbsp;        // then we just return every shot to save ourselves a backpack problem
+<b class="nc">&nbsp;        int alphaStrikeHeat = 0;</b>
+<b class="nc">&nbsp;        for(WeaponFireInfo shot : shotList) {</b>
+<b class="nc">&nbsp;            alphaStrikeHeat += shot.getHeat();</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;        
+<b class="nc">&nbsp;        if(alphaStrikeHeat &lt; shooter.getHeatCapacity() - shooter.getHeat() + heatCapacityModifier) {</b>
+<b class="nc">&nbsp;            for(WeaponFireInfo shot : shotList) {</b>
+<b class="nc">&nbsp;                retVal.add(shot);</b>
+<b class="nc">&nbsp;            }</b>
+&nbsp;            
+<b class="nc">&nbsp;            return retVal;</b>
+&nbsp;        }
+&nbsp;        
+&nbsp;        // if we are a &quot;large&quot; craft that can&#39;t overheat, we simply cannot fire more weapons than heat capacity
+&nbsp;        // if we are an aerospace fighter or ground-based unit that tracks heat, we totally can overheat and the &quot;heat capacity&quot;
+<b class="nc">&nbsp;        int actualHeatCapacity = shooter.getHeatCapacity();</b>
+&nbsp;        
+<b class="nc">&nbsp;        if(!shooterIsLarge) {</b>
+<b class="nc">&nbsp;            actualHeatCapacity += heatCapacityModifier;</b>
+&nbsp;        }
+&nbsp;        
+&nbsp;        // initialize the backpack
+<b class="nc">&nbsp;        Map&lt;Integer, Map&lt;Integer, List&lt;Integer&gt;&gt;&gt; shotBackpack = new HashMap&lt;&gt;();</b>
+<b class="nc">&nbsp;        for(int x = 0; x &lt;= shotList.size(); x++) {</b>
+<b class="nc">&nbsp;            shotBackpack.put(x, new HashMap&lt;&gt;());</b>
+&nbsp;            
+<b class="nc">&nbsp;            for(int y = 0; y &lt; actualHeatCapacity; y++) {</b>
+<b class="nc">&nbsp;                shotBackpack.get(x).put(y, new ArrayList&lt;&gt;());</b>
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+<b class="nc">&nbsp;        double[][] damageBackpack = new double[shotList.size() + 1][actualHeatCapacity];     </b>
+&nbsp;        
+&nbsp;        // like the above method, we solve the backpack problem here:
+&nbsp;        // WeaponFireInfo are the items
+&nbsp;        // expected damage is the &quot;value&quot;, heat is the &quot;weight&quot;, backpack capacity is the unit&#39;s heat capacity
+&nbsp;        // while we&#39;re at it, we assemble the list of shots fired for each cell
+<b class="nc">&nbsp;        for(int shotIndex = 0; shotIndex &lt;= shotList.size(); shotIndex++) {</b>
+<b class="nc">&nbsp;            for(int heatIndex = 0; heatIndex &lt; actualHeatCapacity; heatIndex++) {</b>
+<b class="nc">&nbsp;                if(shotIndex == 0 || heatIndex == 0) {</b>
+<b class="nc">&nbsp;                    damageBackpack[shotIndex][heatIndex] = 0;</b>
+<b class="nc">&nbsp;                } else if(shotList.get(shotIndex - 1).getHeat() &lt;= heatIndex) {</b>
+<b class="nc">&nbsp;                    int previousHeatIndex = heatIndex - shotList.get(shotIndex - 1).getHeat();</b>
+<b class="nc">&nbsp;                    double currentShotDamage = shotList.get(shotIndex - 1).getExpectedDamage() + </b>
+&nbsp;                            damageBackpack[shotIndex - 1][previousHeatIndex];
+<b class="nc">&nbsp;                    double accumulatedPreviousShotDamage = damageBackpack[shotIndex - 1][heatIndex];</b>
+&nbsp;                    
+<b class="nc">&nbsp;                    if(currentShotDamage &gt; accumulatedPreviousShotDamage) {</b>
+&nbsp;                        // we can add this shot to the list and it&#39;ll improve the damage done
+&nbsp;                        // so let&#39;s do it
+<b class="nc">&nbsp;                        damageBackpack[shotIndex][heatIndex] = currentShotDamage;</b>
+&nbsp;                        // make sure we don&#39;t accidentally update the cell we&#39;re examining
+<b class="nc">&nbsp;                        List&lt;Integer&gt; appendedShotList = new ArrayList&lt;&gt;(shotBackpack.get(shotIndex - 1).get(previousHeatIndex));</b>
+<b class="nc">&nbsp;                        appendedShotList.add(shotIndex - 1);</b>
+<b class="nc">&nbsp;                        shotBackpack.get(shotIndex).put(heatIndex, appendedShotList);</b>
+<b class="nc">&nbsp;                    } else {</b>
+&nbsp;                        // we *can* add this arc to the list, but it won&#39;t take us past the damage
+&nbsp;                        // provided by the previous arc, so carry value from left to right
+<b class="nc">&nbsp;                        damageBackpack[shotIndex][heatIndex] = accumulatedPreviousShotDamage;</b>
+<b class="nc">&nbsp;                        shotBackpack.get(shotIndex).put(heatIndex, shotBackpack.get(shotIndex - 1).get(heatIndex));</b>
+&nbsp;                    }
+&nbsp;                    
+<b class="nc">&nbsp;                } else {</b>
+&nbsp;                    // in this case, we&#39;re simply carrying the value from the left to the right
+<b class="nc">&nbsp;                    damageBackpack[shotIndex][heatIndex] = damageBackpack[shotIndex - 1][heatIndex];</b>
+<b class="nc">&nbsp;                    shotBackpack.get(shotIndex).put(heatIndex, shotBackpack.get(shotIndex - 1).get(heatIndex));</b>
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;        
+&nbsp;        // now, we look at the bottom right cell, which contains our optimal firing solution
+<b class="nc">&nbsp;        for(int shotIndex : shotBackpack.get(shotBackpack.size() - 1).get(actualHeatCapacity - 1)) {</b>
+<b class="nc">&nbsp;            retVal.add(shotList.get(shotIndex));</b>
+<b class="nc">&nbsp;        }</b>
+&nbsp;        
+<b class="nc">&nbsp;        return retVal;</b>
+&nbsp;    }
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>

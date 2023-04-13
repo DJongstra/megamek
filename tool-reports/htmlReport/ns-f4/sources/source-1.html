@@ -1,0 +1,555 @@
+
+
+
+<!DOCTYPE html>
+<html id="htmlId">
+<head>
+  <title>Coverage Report > MethodRebaseResolver</title>
+  <style type="text/css">
+    @import "../../css/coverage.css";
+    @import "../../css/idea.min.css";
+  </style>
+  <script type="text/javascript" src="../../js/highlight.min.js"></script>
+  <script type="text/javascript" src="../../js/highlightjs-line-numbers.min.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div class="breadCrumbs">
+Current scope:     <a href="../../index.html">all classes</a>
+    <span class="separator">|</span>
+    <a href="../index.html">net.bytebuddy.dynamic.scaffold.inline</a>
+</div>
+
+<h1>Coverage Summary for Class: MethodRebaseResolver (net.bytebuddy.dynamic.scaffold.inline)</h1>
+
+<table class="coverageStats">
+<tr>
+  <th class="name">Class</th>
+</tr>
+<tr>
+  <td class="name">MethodRebaseResolver</td>
+</tr>
+
+</table>
+
+<br/>
+<br/>
+
+
+<pre>
+<code class="sourceCode" id="sourceCode">&nbsp;package net.bytebuddy.dynamic.scaffold.inline;
+&nbsp;
+&nbsp;import net.bytebuddy.ClassFileVersion;
+&nbsp;import net.bytebuddy.build.HashCodeAndEqualsPlugin;
+&nbsp;import net.bytebuddy.description.annotation.AnnotationList;
+&nbsp;import net.bytebuddy.description.annotation.AnnotationValue;
+&nbsp;import net.bytebuddy.description.method.MethodDescription;
+&nbsp;import net.bytebuddy.description.method.ParameterDescription;
+&nbsp;import net.bytebuddy.description.method.ParameterList;
+&nbsp;import net.bytebuddy.description.type.TypeDescription;
+&nbsp;import net.bytebuddy.description.type.TypeList;
+&nbsp;import net.bytebuddy.dynamic.DynamicType;
+&nbsp;import net.bytebuddy.implementation.MethodAccessorFactory;
+&nbsp;import net.bytebuddy.implementation.auxiliary.AuxiliaryType;
+&nbsp;import net.bytebuddy.implementation.auxiliary.TrivialType;
+&nbsp;import net.bytebuddy.implementation.bytecode.StackManipulation;
+&nbsp;import net.bytebuddy.implementation.bytecode.constant.NullConstant;
+&nbsp;import net.bytebuddy.utility.CompoundList;
+&nbsp;import net.bytebuddy.jar.asm.Opcodes;
+&nbsp;
+&nbsp;import java.util.*;
+&nbsp;
+&nbsp;import static net.bytebuddy.matcher.ElementMatchers.is;
+&nbsp;
+&nbsp;/**
+&nbsp; * A method rebase resolver is responsible for mapping methods of an instrumented type to an alternative signature.
+&nbsp; * This way a method can exist in two versions within a class:
+&nbsp; * &lt;ol&gt;
+&nbsp; * &lt;li&gt;The rebased method which represents the original implementation as it is present in a class file.&lt;/li&gt;
+&nbsp; * &lt;li&gt;An overridden method which implements user code which is still able to invoke the original, rebased method.&lt;/li&gt;
+&nbsp; * &lt;/ol&gt;
+&nbsp; */
+&nbsp;public interface MethodRebaseResolver {
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Checks if a method is eligible for rebasing and resolves this possibly rebased method.
+&nbsp;     *
+&nbsp;     * @param methodDescription A description of the method to resolve.
+&nbsp;     * @return A resolution for the given method.
+&nbsp;     */
+&nbsp;    Resolution resolve(MethodDescription.InDefinedShape methodDescription);
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Returns a (potentially empty) list of auxiliary types that are required by this method rebase resolver.
+&nbsp;     *
+&nbsp;     * @return A list of auxiliary types that are required by this method rebase resolver.
+&nbsp;     */
+&nbsp;    List&lt;DynamicType&gt; getAuxiliaryTypes();
+&nbsp;
+&nbsp;    /**
+&nbsp;     * Returns a map of all rebasable methods&#39; signature tokens to their resolution.
+&nbsp;     *
+&nbsp;     * @return A map of all rebasable methods&#39; signature tokens to their resolution.
+&nbsp;     */
+&nbsp;    Map&lt;MethodDescription.SignatureToken, Resolution&gt; asTokenMap();
+&nbsp;
+&nbsp;    /**
+&nbsp;     * A method rebase resolver that preserves any method in its original form.
+&nbsp;     */
+&nbsp;    enum Disabled implements MethodRebaseResolver {
+&nbsp;
+&nbsp;        /**
+&nbsp;         * The singleton instance.
+&nbsp;         */
+&nbsp;        INSTANCE;
+&nbsp;
+&nbsp;        @Override
+&nbsp;        public Resolution resolve(MethodDescription.InDefinedShape methodDescription) {
+&nbsp;            return new Resolution.Preserved(methodDescription);
+&nbsp;        }
+&nbsp;
+&nbsp;        @Override
+&nbsp;        public List&lt;DynamicType&gt; getAuxiliaryTypes() {
+&nbsp;            return Collections.emptyList();
+&nbsp;        }
+&nbsp;
+&nbsp;        @Override
+&nbsp;        public Map&lt;MethodDescription.SignatureToken, Resolution&gt; asTokenMap() {
+&nbsp;            return Collections.emptyMap();
+&nbsp;        }
+&nbsp;
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * A resolution for a method that was checked by a {@link MethodRebaseResolver}.
+&nbsp;     */
+&nbsp;    interface Resolution {
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Checks if this resolution represents a rebased method.
+&nbsp;         *
+&nbsp;         * @return {@code true} if this resolution requires to rebase a method.
+&nbsp;         */
+&nbsp;        boolean isRebased();
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Returns the resolved method if this resolution represents a rebased method or the original method.
+&nbsp;         *
+&nbsp;         * @return The resolved method if this resolution represents a rebased method or the original method.
+&nbsp;         */
+&nbsp;        MethodDescription.InDefinedShape getResolvedMethod();
+&nbsp;
+&nbsp;        /**
+&nbsp;         * A rebased method might require additional arguments in order to create a distinct signature. The
+&nbsp;         * stack manipulation that is returned from this method loads these arguments onto the operand stack. For
+&nbsp;         * a non-rebased method, this method throws an {@link java.lang.IllegalArgumentException}.
+&nbsp;         *
+&nbsp;         * @return A stack manipulation that loaded the additional arguments onto the stack, if any.
+&nbsp;         */
+&nbsp;        StackManipulation getAdditionalArguments();
+&nbsp;
+&nbsp;        /**
+&nbsp;         * A {@link MethodRebaseResolver.Resolution} of a non-rebased method.
+&nbsp;         */
+&nbsp;        @HashCodeAndEqualsPlugin.Enhance
+&nbsp;        class Preserved implements Resolution {
+&nbsp;
+&nbsp;            /**
+&nbsp;             * The preserved method.
+&nbsp;             */
+&nbsp;            private final MethodDescription.InDefinedShape methodDescription;
+&nbsp;
+&nbsp;            /**
+&nbsp;             * Creates a new {@link MethodRebaseResolver.Resolution} for
+&nbsp;             * a non-rebased method.
+&nbsp;             *
+&nbsp;             * @param methodDescription The preserved method.
+&nbsp;             */
+&nbsp;            public Preserved(MethodDescription.InDefinedShape methodDescription) {
+&nbsp;                this.methodDescription = methodDescription;
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public boolean isRebased() {
+&nbsp;                return false;
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public MethodDescription.InDefinedShape getResolvedMethod() {
+&nbsp;                return methodDescription;
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public StackManipulation getAdditionalArguments() {
+&nbsp;                throw new IllegalStateException(&quot;Cannot process additional arguments for non-rebased method: &quot; + methodDescription);
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * A {@link MethodRebaseResolver.Resolution} of a rebased method.
+&nbsp;         */
+&nbsp;        @HashCodeAndEqualsPlugin.Enhance
+&nbsp;        class ForRebasedMethod implements Resolution {
+&nbsp;
+&nbsp;            /**
+&nbsp;             * The rebased method.
+&nbsp;             */
+&nbsp;            private final MethodDescription.InDefinedShape methodDescription;
+&nbsp;
+&nbsp;            /**
+&nbsp;             * Creates a resolution for a rebased method.
+&nbsp;             *
+&nbsp;             * @param methodDescription The rebased method.
+&nbsp;             */
+&nbsp;            protected ForRebasedMethod(MethodDescription.InDefinedShape methodDescription) {
+&nbsp;                this.methodDescription = methodDescription;
+&nbsp;            }
+&nbsp;
+&nbsp;            /**
+&nbsp;             * Resolves a rebasement for the provided method.
+&nbsp;             *
+&nbsp;             * @param instrumentedType      The instrumented type.
+&nbsp;             * @param methodDescription     The method to be rebased.
+&nbsp;             * @param methodNameTransformer The transformer to use for renaming the method.
+&nbsp;             * @return A resolution for rebasing the provided method.
+&nbsp;             */
+&nbsp;            public static Resolution of(TypeDescription instrumentedType,
+&nbsp;                                        MethodDescription.InDefinedShape methodDescription,
+&nbsp;                                        MethodNameTransformer methodNameTransformer) {
+&nbsp;                return new ForRebasedMethod(new RebasedMethod(instrumentedType, methodDescription, methodNameTransformer));
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public boolean isRebased() {
+&nbsp;                return true;
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public MethodDescription.InDefinedShape getResolvedMethod() {
+&nbsp;                return methodDescription;
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public StackManipulation getAdditionalArguments() {
+&nbsp;                return StackManipulation.Trivial.INSTANCE;
+&nbsp;            }
+&nbsp;
+&nbsp;            /**
+&nbsp;             * A description of a rebased method.
+&nbsp;             */
+&nbsp;            protected static class RebasedMethod extends MethodDescription.InDefinedShape.AbstractBase {
+&nbsp;
+&nbsp;                /**
+&nbsp;                 * The instrumented type.
+&nbsp;                 */
+&nbsp;                private final TypeDescription instrumentedType;
+&nbsp;
+&nbsp;                /**
+&nbsp;                 * The method that is being rebased.
+&nbsp;                 */
+&nbsp;                private final InDefinedShape methodDescription;
+&nbsp;
+&nbsp;                /**
+&nbsp;                 * The transformer to use for renaming the method.
+&nbsp;                 */
+&nbsp;                private final MethodNameTransformer methodNameTransformer;
+&nbsp;
+&nbsp;                /**
+&nbsp;                 * Creates a new rebased method.
+&nbsp;                 *
+&nbsp;                 * @param instrumentedType      The instrumented type.
+&nbsp;                 * @param methodDescription     The method that is being rebased.
+&nbsp;                 * @param methodNameTransformer The transformer to use for renaming the method.
+&nbsp;                 */
+&nbsp;                protected RebasedMethod(TypeDescription instrumentedType, InDefinedShape methodDescription, MethodNameTransformer methodNameTransformer) {
+&nbsp;                    this.instrumentedType = instrumentedType;
+&nbsp;                    this.methodDescription = methodDescription;
+&nbsp;                    this.methodNameTransformer = methodNameTransformer;
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public TypeDescription.Generic getReturnType() {
+&nbsp;                    return methodDescription.getReturnType().asRawType();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public ParameterList&lt;ParameterDescription.InDefinedShape&gt; getParameters() {
+&nbsp;                    return new ParameterList.Explicit.ForTypes(this, methodDescription.getParameters().asTypeList().asRawTypes());
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public TypeList.Generic getExceptionTypes() {
+&nbsp;                    return methodDescription.getExceptionTypes().asRawTypes();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public AnnotationValue&lt;?, ?&gt; getDefaultValue() {
+&nbsp;                    return AnnotationValue.UNDEFINED;
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public TypeList.Generic getTypeVariables() {
+&nbsp;                    return new TypeList.Generic.Empty();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public AnnotationList getDeclaredAnnotations() {
+&nbsp;                    return new AnnotationList.Empty();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public TypeDescription getDeclaringType() {
+&nbsp;                    return methodDescription.getDeclaringType();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public int getModifiers() {
+&nbsp;                    return Opcodes.ACC_SYNTHETIC
+&nbsp;                            | (methodDescription.isStatic() ? Opcodes.ACC_STATIC : EMPTY_MASK)
+&nbsp;                            | (methodDescription.isNative() ? Opcodes.ACC_NATIVE : EMPTY_MASK)
+&nbsp;                            | (instrumentedType.isInterface() ? Opcodes.ACC_PUBLIC : Opcodes.ACC_PRIVATE);
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public String getInternalName() {
+&nbsp;                    return methodNameTransformer.transform(methodDescription);
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * A {@link MethodRebaseResolver.Resolution} of a rebased constructor.
+&nbsp;         */
+&nbsp;        @HashCodeAndEqualsPlugin.Enhance
+&nbsp;        class ForRebasedConstructor implements Resolution {
+&nbsp;
+&nbsp;            /**
+&nbsp;             * The rebased constructor.
+&nbsp;             */
+&nbsp;            private final MethodDescription.InDefinedShape methodDescription;
+&nbsp;
+&nbsp;            /**
+&nbsp;             * Creates a new resolution for a rebased constructor.
+&nbsp;             *
+&nbsp;             * @param methodDescription The rebased constructor.
+&nbsp;             */
+&nbsp;            protected ForRebasedConstructor(MethodDescription.InDefinedShape methodDescription) {
+&nbsp;                this.methodDescription = methodDescription;
+&nbsp;            }
+&nbsp;
+&nbsp;            /**
+&nbsp;             * Resolves a constructor rebasement.
+&nbsp;             *
+&nbsp;             * @param methodDescription The constructor to rebase.
+&nbsp;             * @param placeholderType   The placeholder type to use to distinguish the constructor&#39;s signature.
+&nbsp;             * @return A resolution of the provided constructor.
+&nbsp;             */
+&nbsp;            public static Resolution of(MethodDescription.InDefinedShape methodDescription, TypeDescription placeholderType) {
+&nbsp;                return new ForRebasedConstructor(new RebasedConstructor(methodDescription, placeholderType));
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public boolean isRebased() {
+&nbsp;                return true;
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public MethodDescription.InDefinedShape getResolvedMethod() {
+&nbsp;                return methodDescription;
+&nbsp;            }
+&nbsp;
+&nbsp;            @Override
+&nbsp;            public StackManipulation getAdditionalArguments() {
+&nbsp;                return NullConstant.INSTANCE;
+&nbsp;            }
+&nbsp;
+&nbsp;            /**
+&nbsp;             * An description of a rebased constructor.
+&nbsp;             */
+&nbsp;            protected static class RebasedConstructor extends MethodDescription.InDefinedShape.AbstractBase {
+&nbsp;
+&nbsp;                /**
+&nbsp;                 * The constructor that is rebased.
+&nbsp;                 */
+&nbsp;                private final InDefinedShape methodDescription;
+&nbsp;
+&nbsp;                /**
+&nbsp;                 * The placeholder type that is used to distinguish the constructor&#39;s signature.
+&nbsp;                 */
+&nbsp;                private final TypeDescription placeholderType;
+&nbsp;
+&nbsp;                /**
+&nbsp;                 * Creates a new rebased constructor.
+&nbsp;                 *
+&nbsp;                 * @param methodDescription The constructor that is rebased.
+&nbsp;                 * @param placeholderType   The placeholder type that is used to distinguish the constructor&#39;s signature.
+&nbsp;                 */
+&nbsp;                protected RebasedConstructor(InDefinedShape methodDescription, TypeDescription placeholderType) {
+&nbsp;                    this.methodDescription = methodDescription;
+&nbsp;                    this.placeholderType = placeholderType;
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public TypeDescription.Generic getReturnType() {
+&nbsp;                    return TypeDescription.Generic.VOID;
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public ParameterList&lt;ParameterDescription.InDefinedShape&gt; getParameters() {
+&nbsp;                    return new ParameterList.Explicit.ForTypes(this, CompoundList.of(methodDescription.getParameters().asTypeList().asErasures(), placeholderType));
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public TypeList.Generic getExceptionTypes() {
+&nbsp;                    return methodDescription.getExceptionTypes().asRawTypes();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public AnnotationValue&lt;?, ?&gt; getDefaultValue() {
+&nbsp;                    return AnnotationValue.UNDEFINED;
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public TypeList.Generic getTypeVariables() {
+&nbsp;                    return new TypeList.Generic.Empty();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public AnnotationList getDeclaredAnnotations() {
+&nbsp;                    return new AnnotationList.Empty();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public TypeDescription getDeclaringType() {
+&nbsp;                    return methodDescription.getDeclaringType();
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public int getModifiers() {
+&nbsp;                    return Opcodes.ACC_SYNTHETIC | Opcodes.ACC_PRIVATE;
+&nbsp;                }
+&nbsp;
+&nbsp;                @Override
+&nbsp;                public String getInternalName() {
+&nbsp;                    return MethodDescription.CONSTRUCTOR_INTERNAL_NAME;
+&nbsp;                }
+&nbsp;            }
+&nbsp;        }
+&nbsp;    }
+&nbsp;
+&nbsp;    /**
+&nbsp;     * A default implementation of a method rebase resolver.
+&nbsp;     */
+&nbsp;    @HashCodeAndEqualsPlugin.Enhance
+&nbsp;    class Default implements MethodRebaseResolver {
+&nbsp;
+&nbsp;        /**
+&nbsp;         * A mapping of rebased methods to their existing resolutions.
+&nbsp;         */
+&nbsp;        private final Map&lt;MethodDescription.InDefinedShape, Resolution&gt; resolutions;
+&nbsp;
+&nbsp;        /**
+&nbsp;         * A list of dynamic types that need to be appended to the created type in order to allow for the rebasement.
+&nbsp;         */
+&nbsp;        private final List&lt;DynamicType&gt; dynamicTypes;
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Creates a new default method rebased resolver.
+&nbsp;         *
+&nbsp;         * @param resolutions  A mapping of rebased methods to their existing resolutions.
+&nbsp;         * @param dynamicTypes A list of dynamic types that need to be appended to the created type in order to allow for the rebasement.
+&nbsp;         */
+&nbsp;        protected Default(Map&lt;MethodDescription.InDefinedShape, Resolution&gt; resolutions, List&lt;DynamicType&gt; dynamicTypes) {
+&nbsp;            this.resolutions = resolutions;
+&nbsp;            this.dynamicTypes = dynamicTypes;
+&nbsp;        }
+&nbsp;
+&nbsp;        /**
+&nbsp;         * Creates a new method rebase resolver.
+&nbsp;         *
+&nbsp;         * @param instrumentedType            The instrumented type.
+&nbsp;         * @param rebaseableMethodTokens      Tokens describing all methods that can possibly be rebased.
+&nbsp;         * @param classFileVersion            The class file version for the instrumentation.
+&nbsp;         * @param auxiliaryTypeNamingStrategy The naming strategy for naming a potential auxiliary type.
+&nbsp;         * @param methodNameTransformer       A transformer for method names.
+&nbsp;         * @return A method rebase resolver that is capable of rebasing any of the provided methods.
+&nbsp;         */
+&nbsp;        public static MethodRebaseResolver make(TypeDescription instrumentedType,
+&nbsp;                                                Set&lt;? extends MethodDescription.Token&gt; rebaseableMethodTokens,
+&nbsp;                                                ClassFileVersion classFileVersion,
+&nbsp;                                                AuxiliaryType.NamingStrategy auxiliaryTypeNamingStrategy,
+&nbsp;                                                MethodNameTransformer methodNameTransformer) {
+&nbsp;            DynamicType placeholderType = null;
+&nbsp;            Map&lt;MethodDescription.InDefinedShape, Resolution&gt; resolutions = new HashMap&lt;MethodDescription.InDefinedShape, Resolution&gt;();
+&nbsp;            for (MethodDescription.InDefinedShape instrumentedMethod : instrumentedType.getDeclaredMethods()) {
+&nbsp;                if (rebaseableMethodTokens.contains(instrumentedMethod.asToken(is(instrumentedType)))) {
+&nbsp;                    Resolution resolution;
+&nbsp;                    if (instrumentedMethod.isConstructor()) {
+&nbsp;                        if (placeholderType == null) {
+&nbsp;                            placeholderType = TrivialType.SIGNATURE_RELEVANT.make(auxiliaryTypeNamingStrategy.name(instrumentedType),
+&nbsp;                                    classFileVersion,
+&nbsp;                                    MethodAccessorFactory.Illegal.INSTANCE);
+&nbsp;                        }
+&nbsp;                        resolution = Resolution.ForRebasedConstructor.of(instrumentedMethod, placeholderType.getTypeDescription());
+&nbsp;                    } else {
+&nbsp;                        resolution = Resolution.ForRebasedMethod.of(instrumentedType, instrumentedMethod, methodNameTransformer);
+&nbsp;                    }
+&nbsp;                    resolutions.put(instrumentedMethod, resolution);
+&nbsp;                }
+&nbsp;            }
+&nbsp;            return placeholderType == null
+&nbsp;                    ? new Default(resolutions, Collections.&lt;DynamicType&gt;emptyList())
+&nbsp;                    : new Default(resolutions, Collections.singletonList(placeholderType));
+&nbsp;        }
+&nbsp;
+&nbsp;        @Override
+&nbsp;        public Resolution resolve(MethodDescription.InDefinedShape methodDescription) {
+&nbsp;            Resolution resolution = resolutions.get(methodDescription);
+&nbsp;            return resolution == null
+&nbsp;                    ? new Resolution.Preserved(methodDescription)
+&nbsp;                    : resolution;
+&nbsp;        }
+&nbsp;
+&nbsp;        @Override
+&nbsp;        public List&lt;DynamicType&gt; getAuxiliaryTypes() {
+&nbsp;            return dynamicTypes;
+&nbsp;        }
+&nbsp;
+&nbsp;        @Override
+&nbsp;        public Map&lt;MethodDescription.SignatureToken, Resolution&gt; asTokenMap() {
+&nbsp;            Map&lt;MethodDescription.SignatureToken, Resolution&gt; tokenMap = new HashMap&lt;MethodDescription.SignatureToken, Resolution&gt;();
+&nbsp;            for (Map.Entry&lt;MethodDescription.InDefinedShape, Resolution&gt; entry : resolutions.entrySet()) {
+&nbsp;                tokenMap.put(entry.getKey().asSignatureToken(), entry.getValue());
+&nbsp;            }
+&nbsp;            return tokenMap;
+&nbsp;        }
+&nbsp;    }
+&nbsp;}
+</code>
+</pre>
+</div>
+
+<script type="text/javascript">
+(function() {
+    var msie = false, msie9 = false;
+    /*@cc_on
+      msie = true;
+      @if (@_jscript_version >= 9)
+        msie9 = true;
+      @end
+    @*/
+
+    if (!msie || msie && msie9) {
+      hljs.highlightAll()
+      hljs.initLineNumbersOnLoad();
+    }
+})();
+</script>
+
+<div class="footer">
+    
+    <div style="float:right;">generated on 2023-04-13 20:58</div>
+</div>
+</body>
+</html>
