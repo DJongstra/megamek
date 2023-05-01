@@ -104,10 +104,7 @@ public final class Player extends TurnOrdered implements IPlayer {
         visibleMinefields.removeAllElements();
     }
 
-    @Override
-    public void removeArtyAutoHitHexes() {
-        artyAutoHitHexes.removeAllElements();
-    }
+
 
     @Override
     public boolean containsMinefield(Minefield mf) {
@@ -367,6 +364,11 @@ public final class Player extends TurnOrdered implements IPlayer {
     @Override
     public boolean isAllowingTeamChange(){
         return allowingTeamChange;
+    }
+
+    @Override
+    public void removeArtyAutoHitHexes() {
+        artyAutoHitHexes.removeAllElements();
     }
 
     @Override
