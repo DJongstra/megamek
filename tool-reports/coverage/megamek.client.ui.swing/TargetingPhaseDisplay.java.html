@@ -1,0 +1,1693 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TargetingPhaseDisplay.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing</a> &gt; <span class="el_source">TargetingPhaseDisplay.java</span></div><h1>TargetingPhaseDisplay.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2004 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.client.ui.swing;
+
+import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
+import java.awt.event.KeyListener;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.Vector;
+
+import javax.swing.JOptionPane;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
+
+import megamek.client.Client;
+import megamek.client.event.BoardViewEvent;
+import megamek.client.ui.Messages;
+import megamek.client.ui.SharedUtility;
+import megamek.client.ui.swing.util.CommandAction;
+import megamek.client.ui.swing.util.KeyCommandBind;
+import megamek.client.ui.swing.util.MegaMekController;
+import megamek.client.ui.swing.widget.MegamekButton;
+import megamek.client.ui.swing.widget.SkinSpecification;
+import megamek.common.AmmoType;
+import megamek.common.Building;
+import megamek.common.BuildingTarget;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Dropship;
+import megamek.common.Entity;
+import megamek.common.GameTurn;
+import megamek.common.IPlayer;
+import megamek.common.event.GamePhaseChangeEvent;
+import megamek.common.event.GameTurnChangeEvent;
+import megamek.common.HexTarget;
+import megamek.common.IGame;
+import megamek.common.Mounted;
+import megamek.common.RangeType;
+import megamek.common.TargetRoll;
+import megamek.common.Targetable;
+import megamek.common.ToHitData;
+import megamek.common.WeaponType;
+import megamek.common.IGame.Phase;
+import megamek.common.actions.ArtilleryAttackAction;
+import megamek.common.actions.EntityAction;
+import megamek.common.actions.FlipArmsAction;
+import megamek.common.actions.SearchlightAttackAction;
+import megamek.common.actions.TorsoTwistAction;
+import megamek.common.actions.TriggerAPPodAction;
+import megamek.common.actions.TriggerBPodAction;
+import megamek.common.actions.WeaponAttackAction;
+import megamek.common.options.OptionsConstants;
+import megamek.common.util.FiringSolution;
+import megamek.common.weapons.Weapon;
+import megamek.common.weapons.artillery.ArtilleryWeapon;
+import megamek.common.weapons.bayweapons.TeleOperatedMissileBayWeapon;
+import megamek.common.weapons.capitalweapons.CapitalMissileWeapon;
+
+/*
+ * Targeting Phase Display. Breaks naming convention because TargetingDisplay is too easy to confuse
+ * with something else
+ */
+
+public class TargetingPhaseDisplay extends StatusBarPhaseDisplay implements
+        KeyListener, ItemListener, ListSelectionListener {
+    /**
+     *
+     */
+    private static final long serialVersionUID = 3441669419807288865L;
+
+    /**
+     * This enumeration lists all of the possible ActionCommands that can be
+     * carried out during the deploy minefield phase.  Each command has a string
+     * for the command plus a flag that determines what unit type it is
+     * appropriate for.
+     *
+     * @author arlith
+     */
+<span class="nc" id="L103">    public static enum TargetingCommand implements PhaseCommand {</span>
+<span class="nc" id="L104">        FIRE_NEXT(&quot;fireNext&quot;),</span>
+<span class="nc" id="L105">        FIRE_TWIST(&quot;fireTwist&quot;),</span>
+<span class="nc" id="L106">        FIRE_FIRE(&quot;fireFire&quot;),</span>
+<span class="nc" id="L107">        FIRE_SKIP(&quot;fireSkip&quot;),</span>
+<span class="nc" id="L108">        FIRE_NEXT_TARG(&quot;fireNextTarg&quot;),</span>
+<span class="nc" id="L109">        FIRE_MODE(&quot;fireMode&quot;),</span>
+<span class="nc" id="L110">        FIRE_FLIP_ARMS(&quot;fireFlipArms&quot;),</span>
+<span class="nc" id="L111">        FIRE_SEARCHLIGHT(&quot;fireSearchlight&quot;),</span>
+<span class="nc" id="L112">        FIRE_CANCEL(&quot;fireCancel&quot;);</span>
+
+        String cmd;
+
+        /**
+         * Priority that determines this buttons order
+         */
+        public int priority;
+
+<span class="nc" id="L121">        private TargetingCommand(String c) {</span>
+<span class="nc" id="L122">            cmd = c;</span>
+<span class="nc" id="L123">        }</span>
+
+        public String getCmd() {
+<span class="nc" id="L126">            return cmd;</span>
+        }
+
+        public int getPriority() {
+<span class="nc" id="L130">            return priority;</span>
+        }
+
+        public void setPriority(int p) {
+<span class="nc" id="L134">            priority = p;</span>
+<span class="nc" id="L135">        }</span>
+
+        public String toString() {
+<span class="nc" id="L138">            return Messages.getString(&quot;TargetingPhaseDisplay.&quot; + getCmd());</span>
+        }
+    }
+
+    // buttons
+    protected Map&lt;TargetingCommand, MegamekButton&gt; buttons;
+
+    // let's keep track of what we're shooting and at what, too
+<span class="nc" id="L146">    private int cen = Entity.NONE; // current entity number</span>
+
+    private Targetable target; // target
+
+    // shots we have so far.
+    private Vector&lt;EntityAction&gt; attacks;
+
+    // is the shift key held?
+    private boolean shiftheld;
+
+    private boolean twisting;
+
+    private final IGame.Phase phase;
+
+    private Entity[] visibleTargets;
+
+<span class="nc" id="L162">    private int lastTargetID = -1;</span>
+
+    /**
+     * Creates and lays out a new targeting phase display for the specified
+     * clientgui.getClient().
+     */
+    public TargetingPhaseDisplay(final ClientGUI clientgui, boolean offboard) {
+<span class="nc" id="L169">        super(clientgui);</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        phase = offboard ? IGame.Phase.PHASE_OFFBOARD</span>
+<span class="nc" id="L171">                : IGame.Phase.PHASE_TARGETING;</span>
+<span class="nc" id="L172">        shiftheld = false;</span>
+
+        // fire
+<span class="nc" id="L175">        attacks = new Vector&lt;EntityAction&gt;();</span>
+
+<span class="nc" id="L177">        setupStatusBar(Messages</span>
+<span class="nc" id="L178">                .getString(&quot;TargetingPhaseDisplay.waitingForTargetingPhase&quot;)); //$NON-NLS-1$</span>
+
+<span class="nc" id="L180">        buttons = new HashMap&lt;TargetingCommand, MegamekButton&gt;(</span>
+<span class="nc" id="L181">                (int) (TargetingCommand.values().length * 1.25 + 0.5));</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        for (TargetingCommand cmd : TargetingCommand.values()) {</span>
+<span class="nc" id="L183">            String title = Messages.getString(&quot;TargetingPhaseDisplay.&quot;</span>
+<span class="nc" id="L184">                    + cmd.getCmd());</span>
+<span class="nc" id="L185">            MegamekButton newButton = new MegamekButton(title,</span>
+<span class="nc" id="L186">                    SkinSpecification.UIComponents.PhaseDisplayButton.getComp());</span>
+<span class="nc" id="L187">            String ttKey = &quot;TargetingPhaseDisplay.&quot; + cmd.getCmd() + &quot;.tooltip&quot;;</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">            if (Messages.keyExists(ttKey)) {</span>
+<span class="nc" id="L189">                newButton.setToolTipText(Messages.getString(ttKey));</span>
+            }
+<span class="nc" id="L191">            newButton.addActionListener(this);</span>
+<span class="nc" id="L192">            newButton.setActionCommand(cmd.getCmd());</span>
+<span class="nc" id="L193">            newButton.setEnabled(false);</span>
+<span class="nc" id="L194">            buttons.put(cmd, newButton);</span>
+        }
+<span class="nc" id="L196">        numButtonGroups = (int) Math.ceil((buttons.size() + 0.0)</span>
+                / buttonsPerGroup);
+
+<span class="nc" id="L199">        butDone.setText(Messages.getString(&quot;TargetingPhaseDisplay.Done&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L200">        butDone.setEnabled(false);</span>
+
+<span class="nc" id="L202">        layoutScreen();</span>
+
+<span class="nc" id="L204">        setupButtonPanel();</span>
+        
+<span class="nc" id="L206">        MegaMekController controller = clientgui.controller;</span>
+<span class="nc" id="L207">        final StatusBarPhaseDisplay display = this;</span>
+        // Register the action for UNDO
+<span class="nc" id="L209">        controller.registerCommandAction(KeyCommandBind.UNDO.cmd,</span>
+<span class="nc" id="L210">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L214" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">                                || display.isIgnoringEvents()</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">                                || !display.isVisible()) {</span>
+<span class="nc" id="L218">                            return false;</span>
+                        } else {
+<span class="nc" id="L220">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L226">                        removeLastFiring();</span>
+<span class="nc" id="L227">                    }</span>
+                });
+        // Register the action for TWIST_LEFT
+<span class="nc" id="L230">        controller.registerCommandAction(KeyCommandBind.TWIST_LEFT.cmd,</span>
+<span class="nc" id="L231">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L235" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L239">                            return false;</span>
+                        } else {
+<span class="nc" id="L241">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L247">                        updateFlipArms(false);</span>
+<span class="nc" id="L248">                        torsoTwist(0);</span>
+<span class="nc" id="L249">                    }</span>
+                });
+
+        // Register the action for TWIST_RIGHT
+<span class="nc" id="L253">        controller.registerCommandAction(KeyCommandBind.TWIST_RIGHT.cmd,</span>
+<span class="nc" id="L254">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L258" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L262">                            return false;</span>
+                        } else {
+<span class="nc" id="L264">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L270">                        updateFlipArms(false);</span>
+<span class="nc" id="L271">                        torsoTwist(1);</span>
+<span class="nc" id="L272">                    }</span>
+                });
+     // Register the action for FIRE
+<span class="nc" id="L275">        controller.registerCommandAction(KeyCommandBind.FIRE.cmd,</span>
+<span class="nc" id="L276">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L280" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">                                || display.isIgnoringEvents()</span>
+<span class="nc" id="L284">                                || !buttons.get(TargetingCommand.FIRE_FIRE)</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">                                        .isEnabled()) {</span>
+<span class="nc" id="L286">                            return false;</span>
+                        } else {
+<span class="nc" id="L288">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L294">                        fire();</span>
+<span class="nc" id="L295">                    }</span>
+                });
+
+        // Register the action for NEXT_WEAPON
+<span class="nc" id="L299">        controller.registerCommandAction(KeyCommandBind.NEXT_WEAPON.cmd,</span>
+<span class="nc" id="L300">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L304" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L306" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L308">                            return false;</span>
+                        } else {
+<span class="nc" id="L310">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L316">                        nextWeapon();</span>
+<span class="nc" id="L317">                    }</span>
+                });
+
+        // Register the action for PREV_WEAPON
+<span class="nc" id="L321">        controller.registerCommandAction(KeyCommandBind.PREV_WEAPON.cmd,</span>
+<span class="nc" id="L322">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L326" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L330">                            return false;</span>
+                        } else {
+<span class="nc" id="L332">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L338">                        prevWeapon();</span>
+<span class="nc" id="L339">                    }</span>
+                });
+
+        // Register the action for NEXT_UNIT
+<span class="nc" id="L343">        controller.registerCommandAction(KeyCommandBind.NEXT_UNIT.cmd,</span>
+<span class="nc" id="L344">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L348" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L349" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L352">                            return false;</span>
+                        } else {
+<span class="nc" id="L354">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L360">                        selectEntity(clientgui.getClient()</span>
+<span class="nc" id="L361">                                .getNextEntityNum(cen));</span>
+<span class="nc" id="L362">                    }</span>
+                });
+
+        // Register the action for PREV_UNIT
+<span class="nc" id="L366">        controller.registerCommandAction(KeyCommandBind.PREV_UNIT.cmd,</span>
+<span class="nc" id="L367">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L371" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L372" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L375">                            return false;</span>
+                        } else {
+<span class="nc" id="L377">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L383">                        selectEntity(clientgui.getClient()</span>
+<span class="nc" id="L384">                                .getPrevEntityNum(cen));</span>
+<span class="nc" id="L385">                    }</span>
+                });
+
+        // Register the action for NEXT_TARGET
+<span class="nc" id="L389">        controller.registerCommandAction(KeyCommandBind.NEXT_TARGET.cmd,</span>
+<span class="nc" id="L390">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L394" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L398">                            return false;</span>
+                        } else {
+<span class="nc" id="L400">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L406">                        jumpToNextTarget();</span>
+<span class="nc" id="L407">                    }</span>
+                });
+
+        // Register the action for PREV_TARGET
+<span class="nc" id="L411">        controller.registerCommandAction(KeyCommandBind.PREV_TARGET.cmd,</span>
+<span class="nc" id="L412">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L416" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L417" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L418" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L419" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L420">                            return false;</span>
+                        } else {
+<span class="nc" id="L422">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L428">                        jumpToPrevTarget();</span>
+<span class="nc" id="L429">                    }</span>
+                });
+
+        // Register the action for NEXT_MODE
+<span class="nc" id="L433">        controller.registerCommandAction(KeyCommandBind.NEXT_MODE.cmd,</span>
+<span class="nc" id="L434">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L438" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L439" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">                                || display.isIgnoringEvents()</span>
+<span class="nc bnc" id="L441" title="All 2 branches missed.">                                || !display.isVisible()) {</span>
+<span class="nc" id="L442">                            return false;</span>
+                        } else {
+<span class="nc" id="L444">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L450">                        changeMode(true);</span>
+<span class="nc" id="L451">                    }</span>
+                });
+
+        // Register the action for PREV_MODE
+<span class="nc" id="L455">        controller.registerCommandAction(KeyCommandBind.PREV_MODE.cmd,</span>
+<span class="nc" id="L456">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L460" title="All 2 branches missed.">                        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">                                || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L462" title="All 2 branches missed.">                                || display.isIgnoringEvents()</span>
+<span class="nc bnc" id="L463" title="All 2 branches missed.">                                || !display.isVisible()) {</span>
+<span class="nc" id="L464">                            return false;</span>
+                        } else {
+<span class="nc" id="L466">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L472">                        changeMode(false);</span>
+<span class="nc" id="L473">                    }</span>
+                });
+
+        // Register the action for CLEAR
+<span class="nc" id="L477">        controller.registerCommandAction(KeyCommandBind.CANCEL.cmd,</span>
+<span class="nc" id="L478">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L482" title="All 2 branches missed.">                        if (clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L483" title="All 2 branches missed.">                                || !display.isVisible()</span>
+<span class="nc bnc" id="L484" title="All 2 branches missed.">                                || display.isIgnoringEvents()) {</span>
+<span class="nc" id="L485">                            return false;</span>
+                        } else {
+<span class="nc" id="L487">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L493">                        clear();</span>
+<span class="nc" id="L494">                    }</span>
+                });
+        
+<span class="nc" id="L497">    }</span>
+
+    /**
+     * Have the panel register itself as a listener wherever it's needed.
+     * &lt;p/&gt;
+     * According to
+     * http://www-106.ibm.com/developerworks/java/library/j-jtp0618.html it is a
+     * major bad no-no to perform these registrations before the constructor
+     * finishes, so this function has to be called after the panel is created.
+     * Please note, this restriction only applies to listeners for objects that
+     * aren't on the panel itself.
+     */
+    public void initializeListeners() {
+
+<span class="nc" id="L511">        clientgui.getClient().getGame().addGameListener(this);</span>
+<span class="nc" id="L512">        clientgui.getBoardView().addBoardViewListener(this);</span>
+
+<span class="nc" id="L514">        clientgui.bv.addKeyListener(this);</span>
+
+        // mech display.
+<span class="nc" id="L517">        clientgui.mechD.wPan.weaponList.addListSelectionListener(this);</span>
+<span class="nc" id="L518">        clientgui.mechD.wPan.weaponList.addKeyListener(this);</span>
+<span class="nc" id="L519">    }</span>
+
+    protected ArrayList&lt;MegamekButton&gt; getButtonList() {
+<span class="nc" id="L522">        ArrayList&lt;MegamekButton&gt; buttonList = new ArrayList&lt;MegamekButton&gt;();</span>
+<span class="nc" id="L523">        TargetingCommand commands[] = TargetingCommand.values();</span>
+<span class="nc" id="L524">        CommandComparator comparator = new CommandComparator();</span>
+<span class="nc" id="L525">        Arrays.sort(commands, comparator);</span>
+<span class="nc bnc" id="L526" title="All 2 branches missed.">        for (TargetingCommand cmd : commands) {</span>
+<span class="nc bnc" id="L527" title="All 2 branches missed.">            if (cmd == TargetingCommand.FIRE_CANCEL) {</span>
+<span class="nc" id="L528">                continue;</span>
+            }
+<span class="nc" id="L530">            buttonList.add(buttons.get(cmd));</span>
+        }
+<span class="nc" id="L532">        return buttonList;</span>
+    }
+
+    /**
+     * Selects an entity, by number, for targeting.
+     */
+    private void selectEntity(int en) {
+        // clear any previously considered attacks
+<span class="nc bnc" id="L540" title="All 2 branches missed.">        if (en != cen) {</span>
+<span class="nc" id="L541">            clearAttacks();</span>
+<span class="nc" id="L542">            refreshAll();</span>
+        }
+<span class="nc" id="L544">        Client client = clientgui.getClient();</span>
+<span class="nc bnc" id="L545" title="All 4 branches missed.">        if ((ce() != null) &amp;&amp;ce().isWeapOrderChanged()) {</span>
+<span class="nc" id="L546">            client.sendEntityWeaponOrderUpdate(ce());</span>
+        }
+
+<span class="nc bnc" id="L549" title="All 2 branches missed.">        if (client.getGame().getEntity(en) != null) {</span>
+
+<span class="nc" id="L551">            cen = en;</span>
+<span class="nc" id="L552">            clientgui.setSelectedEntityNum(en);</span>
+
+            // If the selected entity is not on the board, use the next one.
+            // ASSUMPTION: there will always be *at least one* entity on map.
+<span class="nc bnc" id="L556" title="All 2 branches missed.">            if (null == ce().getPosition()) {</span>
+
+                // Walk through the list of entities for this player.
+<span class="nc bnc" id="L559" title="All 2 branches missed.">                for (int nextId = client.getNextEntityNum(en); nextId != en; </span>
+<span class="nc" id="L560">                        nextId = client.getNextEntityNum(nextId)) {</span>
+
+<span class="nc" id="L562">                    if (null != clientgui.getClient().getGame()</span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                            .getEntity(nextId).getPosition()) {</span>
+<span class="nc" id="L564">                        cen = nextId;</span>
+<span class="nc" id="L565">                        break;</span>
+                    }
+
+                } // Check the player's next entity.
+
+                // We were *supposed* to have found an on-board entity.
+<span class="nc bnc" id="L571" title="All 2 branches missed.">                if (null == ce().getPosition()) {</span>
+<span class="nc" id="L572">                    System.err.println(&quot;FiringDisplay: could not find &quot; //$NON-NLS-1$</span>
+                            + &quot;an on-board entity: &quot; + //$NON-NLS-1$
+                            en);
+<span class="nc" id="L575">                    return;</span>
+                }
+
+            } // End ce()-not-on-board
+
+<span class="nc" id="L580">            target(null);</span>
+<span class="nc" id="L581">            clientgui.getBoardView().highlight(ce().getPosition());</span>
+<span class="nc" id="L582">            clientgui.getBoardView().select(null);</span>
+<span class="nc" id="L583">            clientgui.getBoardView().cursor(null);</span>
+
+<span class="nc" id="L585">            refreshAll();</span>
+<span class="nc" id="L586">            cacheVisibleTargets();</span>
+
+<span class="nc bnc" id="L588" title="All 4 branches missed.">            if (!clientgui.bv.isMovingUnits() &amp;&amp; !ce().isOffBoard()) {</span>
+<span class="nc" id="L589">                clientgui.bv.centerOnHex(ce().getPosition());</span>
+            }
+
+            // Update the menu bar.
+<span class="nc" id="L593">            clientgui.getMenuBar().setEntity(ce());</span>
+
+            // 2003-12-29, nemchenk -- only twist if crew conscious
+<span class="nc bnc" id="L596" title="All 2 branches missed.">            setTwistEnabled(ce().canChangeSecondaryFacing()</span>
+<span class="nc bnc" id="L597" title="All 2 branches missed.">                            &amp;&amp; ce().getCrew().isActive());</span>
+<span class="nc" id="L598">            setFlipArmsEnabled(ce().canFlipArms());</span>
+<span class="nc" id="L599">            updateSearchlight();</span>
+
+<span class="nc" id="L601">            setFireModeEnabled(true);</span>
+
+<span class="nc bnc" id="L603" title="All 2 branches missed.">            if (GUIPreferences.getInstance().getBoolean(&quot;FiringSolutions&quot;)</span>
+<span class="nc bnc" id="L604" title="All 2 branches missed.">                    &amp;&amp; !ce().isOffBoard()) {</span>
+<span class="nc" id="L605">                setFiringSolutions();</span>
+            } else {
+<span class="nc" id="L607">                clientgui.getBoardView().clearFiringSolutionData();</span>
+            }
+        } else {
+<span class="nc" id="L610">            System.err.println(&quot;TargetingPhaseDisplay: &quot; //$NON-NLS-1$</span>
+                    + &quot;tried to select non-existant entity: &quot; + en); //$NON-NLS-1$
+        }
+<span class="nc" id="L613">    }</span>
+
+    public void setFiringSolutions() {
+        // If no Entity is selected, exit
+<span class="nc bnc" id="L617" title="All 2 branches missed.">        if (cen == Entity.NONE) {</span>
+<span class="nc" id="L618">            return;</span>
+        }
+
+<span class="nc" id="L621">        IGame game = clientgui.getClient().getGame();</span>
+<span class="nc" id="L622">        IPlayer localPlayer = clientgui.getClient().getLocalPlayer();</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">        if (!GUIPreferences.getInstance().getFiringSolutions()) {</span>
+<span class="nc" id="L624">            return;</span>
+        }
+
+        // Determine which entities are spotted
+<span class="nc" id="L628">        Set&lt;Integer&gt; spottedEntities = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">        for (Entity target : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L630" title="All 4 branches missed.">            if (!target.isEnemyOf(ce()) &amp;&amp; target.isSpotting()) {</span>
+<span class="nc" id="L631">                spottedEntities.add(target.getSpotTargetId());</span>
+            }
+<span class="nc" id="L633">        }</span>
+
+        // Calculate firing solutions
+<span class="nc" id="L636">        Map&lt;Integer, FiringSolution&gt; fs = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L637" title="All 2 branches missed.">        for (Entity target : game.getEntitiesVector()) {</span>
+<span class="nc" id="L638">            boolean friendlyFire = game.getOptions().booleanOption(</span>
+                    OptionsConstants.BASE_FRIENDLY_FIRE); //$NON-NLS-1$
+<span class="nc" id="L640">            boolean enemyTarget = target.getOwner().isEnemyOf(ce().getOwner());</span>
+<span class="nc bnc" id="L641" title="All 8 branches missed.">            if ((target.getId() != cen)</span>
+                &amp;&amp; (friendlyFire || enemyTarget)
+<span class="nc bnc" id="L643" title="All 2 branches missed.">                &amp;&amp; (!enemyTarget || target.hasSeenEntity(localPlayer)</span>
+<span class="nc bnc" id="L644" title="All 2 branches missed.">                    || target.hasDetectedEntity(localPlayer))</span>
+<span class="nc bnc" id="L645" title="All 2 branches missed.">                &amp;&amp; target.isTargetable()) {</span>
+<span class="nc" id="L646">                ToHitData thd = WeaponAttackAction.toHit(game, cen, target);</span>
+<span class="nc" id="L647">                thd.setLocation(target.getPosition());</span>
+<span class="nc" id="L648">                thd.setRange(ce().getPosition().distance(target.getPosition()));</span>
+<span class="nc" id="L649">                fs.put(target.getId(), new FiringSolution(thd, spottedEntities.contains(target.getId())));</span>
+            }
+<span class="nc" id="L651">        }</span>
+<span class="nc" id="L652">        clientgui.getBoardView().setFiringSolutions(ce(), fs);</span>
+<span class="nc" id="L653">    }</span>
+
+    /**
+     * Does turn start stuff
+     */
+    private void beginMyTurn() {
+<span class="nc" id="L659">        target = null;</span>
+
+<span class="nc bnc" id="L661" title="All 2 branches missed.">        if (!clientgui.bv.isMovingUnits()) {</span>
+<span class="nc" id="L662">            clientgui.setDisplayVisible(true);</span>
+        }
+<span class="nc" id="L664">        clientgui.bv.clearFieldofF();</span>
+
+<span class="nc" id="L666">        selectEntity(clientgui.getClient().getFirstEntityNum());</span>
+
+<span class="nc" id="L668">        GameTurn turn = clientgui.getClient().getMyTurn();</span>
+        // There's special processing for triggering AP Pods.
+<span class="nc bnc" id="L670" title="All 4 branches missed.">        if ((turn instanceof GameTurn.TriggerAPPodTurn) &amp;&amp; (null != ce())) {</span>
+<span class="nc" id="L671">            disableButtons();</span>
+<span class="nc" id="L672">            TriggerAPPodDialog dialog = new TriggerAPPodDialog(</span>
+<span class="nc" id="L673">                    clientgui.getFrame(), ce());</span>
+<span class="nc" id="L674">            dialog.setVisible(true);</span>
+<span class="nc" id="L675">            attacks.removeAllElements();</span>
+<span class="nc" id="L676">            Enumeration&lt;TriggerAPPodAction&gt; actions = dialog.getActions();</span>
+<span class="nc bnc" id="L677" title="All 2 branches missed.">            while (actions.hasMoreElements()) {</span>
+<span class="nc" id="L678">                attacks.addElement(actions.nextElement());</span>
+            }
+<span class="nc" id="L680">            ready();</span>
+<span class="nc bnc" id="L681" title="All 4 branches missed.">        } else if ((turn instanceof GameTurn.TriggerBPodTurn) &amp;&amp; (null != ce())) {</span>
+<span class="nc" id="L682">            disableButtons();</span>
+<span class="nc" id="L683">            TriggerBPodDialog dialog = new TriggerBPodDialog(clientgui, ce(),</span>
+<span class="nc" id="L684">                    ((GameTurn.TriggerBPodTurn) turn).getAttackType());</span>
+<span class="nc" id="L685">            dialog.setVisible(true);</span>
+<span class="nc" id="L686">            attacks.removeAllElements();</span>
+<span class="nc" id="L687">            Enumeration&lt;TriggerBPodAction&gt; actions = dialog.getActions();</span>
+<span class="nc bnc" id="L688" title="All 2 branches missed.">            while (actions.hasMoreElements()) {</span>
+<span class="nc" id="L689">                attacks.addElement(actions.nextElement());</span>
+            }
+<span class="nc" id="L691">            ready();</span>
+<span class="nc" id="L692">        } else {</span>
+<span class="nc" id="L693">            setNextEnabled(true);</span>
+<span class="nc" id="L694">            butDone.setEnabled(true);</span>
+<span class="nc" id="L695">            clientgui.getBoardView().select(null);</span>
+        }
+<span class="nc" id="L697">        setupButtonPanel();</span>
+<span class="nc" id="L698">    }</span>
+
+    /**
+     * Does end turn stuff.
+     */
+    private void endMyTurn() {
+        // end my turn, then.
+<span class="nc" id="L705">        Entity next = clientgui.getClient().getGame()</span>
+<span class="nc" id="L706">                .getNextEntity(clientgui.getClient().getGame().getTurnIndex());</span>
+<span class="nc bnc" id="L707" title="All 4 branches missed.">        if ((phase == clientgui.getClient().getGame().getPhase())</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">                &amp;&amp; (null != next) &amp;&amp; (null != ce())</span>
+<span class="nc bnc" id="L709" title="All 2 branches missed.">                &amp;&amp; (next.getOwnerId() != ce().getOwnerId())) {</span>
+<span class="nc" id="L710">            clientgui.setDisplayVisible(false);</span>
+        }
+<span class="nc" id="L712">        cen = Entity.NONE;</span>
+<span class="nc" id="L713">        target(null);</span>
+<span class="nc" id="L714">        clientgui.getBoardView().select(null);</span>
+<span class="nc" id="L715">        clientgui.getBoardView().highlight(null);</span>
+<span class="nc" id="L716">        clientgui.getBoardView().cursor(null);</span>
+<span class="nc" id="L717">        clientgui.bv.clearFiringSolutionData();</span>
+<span class="nc" id="L718">        clientgui.bv.clearMovementData();</span>
+<span class="nc" id="L719">        clientgui.bv.clearFieldofF();</span>
+<span class="nc" id="L720">        clientgui.setSelectedEntityNum(Entity.NONE);</span>
+<span class="nc" id="L721">        disableButtons();</span>
+
+<span class="nc" id="L723">    }</span>
+
+    /**
+     * Disables all buttons in the interface
+     */
+    private void disableButtons() {
+<span class="nc" id="L729">        setFireEnabled(false);</span>
+<span class="nc" id="L730">        setSkipEnabled(false);</span>
+<span class="nc" id="L731">        setTwistEnabled(false);</span>
+<span class="nc" id="L732">        setNextEnabled(false);</span>
+<span class="nc" id="L733">        butDone.setEnabled(false);</span>
+<span class="nc" id="L734">        setFlipArmsEnabled(false);</span>
+<span class="nc" id="L735">        setFireModeEnabled(false);</span>
+<span class="nc" id="L736">        setNextTargetEnabled(false);</span>
+<span class="nc" id="L737">    }</span>
+
+    /**
+     * Fire Mode - Adds a Fire Mode Change to the current Attack Action
+     */
+    private void changeMode(boolean forward) {
+<span class="nc" id="L743">        int wn = clientgui.mechD.wPan.getSelectedWeaponNum();</span>
+
+        // Do nothing we have no unit selected.
+<span class="nc bnc" id="L746" title="All 2 branches missed.">        if (null == ce()) {</span>
+<span class="nc" id="L747">            return;</span>
+        }
+
+        // If the weapon does not have modes, just exit.
+<span class="nc" id="L751">        Mounted m = ce().getEquipment(wn);</span>
+<span class="nc bnc" id="L752" title="All 4 branches missed.">        if ((m == null) || !m.getType().hasModes()) {</span>
+<span class="nc" id="L753">            return;</span>
+        }
+
+        // Dropship Artillery cannot be switched to &quot;Direct&quot; Fire
+<span class="nc" id="L757">        final WeaponType wtype = (WeaponType) m.getType();</span>
+<span class="nc bnc" id="L758" title="All 4 branches missed.">        if ((ce() instanceof Dropship) &amp;&amp; (wtype instanceof ArtilleryWeapon)) {</span>
+<span class="nc" id="L759">            return;</span>
+        }
+
+        // send change to the server
+<span class="nc" id="L763">        int nMode = m.switchMode(forward);</span>
+<span class="nc" id="L764">        clientgui.getClient().sendModeChange(cen, wn, nMode);</span>
+
+        // notify the player
+<span class="nc bnc" id="L767" title="All 2 branches missed.">        if (m.canInstantSwitch(nMode)) {</span>
+<span class="nc" id="L768">            clientgui.systemMessage(Messages.getString(</span>
+<span class="nc" id="L769">                    &quot;FiringDisplay.switched&quot;, new Object[] { m.getName(),</span>
+<span class="nc" id="L770">                            m.curMode().getDisplayableName() }));</span>
+            //$NON-NLS-1$
+        } else {
+<span class="nc" id="L773">            clientgui.systemMessage(Messages.getString(</span>
+<span class="nc" id="L774">                    &quot;FiringDisplay.willSwitch&quot;, new Object[] { m.getName(),</span>
+<span class="nc" id="L775">                            m.pendingMode().getDisplayableName() })); //$NON-NLS-1$</span>
+        }
+
+<span class="nc" id="L778">        updateTarget();</span>
+<span class="nc" id="L779">        clientgui.mechD.wPan.displayMech(ce());</span>
+<span class="nc" id="L780">        clientgui.mechD.wPan.selectWeapon(wn);</span>
+<span class="nc" id="L781">    }</span>
+
+    /**
+     * Called when the current entity is done firing. Send out our attack queue
+     * to the server.
+     */
+    @Override
+    public void ready() {
+<span class="nc bnc" id="L789" title="All 2 branches missed.">        if (attacks.isEmpty()</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">            &amp;&amp; GUIPreferences.getInstance().getNagForNoAction()) {</span>
+            // comfirm this action
+<span class="nc" id="L792">            String title = Messages</span>
+<span class="nc" id="L793">                    .getString(&quot;TargetingPhaseDisplay.DontFireDialog.title&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L794">            String body = Messages</span>
+<span class="nc" id="L795">                    .getString(&quot;TargetingPhaseDisplay.DontFireDialog.message&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L796">            ConfirmDialog response = clientgui.doYesNoBotherDialog(title, body);</span>
+<span class="nc bnc" id="L797" title="All 2 branches missed.">            if (!response.getShowAgain()) {</span>
+<span class="nc" id="L798">                GUIPreferences.getInstance().setNagForNoAction(false);</span>
+            }
+<span class="nc bnc" id="L800" title="All 2 branches missed.">            if (!response.getAnswer()) {</span>
+<span class="nc" id="L801">                return;</span>
+            }
+        }
+
+        // stop further input (hopefully)
+<span class="nc" id="L806">        disableButtons();</span>
+
+        // remove temporary attacks from game &amp; board
+<span class="nc" id="L809">        removeTempAttacks();</span>
+
+        // send out attacks
+<span class="nc" id="L812">        clientgui.getClient().sendAttackData(cen, attacks);</span>
+
+        // clear queue
+<span class="nc" id="L815">        attacks.removeAllElements();</span>
+
+        // Clear the menu bar.
+<span class="nc" id="L818">        clientgui.getMenuBar().setEntity(null);</span>
+<span class="nc bnc" id="L819" title="All 4 branches missed.">        if ((ce() != null) &amp;&amp; ce().isWeapOrderChanged()) {</span>
+<span class="nc" id="L820">            clientgui.getClient().sendEntityWeaponOrderUpdate(ce());</span>
+        }
+<span class="nc" id="L822">        endMyTurn();</span>
+<span class="nc" id="L823">    }</span>
+
+    private void doSearchlight() {
+        // validate
+<span class="nc bnc" id="L827" title="All 4 branches missed.">        if ((ce() == null) || (target == null)) {</span>
+<span class="nc" id="L828">            throw new IllegalArgumentException(</span>
+                    &quot;current searchlight parameters are invalid&quot;); //$NON-NLS-1$
+        }
+
+<span class="nc bnc" id="L832" title="All 2 branches missed.">        if (!SearchlightAttackAction.isPossible(clientgui.getClient().getGame(), cen, target, null)) {</span>
+<span class="nc" id="L833">            return;</span>
+        }
+
+        // create and queue a searchlight action
+<span class="nc" id="L837">        SearchlightAttackAction saa = new SearchlightAttackAction(cen, target</span>
+<span class="nc" id="L838">                .getTargetType(), target.getTargetId());</span>
+<span class="nc" id="L839">        attacks.addElement(saa);</span>
+
+        // and add it into the game, temporarily
+<span class="nc" id="L842">        clientgui.getClient().getGame().addAction(saa);</span>
+<span class="nc" id="L843">        clientgui.bv.addAttack(saa);</span>
+<span class="nc" id="L844">        clientgui.minimap.drawMap();</span>
+
+        // refresh weapon panel, as bth will have changed
+<span class="nc" id="L847">        updateTarget();</span>
+<span class="nc" id="L848">    }</span>
+
+    /**
+     * Adds a weapon attack with the currently selected weapon to the attack
+     * queue.
+     */
+    private void fire() {
+        // get the selected weaponnum
+<span class="nc" id="L856">        int weaponNum = clientgui.mechD.wPan.getSelectedWeaponNum();</span>
+<span class="nc" id="L857">        Mounted mounted = ce().getEquipment(weaponNum);</span>
+
+        // validate
+<span class="nc bnc" id="L860" title="All 6 branches missed.">        if ((ce() == null) || (target == null) || (mounted == null)</span>
+<span class="nc bnc" id="L861" title="All 2 branches missed.">                || !(mounted.getType() instanceof WeaponType)) {</span>
+<span class="nc" id="L862">            throw new IllegalArgumentException(</span>
+                    &quot;current fire parameters are invalid&quot;); //$NON-NLS-1$
+        }
+
+        // declare searchlight, if possible
+<span class="nc bnc" id="L867" title="All 2 branches missed.">        if (GUIPreferences.getInstance().getAutoDeclareSearchlight()) {</span>
+<span class="nc" id="L868">            doSearchlight();</span>
+        }
+
+<span class="nc" id="L871">        WeaponAttackAction waa = new WeaponAttackAction(cen,</span>
+<span class="nc" id="L872">                target.getTargetType(), target.getTargetId(), weaponNum);</span>
+<span class="nc" id="L873">        IGame game = clientgui.getClient().getGame();</span>
+<span class="nc" id="L874">        int distance = Compute.effectiveDistance(game, waa.getEntity(game),</span>
+<span class="nc" id="L875">                waa.getTarget(game));</span>
+<span class="nc bnc" id="L876" title="All 2 branches missed.">        if ((mounted.getType().hasFlag(WeaponType.F_ARTILLERY))</span>
+<span class="nc bnc" id="L877" title="All 4 branches missed.">                || (mounted.isInBearingsOnlyMode()</span>
+                            &amp;&amp; distance &gt;= RangeType.RANGE_BEARINGS_ONLY_MINIMUM)
+<span class="nc bnc" id="L879" title="All 2 branches missed.">                || (mounted.getType() instanceof CapitalMissileWeapon</span>
+<span class="nc bnc" id="L880" title="All 2 branches missed.">                                &amp;&amp; Compute.isGroundToGround(ce(), target))) {</span>
+<span class="nc" id="L881">            waa = new ArtilleryAttackAction(cen, target.getTargetType(),</span>
+<span class="nc" id="L882">                    target.getTargetId(), weaponNum, clientgui.getClient()</span>
+<span class="nc" id="L883">                            .getGame());</span>
+            // Get the launch velocity for bearings-only telemissiles
+<span class="nc bnc" id="L885" title="All 2 branches missed.">            if (mounted.getType() instanceof TeleOperatedMissileBayWeapon) {                </span>
+<span class="nc" id="L886">                TeleMissileSettingDialog tsd = new TeleMissileSettingDialog(clientgui.frame, clientgui.getClient().getGame());</span>
+<span class="nc" id="L887">                tsd.setVisible(true);</span>
+<span class="nc" id="L888">                waa.setLaunchVelocity(tsd.getSetting());</span>
+<span class="nc" id="L889">                waa.updateTurnsTilHit(clientgui.getClient().getGame());</span>
+            } 
+        }
+        
+<span class="nc" id="L893">        updateDisplayForPendingAttack(mounted, waa);</span>
+<span class="nc" id="L894">    }</span>
+    
+    /**
+     * Worker function that handles setting associated ammo and other bookkeeping/UI updates
+     * for a pending weapon attack action.
+     */
+    public void updateDisplayForPendingAttack(Mounted mounted, WeaponAttackAction waa) {
+        // put this and the rest of the method into a separate function for access externally.
+<span class="nc bnc" id="L902" title="All 2 branches missed.">        if ((null != mounted.getLinked())</span>
+<span class="nc bnc" id="L903" title="All 2 branches missed.">                &amp;&amp; (((WeaponType) mounted.getType()).getAmmoType() != AmmoType.T_NA)) {</span>
+<span class="nc" id="L904">            Mounted ammoMount = mounted.getLinked();</span>
+<span class="nc" id="L905">            waa.setAmmoId(ammoMount.getEntity().getEquipmentNum(ammoMount));</span>
+<span class="nc" id="L906">            waa.setAmmoCarrier(ammoMount.getEntity().getId());</span>
+<span class="nc bnc" id="L907" title="All 2 branches missed.">            if (((AmmoType) ammoMount.getType()).getMunitionType() == AmmoType.M_VIBRABOMB_IV) {</span>
+<span class="nc" id="L908">                VibrabombSettingDialog vsd = new VibrabombSettingDialog(</span>
+                        clientgui.frame);
+<span class="nc" id="L910">                vsd.setVisible(true);</span>
+<span class="nc" id="L911">                waa.setOtherAttackInfo(vsd.getSetting());</span>
+            }
+        }
+
+        // add the attack to our temporary queue
+<span class="nc" id="L916">        attacks.addElement(waa);</span>
+
+        // and add it into the game, temporarily
+<span class="nc" id="L919">        clientgui.getClient().getGame().addAction(waa);</span>
+<span class="nc" id="L920">        clientgui.minimap.drawMap();</span>
+
+        // set the weapon as used
+<span class="nc" id="L923">        mounted.setUsedThisRound(true);</span>
+
+        // find the next available weapon
+<span class="nc" id="L926">        int nextWeapon = clientgui.mechD.wPan.selectNextWeapon();</span>
+
+        // check; if there are no ready weapons, you're done.
+<span class="nc bnc" id="L929" title="All 4 branches missed.">        if ((nextWeapon == -1) &amp;&amp; GUIPreferences.getInstance().getAutoEndFiring()) {</span>
+<span class="nc" id="L930">            ready();</span>
+<span class="nc" id="L931">            return;</span>
+        }
+
+        // otherwise, display firing info for the next weapon
+<span class="nc" id="L935">        clientgui.mechD.wPan.displayMech(ce());</span>
+<span class="nc" id="L936">        clientgui.mechD.wPan.selectWeapon(nextWeapon);</span>
+<span class="nc" id="L937">        updateTarget();</span>
+<span class="nc" id="L938">    }</span>
+
+    /**
+     * Skips to the next weapon
+     */
+    private void nextWeapon() {
+<span class="nc bnc" id="L944" title="All 2 branches missed.">        if (ce() == null) {</span>
+<span class="nc" id="L945">            return;</span>
+        }
+<span class="nc" id="L947">        int weaponId = clientgui.mechD.wPan.selectNextWeapon();</span>
+
+<span class="nc bnc" id="L949" title="All 2 branches missed.">        if (ce().getId() != clientgui.mechD.wPan.getSelectedEntityId()) {</span>
+<span class="nc" id="L950">            clientgui.mechD.wPan.displayMech(ce());</span>
+        }
+        
+<span class="nc bnc" id="L953" title="All 2 branches missed.">        if (weaponId == -1) {</span>
+<span class="nc" id="L954">            setFireModeEnabled(false);</span>
+        } else {
+<span class="nc" id="L956">            Mounted m = ce().getEquipment(weaponId);</span>
+<span class="nc" id="L957">            setFireModeEnabled(m.isModeSwitchable());</span>
+        }
+<span class="nc" id="L959">        updateTarget();</span>
+<span class="nc" id="L960">    }</span>
+    
+    /**
+     * Skips to the previous weapon
+     */
+    void prevWeapon() {
+<span class="nc bnc" id="L966" title="All 2 branches missed.">        if (ce() == null) {</span>
+<span class="nc" id="L967">            return;</span>
+        }
+<span class="nc" id="L969">        int weaponId = clientgui.mechD.wPan.selectPrevWeapon();</span>
+
+<span class="nc bnc" id="L971" title="All 2 branches missed.">        if (ce().getId() != clientgui.mechD.wPan.getSelectedEntityId()) {</span>
+<span class="nc" id="L972">            clientgui.mechD.wPan.displayMech(ce());</span>
+        }
+
+<span class="nc bnc" id="L975" title="All 2 branches missed.">        if (weaponId == -1) {</span>
+<span class="nc" id="L976">            setFireModeEnabled(false);</span>
+        } else {
+<span class="nc" id="L978">            Mounted m = ce().getEquipment(weaponId);</span>
+<span class="nc" id="L979">            setFireModeEnabled(m.isModeSwitchable());</span>
+        }
+<span class="nc" id="L981">        updateTarget();</span>
+<span class="nc" id="L982">    }    </span>
+
+    /**
+     * Removes all current fire
+     */
+    private void clearAttacks() {
+        // We may not have an entity selected yet (race condition).
+<span class="nc bnc" id="L989" title="All 2 branches missed.">        if (ce() == null) {</span>
+<span class="nc" id="L990">            return;</span>
+        }
+
+        // remove attacks, set weapons available again
+<span class="nc" id="L994">        Enumeration&lt;EntityAction&gt; i = attacks.elements();</span>
+<span class="nc bnc" id="L995" title="All 2 branches missed.">        while (i.hasMoreElements()) {</span>
+<span class="nc" id="L996">            Object o = i.nextElement();</span>
+<span class="nc bnc" id="L997" title="All 2 branches missed.">            if (o instanceof WeaponAttackAction) {</span>
+<span class="nc" id="L998">                WeaponAttackAction waa = (WeaponAttackAction) o;</span>
+<span class="nc" id="L999">                ce().getEquipment(waa.getWeaponId()).setUsedThisRound(false);</span>
+            }
+<span class="nc" id="L1001">        }</span>
+<span class="nc" id="L1002">        attacks.removeAllElements();</span>
+
+        // remove temporary attacks from game &amp; board
+<span class="nc" id="L1005">        removeTempAttacks();</span>
+
+        // restore any other movement to default
+<span class="nc" id="L1008">        ce().setSecondaryFacing(ce().getFacing());</span>
+<span class="nc" id="L1009">        ce().setArmsFlipped(false);</span>
+
+<span class="nc" id="L1011">    }</span>
+
+    /**
+     * Removes temp attacks from the game and board
+     */
+    private void removeTempAttacks() {
+        // remove temporary attacks from game &amp; board
+<span class="nc" id="L1018">        clientgui.getClient().getGame().removeActionsFor(cen);</span>
+<span class="nc" id="L1019">        clientgui.bv.removeAttacksFor(ce());</span>
+
+<span class="nc" id="L1021">    }</span>
+    
+    /**
+     * removes the last action
+     */
+    private void removeLastFiring() {
+<span class="nc bnc" id="L1027" title="All 2 branches missed.">        if (!attacks.isEmpty()) {</span>
+<span class="nc" id="L1028">            Object o = attacks.lastElement();</span>
+<span class="nc bnc" id="L1029" title="All 2 branches missed.">            if (o instanceof WeaponAttackAction) {</span>
+<span class="nc" id="L1030">                WeaponAttackAction waa = (WeaponAttackAction) o;</span>
+<span class="nc" id="L1031">                ce().getEquipment(waa.getWeaponId()).setUsedThisRound(false);</span>
+<span class="nc" id="L1032">                attacks.removeElement(o);</span>
+<span class="nc" id="L1033">                clientgui.mechD.wPan.displayMech(ce());</span>
+<span class="nc" id="L1034">                clientgui.getClient().getGame().removeAction(o);</span>
+<span class="nc" id="L1035">                clientgui.bv.refreshAttacks();</span>
+<span class="nc" id="L1036">                clientgui.minimap.drawMap();</span>
+            }
+        }
+<span class="nc" id="L1039">    }    </span>
+
+    /**
+     * Refeshes all displays.
+     */
+    private void refreshAll() {
+<span class="nc bnc" id="L1045" title="All 2 branches missed.">        if (ce() == null) {</span>
+<span class="nc" id="L1046">            return;</span>
+        }
+<span class="nc" id="L1048">        clientgui.bv.redrawEntity(ce());</span>
+<span class="nc" id="L1049">        clientgui.mechD.displayEntity(ce());</span>
+<span class="nc" id="L1050">        clientgui.mechD.showPanel(&quot;weapons&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L1051">        clientgui.mechD.wPan.selectFirstWeapon();</span>
+<span class="nc" id="L1052">        updateTarget();</span>
+<span class="nc" id="L1053">    }</span>
+
+    /**
+     * Targets something
+     */
+    void target(Targetable t) {
+<span class="nc" id="L1059">        target = t;</span>
+<span class="nc" id="L1060">        updateTarget();</span>
+
+<span class="nc" id="L1062">    }</span>
+
+    /**
+     * Targets something
+     */
+    public void updateTarget() {
+<span class="nc" id="L1068">        setFireEnabled(false);</span>
+
+        // update target panel
+<span class="nc" id="L1071">        final int weaponId = clientgui.mechD.wPan.getSelectedWeaponNum();</span>
+<span class="nc bnc" id="L1072" title="All 4 branches missed.">        if ((target != null) &amp;&amp; (weaponId != -1)) {</span>
+            ToHitData toHit;
+<span class="nc" id="L1074">            Mounted m = ce().getEquipment(weaponId);</span>
+
+<span class="nc" id="L1076">            int targetDistance = ce().getPosition().distance(target.getPosition()); </span>
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">            boolean isArtilleryAttack = ((WeaponType) m.getType()).hasFlag(WeaponType.F_ARTILLERY)</span>
+                    // For other weapons that can make artillery attacks
+<span class="nc bnc" id="L1079" title="All 2 branches missed.">                    || target.getTargetType() == Targetable.TYPE_HEX_ARTILLERY;            </span>
+            
+<span class="nc" id="L1081">            toHit = WeaponAttackAction.toHit(clientgui.getClient().getGame(),</span>
+                    cen, target, weaponId, Entity.LOC_NONE, 0, false);
+            
+<span class="nc" id="L1084">            String flightTimeText = &quot;&quot;; </span>
+<span class="nc bnc" id="L1085" title="All 2 branches missed.">            if(isArtilleryAttack) {</span>
+<span class="nc" id="L1086">                ArtilleryAttackAction aaa = new ArtilleryAttackAction(ce().getId(), target.getTargetType(),</span>
+<span class="nc" id="L1087">                        target.getTargetId(), weaponId, clientgui.getClient().getGame());</span>
+<span class="nc" id="L1088">                flightTimeText = String.format(&quot;(%d turns)&quot;, aaa.getTurnsTilHit());</span>
+            }
+            
+<span class="nc" id="L1091">            clientgui.mechD.wPan.wTargetR.setText(target.getDisplayName());</span>
+<span class="nc" id="L1092">            clientgui.mechD.wPan.wRangeR</span>
+<span class="nc" id="L1093">                    .setText(String.format(&quot;%d %s&quot;, targetDistance, flightTimeText)); //$NON-NLS-1$</span>
+            
+<span class="nc" id="L1095">            IGame game = clientgui.getClient().getGame();</span>
+<span class="nc" id="L1096">            int distance = Compute.effectiveDistance(game, ce(),</span>
+                    target);
+<span class="nc bnc" id="L1098" title="All 2 branches missed.">            if (m.isUsedThisRound()) {</span>
+<span class="nc" id="L1099">                clientgui.mechD.wPan.wToHitR.setText(Messages</span>
+<span class="nc" id="L1100">                        .getString(&quot;TargetingPhaseDisplay.alreadyFired&quot;));</span>
+                //$NON-NLS-1$
+<span class="nc" id="L1102">                setFireEnabled(false);</span>
+<span class="nc bnc" id="L1103" title="All 4 branches missed.">            } else if (m.isInBearingsOnlyMode() &amp;&amp; distance &lt; RangeType.RANGE_BEARINGS_ONLY_MINIMUM) {</span>
+<span class="nc" id="L1104">                clientgui.mechD.wPan.wToHitR.setText(Messages.getString(&quot;TargetingPhaseDisplay.bearingsOnlyMinRange&quot;));</span>
+<span class="nc" id="L1105">                setFireEnabled(false);</span>
+<span class="nc bnc" id="L1106" title="All 4 branches missed.">            } else if ((m.getType().hasFlag(WeaponType.F_AUTO_TARGET) &amp;&amp; !m.curMode().equals(Weapon.MODE_AMS_MANUAL))) {</span>
+<span class="nc" id="L1107">                clientgui.mechD.wPan.wToHitR.setText(Messages</span>
+<span class="nc" id="L1108">                        .getString(&quot;TargetingPhaseDisplay.autoFiringWeapon&quot;));</span>
+                //$NON-NLS-1$
+<span class="nc" id="L1110">                setFireEnabled(false);</span>
+<span class="nc bnc" id="L1111" title="All 2 branches missed.">            } else if (toHit.getValue() == TargetRoll.IMPOSSIBLE) {</span>
+<span class="nc" id="L1112">                clientgui.mechD.wPan.wToHitR.setText(toHit.getValueAsString());</span>
+<span class="nc" id="L1113">                setFireEnabled(false);</span>
+<span class="nc bnc" id="L1114" title="All 2 branches missed.">            } else if (toHit.getValue() == TargetRoll.AUTOMATIC_FAIL) {</span>
+<span class="nc" id="L1115">                clientgui.mechD.wPan.wToHitR.setText(toHit.getValueAsString());</span>
+<span class="nc" id="L1116">                setFireEnabled(true);</span>
+            } else {
+<span class="nc" id="L1118">                clientgui.mechD.wPan.wToHitR</span>
+<span class="nc" id="L1119">                        .setText(toHit.getValueAsString()</span>
+                                + &quot; (&quot;
+<span class="nc" id="L1121">                                + Compute.oddsAbove(</span>
+<span class="nc" id="L1122">                                        toHit.getValue(),</span>
+<span class="nc" id="L1123">                                        ce().hasAbility(OptionsConstants.PILOT_APTITUDE_GUNNERY))</span>
+                                + &quot;%)&quot;); //$NON-NLS-1$ //$NON-NLS-2$
+<span class="nc" id="L1125">                setFireEnabled(true);</span>
+            }
+<span class="nc" id="L1127">            clientgui.mechD.wPan.toHitText.setText(toHit.getDesc());</span>
+<span class="nc" id="L1128">            setSkipEnabled(true);</span>
+<span class="nc" id="L1129">        } else {</span>
+<span class="nc" id="L1130">            clientgui.mechD.wPan.wTargetR.setText(&quot;---&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L1131">            clientgui.mechD.wPan.wRangeR.setText(&quot;---&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L1132">            clientgui.mechD.wPan.wToHitR.setText(&quot;---&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L1133">            clientgui.mechD.wPan.toHitText.setText(&quot;&quot;); //$NON-NLS-1$</span>
+        }
+<span class="nc" id="L1135">        updateSearchlight();</span>
+<span class="nc" id="L1136">    }</span>
+
+    /**
+     * Torso twist in the proper direction.
+     */
+    void torsoTwist(Coords cTarget) {
+<span class="nc" id="L1142">        int direction = ce().getFacing();</span>
+
+<span class="nc bnc" id="L1144" title="All 2 branches missed.">        if (null != cTarget) {</span>
+<span class="nc" id="L1145">            direction = ce().clipSecondaryFacing(</span>
+<span class="nc" id="L1146">                    ce().getPosition().direction(cTarget));</span>
+        }
+
+<span class="nc bnc" id="L1149" title="All 2 branches missed.">        if (direction != ce().getSecondaryFacing()) {</span>
+<span class="nc" id="L1150">            clearAttacks();</span>
+<span class="nc" id="L1151">            attacks.addElement(new TorsoTwistAction(cen, direction));</span>
+<span class="nc" id="L1152">            ce().setSecondaryFacing(direction);</span>
+<span class="nc" id="L1153">            refreshAll();</span>
+        }
+<span class="nc" id="L1155">    }</span>
+
+    /**
+     * Torso twist to the left or right
+     *
+     * @param twistDirection An &lt;code&gt;int&lt;/code&gt; specifying wether we're twisting left or
+     *                       right, 0 if we're twisting to the left, 1 if to the right.
+     */
+
+    void torsoTwist(int twistDirection) {
+<span class="nc" id="L1165">        int direction = ce().getSecondaryFacing();</span>
+<span class="nc bnc" id="L1166" title="All 2 branches missed.">        if (twistDirection == 0) {</span>
+<span class="nc" id="L1167">            clearAttacks();</span>
+<span class="nc" id="L1168">            direction = ce().clipSecondaryFacing((direction + 5) % 6);</span>
+<span class="nc" id="L1169">            attacks.addElement(new TorsoTwistAction(cen, direction));</span>
+<span class="nc" id="L1170">            ce().setSecondaryFacing(direction);</span>
+<span class="nc" id="L1171">            refreshAll();</span>
+<span class="nc bnc" id="L1172" title="All 2 branches missed.">        } else if (twistDirection == 1) {</span>
+<span class="nc" id="L1173">            clearAttacks();</span>
+<span class="nc" id="L1174">            direction = ce().clipSecondaryFacing((direction + 7) % 6);</span>
+<span class="nc" id="L1175">            attacks.addElement(new TorsoTwistAction(cen, direction));</span>
+<span class="nc" id="L1176">            ce().setSecondaryFacing(direction);</span>
+<span class="nc" id="L1177">            refreshAll();</span>
+        }
+<span class="nc" id="L1179">    }</span>
+
+    /**
+     * Cache the list of visible targets. This is used for the 'next target'
+     * button.
+     * &lt;p/&gt;
+     * We'll sort it by range to us.
+     */
+    private void cacheVisibleTargets() {
+<span class="nc" id="L1188">        clearVisibleTargets();</span>
+
+<span class="nc" id="L1190">        List&lt;Entity&gt; vec = clientgui.getClient().getGame().getValidTargets(ce());</span>
+<span class="nc" id="L1191">        Comparator&lt;Entity&gt; sortComp = new Comparator&lt;Entity&gt;() {</span>
+            public int compare(Entity x, Entity y) {
+
+<span class="nc" id="L1194">                int rangeToX = ce().getPosition().distance(x.getPosition());</span>
+<span class="nc" id="L1195">                int rangeToY = ce().getPosition().distance(y.getPosition());</span>
+
+<span class="nc bnc" id="L1197" title="All 2 branches missed.">                if (rangeToX == rangeToY) {</span>
+<span class="nc bnc" id="L1198" title="All 2 branches missed.">                    return x.getId() &lt; y.getId() ? -1 : 1;</span>
+                }
+
+<span class="nc bnc" id="L1201" title="All 2 branches missed.">                return rangeToX &lt; rangeToY ? -1 : 1;</span>
+            }
+        };
+
+<span class="nc" id="L1205">        TreeSet&lt;Entity&gt; tree = new TreeSet&lt;Entity&gt;(sortComp);</span>
+<span class="nc" id="L1206">        visibleTargets = new Entity[vec.size()];</span>
+
+<span class="nc bnc" id="L1208" title="All 2 branches missed.">        for (int i = 0; i &lt; vec.size(); i++) {</span>
+<span class="nc" id="L1209">            tree.add(vec.get(i));</span>
+        }
+
+<span class="nc" id="L1212">        Iterator&lt;Entity&gt; it = tree.iterator();</span>
+<span class="nc" id="L1213">        int count = 0;</span>
+<span class="nc bnc" id="L1214" title="All 2 branches missed.">        while (it.hasNext()) {</span>
+<span class="nc" id="L1215">            visibleTargets[count++] = it.next();</span>
+        }
+
+<span class="nc bnc" id="L1218" title="All 2 branches missed.">        setNextTargetEnabled(visibleTargets.length &gt; 0);</span>
+<span class="nc" id="L1219">    }</span>
+
+    private void clearVisibleTargets() {
+<span class="nc" id="L1222">        visibleTargets = null;</span>
+<span class="nc" id="L1223">        lastTargetID = -1;</span>
+<span class="nc" id="L1224">        setNextTargetEnabled(false);</span>
+<span class="nc" id="L1225">    }</span>
+
+    /**
+     * Get the next target. Return null if we don't have any targets.
+     */
+    private Entity getNextTarget() {
+<span class="nc bnc" id="L1231" title="All 2 branches missed.">        if (null == visibleTargets) {</span>
+<span class="nc" id="L1232">            return null;</span>
+        }
+
+<span class="nc" id="L1235">        lastTargetID++;</span>
+
+<span class="nc bnc" id="L1237" title="All 2 branches missed.">        if (lastTargetID &gt;= visibleTargets.length) {</span>
+<span class="nc" id="L1238">            lastTargetID = 0;</span>
+        }
+
+<span class="nc" id="L1241">        return visibleTargets[lastTargetID];</span>
+    }
+
+    /**
+     * Jump to our next target. If there isn't one, well, don't do anything.
+     */
+    private void jumpToNextTarget() {
+<span class="nc" id="L1248">        Entity targ = getNextTarget();</span>
+
+<span class="nc bnc" id="L1250" title="All 2 branches missed.">        if (null == targ) {</span>
+<span class="nc" id="L1251">            return;</span>
+        }
+
+<span class="nc" id="L1254">        clientgui.bv.centerOnHex(targ.getPosition());</span>
+<span class="nc" id="L1255">        clientgui.getBoardView().select(targ.getPosition());</span>
+
+<span class="nc" id="L1257">        target(targ);</span>
+<span class="nc" id="L1258">    }</span>
+    
+    /**
+     * Get the next target. Return null if we don't have any targets.
+     */
+    private Entity getPrevTarget() {
+<span class="nc bnc" id="L1264" title="All 2 branches missed.">        if (visibleTargets == null) {</span>
+<span class="nc" id="L1265">            return null;</span>
+        }
+
+<span class="nc" id="L1268">        lastTargetID--;</span>
+
+<span class="nc bnc" id="L1270" title="All 2 branches missed.">        if (lastTargetID &lt; 0) {</span>
+<span class="nc" id="L1271">            lastTargetID = visibleTargets.length - 1;</span>
+        }
+
+<span class="nc" id="L1274">        return visibleTargets[lastTargetID];</span>
+    }
+    
+    /**
+     * Jump to our next target. If there isn't one, well, don't do anything.
+     */
+    private void jumpToPrevTarget() {
+<span class="nc" id="L1281">        Entity targ = getPrevTarget();</span>
+
+<span class="nc bnc" id="L1283" title="All 2 branches missed.">        if (targ == null) {</span>
+<span class="nc" id="L1284">            return;</span>
+        }
+
+<span class="nc" id="L1287">        clientgui.bv.centerOnHex(targ.getPosition());</span>
+<span class="nc" id="L1288">        clientgui.getBoardView().select(targ.getPosition());</span>
+
+<span class="nc" id="L1290">        target(targ);</span>
+<span class="nc" id="L1291">    }    </span>
+
+    /**
+     * Returns the current entity.
+     */
+    Entity ce() {
+<span class="nc" id="L1297">        return clientgui.getClient().getGame().getEntity(cen);</span>
+    }
+
+    //
+    // BoardListener
+    //
+    @Override
+    public void hexMoused(BoardViewEvent b) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L1307" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L1308">            return;</span>
+        }
+
+        // ignore buttons other than 1
+<span class="nc bnc" id="L1312" title="All 2 branches missed.">        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L1313" title="All 2 branches missed.">            || ((b.getModifiers() &amp; InputEvent.BUTTON1_MASK) == 0)) {</span>
+<span class="nc" id="L1314">            return;</span>
+        }
+        // control pressed means a line of sight check.
+        // added ALT_MASK by kenn
+<span class="nc bnc" id="L1318" title="All 2 branches missed.">        if (((b.getModifiers() &amp; InputEvent.CTRL_MASK) != 0)</span>
+<span class="nc bnc" id="L1319" title="All 2 branches missed.">            || ((b.getModifiers() &amp; InputEvent.ALT_MASK) != 0)) {</span>
+<span class="nc" id="L1320">            return;</span>
+        }
+        // check for shifty goodness
+<span class="nc bnc" id="L1323" title="All 4 branches missed.">        if (shiftheld != ((b.getModifiers() &amp; InputEvent.SHIFT_MASK) != 0)) {</span>
+<span class="nc bnc" id="L1324" title="All 2 branches missed.">            shiftheld = (b.getModifiers() &amp; InputEvent.SHIFT_MASK) != 0;</span>
+        }
+
+<span class="nc bnc" id="L1327" title="All 2 branches missed.">        if (b.getType() == BoardViewEvent.BOARD_HEX_DRAGGED) {</span>
+<span class="nc bnc" id="L1328" title="All 4 branches missed.">            if (shiftheld || twisting) {</span>
+<span class="nc" id="L1329">                updateFlipArms(false);</span>
+<span class="nc" id="L1330">                torsoTwist(b.getCoords());</span>
+            }
+<span class="nc" id="L1332">            clientgui.getBoardView().cursor(b.getCoords());</span>
+<span class="nc bnc" id="L1333" title="All 2 branches missed.">        } else if (b.getType() == BoardViewEvent.BOARD_HEX_CLICKED) {</span>
+<span class="nc" id="L1334">            twisting = false;</span>
+<span class="nc" id="L1335">            clientgui.getBoardView().select(b.getCoords());</span>
+        }
+<span class="nc" id="L1337">    }</span>
+
+    @Override
+    public void hexSelected(BoardViewEvent b) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L1343" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L1344">            return;</span>
+        }
+<span class="nc" id="L1346">        final Client client = clientgui.getClient();</span>
+
+<span class="nc bnc" id="L1348" title="All 4 branches missed.">        if (client.isMyTurn() &amp;&amp; (b.getCoords() != null)</span>
+<span class="nc bnc" id="L1349" title="All 4 branches missed.">                &amp;&amp; (ce() != null) &amp;&amp; !b.getCoords().equals(ce().getPosition())) {</span>
+<span class="nc bnc" id="L1350" title="All 2 branches missed.">            if (shiftheld) {</span>
+<span class="nc" id="L1351">                updateFlipArms(false);</span>
+<span class="nc" id="L1352">                torsoTwist(b.getCoords());</span>
+<span class="nc bnc" id="L1353" title="All 2 branches missed.">            } else if (phase == IGame.Phase.PHASE_TARGETING) {</span>
+<span class="nc" id="L1354">                target(new HexTarget(b.getCoords(), ce().getGame().getBoard(),</span>
+                        Targetable.TYPE_HEX_ARTILLERY));
+            } else {
+<span class="nc" id="L1357">                target(chooseTarget(b.getCoords()));</span>
+            }
+        }
+<span class="nc" id="L1360">    }</span>
+
+    /**
+     * Have the player select a target from the entities at the given coords.
+     *
+     * @param pos - the &lt;code&gt;Coords&lt;/code&gt; containing targets.
+     */
+    private Targetable chooseTarget(Coords pos) {
+
+<span class="nc" id="L1369">        boolean friendlyFire = clientgui.getClient().getGame().getOptions()</span>
+<span class="nc" id="L1370">                .booleanOption(OptionsConstants.BASE_FRIENDLY_FIRE); //$NON-NLS-1$</span>
+        // Assume that we have *no* choice.
+<span class="nc" id="L1372">        Targetable choice = null;</span>
+        Iterator&lt;Entity&gt; choices;
+
+        // Get the available choices, depending on friendly fire
+<span class="nc bnc" id="L1376" title="All 2 branches missed.">        if (friendlyFire) {</span>
+<span class="nc" id="L1377">            choices = clientgui.getClient().getGame().getEntities(pos);</span>
+        } else {
+<span class="nc" id="L1379">            choices = clientgui.getClient().getGame()</span>
+<span class="nc" id="L1380">                    .getEnemyEntities(pos, ce());</span>
+        }
+
+        // Convert the choices into a List of targets.
+<span class="nc" id="L1384">        List&lt;Targetable&gt; targets = new ArrayList&lt;Targetable&gt;();</span>
+<span class="nc" id="L1385">        final IPlayer localPlayer = clientgui.getClient().getLocalPlayer();</span>
+<span class="nc bnc" id="L1386" title="All 2 branches missed.">        while (choices.hasNext()) {</span>
+<span class="nc" id="L1387">            Targetable t = choices.next();</span>
+<span class="nc" id="L1388">            boolean isSensorReturn = false;</span>
+<span class="nc" id="L1389">            boolean isVisible = true;</span>
+<span class="nc bnc" id="L1390" title="All 2 branches missed.">            if (t instanceof Entity) {</span>
+<span class="nc" id="L1391">                isSensorReturn = ((Entity) t).isSensorReturn(localPlayer);</span>
+<span class="nc" id="L1392">                isVisible = ((Entity) t).hasSeenEntity(localPlayer);</span>
+            }
+<span class="nc bnc" id="L1394" title="All 6 branches missed.">            if (!ce().equals(t) &amp;&amp; !isSensorReturn &amp;&amp; isVisible) {</span>
+<span class="nc" id="L1395">                targets.add(t);</span>
+            }
+<span class="nc" id="L1397">        }</span>
+
+        // Is there a building in the hex?
+<span class="nc" id="L1400">        Building bldg = clientgui.getClient().getGame().getBoard()</span>
+<span class="nc" id="L1401">                .getBuildingAt(pos);</span>
+<span class="nc bnc" id="L1402" title="All 2 branches missed.">        if (bldg != null) {</span>
+<span class="nc" id="L1403">            targets.add(new BuildingTarget(pos, clientgui.getClient().getGame()</span>
+<span class="nc" id="L1404">                    .getBoard(), Targetable.TYPE_BLDG_TAG));</span>
+        }
+
+<span class="nc" id="L1407">        targets.add(new HexTarget(pos, clientgui.getClient().getGame()</span>
+<span class="nc" id="L1408">                .getBoard(), Targetable.TYPE_HEX_TAG));</span>
+
+        // Do we have a single choice?
+<span class="nc bnc" id="L1411" title="All 2 branches missed.">        if (targets.size() == 1) {</span>
+            // Return that choice.
+<span class="nc" id="L1413">            choice = targets.get(0);</span>
+        }
+
+        // If we have multiple choices, display a selection dialog.
+<span class="nc bnc" id="L1417" title="All 2 branches missed.">        else if (targets.size() &gt; 1) {</span>
+<span class="nc" id="L1418">            String input = (String) JOptionPane</span>
+<span class="nc" id="L1419">                    .showInputDialog(</span>
+                            clientgui,
+<span class="nc" id="L1421">                            Messages.getString(</span>
+                                    &quot;FiringDisplay.ChooseTargetDialog.message&quot;, //$NON-NLS-1$ 
+<span class="nc" id="L1423">                                    new Object[] { pos.getBoardNum() }),</span>
+<span class="nc" id="L1424">                            Messages.getString(&quot;FiringDisplay.ChooseTargetDialog.title&quot;), //$NON-NLS-1$</span>
+                            JOptionPane.QUESTION_MESSAGE, null, SharedUtility
+<span class="nc" id="L1426">                                    .getDisplayArray(targets), null);</span>
+<span class="nc" id="L1427">            choice = SharedUtility.getTargetPicked(targets, input);</span>
+        } // End have-choices
+
+        // Return the chosen unit.
+<span class="nc" id="L1431">        return choice;</span>
+
+    } // End private Targetable chooseTarget( Coords )
+
+    //
+    // GameListener
+    //
+    @Override
+    public void gameTurnChange(GameTurnChangeEvent e) {
+
+        // In case of a /reset command, ensure the state gets reset
+<span class="nc bnc" id="L1442" title="All 2 branches missed.">        if (clientgui.getClient().getGame().getPhase() == IGame.Phase.PHASE_LOUNGE) {</span>
+<span class="nc" id="L1443">            endMyTurn();</span>
+        }
+        // On simultaneous phases, each player ending their turn will generalte a turn change
+        // We want to ignore turns from other players and only listen to events we generated
+        // Except on the first turn
+<span class="nc bnc" id="L1448" title="All 2 branches missed.">        if (clientgui.getClient().getGame().isPhaseSimultaneous()</span>
+<span class="nc bnc" id="L1449" title="All 2 branches missed.">                &amp;&amp; (e.getPreviousPlayerId() != clientgui.getClient().getLocalPlayerNumber())</span>
+<span class="nc bnc" id="L1450" title="All 2 branches missed.">                &amp;&amp; (clientgui.getClient().getGame().getTurnIndex() != 0)) {</span>
+<span class="nc" id="L1451">            return;</span>
+        }
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L1455" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L1456">            return;</span>
+        }
+
+<span class="nc bnc" id="L1459" title="All 2 branches missed.">        if (clientgui.getClient().getGame().getPhase() == phase) {</span>
+
+<span class="nc bnc" id="L1461" title="All 2 branches missed.">            if (clientgui.getClient().isMyTurn()) {</span>
+<span class="nc bnc" id="L1462" title="All 2 branches missed.">                if (cen == Entity.NONE) {</span>
+<span class="nc" id="L1463">                    beginMyTurn();</span>
+                }
+<span class="nc" id="L1465">                setStatusBarText(Messages</span>
+<span class="nc" id="L1466">                        .getString(&quot;TargetingPhaseDisplay.its_your_turn&quot;)); //$NON-NLS-1$</span>
+            } else {
+<span class="nc" id="L1468">                endMyTurn();</span>
+<span class="nc bnc" id="L1469" title="All 2 branches missed.">                if (e.getPlayer() != null) {</span>
+<span class="nc" id="L1470">                    setStatusBarText(Messages.getString(</span>
+                            &quot;TargetingPhaseDisplay.its_others_turn&quot;, //$NON-NLS-1$
+<span class="nc" id="L1472">                            new Object[] { e.getPlayer().getName() }));</span>
+                }
+
+            }
+        }
+<span class="nc" id="L1477">    }</span>
+
+    @Override
+    public void gamePhaseChange(GamePhaseChangeEvent e) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L1483" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L1484">            return;</span>
+        }
+
+<span class="nc bnc" id="L1487" title="All 2 branches missed.">        if (clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L1488" title="All 2 branches missed.">                &amp;&amp; (clientgui.getClient().getGame().getPhase() != phase)) {</span>
+<span class="nc" id="L1489">            endMyTurn();</span>
+        }
+        // if we're ending the firing phase, unregister stuff.
+<span class="nc bnc" id="L1492" title="All 2 branches missed.">        if (clientgui.getClient().getGame().getPhase() == phase) {</span>
+<span class="nc" id="L1493">            setStatusBarText(Messages</span>
+<span class="nc" id="L1494">                    .getString(&quot;TargetingPhaseDisplay.waitingForFiringPhase&quot;)); //$NON-NLS-1$</span>
+        }
+<span class="nc" id="L1496">    }</span>
+
+    //
+    // ActionListener
+    //
+    public void actionPerformed(ActionEvent ev) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L1504" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L1505">            return;</span>
+        }
+
+<span class="nc bnc" id="L1508" title="All 2 branches missed.">        if (statusBarActionPerformed(ev, clientgui.getClient())) {</span>
+<span class="nc" id="L1509">            return;</span>
+        }
+
+<span class="nc bnc" id="L1512" title="All 2 branches missed.">        if (!clientgui.getClient().isMyTurn()) {</span>
+<span class="nc" id="L1513">            return;</span>
+        }
+
+<span class="nc bnc" id="L1516" title="All 2 branches missed.">        if (ev.getActionCommand().equals(TargetingCommand.FIRE_FIRE.getCmd())) {</span>
+<span class="nc" id="L1517">            fire();</span>
+<span class="nc bnc" id="L1518" title="All 2 branches missed.">        } else if (ev.getActionCommand().equals(TargetingCommand.FIRE_SKIP.getCmd())) {</span>
+<span class="nc" id="L1519">            nextWeapon();</span>
+<span class="nc bnc" id="L1520" title="All 2 branches missed.">        } else if (ev.getActionCommand().equals(TargetingCommand.FIRE_TWIST.getCmd())) {</span>
+<span class="nc" id="L1521">            twisting = true;</span>
+<span class="nc bnc" id="L1522" title="All 2 branches missed.">        } else if (ev.getActionCommand().equals(TargetingCommand.FIRE_NEXT.getCmd())) {</span>
+<span class="nc" id="L1523">            selectEntity(clientgui.getClient().getNextEntityNum(cen));</span>
+<span class="nc bnc" id="L1524" title="All 2 branches missed.">        } else if (ev.getActionCommand().equals(TargetingCommand.FIRE_NEXT_TARG.getCmd())) {</span>
+<span class="nc" id="L1525">            jumpToNextTarget();</span>
+<span class="nc bnc" id="L1526" title="All 2 branches missed.">        } else if (ev.getActionCommand().equals(TargetingCommand.FIRE_FLIP_ARMS.getCmd())) {</span>
+<span class="nc bnc" id="L1527" title="All 2 branches missed.">            updateFlipArms(!ce().getArmsFlipped());</span>
+<span class="nc bnc" id="L1528" title="All 2 branches missed.">        } else if (ev.getActionCommand().equals(TargetingCommand.FIRE_MODE.getCmd())) {</span>
+<span class="nc" id="L1529">            changeMode(true);</span>
+<span class="nc bnc" id="L1530" title="All 2 branches missed.">        } else if (ev.getActionCommand().equals(TargetingCommand.FIRE_CANCEL.getCmd())) {</span>
+<span class="nc" id="L1531">            clear();</span>
+<span class="nc bnc" id="L1532" title="All 2 branches missed.">        } else if (ev.getActionCommand().equals(TargetingCommand.FIRE_SEARCHLIGHT.getCmd())) {</span>
+<span class="nc" id="L1533">            doSearchlight();</span>
+        }
+<span class="nc" id="L1535">    }</span>
+
+    private void updateFlipArms(boolean armsFlipped) {
+<span class="nc bnc" id="L1538" title="All 2 branches missed.">        if (armsFlipped == ce().getArmsFlipped()) {</span>
+<span class="nc" id="L1539">            return;</span>
+        }
+
+<span class="nc" id="L1542">        twisting = false;</span>
+
+<span class="nc" id="L1544">        torsoTwist(null);</span>
+
+<span class="nc" id="L1546">        clearAttacks();</span>
+<span class="nc" id="L1547">        ce().setArmsFlipped(armsFlipped);</span>
+<span class="nc" id="L1548">        attacks.addElement(new FlipArmsAction(cen, armsFlipped));</span>
+<span class="nc" id="L1549">        updateTarget();</span>
+<span class="nc" id="L1550">        refreshAll();</span>
+<span class="nc" id="L1551">    }</span>
+
+    private void updateSearchlight() {
+<span class="nc bnc" id="L1554" title="All 4 branches missed.">        setSearchlightEnabled((ce() != null)</span>
+                &amp;&amp; (target != null)
+<span class="nc bnc" id="L1556" title="All 2 branches missed.">                &amp;&amp; ce().isUsingSpotlight()</span>
+<span class="nc bnc" id="L1557" title="All 2 branches missed.">                &amp;&amp; ce().getCrew().isActive()</span>
+<span class="nc bnc" id="L1558" title="All 2 branches missed.">                &amp;&amp; SearchlightAttackAction.isPossible(clientgui.getClient()</span>
+<span class="nc" id="L1559">                        .getGame(), cen, target, null));</span>
+<span class="nc" id="L1560">    }</span>
+
+    private void setFireEnabled(boolean enabled) {
+<span class="nc" id="L1563">        buttons.get(TargetingCommand.FIRE_FIRE).setEnabled(enabled);</span>
+<span class="nc" id="L1564">        clientgui.getMenuBar().setFireFireEnabled(enabled);</span>
+<span class="nc" id="L1565">    }</span>
+
+    private void setTwistEnabled(boolean enabled) {
+<span class="nc" id="L1568">        buttons.get(TargetingCommand.FIRE_TWIST).setEnabled(enabled);</span>
+<span class="nc" id="L1569">        clientgui.getMenuBar().setFireTwistEnabled(enabled);</span>
+<span class="nc" id="L1570">    }</span>
+
+    private void setSkipEnabled(boolean enabled) {
+<span class="nc" id="L1573">        buttons.get(TargetingCommand.FIRE_SKIP).setEnabled(enabled);</span>
+<span class="nc" id="L1574">        clientgui.getMenuBar().setFireSkipEnabled(enabled);</span>
+<span class="nc" id="L1575">    }</span>
+
+    private void setFlipArmsEnabled(boolean enabled) {
+<span class="nc" id="L1578">        buttons.get(TargetingCommand.FIRE_FLIP_ARMS).setEnabled(enabled);</span>
+<span class="nc" id="L1579">        clientgui.getMenuBar().setFireFlipArmsEnabled(enabled);</span>
+<span class="nc" id="L1580">    }</span>
+
+    private void setNextEnabled(boolean enabled) {
+<span class="nc" id="L1583">        buttons.get(TargetingCommand.FIRE_NEXT).setEnabled(enabled);</span>
+<span class="nc" id="L1584">        clientgui.getMenuBar().setFireNextEnabled(enabled);</span>
+<span class="nc" id="L1585">    }</span>
+
+    private void setSearchlightEnabled(boolean enabled) {
+<span class="nc" id="L1588">        buttons.get(TargetingCommand.FIRE_SEARCHLIGHT).setEnabled(enabled);</span>
+<span class="nc" id="L1589">        clientgui.getMenuBar().setFireSearchlightEnabled(enabled);</span>
+<span class="nc" id="L1590">    }</span>
+
+    private void setFireModeEnabled(boolean enabled) {
+<span class="nc" id="L1593">        buttons.get(TargetingCommand.FIRE_MODE).setEnabled(enabled);</span>
+<span class="nc" id="L1594">        clientgui.getMenuBar().setFireModeEnabled(enabled);</span>
+<span class="nc" id="L1595">    }</span>
+
+    private void setNextTargetEnabled(boolean enabled) {
+<span class="nc" id="L1598">        buttons.get(TargetingCommand.FIRE_NEXT_TARG).setEnabled(enabled);</span>
+<span class="nc" id="L1599">        clientgui.getMenuBar().setFireNextTargetEnabled(enabled);</span>
+<span class="nc" id="L1600">    }</span>
+
+    @Override
+    public void clear() {
+<span class="nc" id="L1604">        clearAttacks();</span>
+<span class="nc" id="L1605">        clientgui.getBoardView().select(null);</span>
+<span class="nc" id="L1606">        clientgui.getBoardView().cursor(null);</span>
+<span class="nc" id="L1607">        refreshAll();</span>
+<span class="nc" id="L1608">    }</span>
+
+    //
+    // ItemListener
+    //
+    public void itemStateChanged(ItemEvent ev) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L1616" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L1617">            return;</span>
+        }
+
+<span class="nc" id="L1620">    }</span>
+
+    // board view listener
+    @Override
+    public void finishedMovingUnits(BoardViewEvent b) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L1627" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L1628">            return;</span>
+        }
+
+<span class="nc bnc" id="L1631" title="All 4 branches missed.">        if (clientgui.getClient().isMyTurn() &amp;&amp; (ce() != null)) {</span>
+<span class="nc" id="L1632">            clientgui.setDisplayVisible(true);</span>
+<span class="nc" id="L1633">            clientgui.bv.centerOnHex(ce().getPosition());</span>
+        }
+<span class="nc" id="L1635">    }</span>
+
+    @Override
+    public void unitSelected(BoardViewEvent b) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L1641" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L1642">            return;</span>
+        }
+
+<span class="nc" id="L1645">        Entity e = clientgui.getClient().getGame().getEntity(b.getEntityId());</span>
+<span class="nc bnc" id="L1646" title="All 2 branches missed.">        if (clientgui.getClient().isMyTurn()) {</span>
+<span class="nc" id="L1647">            if (clientgui.getClient().getMyTurn()</span>
+<span class="nc bnc" id="L1648" title="All 2 branches missed.">                    .isValidEntity(e, clientgui.getClient().getGame())) {</span>
+<span class="nc" id="L1649">                selectEntity(e.getId());</span>
+            }
+        } else {
+<span class="nc" id="L1652">            clientgui.setDisplayVisible(true);</span>
+<span class="nc" id="L1653">            clientgui.mechD.displayEntity(e);</span>
+<span class="nc bnc" id="L1654" title="All 2 branches missed.">            if (e.isDeployed()) {</span>
+<span class="nc" id="L1655">                clientgui.bv.centerOnHex(e.getPosition());</span>
+            }
+        }
+<span class="nc" id="L1658">    }</span>
+
+    /**
+     * Stop just ignoring events and actually stop listening to them.
+     */
+    public void removeAllListeners() {
+<span class="nc" id="L1664">        clientgui.getClient().getGame().removeGameListener(this);</span>
+<span class="nc" id="L1665">        clientgui.getBoardView().removeBoardViewListener(this);</span>
+<span class="nc" id="L1666">        clientgui.mechD.wPan.weaponList.removeListSelectionListener(this);</span>
+<span class="nc" id="L1667">    }</span>
+
+    public void valueChanged(ListSelectionEvent event) {
+<span class="nc bnc" id="L1670" title="All 2 branches missed.">        if (event.getValueIsAdjusting()) {</span>
+<span class="nc" id="L1671">            return;</span>
+        }
+<span class="nc bnc" id="L1673" title="All 2 branches missed.">        if (event.getSource().equals(clientgui.mechD.wPan.weaponList)) {</span>
+            // update target data in weapon display
+<span class="nc" id="L1675">            updateTarget();</span>
+        }
+<span class="nc" id="L1677">    }</span>
+    
+    public void FieldofFire(Entity unit, int[][] ranges, int arc, int loc, int facing) {
+        // do nothing here outside the arty targeting phase
+<span class="nc bnc" id="L1681" title="All 2 branches missed.">        if (!(clientgui.getClient().getGame().getPhase() == Phase.PHASE_TARGETING)) return;</span>
+        
+<span class="nc" id="L1683">        clientgui.bv.fieldofFireUnit = unit;</span>
+<span class="nc" id="L1684">        clientgui.bv.fieldofFireRanges = ranges;</span>
+<span class="nc" id="L1685">        clientgui.bv.fieldofFireWpArc = arc;</span>
+<span class="nc" id="L1686">        clientgui.bv.fieldofFireWpLoc = loc;</span>
+        
+<span class="nc" id="L1688">        clientgui.bv.setWeaponFieldofFire(facing, unit.getPosition());</span>
+<span class="nc" id="L1689">    }</span>
+    
+    
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

@@ -1,0 +1,1266 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BasicPathRanker.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">BasicPathRanker.java</span></div><h1>BasicPathRanker.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.bot.princess;
+
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+
+import megamek.client.bot.princess.BotGeometry.ConvexBoardArea;
+import megamek.client.bot.princess.BotGeometry.CoordFacingCombo;
+import megamek.client.bot.princess.BotGeometry.HexLine;
+import megamek.client.bot.princess.UnitBehavior.BehaviorType;
+import megamek.common.BattleArmor;
+import megamek.common.BipedMech;
+import megamek.common.BuildingTarget;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.EntityMovementMode;
+import megamek.common.EntityMovementType;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.Infantry;
+import megamek.common.LosEffects;
+import megamek.common.Mech;
+import megamek.common.MechWarrior;
+import megamek.common.MiscType;
+import megamek.common.MovePath;
+import megamek.common.MoveStep;
+import megamek.common.Protomech;
+import megamek.common.QuadMech;
+import megamek.common.Tank;
+import megamek.common.TargetRoll;
+import megamek.common.Targetable;
+import megamek.common.Terrains;
+import megamek.common.TripodMech;
+import megamek.common.options.OptionsConstants;
+
+/**
+ * A very &quot;basic&quot; pathranker
+ */
+public class BasicPathRanker extends PathRanker implements IPathRanker {
+
+    // this is a value used to indicate how much we value the unit being at its destination
+<span class="nc" id="L64">    private final int ARRIVED_AT_DESTINATION_FACTOR = 250;</span>
+    
+    // this is a value used to indicate how much we dis-value the unit being destroyed as a result of
+    // what it's doing
+<span class="nc" id="L68">    private final int UNIT_DESTRUCTION_FACTOR = 1000;</span>
+    
+<span class="nc" id="L70">    protected final DecimalFormat LOG_DECIMAL =</span>
+<span class="nc" id="L71">            new DecimalFormat(&quot;0.00&quot;, DecimalFormatSymbols.getInstance());</span>
+<span class="nc" id="L72">    private final NumberFormat LOG_INT = NumberFormat.getIntegerInstance();</span>
+<span class="nc" id="L73">    protected final NumberFormat LOG_PERCENT = NumberFormat.getPercentInstance();</span>
+
+    private PathEnumerator pathEnumerator;
+
+    // the best damage enemies could expect were I not here. Used to determine 
+    // whether they will target me.
+    private Map&lt;Integer, Double&gt; bestDamageByEnemies;
+    
+    public BasicPathRanker(Princess owningPrincess) {
+<span class="nc" id="L82">        super(owningPrincess);</span>
+        
+<span class="nc" id="L84">        bestDamageByEnemies = new TreeMap&lt;&gt;();</span>
+        
+<span class="nc" id="L86">        getOwner().getLogger().debug(&quot;Using &quot; + getOwner().getBehaviorSettings().getDescription()</span>
+                        + &quot; behavior&quot;);
+<span class="nc" id="L88">    }</span>
+    
+    FireControl getFireControl(Entity entity) {
+<span class="nc" id="L91">        return getOwner().getFireControl(entity);</span>
+    }
+
+    void setPathEnumerator(PathEnumerator pathEnumerator) {
+<span class="nc" id="L95">        this.pathEnumerator = pathEnumerator;</span>
+<span class="nc" id="L96">    }</span>
+    
+    PathEnumerator getPathEnumerator() {
+<span class="nc" id="L99">        return pathEnumerator;</span>
+    }
+
+    Map&lt;Integer, Double&gt; getBestDamageByEnemies() {
+<span class="nc" id="L103">        return bestDamageByEnemies;</span>
+    }
+
+    Coords getClosestCoordsTo(int unitId, Coords location) {
+<span class="nc" id="L107">        ConvexBoardArea box = pathEnumerator.getUnitMovableAreas().get(unitId);</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (box == null) {</span>
+<span class="nc" id="L109">            return null;</span>
+        }
+<span class="nc" id="L111">        return box.getClosestCoordsTo(location);</span>
+    }
+
+    boolean isInMyLoS(Entity unit, HexLine leftBounds, HexLine rightBounds) {
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        return (leftBounds.judgeArea(pathEnumerator.getUnitMovableAreas().get(unit.getId())) &gt; 0)</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">               &amp;&amp; (rightBounds.judgeArea(pathEnumerator.getUnitMovableAreas().get(unit.getId())) &lt; 0);</span>
+    }
+
+    double getMaxDamageAtRange(FireControl fireControl, Entity shooter,
+                               int range, boolean useExtremeRange,
+                               boolean useLOSRange) {
+<span class="nc" id="L122">        return fireControl.getMaxDamageAtRange(shooter, range, useExtremeRange,</span>
+                                               useLOSRange);
+    }
+
+    boolean canFlankAndKick(Entity enemy, Coords behind, Coords leftFlank,
+                            Coords rightFlank, int myFacing) {
+<span class="nc" id="L128">        Set&lt;CoordFacingCombo&gt; enemyFacingSet =</span>
+<span class="nc" id="L129">                pathEnumerator.getUnitPotentialLocations().get(enemy.getId());</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">        if (enemyFacingSet == null) {</span>
+<span class="nc" id="L131">            getOwner().getLogger().warning(&quot;no facing set for &quot; + enemy.getDisplayName());</span>
+<span class="nc" id="L132">            return false;</span>
+        }
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        return enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(behind, myFacing))</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">               || enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(behind, (myFacing + 1) % 6))</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">               || enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(behind, (myFacing + 5) % 6))</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">               || enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(leftFlank, myFacing))</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">               || enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(leftFlank, (myFacing + 4) % 6))</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">               || enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(leftFlank, (myFacing + 5) % 6))</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">               || enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(rightFlank, myFacing))</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">               || enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(rightFlank, (myFacing + 1) % 6))</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">               || enemyFacingSet.contains(CoordFacingCombo.createCoordFacingCombo(rightFlank, (myFacing + 2) % 6));</span>
+    }
+
+    /**
+     * Guesses a number of things about an enemy that has not yet moved
+     * TODO estimated damage is sloppy.  Improve for missile attacks, gun skill, and range
+     */
+    EntityEvaluationResponse evaluateUnmovedEnemy(Entity enemy, MovePath path,
+                                                  boolean useExtremeRange,
+                                                  boolean useLOSRange) {
+        //some preliminary calculations
+<span class="nc" id="L153">        final double damageDiscount = 0.25;</span>
+<span class="nc" id="L154">        EntityEvaluationResponse returnResponse =</span>
+                new EntityEvaluationResponse();
+
+        //Airborne aeros on ground maps always move after other units, and would require an 
+        // entirely different evaluation
+        //TODO (low priority) implement a way to see if I can dodge aero units
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        if (enemy.isAirborneAeroOnGroundMap()) {</span>
+<span class="nc" id="L161">            return returnResponse;</span>
+        }
+        
+<span class="nc" id="L164">        Coords finalCoords = path.getFinalCoords();</span>
+<span class="nc" id="L165">        int myFacing = path.getFinalFacing();</span>
+<span class="nc" id="L166">        Coords behind = finalCoords.translated((myFacing + 3) % 6);</span>
+<span class="nc" id="L167">        Coords leftFlank = finalCoords.translated((myFacing + 2) % 6);</span>
+<span class="nc" id="L168">        Coords rightFlank = finalCoords.translated((myFacing + 4) % 6);</span>
+<span class="nc" id="L169">        Coords closest = getClosestCoordsTo(enemy.getId(), finalCoords);</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (closest == null) {</span>
+<span class="nc" id="L171">            return returnResponse;</span>
+        }
+<span class="nc" id="L173">        int range = closest.distance(finalCoords);</span>
+
+        // I would prefer if the enemy must end its move in my line of fire 
+        // if so, I can guess that I may do some damage to it (cover 
+        // notwithstanding).  At the very least, I can force the enemy to 
+        // take cover on its move.
+        HexLine leftBounds;
+        HexLine rightBounds;
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        if (path.getEntity().canChangeSecondaryFacing()) {</span>
+<span class="nc" id="L182">            leftBounds = new HexLine(behind, (myFacing + 2) % 6);</span>
+<span class="nc" id="L183">            rightBounds = new HexLine(behind, (myFacing + 4) % 6);</span>
+        } else {
+<span class="nc" id="L185">            leftBounds = new HexLine(behind, (myFacing + 1) % 6);</span>
+<span class="nc" id="L186">            rightBounds = new HexLine(behind, (myFacing + 5) % 6);</span>
+        }
+<span class="nc" id="L188">        boolean inMyLos = isInMyLoS(enemy, leftBounds, rightBounds);</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (inMyLos) {</span>
+<span class="nc" id="L190">            returnResponse.addToMyEstimatedDamage(</span>
+<span class="nc" id="L191">                    getMaxDamageAtRange(getFireControl(path.getEntity()),</span>
+<span class="nc" id="L192">                                        path.getEntity(),</span>
+                                        range,
+                                        useExtremeRange,
+                                        useLOSRange) * damageDiscount);
+        }
+
+        //in general if an enemy can end its position in range, it can hit me
+<span class="nc" id="L199">        returnResponse.addToEstimatedEnemyDamage(</span>
+<span class="nc" id="L200">                getMaxDamageAtRange(getFireControl(enemy),</span>
+                                    enemy,
+                                    range,
+                                    useExtremeRange,
+                                    useLOSRange)
+                                                 * damageDiscount);
+
+        //It is especially embarrassing if the enemy can move behind or flank me and then kick me
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (canFlankAndKick(enemy, behind, leftFlank, rightFlank, myFacing)) {</span>
+<span class="nc" id="L209">            returnResponse.addToEstimatedEnemyDamage(</span>
+<span class="nc" id="L210">                    Math.ceil(enemy.getWeight() / 5.0) *</span>
+                    damageDiscount);
+        }
+        
+<span class="nc" id="L214">        return returnResponse;</span>
+    }
+
+    @Override
+    protected List&lt;TargetRoll&gt; getPSRList(MovePath path) {
+<span class="nc" id="L219">        return super.getPSRList(path);</span>
+    }
+
+    @Override
+    public double getMovePathSuccessProbability(MovePath movePath,
+                                                StringBuilder msg) {
+<span class="nc" id="L225">        return super.getMovePathSuccessProbability(movePath, msg);</span>
+    }
+
+    private double calculateFallMod(double successProbability,
+                                    StringBuilder formula) {
+<span class="nc" id="L230">        double pilotingFailure = (1 - successProbability);</span>
+<span class="nc" id="L231">        double fallShame = getOwner().getBehaviorSettings().getFallShameValue();</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        double fallMod = pilotingFailure * (pilotingFailure == 1 ? -UNIT_DESTRUCTION_FACTOR : fallShame);</span>
+<span class="nc" id="L233">        formula.append(&quot;fall mod [&quot;).append(LOG_DECIMAL.format(fallMod)).append(&quot; = &quot;)</span>
+<span class="nc" id="L234">               .append(LOG_DECIMAL.format(pilotingFailure)).append(&quot; * &quot;).append(LOG_DECIMAL.format(fallShame))</span>
+<span class="nc" id="L235">               .append(&quot;]&quot;);</span>
+<span class="nc" id="L236">        return fallMod;</span>
+    }
+
+    double calculateDamagePotential(Entity enemy,
+                                    EntityState shooterState,
+                                    MovePath path,
+                                    EntityState targetState,
+                                    int distance,
+                                    IGame game) {
+
+        // If they don't have the range, they can't do damage.
+<span class="nc" id="L247">        int maxRange = getOwner().getMaxWeaponRange(enemy, path.getEntity().isAirborne());</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        if (distance &gt; maxRange) {</span>
+<span class="nc" id="L249">            return 0;</span>
+        }
+
+        //  If they don't have LoS, they can't do damage.
+<span class="nc" id="L253">        LosEffects losEffects = </span>
+<span class="nc" id="L254">                LosEffects.calculateLos(game, enemy.getId(), path.getEntity(), shooterState.getPosition(), targetState.getPosition(), false);</span>
+        
+<span class="nc bnc" id="L256" title="All 2 branches missed.">        if (!losEffects.canSee()) {</span>
+<span class="nc" id="L257">            return 0;</span>
+        }
+        
+<span class="nc" id="L260">        Targetable actualTarget = path.getEntity();</span>
+        
+        // if the target is infantry protected by a building, we have to fire at the building instead. 
+<span class="nc bnc" id="L263" title="All 2 branches missed.">        if(losEffects.infantryProtected()) {</span>
+<span class="nc" id="L264">            actualTarget = new BuildingTarget(targetState.getPosition(), game.getBoard(), false);</span>
+<span class="nc" id="L265">            targetState = new EntityState(actualTarget);            </span>
+        }
+
+<span class="nc bnc" id="L268" title="All 2 branches missed.">        int maxHeat = (enemy.getHeatCapacity() - enemy.heat) + (enemy.isAero() ? 0 : 5);</span>
+<span class="nc" id="L269">        FiringPlanCalculationParameters guess =</span>
+                new FiringPlanCalculationParameters.Builder()
+<span class="nc" id="L271">                        .buildGuess(enemy,</span>
+                                    shooterState,
+                                    actualTarget,
+                                    targetState,
+                                    maxHeat,
+                                    null);
+<span class="nc" id="L277">        return getFireControl(path.getEntity()).determineBestFiringPlan(guess).getUtility();</span>
+    }
+
+    double calculateKickDamagePotential(Entity enemy, MovePath path,
+                                        IGame game) {
+
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        if (!(enemy instanceof Mech)) {</span>
+<span class="nc" id="L284">            return 0.0;</span>
+        }
+
+        // if they can kick me, and probably hit, they probably will.
+<span class="nc" id="L288">        PhysicalInfo theirKick = new PhysicalInfo(enemy, null,</span>
+<span class="nc" id="L289">                path.getEntity(), new EntityState(path),</span>
+<span class="nc" id="L290">                PhysicalAttackType.RIGHT_KICK, game, getOwner(), true);</span>
+
+<span class="nc bnc" id="L292" title="All 2 branches missed.">        if (theirKick.getProbabilityToHit() &lt;= 0.5) {</span>
+<span class="nc" id="L293">            return 0.0;</span>
+        }
+<span class="nc" id="L295">        return theirKick.getExpectedDamageOnHit() * theirKick.getProbabilityToHit();</span>
+    }
+
+    double calculateMyDamagePotential(MovePath path, Entity enemy,
+                                      int distance, IGame game) {
+<span class="nc" id="L300">        Entity me = path.getEntity();</span>
+
+        // If I don't have range, I can't do damage.
+        // exception: I might, if I'm an aero on a ground map attacking a ground unit because aero unit ranges are a &quot;special case&quot;
+<span class="nc bnc" id="L304" title="All 6 branches missed.">        boolean aeroAttackingGroundUnitOnGroundMap = me.isAirborne() &amp;&amp; !enemy.isAero() &amp;&amp; game.getBoard().onGround();</span>
+
+<span class="nc" id="L306">        int maxRange = getOwner().getMaxWeaponRange(me, enemy.isAirborne());</span>
+<span class="nc bnc" id="L307" title="All 4 branches missed.">        if (distance &gt; maxRange &amp;&amp; !aeroAttackingGroundUnitOnGroundMap) {</span>
+<span class="nc" id="L308">            return 0;</span>
+        }
+
+        // If I don't have LoS, I can't do damage.  ToDo: Account for indirect fire.
+<span class="nc" id="L312">        LosEffects losEffects = </span>
+<span class="nc" id="L313">                LosEffects.calculateLos(game, me.getId(), enemy, path.getFinalCoords(), enemy.getPosition(), false);</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">        if (!losEffects.canSee()) {</span>
+<span class="nc" id="L315">            return 0;</span>
+        }
+
+        // If I am an infantry unit that cannot both move and fire, and I am 
+        // moving, I can't do damage.
+<span class="nc bnc" id="L320" title="All 2 branches missed.">        boolean isZeroMpInfantry =</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">                me instanceof Infantry &amp;&amp; (me.getWalkMP() == 0);</span>
+<span class="nc bnc" id="L322" title="All 4 branches missed.">        if (isZeroMpInfantry &amp;&amp; path.getMpUsed() &gt; 0) {</span>
+<span class="nc" id="L323">            return 0;</span>
+        }
+
+        FiringPlan myFiringPlan;
+        // we're only going to do air to ground attack plans if we're an airborne aero attacking a ground unit
+<span class="nc bnc" id="L328" title="All 2 branches missed.">        if (aeroAttackingGroundUnitOnGroundMap) {</span>
+<span class="nc" id="L329">            myFiringPlan = getFireControl(path.getEntity()).guessFullAirToGroundPlan(me, enemy,</span>
+                                                                     new EntityState(enemy), path, game, false);
+        } else {
+<span class="nc" id="L332">            FiringPlanCalculationParameters guess =</span>
+                    new FiringPlanCalculationParameters.Builder()
+<span class="nc" id="L334">                            .buildGuess(path.getEntity(),</span>
+                                        new EntityState(path),
+                                        enemy,
+                                        null,
+<span class="nc" id="L338">                                        getFireControl(me).calcHeatTolerance(me, me.isAero()),</span>
+                                        null);
+<span class="nc" id="L340">            myFiringPlan = getFireControl(me).determineBestFiringPlan(guess);</span>
+        }
+<span class="nc" id="L342">        return myFiringPlan.getUtility();</span>
+    }
+
+    double calculateMyKickDamagePotential(MovePath path, Entity enemy,
+                                          IGame game) {
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        if (!(path.getEntity() instanceof Mech)) {</span>
+<span class="nc" id="L348">            return 0.0;</span>
+        }
+
+<span class="nc" id="L351">        PhysicalInfo myKick = new PhysicalInfo(path.getEntity(),</span>
+                new EntityState(path), enemy, null,
+<span class="nc" id="L353">                PhysicalAttackType.RIGHT_KICK, game, getOwner(), true);</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">        if (myKick.getProbabilityToHit() &lt;= 0.5) {</span>
+<span class="nc" id="L355">            return 0;</span>
+        }
+<span class="nc" id="L357">        return myKick.getExpectedDamageOnHit() * myKick.getProbabilityToHit();</span>
+    }
+
+    EntityEvaluationResponse evaluateMovedEnemy(Entity enemy, MovePath path,
+                                                IGame game) {
+
+<span class="nc" id="L363">        EntityEvaluationResponse returnResponse = new EntityEvaluationResponse();</span>
+
+<span class="nc" id="L365">        int distance = enemy.getPosition().distance(path.getFinalCoords());</span>
+        
+        // How much damage can they do to me?
+<span class="nc" id="L368">        double theirDamagePotential = calculateDamagePotential(enemy,</span>
+                                                               new EntityState(enemy),
+                                                               path,
+                                                               new EntityState(path),
+                                                               distance,
+                                                               game);
+
+        // if they can kick me, and probably hit, they probably will.
+<span class="nc bnc" id="L376" title="All 2 branches missed.">        if (distance &lt;= 1) {</span>
+<span class="nc" id="L377">            theirDamagePotential += calculateKickDamagePotential(enemy, path,</span>
+                                                                 game);
+        }
+<span class="nc" id="L380">        returnResponse.setEstimatedEnemyDamage(theirDamagePotential);</span>
+
+        // How much damage can I do to them?
+<span class="nc" id="L383">        returnResponse.setMyEstimatedDamage(calculateMyDamagePotential(path,</span>
+                                                                       enemy,
+                                                                       distance,
+                                                                       game));
+       
+        // How much physical damage can I do to them?
+<span class="nc bnc" id="L389" title="All 2 branches missed.">        if (distance &lt;= 1) {</span>
+<span class="nc" id="L390">            returnResponse.setMyEstimatedPhysicalDamage(</span>
+<span class="nc" id="L391">                    calculateMyKickDamagePotential(path, enemy, game));</span>
+        }
+
+<span class="nc" id="L394">        return returnResponse;</span>
+    }
+
+    // The further I am from a target, the lower this path ranks (weighted by 
+    // Hyper Aggression.
+    protected double calculateAggressionMod(Entity movingUnit, MovePath path,
+                                          IGame game, StringBuilder formula) {
+<span class="nc" id="L401">        double distToEnemy = distanceToClosestEnemy(movingUnit,</span>
+<span class="nc" id="L402">                                                    path.getFinalCoords(),</span>
+                                                    game);
+<span class="nc bnc" id="L404" title="All 4 branches missed.">        if ((distToEnemy == 0) &amp;&amp; !(movingUnit instanceof Infantry)) {</span>
+<span class="nc" id="L405">            distToEnemy = 2;</span>
+        }
+<span class="nc" id="L407">        double aggression = getOwner().getBehaviorSettings()</span>
+<span class="nc" id="L408">                                      .getHyperAggressionValue();</span>
+<span class="nc" id="L409">        double aggressionMod = distToEnemy * aggression;</span>
+<span class="nc" id="L410">        formula.append(&quot; - aggressionMod [&quot;)</span>
+<span class="nc" id="L411">               .append(LOG_DECIMAL.format(aggressionMod)).append(&quot; = &quot;)</span>
+<span class="nc" id="L412">               .append(LOG_DECIMAL.format(distToEnemy)).append(&quot; * &quot;)</span>
+<span class="nc" id="L413">               .append(LOG_DECIMAL.format(aggression)).append(&quot;]&quot;);</span>
+<span class="nc" id="L414">        return aggressionMod;</span>
+    }
+
+    // The further I am from my teammates, the lower this path ranks (weighted 
+    // by Herd Mentality).
+    protected double calculateHerdingMod(Coords friendsCoords, MovePath path,
+                                       StringBuilder formula) {
+<span class="nc bnc" id="L421" title="All 2 branches missed.">        if (friendsCoords == null) {</span>
+<span class="nc" id="L422">            formula.append(&quot; - herdingMod [0 no friends]&quot;);</span>
+<span class="nc" id="L423">            return 0;</span>
+        }
+
+<span class="nc" id="L426">        double distanceToAllies = friendsCoords.distance(path.getFinalCoords());</span>
+<span class="nc" id="L427">        double herding = getOwner().getBehaviorSettings()</span>
+<span class="nc" id="L428">                                   .getHerdMentalityValue();</span>
+<span class="nc" id="L429">        double herdingMod = distanceToAllies * herding;</span>
+<span class="nc" id="L430">        formula.append(&quot; - herdingMod [&quot;).append(LOG_DECIMAL.format(herdingMod))</span>
+<span class="nc" id="L431">               .append(&quot; = &quot;)</span>
+<span class="nc" id="L432">               .append(LOG_DECIMAL.format(distanceToAllies)).append(&quot; * &quot;)</span>
+<span class="nc" id="L433">               .append(LOG_DECIMAL.format(herding))</span>
+<span class="nc" id="L434">               .append(&quot;]&quot;);</span>
+<span class="nc" id="L435">        return herdingMod;</span>
+    }
+
+    // todo account for damaged locations and face those away from enemy.
+    private double calculateFacingMod(Entity movingUnit, IGame game,
+                                      final MovePath path,
+                                      StringBuilder formula) {
+
+<span class="nc" id="L443">        Targetable closest = findClosestEnemy(movingUnit, movingUnit.getPosition(),</span>
+                                          game, false);
+<span class="nc bnc" id="L445" title="All 2 branches missed.">        Coords toFace = closest == null ?</span>
+<span class="nc" id="L446">                        game.getBoard().getCenter() :</span>
+<span class="nc" id="L447">                        closest.getPosition();</span>
+<span class="nc" id="L448">        int desiredFacing = (toFace.direction(movingUnit.getPosition()) + 3) % 6;</span>
+<span class="nc" id="L449">        int currentFacing = path.getFinalFacing();</span>
+        int facingDiff;
+<span class="nc bnc" id="L451" title="All 2 branches missed.">        if (currentFacing == desiredFacing) {</span>
+<span class="nc" id="L452">            facingDiff = 0;</span>
+<span class="nc bnc" id="L453" title="All 4 branches missed.">        } else if ((currentFacing == ((desiredFacing + 1) % 6))</span>
+                   || (currentFacing == ((desiredFacing + 5) % 6))) {
+<span class="nc" id="L455">            facingDiff = 1;</span>
+<span class="nc bnc" id="L456" title="All 4 branches missed.">        } else if ((currentFacing == ((desiredFacing + 2) % 6))</span>
+                   || (currentFacing == ((desiredFacing + 4) % 6))) {
+<span class="nc" id="L458">            facingDiff = 2;</span>
+        } else {
+<span class="nc" id="L460">            facingDiff = 3;</span>
+        }
+<span class="nc" id="L462">        double facingMod = Math.max(0.0, 50 * (facingDiff - 1));</span>
+<span class="nc" id="L463">        formula.append(&quot; - facingMod [&quot;).append(LOG_DECIMAL.format(facingMod))</span>
+<span class="nc" id="L464">               .append(&quot; = max(&quot;)</span>
+<span class="nc" id="L465">               .append(LOG_INT.format(0)).append(&quot;, &quot;)</span>
+<span class="nc" id="L466">               .append(LOG_INT.format(50)).append(&quot; * {&quot;)</span>
+<span class="nc" id="L467">               .append(LOG_INT.format(facingDiff)).append(&quot; - &quot;)</span>
+<span class="nc" id="L468">               .append(LOG_INT.format(1)).append(&quot;})]&quot;);</span>
+<span class="nc" id="L469">        return facingMod;</span>
+    }
+
+    /**
+     * If intentionally attempting to reach some board edge, favor paths that take me closer to it.
+     */
+    protected double calculateSelfPreservationMod(Entity movingUnit,
+                                                MovePath path,
+                                                IGame game,
+                                                StringBuilder formula) {
+<span class="nc" id="L479">        BehaviorType behaviorType = getOwner().getUnitBehaviorTracker().getBehaviorType(movingUnit, getOwner()); </span>
+        
+<span class="nc bnc" id="L481" title="All 4 branches missed.">        if (behaviorType == BehaviorType.ForcedWithdrawal ||</span>
+                behaviorType == BehaviorType.MoveToDestination) {
+<span class="nc" id="L483">            int newDistanceToHome = distanceToHomeEdge(path.getFinalCoords(),</span>
+<span class="nc" id="L484">                                                       getOwner().getHomeEdge(movingUnit),</span>
+                                                       game);
+<span class="nc" id="L486">            double selfPreservation = getOwner().getBehaviorSettings()</span>
+<span class="nc" id="L487">                                                .getSelfPreservationValue();</span>
+            
+<span class="nc" id="L489">            double selfPreservationMod = 0;</span>
+            
+            // normally, we favor being closer to the edge we're trying to get to
+<span class="nc bnc" id="L492" title="All 2 branches missed.">            if (newDistanceToHome &gt; 0) {</span>
+<span class="nc" id="L493">                selfPreservationMod = newDistanceToHome * selfPreservation;</span>
+            // if this path gets us to the edge, we value it considerably more than we do paths that don't get us there    
+            } else {
+<span class="nc" id="L496">                selfPreservationMod = -ARRIVED_AT_DESTINATION_FACTOR;</span>
+            }
+            
+<span class="nc" id="L499">            formula.append(&quot; - selfPreservationMod [&quot;)</span>
+<span class="nc" id="L500">                   .append(LOG_DECIMAL.format(selfPreservationMod))</span>
+<span class="nc" id="L501">                   .append(&quot; = &quot;).append(LOG_DECIMAL.format(newDistanceToHome))</span>
+<span class="nc" id="L502">                   .append(&quot; * &quot;)</span>
+<span class="nc" id="L503">                   .append(LOG_DECIMAL.format(selfPreservation)).append(&quot;]&quot;);</span>
+<span class="nc" id="L504">            return selfPreservationMod;</span>
+        }
+<span class="nc" id="L506">        return 0.0;</span>
+    }
+    
+    /**
+     * Tells me whether this path will result in me flying to a location
+     * from which there is absolutely no way to remain on the board the following turn.
+     * 
+     * Not applicable for ground units, so the default behavior is to return 0.
+     */
+    protected double calculateOffBoardMod(MovePath path) {
+<span class="nc" id="L516">        return 0.0;</span>
+    }
+
+    /**
+     * A path ranking
+     */
+    @Override
+    protected RankedPath rankPath(MovePath path, IGame game, int maxRange,
+                               double fallTolerance, int distanceHome,
+                               List&lt;Entity&gt; enemies, Coords friendsCoords) {
+<span class="nc" id="L526">        Entity movingUnit = path.getEntity();</span>
+<span class="nc" id="L527">        StringBuilder formula = new StringBuilder(&quot;Calculation: {&quot;);</span>
+
+        // Copy the path to avoid inadvertent changes.
+<span class="nc" id="L530">        MovePath pathCopy = path.clone();</span>
+
+        // Worry about failed piloting rolls (weighted by Fall Shame).
+<span class="nc" id="L533">        double successProbability = getMovePathSuccessProbability(pathCopy,</span>
+                                                                  formula);
+<span class="nc" id="L535">        double utility = -calculateFallMod(successProbability, formula);</span>
+
+        // look at all of my enemies          
+<span class="nc" id="L538">        FiringPhysicalDamage damageEstimate = new FiringPhysicalDamage();</span>
+        
+<span class="nc" id="L540">        double expectedDamageTaken = checkPathForHazards(pathCopy,</span>
+                                                         movingUnit,
+                                                         game);
+<span class="nc" id="L543">        boolean extremeRange = game.getOptions()</span>
+<span class="nc" id="L544">                                   .booleanOption(</span>
+                                           OptionsConstants.ADVCOMBAT_TACOPS_RANGE);
+<span class="nc" id="L546">        boolean losRange = game.getOptions()</span>
+<span class="nc" id="L547">                               .booleanOption(</span>
+                                       OptionsConstants.ADVCOMBAT_TACOPS_LOS_RANGE);
+<span class="nc bnc" id="L549" title="All 2 branches missed.">        for (Entity enemy : enemies) {</span>
+
+            // Skip ejected pilots.
+<span class="nc bnc" id="L552" title="All 2 branches missed.">            if (enemy instanceof MechWarrior) {</span>
+<span class="nc" id="L553">                continue;</span>
+            }
+
+            // Skip units not actually on the board.
+<span class="nc bnc" id="L557" title="All 4 branches missed.">            if (enemy.isOffBoard() || (enemy.getPosition() == null)</span>
+<span class="nc bnc" id="L558" title="All 2 branches missed.">                || !game.getBoard().contains(enemy.getPosition())) {</span>
+<span class="nc" id="L559">                continue;</span>
+            }
+
+            //skip broken enemies
+<span class="nc bnc" id="L563" title="All 2 branches missed.">            if (getOwner().getHonorUtil().isEnemyBroken(enemy.getId(),</span>
+<span class="nc" id="L564">                    enemy.getOwnerId(), getOwner().getForcedWithdrawal())) {</span>
+<span class="nc" id="L565">                continue;</span>
+            }
+
+            EntityEvaluationResponse eval;
+
+<span class="nc bnc" id="L570" title="All 2 branches missed.">            if (evaluateAsMoved(enemy)) { //For units that have already moved</span>
+<span class="nc" id="L571">                eval = evaluateMovedEnemy(enemy, pathCopy, game);</span>
+            } else { //for units that have not moved this round
+<span class="nc" id="L573">                eval = evaluateUnmovedEnemy(enemy, path, extremeRange,</span>
+                                            losRange);
+            }
+<span class="nc bnc" id="L576" title="All 2 branches missed.">            if (damageEstimate.firingDamage &lt; eval.getMyEstimatedDamage()) {</span>
+<span class="nc" id="L577">                damageEstimate.firingDamage = eval.getMyEstimatedDamage();</span>
+            }
+<span class="nc bnc" id="L579" title="All 2 branches missed.">            if (damageEstimate.physicalDamage &lt; eval.getMyEstimatedPhysicalDamage()) {</span>
+<span class="nc" id="L580">                damageEstimate.physicalDamage = eval.getMyEstimatedPhysicalDamage();</span>
+            }
+<span class="nc" id="L582">            expectedDamageTaken += eval.getEstimatedEnemyDamage();</span>
+<span class="nc" id="L583">        }</span>
+
+        // if we're not in the air, we may get hit by friendly artillery
+<span class="nc bnc" id="L586" title="All 4 branches missed.">        if(!path.getEntity().isAirborne() &amp;&amp; !path.getEntity().isAirborneVTOLorWIGE()) {</span>
+<span class="nc" id="L587">            double friendlyArtilleryDamage = 0;</span>
+<span class="nc" id="L588">            Map&lt;Coords, Double&gt; artyDamage = getOwner().getPathRankerState().getIncomingFriendlyArtilleryDamage();</span>
+            
+<span class="nc bnc" id="L590" title="All 2 branches missed.">            if(!artyDamage.containsKey(path.getFinalCoords())) {</span>
+<span class="nc" id="L591">                friendlyArtilleryDamage = ArtilleryTargetingControl.evaluateIncomingArtilleryDamage(path.getFinalCoords(), getOwner());</span>
+<span class="nc" id="L592">                artyDamage.put(path.getFinalCoords(), friendlyArtilleryDamage);</span>
+            } else {
+<span class="nc" id="L594">                friendlyArtilleryDamage = artyDamage.get(path.getFinalCoords());</span>
+            }
+            
+<span class="nc" id="L597">            expectedDamageTaken += friendlyArtilleryDamage;</span>
+        }
+
+<span class="nc" id="L600">        calcDamageToStrategicTargets(pathCopy, game, getOwner().getFireControlState(), damageEstimate);</span>
+
+        // If I cannot kick because I am a clan unit and &quot;No physical 
+        // attacks for the clans&quot;
+        // is enabled, set maximum physical damage for this path to zero.
+<span class="nc" id="L605">        if (game.getOptions()</span>
+<span class="nc bnc" id="L606" title="All 2 branches missed.">                .booleanOption(OptionsConstants.ALLOWED_NO_CLAN_PHYSICAL) &amp;&amp;</span>
+<span class="nc bnc" id="L607" title="All 2 branches missed.">            path.getEntity().isClan()) {</span>
+<span class="nc" id="L608">            damageEstimate.physicalDamage = 0;</span>
+        }
+
+        // I can kick a different target than I shoot, so add physical to 
+        // total damage after I've looked at all enemies
+<span class="nc" id="L613">        double maximumDamageDone = damageEstimate.firingDamage + damageEstimate.physicalDamage;</span>
+
+        // My bravery modifier is based on my chance of getting to the 
+        // firing position (successProbability), how much damage I can do 
+        // (weighted by bravery), less the damage I might take.
+<span class="nc" id="L618">        double braveryValue =</span>
+<span class="nc" id="L619">                getOwner().getBehaviorSettings().getBraveryValue();</span>
+<span class="nc" id="L620">        double braveryMod = successProbability *</span>
+                            ((maximumDamageDone *
+                              braveryValue) -
+                             expectedDamageTaken);
+<span class="nc" id="L624">        formula.append(&quot; + braveryMod [&quot;)</span>
+<span class="nc" id="L625">               .append(LOG_DECIMAL.format(braveryMod)).append(&quot; = &quot;)</span>
+<span class="nc" id="L626">               .append(LOG_PERCENT.format(successProbability))</span>
+<span class="nc" id="L627">               .append(&quot; * ((&quot;)</span>
+<span class="nc" id="L628">               .append(LOG_DECIMAL.format(maximumDamageDone)).append(&quot; * &quot;)</span>
+<span class="nc" id="L629">               .append(LOG_DECIMAL.format(braveryValue)).append(&quot;) - &quot;)</span>
+<span class="nc" id="L630">               .append(LOG_DECIMAL.format(expectedDamageTaken)).append(&quot;]&quot;);</span>
+<span class="nc" id="L631">        utility += braveryMod;</span>
+
+        // the only critters not subject to aggression and herding mods are
+        // airborne aeros on ground maps, as they move incredibly fast
+<span class="nc bnc" id="L635" title="All 2 branches missed.">        if (!path.getEntity().isAirborneAeroOnGroundMap()) {</span>
+            // The further I am from a target, the lower this path ranks 
+            // (weighted by Aggression slider).
+<span class="nc" id="L638">            utility -= calculateAggressionMod(movingUnit, pathCopy, game,</span>
+                                              formula);
+
+            // The further I am from my teammates, the lower this path 
+            // ranks (weighted by Herd Mentality).
+<span class="nc" id="L643">            utility -= calculateHerdingMod(friendsCoords, pathCopy, formula);</span>
+        }
+
+        // Try to face the enemy.
+<span class="nc" id="L647">        double facingMod = calculateFacingMod(movingUnit, game, pathCopy,</span>
+                                              formula);
+<span class="nc bnc" id="L649" title="All 2 branches missed.">        if (facingMod == -10000) {</span>
+<span class="nc" id="L650">            return new RankedPath(facingMod, pathCopy, formula.toString());</span>
+        }
+<span class="nc" id="L652">        utility -= facingMod;</span>
+        
+        // If I need to flee the board, I want to get closer to my home edge.
+<span class="nc" id="L655">        utility -= calculateSelfPreservationMod(movingUnit, pathCopy, game, formula);</span>
+        
+        // if we're an aircraft, we want to de-value paths that will force us off the board
+        // on the subsequent turn.
+<span class="nc" id="L659">        utility -= utility * calculateOffBoardMod(pathCopy);</span>
+
+<span class="nc" id="L661">        RankedPath rankedPath = new RankedPath(utility, pathCopy, formula.toString());</span>
+<span class="nc" id="L662">        rankedPath.setExpectedDamage(maximumDamageDone);</span>
+<span class="nc" id="L663">        return rankedPath;</span>
+    }
+    
+    /**
+     * Worker function that determines if a given enemy entity should be evaluated as if it has moved.
+     */
+    protected boolean evaluateAsMoved(Entity enemy) {
+        // Aerospace units on ground maps can go pretty much anywhere they want, so it's
+        // somewhat pointless to try to predict their movement.
+<span class="nc bnc" id="L672" title="All 6 branches missed.">        return !enemy.isSelectableThisTurn() || enemy.isImmobile() || enemy.isAirborneAeroOnGroundMap();</span>
+    }
+    
+    /**
+     * Calculate who all other units would shoot at if I weren't around
+     */
+    @Override
+    public void initUnitTurn(Entity unit, IGame game) {
+<span class="nc" id="L680">        bestDamageByEnemies.clear();</span>
+<span class="nc" id="L681">        List&lt;Entity&gt; enemies = getOwner().getEnemyEntities();</span>
+<span class="nc" id="L682">        List&lt;Entity&gt; friends = getOwner().getFriendEntities();</span>
+<span class="nc bnc" id="L683" title="All 2 branches missed.">        for (Entity e : enemies) {</span>
+<span class="nc" id="L684">            double max_damage = 0;</span>
+<span class="nc bnc" id="L685" title="All 2 branches missed.">            for (Entity f : friends) {</span>
+<span class="nc" id="L686">                FiringPlanCalculationParameters guess =</span>
+                        new FiringPlanCalculationParameters.Builder()
+<span class="nc" id="L688">                                .buildGuess(e,</span>
+                                            null,
+                                            f,
+                                            null,
+<span class="nc" id="L692">                                            (e.getHeatCapacity() - e.getHeat()) + 5,</span>
+                                            null);
+<span class="nc" id="L694">                double damage = getFireControl(f).determineBestFiringPlan(guess)</span>
+<span class="nc" id="L695">                                           .getExpectedDamage();</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">                if (damage &gt; max_damage) {</span>
+<span class="nc" id="L697">                    max_damage = damage;</span>
+                }
+
+<span class="nc" id="L700">            }</span>
+<span class="nc" id="L701">            bestDamageByEnemies.put(e.getId(), max_damage);</span>
+<span class="nc" id="L702">        }</span>
+<span class="nc" id="L703">    }</span>
+
+
+    protected void calcDamageToStrategicTargets(MovePath path, IGame game, 
+            FireControlState fireControlState, FiringPhysicalDamage damageStructure) {
+                
+<span class="nc bnc" id="L709" title="All 2 branches missed.">        for (int i = 0; i &lt; fireControlState.getAdditionalTargets().size(); i++) {</span>
+<span class="nc" id="L710">            Targetable target = fireControlState.getAdditionalTargets().get(i);</span>
+            
+<span class="nc bnc" id="L712" title="All 4 branches missed.">            if (target.isOffBoard() || (target.getPosition() == null)</span>
+<span class="nc bnc" id="L713" title="All 2 branches missed.">                || !game.getBoard().contains(target.getPosition())) {</span>
+<span class="nc" id="L714">                continue; // Skip targets not actually on the board.</span>
+            }
+            
+<span class="nc" id="L717">            FiringPlanCalculationParameters guess =</span>
+                    new FiringPlanCalculationParameters.Builder()
+<span class="nc" id="L719">                            .buildGuess(path.getEntity(),</span>
+                                        new EntityState(path),
+                                        target,
+                                        null,
+                                        Entity.DOES_NOT_TRACK_HEAT,
+                                        null);
+<span class="nc" id="L725">            FiringPlan myFiringPlan = getFireControl(path.getEntity()).determineBestFiringPlan(guess);</span>
+            
+<span class="nc" id="L727">            double myDamagePotential = myFiringPlan.getUtility();</span>
+<span class="nc bnc" id="L728" title="All 2 branches missed.">            if (myDamagePotential &gt; damageStructure.firingDamage) {</span>
+<span class="nc" id="L729">                damageStructure.firingDamage = myDamagePotential;</span>
+            }
+            
+<span class="nc bnc" id="L732" title="All 2 branches missed.">            if (path.getEntity() instanceof Mech) {</span>
+<span class="nc" id="L733">                PhysicalInfo myKick = new PhysicalInfo(</span>
+<span class="nc" id="L734">                        path.getEntity(), new EntityState(path), target,</span>
+                        null,
+<span class="nc" id="L736">                        PhysicalAttackType.RIGHT_KICK, game, getOwner(),</span>
+                        true);
+<span class="nc" id="L738">                double expectedKickDamage =</span>
+<span class="nc" id="L739">                        myKick.getExpectedDamageOnHit() *</span>
+<span class="nc" id="L740">                        myKick.getProbabilityToHit();</span>
+<span class="nc bnc" id="L741" title="All 2 branches missed.">                if (expectedKickDamage &gt; damageStructure.physicalDamage) {</span>
+<span class="nc" id="L742">                    damageStructure.physicalDamage = expectedKickDamage;</span>
+                }
+            }
+        }
+<span class="nc" id="L746">    }</span>
+    
+    /**
+     * Gives the distance to the closest enemy unit, or -1 if none exist.
+     * The reason being that the closest enemy unit may be 0 away.
+     *
+     * @param me       Entity who has enemies
+     * @param position Coords from which the closest enemy is found
+     * @param game     IGame that we're playing
+     */
+    public double distanceToClosestEnemy(Entity me, Coords position, IGame game) {
+<span class="nc" id="L757">        Targetable closest = findClosestEnemy(me, position, game);</span>
+<span class="nc bnc" id="L758" title="All 2 branches missed.">        if (closest == null) {</span>
+<span class="nc" id="L759">            return -1;</span>
+        }
+<span class="nc" id="L761">        return closest.getPosition().distance(position);</span>
+    }
+
+    /**
+     * Gives the distance to the closest edge
+     */
+    int distanceToClosestEdge(Coords position, IGame game) {
+<span class="nc" id="L768">       int width = game.getBoard().getWidth();</span>
+<span class="nc" id="L769">        int height = game.getBoard().getHeight();</span>
+<span class="nc" id="L770">        int minimum = position.getX();</span>
+<span class="nc bnc" id="L771" title="All 2 branches missed.">        if ((width - position.getX()) &lt; minimum) {</span>
+<span class="nc" id="L772">            minimum = position.getX();</span>
+        }
+<span class="nc bnc" id="L774" title="All 2 branches missed.">        if (position.getY() &lt; minimum) {</span>
+<span class="nc" id="L775">            minimum = position.getY();</span>
+        }
+<span class="nc bnc" id="L777" title="All 2 branches missed.">        if ((height - position.getY()) &lt; minimum) {</span>
+<span class="nc" id="L778">            minimum = height - position.getY();</span>
+        }
+<span class="nc" id="L780">        return minimum;</span>
+    }
+
+    /**
+     * Returns distance to the unit's home edge.
+     * Gives the distance to the closest edge
+     *
+     * @param position Final coordinates of the proposed move.
+     * @param homeEdge Unit's home edge.
+     * @param game     The {@link IGame} currently in play.
+     * @return The distance to the unit's home edge.
+     */
+    @Override
+    public int distanceToHomeEdge(Coords position, CardinalEdge homeEdge, IGame game) {
+<span class="nc" id="L794">        int width = game.getBoard().getWidth();</span>
+<span class="nc" id="L795">        int height = game.getBoard().getHeight();</span>
+
+        int distance;
+<span class="nc bnc" id="L798" title="All 5 branches missed.">        switch (homeEdge) {</span>
+            case NORTH: {
+<span class="nc" id="L800">                distance = position.getY();</span>
+<span class="nc" id="L801">                break;</span>
+            }
+            case SOUTH: {
+<span class="nc" id="L804">                distance = height - position.getY() - 1;</span>
+<span class="nc" id="L805">                break;</span>
+            }
+            case WEST: {
+<span class="nc" id="L808">                distance = position.getX();</span>
+<span class="nc" id="L809">                break;</span>
+            }
+            case EAST: {
+<span class="nc" id="L812">                distance = width - position.getX() - 1;</span>
+<span class="nc" id="L813">                break;</span>
+            }
+            default: {
+<span class="nc" id="L816">                getOwner().getLogger().warning(&quot;Invalid home edge.  Defaulting to NORTH.&quot;);</span>
+<span class="nc" id="L817">                distance = position.getY();</span>
+            }
+        }
+
+<span class="nc" id="L821">        return distance;</span>
+    }
+
+    double checkPathForHazards(MovePath path, Entity movingUnit, IGame game) {
+<span class="nc" id="L825">        StringBuilder logMsg = new StringBuilder(&quot;Checking Path (&quot;)</span>
+<span class="nc" id="L826">                .append(path.toString()).append(&quot;) for hazards.&quot;);</span>
+
+        try {
+            // If we're flying or swimming, we don't care about ground hazards.
+<span class="nc bnc" id="L830" title="All 2 branches missed.">            if (EntityMovementType.MOVE_FLYING.equals(path.getLastStepMovementType()) ||</span>
+<span class="nc bnc" id="L831" title="All 2 branches missed.">                EntityMovementType.MOVE_OVER_THRUST.equals(path.getLastStepMovementType()) ||</span>
+<span class="nc bnc" id="L832" title="All 2 branches missed.">                EntityMovementType.MOVE_SAFE_THRUST.equals(path.getLastStepMovementType()) ||</span>
+<span class="nc bnc" id="L833" title="All 2 branches missed.">                EntityMovementType.MOVE_VTOL_WALK.equals(path.getLastStepMovementType()) ||</span>
+<span class="nc bnc" id="L834" title="All 2 branches missed.">                EntityMovementType.MOVE_VTOL_RUN.equals(path.getLastStepMovementType()) ||</span>
+<span class="nc bnc" id="L835" title="All 2 branches missed.">                EntityMovementType.MOVE_VTOL_SPRINT.equals(path.getLastStepMovementType()) ||</span>
+<span class="nc bnc" id="L836" title="All 2 branches missed.">                EntityMovementType.MOVE_SUBMARINE_WALK.equals(path.getLastStepMovementType()) ||</span>
+<span class="nc bnc" id="L837" title="All 2 branches missed.">                EntityMovementType.MOVE_SUBMARINE_RUN.equals(path.getLastStepMovementType())) {</span>
+
+<span class="nc" id="L839">                logMsg.append(&quot;\n\tMove Type (&quot;).append(path.getLastStepMovementType().toString())</span>
+<span class="nc" id="L840">                      .append(&quot;) ignores ground hazards.&quot;);</span>
+<span class="nc" id="L841">                return 0;</span>
+            }
+
+            // If we're jumping, we only care about where we land.
+<span class="nc bnc" id="L845" title="All 2 branches missed.">            if (path.isJumping()) {</span>
+<span class="nc" id="L846">                logMsg.append(&quot;\n\tJumping&quot;);</span>
+<span class="nc" id="L847">                Coords endCoords = path.getFinalCoords();</span>
+<span class="nc" id="L848">                IHex endHex = game.getBoard().getHex(endCoords);</span>
+<span class="nc" id="L849">                return checkHexForHazards(endHex, movingUnit, true,</span>
+<span class="nc" id="L850">                                          path.getLastStep(), true,</span>
+<span class="nc" id="L851">                                          path, game.getBoard(), logMsg);</span>
+            }
+
+<span class="nc" id="L854">            double totalHazard = 0;</span>
+<span class="nc" id="L855">            Coords previousCoords = null;</span>
+<span class="nc" id="L856">            MoveStep lastStep = path.getLastStep();</span>
+<span class="nc bnc" id="L857" title="All 2 branches missed.">            for (MoveStep step : path.getStepVector()) {</span>
+<span class="nc" id="L858">                Coords coords = step.getPosition();</span>
+<span class="nc bnc" id="L859" title="All 4 branches missed.">                if ((coords == null) || coords.equals(previousCoords)) {</span>
+<span class="nc" id="L860">                    continue;</span>
+                }
+<span class="nc" id="L862">                IHex hex = game.getBoard().getHex(coords);</span>
+<span class="nc" id="L863">                totalHazard += checkHexForHazards(hex, movingUnit,</span>
+<span class="nc" id="L864">                                                  lastStep.equals(step), step,</span>
+                                                  false, path,
+<span class="nc" id="L866">                                                  game.getBoard(), logMsg);</span>
+<span class="nc" id="L867">                previousCoords = coords;</span>
+<span class="nc" id="L868">            }</span>
+
+<span class="nc" id="L870">            return totalHazard;</span>
+        } finally {
+<span class="nc" id="L872">            getOwner().getLogger().debug(logMsg.toString());</span>
+        }
+    }
+
+    private double checkHexForHazards(IHex hex, Entity movingUnit,
+                                      boolean endHex, MoveStep step,
+                                      boolean jumpLanding,
+                                      MovePath movePath, IBoard board,
+                                      StringBuilder logMsg) {
+<span class="nc" id="L881">        logMsg.append(&quot;\n\tHex &quot;).append(hex.getCoords().toFriendlyString());</span>
+
+<span class="nc" id="L883">        final List&lt;Integer&gt; HAZARDS =</span>
+<span class="nc" id="L884">                new ArrayList&lt;&gt;(Arrays.asList(Terrains.FIRE,</span>
+<span class="nc" id="L885">                                              Terrains.MAGMA,</span>
+<span class="nc" id="L886">                                              Terrains.ICE,</span>
+<span class="nc" id="L887">                                              Terrains.WATER,</span>
+<span class="nc" id="L888">                                              Terrains.BUILDING,</span>
+<span class="nc" id="L889">                                              Terrains.BRIDGE));</span>
+
+<span class="nc" id="L891">        int[] terrainTypes = hex.getTerrainTypes();</span>
+<span class="nc" id="L892">        Set&lt;Integer&gt; hazards = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L893" title="All 2 branches missed.">        for (int type : terrainTypes) {</span>
+<span class="nc bnc" id="L894" title="All 2 branches missed.">            if (HAZARDS.contains(type)) {</span>
+<span class="nc" id="L895">                hazards.add(type);</span>
+            }
+        }
+
+        // No hazards were found, so nothing to worry about.
+<span class="nc bnc" id="L900" title="All 2 branches missed.">        if (hazards.isEmpty()) {</span>
+<span class="nc" id="L901">            logMsg.append(&quot; has no hazards.&quot;);</span>
+<span class="nc" id="L902">            return 0;</span>
+        }
+
+        // Calculate hazard value by terrain type.
+<span class="nc" id="L906">        double hazardValue = 0;</span>
+<span class="nc bnc" id="L907" title="All 2 branches missed.">        for (int hazard : hazards) {</span>
+<span class="nc bnc" id="L908" title="All 7 branches missed.">            switch (hazard) {</span>
+                case Terrains.FIRE:
+<span class="nc" id="L910">                    hazardValue += calcFireHazard(movingUnit, endHex, logMsg);</span>
+<span class="nc" id="L911">                    break;</span>
+                case Terrains.MAGMA:
+<span class="nc" id="L913">                    hazardValue += calcMagmaHazard(hex, endHex, movingUnit,</span>
+                                                   jumpLanding, step, logMsg);
+<span class="nc" id="L915">                    break;</span>
+                case Terrains.ICE:
+<span class="nc" id="L917">                    hazardValue += calcIceHazard(movingUnit, hex, step,</span>
+                                                 jumpLanding, logMsg);
+<span class="nc" id="L919">                    break;</span>
+                case Terrains.WATER:
+<span class="nc bnc" id="L921" title="All 2 branches missed.">                    if (!hazards.contains(Terrains.ICE)) {</span>
+<span class="nc" id="L922">                        hazardValue += calcWaterHazard(movingUnit, hex, step,</span>
+                                                       logMsg);
+                    }
+                    break;
+                case Terrains.BUILDING:
+<span class="nc" id="L927">                    hazardValue += calcBuildingHazard(step, movingUnit, jumpLanding, board, logMsg);</span>
+<span class="nc" id="L928">                    break;</span>
+                case Terrains.BRIDGE:
+<span class="nc" id="L930">                    hazardValue += calcBridgeHazard(movingUnit, hex, step, jumpLanding, board, logMsg);</span>
+                    break;
+            }
+<span class="nc" id="L933">        }</span>
+<span class="nc" id="L934">        logMsg.append(&quot;\n\tTotal Hazard = &quot;)</span>
+<span class="nc" id="L935">              .append(LOG_DECIMAL.format(hazardValue));</span>
+
+<span class="nc" id="L937">        return hazardValue;</span>
+    }
+
+    // Building collapse and basements are handled in PathRanker.validatePaths.
+    private double calcBuildingHazard(MoveStep step, Entity movingUnit,
+                                      boolean jumpLanding, IBoard board,
+                                      StringBuilder logMsg) {
+<span class="nc" id="L944">        logMsg.append(&quot;\n\tCalculating building hazard:  &quot;);</span>
+
+        // Protos, BA and Infantry move through buildings freely.
+<span class="nc bnc" id="L947" title="All 4 branches missed.">        if (movingUnit instanceof Protomech || movingUnit instanceof Infantry) {</span>
+<span class="nc" id="L948">            logMsg.append(&quot;Safe for infantry and protos.&quot;);</span>
+<span class="nc" id="L949">            return 0;</span>
+        }
+
+        // Jumping onto a building is handled in PathRanker validatePaths.
+<span class="nc bnc" id="L953" title="All 2 branches missed.">        if (jumpLanding) {</span>
+<span class="nc" id="L954">            return 0;</span>
+        }
+
+        // Get the odds of failing the piloting roll while moving through the building.
+<span class="nc" id="L958">        double odds = (1.0 - (Compute.oddsAbove(movingUnit.getCrew()</span>
+<span class="nc" id="L959">                                                          .getPiloting()) / 100));</span>
+<span class="nc" id="L960">        logMsg.append(&quot;\n\t\tChance to fail piloting roll: &quot;)</span>
+<span class="nc" id="L961">              .append(LOG_PERCENT.format(odds));</span>
+
+        // Hazard is based on potential damage taken.
+<span class="nc" id="L964">        double dmg = board.getBuildingAt(step.getPosition())</span>
+<span class="nc" id="L965">                          .getCurrentCF(step.getPosition()) / 10D;</span>
+<span class="nc" id="L966">        logMsg.append(&quot;\n\t\tPotential building damage: &quot;)</span>
+<span class="nc" id="L967">              .append(LOG_DECIMAL.format(dmg));</span>
+
+<span class="nc" id="L969">        double hazard = dmg * odds;</span>
+<span class="nc" id="L970">        logMsg.append(&quot;\n\t\tHazard value (&quot;)</span>
+<span class="nc" id="L971">              .append(LOG_DECIMAL.format(hazard)).append(&quot;).&quot;);</span>
+<span class="nc" id="L972">        return hazard;</span>
+    }
+    
+    private double calcBridgeHazard(Entity movingUnit, IHex hex, MoveStep step, boolean jumpLanding, IBoard board, StringBuilder logMsg) {
+<span class="nc" id="L976">        logMsg.append(&quot;\n\tCalculating bridge hazard:  &quot;);</span>
+        
+        // if we are going to BWONGGG into a bridge from below, then it's treated as a building.
+        // Otherwise, bridge collapse checks have already been handled in validatePaths
+<span class="nc" id="L980">        int bridgeElevation = hex.terrainLevel(Terrains.BRIDGE_ELEV);</span>
+<span class="nc bnc" id="L981" title="All 2 branches missed.">        if ((bridgeElevation &gt; step.getElevation()) &amp;&amp;</span>
+<span class="nc bnc" id="L982" title="All 2 branches missed.">                (bridgeElevation &lt;= (step.getElevation() + movingUnit.getHeight()))) {</span>
+<span class="nc" id="L983">            return calcBuildingHazard(step, movingUnit, jumpLanding, board, logMsg);</span>
+        }
+        
+<span class="nc" id="L986">        return 0;</span>
+    }
+
+    private double calcIceHazard(Entity movingUnit, IHex hex, MoveStep step,
+                                 boolean jumpLanding,
+                                 StringBuilder logMsg) {
+<span class="nc" id="L992">        logMsg.append(&quot;\n\tCalculating ice hazard:  &quot;);</span>
+
+        // Hover units are above the surface.
+<span class="nc bnc" id="L995" title="All 2 branches missed.">        if (EntityMovementMode.HOVER == movingUnit.getMovementMode() ||</span>
+<span class="nc bnc" id="L996" title="All 2 branches missed.">            EntityMovementMode.WIGE == movingUnit.getMovementMode()) {</span>
+<span class="nc" id="L997">            logMsg.append(&quot;Hovering above ice (0).&quot;);</span>
+<span class="nc" id="L998">            return 0;</span>
+        }
+
+        // If there is no water under the ice, don't worry about breaking 
+        // through.
+<span class="nc bnc" id="L1003" title="All 2 branches missed.">        if (hex.depth() &lt; 1) {</span>
+<span class="nc" id="L1004">            logMsg.append(&quot;No water under ice (0).&quot;);</span>
+<span class="nc" id="L1005">            return 0;</span>
+        }
+
+        // Hazard is based on chance to break through to the water underneath.
+<span class="nc bnc" id="L1009" title="All 2 branches missed.">        double breakthroughMod = jumpLanding ? 0.5 : 0.1667;</span>
+<span class="nc" id="L1010">        logMsg.append(&quot;\n\t\tChance to break through ice: &quot;)</span>
+<span class="nc" id="L1011">              .append(LOG_PERCENT.format(breakthroughMod));</span>
+
+<span class="nc" id="L1013">        double hazard = calcWaterHazard(movingUnit, hex, step, logMsg) *</span>
+                        breakthroughMod;
+<span class="nc" id="L1015">        logMsg.append(&quot;\n\t\tHazard value (&quot;)</span>
+<span class="nc" id="L1016">              .append(LOG_DECIMAL.format(hazard)).append(&quot;).&quot;);</span>
+<span class="nc" id="L1017">        return hazard;</span>
+    }
+
+    private double calcWaterHazard(Entity movingUnit, IHex hex, MoveStep step,
+                                   StringBuilder logMsg) {
+<span class="nc" id="L1022">        logMsg.append(&quot;\n\tCalculating water hazard:  &quot;);</span>
+
+        // Puddles don't count.
+<span class="nc bnc" id="L1025" title="All 2 branches missed.">        if (hex.depth() == 0) {</span>
+<span class="nc" id="L1026">            logMsg.append(&quot;Puddles don't count (0).&quot;);</span>
+<span class="nc" id="L1027">            return 0;</span>
+        }
+
+        // Hover units are above the surface.
+<span class="nc bnc" id="L1031" title="All 2 branches missed.">        if (EntityMovementMode.HOVER == movingUnit.getMovementMode() ||</span>
+<span class="nc bnc" id="L1032" title="All 2 branches missed.">            EntityMovementMode.WIGE == movingUnit.getMovementMode() ||</span>
+<span class="nc bnc" id="L1033" title="All 2 branches missed.">            EntityMovementMode.NAVAL == movingUnit.getMovementMode()) {</span>
+<span class="nc" id="L1034">            logMsg.append(&quot;Hovering or swimming above water (0).&quot;);</span>
+<span class="nc" id="L1035">            return 0;</span>
+        }
+
+        // Amphibious units are safe (kind of the point).
+<span class="nc bnc" id="L1039" title="All 2 branches missed.">        if (movingUnit.hasWorkingMisc(MiscType.F_FULLY_AMPHIBIOUS) ||</span>
+<span class="nc bnc" id="L1040" title="All 2 branches missed.">            movingUnit.hasWorkingMisc(MiscType.F_AMPHIBIOUS)) {</span>
+<span class="nc" id="L1041">            logMsg.append(&quot;Amphibious unit (0).&quot;);</span>
+<span class="nc" id="L1042">            return 0;</span>
+        }
+
+        // if we are crossing a bridge, then we'll be fine. Trust me.
+        // 1. Determine bridge elevation
+        // 2. If unit elevation is equal to bridge elevation, skip.
+<span class="nc bnc" id="L1048" title="All 2 branches missed.">        if(hex.containsTerrain(Terrains.BRIDGE_ELEV)) {</span>
+<span class="nc" id="L1049">            int bridgeElevation = hex.terrainLevel(Terrains.BRIDGE_ELEV);</span>
+<span class="nc bnc" id="L1050" title="All 2 branches missed.">            if(bridgeElevation == step.getElevation()) {</span>
+<span class="nc" id="L1051">                logMsg.append(&quot;Unit (0) crossing bridge.&quot;);</span>
+<span class="nc" id="L1052">                return 0;</span>
+            }
+        }
+        
+        // Most other units are automatically destroyed.
+<span class="nc bnc" id="L1057" title="All 6 branches missed.">        if (!(movingUnit instanceof Mech || movingUnit instanceof Protomech ||</span>
+              movingUnit instanceof BattleArmor)) {
+<span class="nc" id="L1059">            logMsg.append(&quot;Ill drown (1000).&quot;);</span>
+<span class="nc" id="L1060">            return UNIT_DESTRUCTION_FACTOR;</span>
+        }
+
+        // Unsealed unit will drown.
+<span class="nc bnc" id="L1064" title="All 4 branches missed.">        if (movingUnit instanceof Mech &amp;&amp; ((Mech) movingUnit).isIndustrial()) {</span>
+<span class="nc" id="L1065">            logMsg.append(&quot;Industrial mechs drown too (1000).&quot;);</span>
+<span class="nc" id="L1066">            return UNIT_DESTRUCTION_FACTOR;</span>
+        }
+
+        // Find the submerged locations.
+<span class="nc" id="L1070">        Set&lt;Integer&gt; submergedLocations = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1071" title="All 2 branches missed.">        for (int loc = 0; loc &lt; movingUnit.locations(); loc++) {</span>
+<span class="nc bnc" id="L1072" title="All 4 branches missed.">            if (Mech.LOC_CLEG == loc &amp;&amp; !(movingUnit instanceof TripodMech)) {</span>
+<span class="nc" id="L1073">                continue;</span>
+            }
+
+<span class="nc bnc" id="L1076" title="All 6 branches missed.">            if ((hex.depth() &gt;= 2) || step.isProne() ||</span>
+                !(movingUnit instanceof Mech)) {
+<span class="nc" id="L1078">                submergedLocations.add(loc);</span>
+<span class="nc" id="L1079">                continue;</span>
+            }
+
+<span class="nc bnc" id="L1082" title="All 6 branches missed.">            if (Mech.LOC_RLEG == loc || Mech.LOC_LLEG == loc ||</span>
+                Mech.LOC_CLEG == loc) {
+<span class="nc" id="L1084">                submergedLocations.add(loc);</span>
+<span class="nc" id="L1085">                continue;</span>
+            }
+
+<span class="nc bnc" id="L1088" title="All 6 branches missed.">            if ((movingUnit instanceof QuadMech) &amp;&amp; (Mech.LOC_RARM == loc ||</span>
+                                                     Mech.LOC_LARM == loc)) {
+<span class="nc" id="L1090">                submergedLocations.add(loc);</span>
+            }
+        }
+<span class="nc" id="L1093">        logMsg.append(&quot;\n\t\tSubmerged locations: &quot;)</span>
+<span class="nc" id="L1094">              .append(submergedLocations.size());</span>
+
+<span class="nc" id="L1096">        int hazardValue = 0;</span>
+<span class="nc bnc" id="L1097" title="All 2 branches missed.">        for (int loc : submergedLocations) {</span>
+<span class="nc" id="L1098">            logMsg.append(&quot;\n\t\t\tLocation &quot;).append(loc).append(&quot; is &quot;);</span>
+
+            // Only locations withou armor can breach in movement phase.
+<span class="nc bnc" id="L1101" title="All 2 branches missed.">            if (movingUnit.getArmor(loc) &gt; 0) {</span>
+<span class="nc" id="L1102">                logMsg.append(&quot; not breached (0).&quot;);</span>
+<span class="nc" id="L1103">                continue;</span>
+            }
+
+            // Mechs or Protomechs having a head or torso breach is deadly.  
+            // For other units, any breach is deadly.
+            //noinspection ConstantConditions
+<span class="nc bnc" id="L1109" title="All 12 branches missed.">            if (Mech.LOC_HEAD == loc ||</span>
+                Mech.LOC_CT == loc ||
+                Protomech.LOC_HEAD == loc ||
+                Protomech.LOC_TORSO == loc ||
+                (!(movingUnit instanceof Mech) &amp;&amp;
+                 !(movingUnit instanceof Protomech))) {
+<span class="nc" id="L1115">                logMsg.append(&quot; breached and critical (1000).&quot;);</span>
+<span class="nc" id="L1116">                return UNIT_DESTRUCTION_FACTOR;</span>
+            }
+
+            // Add 50 points per potential breach location.
+<span class="nc" id="L1120">            logMsg.append(&quot; breached (50).&quot;);</span>
+<span class="nc" id="L1121">            hazardValue += 50;</span>
+<span class="nc" id="L1122">        }</span>
+
+<span class="nc" id="L1124">        return hazardValue;</span>
+    }
+
+    private double calcFireHazard(Entity movingUnit, boolean endHex,
+                                  StringBuilder logMsg) {
+<span class="nc" id="L1129">        logMsg.append(&quot;\n\tCalculating fire hazard:  &quot;);</span>
+
+<span class="nc" id="L1131">        double hazardValue = 0;</span>
+
+        // Fireproof BA ignores fire.
+<span class="nc bnc" id="L1134" title="All 2 branches missed.">        if ((movingUnit instanceof BattleArmor) &amp;&amp;</span>
+<span class="nc bnc" id="L1135" title="All 2 branches missed.">            ((BattleArmor) movingUnit).isFireResistant()) {</span>
+<span class="nc" id="L1136">            logMsg.append(&quot;Ignored by fire resistant armor (0).&quot;);</span>
+<span class="nc" id="L1137">            return 0;</span>
+        }
+
+        // Tanks risk critical hits.
+<span class="nc bnc" id="L1141" title="All 2 branches missed.">        if (movingUnit instanceof Tank) {</span>
+<span class="nc" id="L1142">            logMsg.append(&quot;Possible crit on tank (25).&quot;);</span>
+<span class="nc" id="L1143">            return 25;</span>
+        }
+
+        // Protomechs risk location destruction.
+<span class="nc bnc" id="L1147" title="All 2 branches missed.">        if (movingUnit instanceof Protomech) {</span>
+<span class="nc" id="L1148">            logMsg.append(&quot;Possible location destruction (50).&quot;);</span>
+<span class="nc" id="L1149">            return 50;</span>
+        }
+
+        // Infantry and BA risk total destruction.
+<span class="nc bnc" id="L1153" title="All 2 branches missed.">        if (movingUnit instanceof Infantry) {</span>
+<span class="nc" id="L1154">            logMsg.append((&quot;Possible unit destruction (1000).&quot;));</span>
+<span class="nc" id="L1155">            return UNIT_DESTRUCTION_FACTOR;</span>
+        }
+
+        // If this unit tracks heat, add the heat gain to the hazard value.
+<span class="nc bnc" id="L1159" title="All 2 branches missed.">        if (movingUnit.getHeatCapacity() != Entity.DOES_NOT_TRACK_HEAT) {</span>
+<span class="nc bnc" id="L1160" title="All 2 branches missed.">            hazardValue += endHex ? 5 : 2;</span>
+<span class="nc" id="L1161">            logMsg.append(&quot;Heat gain (&quot;).append(hazardValue).append(&quot;).&quot;);</span>
+        }
+
+<span class="nc" id="L1164">        return hazardValue;</span>
+    }
+
+    private double calcMagmaHazard(IHex hex, boolean endHex, Entity movingUnit,
+                                   boolean jumpLanding, MoveStep step,
+                                   StringBuilder logMsg) {
+<span class="nc" id="L1170">        logMsg.append(&quot;\n\tCalculating magma hazard:  &quot;);</span>
+
+        // Hovers are unaffected.
+<span class="nc bnc" id="L1173" title="All 2 branches missed.">        if (EntityMovementMode.HOVER == movingUnit.getMovementMode() ||</span>
+<span class="nc bnc" id="L1174" title="All 2 branches missed.">            EntityMovementMode.WIGE == movingUnit.getMovementMode()) {</span>
+<span class="nc" id="L1175">            logMsg.append(&quot;Hovering above magma (0).&quot;);</span>
+<span class="nc" id="L1176">            return 0;</span>
+        }
+
+<span class="nc" id="L1179">        double hazardValue = 0;</span>
+<span class="nc" id="L1180">        int magmaLevel = hex.terrainLevel(Terrains.MAGMA);</span>
+
+        // Liquid magma.
+<span class="nc bnc" id="L1183" title="All 2 branches missed.">        if (magmaLevel == 2) {</span>
+<span class="nc" id="L1184">            return calcLavaHazard(endHex, movingUnit, step, logMsg);</span>
+        } else {
+<span class="nc bnc" id="L1186" title="All 2 branches missed.">            double breakThroughMod = jumpLanding ? 0.5 : 0.1667;</span>
+<span class="nc" id="L1187">            logMsg.append(&quot;\n\t\tChance to break through crust = &quot;)</span>
+<span class="nc" id="L1188">                  .append(LOG_PERCENT.format(breakThroughMod));</span>
+
+            // Factor in the chance to break through.
+<span class="nc" id="L1191">            double lavalHazard = calcLavaHazard(endHex, movingUnit, step,</span>
+                                                logMsg) * breakThroughMod;
+<span class="nc" id="L1193">            logMsg.append(&quot;\n\t\t\tLava hazard (&quot;)</span>
+<span class="nc" id="L1194">                  .append(LOG_DECIMAL.format(lavalHazard)).append(&quot;).&quot;);</span>
+<span class="nc" id="L1195">            hazardValue += lavalHazard;</span>
+
+            // Factor in heat.
+<span class="nc bnc" id="L1198" title="All 2 branches missed.">            if (movingUnit.getHeatCapacity() != Entity.DOES_NOT_TRACK_HEAT) {</span>
+<span class="nc bnc" id="L1199" title="All 2 branches missed.">                double heatMod = (endHex ? 5 : 2) * (1 - breakThroughMod);</span>
+<span class="nc" id="L1200">                hazardValue += heatMod;</span>
+<span class="nc" id="L1201">                logMsg.append(&quot;\n\t\tHeat gain (&quot;)</span>
+<span class="nc" id="L1202">                      .append(LOG_DECIMAL.format(heatMod)).append(&quot;).&quot;);</span>
+            }
+        }
+
+<span class="nc" id="L1206">        return hazardValue;</span>
+    }
+
+    private double calcLavaHazard(boolean endHex, Entity movingUnit,
+                                  MoveStep step, StringBuilder logMsg) {
+<span class="nc" id="L1211">        logMsg.append(&quot;\n\tCalculating laval hazard:  &quot;);</span>
+
+
+        // Hovers are unaffected.
+<span class="nc bnc" id="L1215" title="All 2 branches missed.">        if (EntityMovementMode.HOVER == movingUnit.getMovementMode() ||</span>
+<span class="nc bnc" id="L1216" title="All 2 branches missed.">            EntityMovementMode.WIGE == movingUnit.getMovementMode()) {</span>
+<span class="nc" id="L1217">            logMsg.append(&quot;Hovering above lava (0).&quot;);</span>
+<span class="nc" id="L1218">            return 0;</span>
+        }
+
+        // Non-mech units auto-destroyed.
+<span class="nc bnc" id="L1222" title="All 2 branches missed.">        if (!(movingUnit instanceof Mech)) {</span>
+<span class="nc" id="L1223">            logMsg.append(&quot;Non-mech instant destruction (1000).&quot;);</span>
+<span class="nc" id="L1224">            return UNIT_DESTRUCTION_FACTOR;</span>
+        }
+
+<span class="nc" id="L1227">        double hazardValue = 0;</span>
+
+        // Factor in heat.
+<span class="nc bnc" id="L1230" title="All 2 branches missed.">        double heat = endHex ? 10.0 : 5.0;</span>
+<span class="nc" id="L1231">        hazardValue += heat;</span>
+<span class="nc" id="L1232">        logMsg.append(&quot;\n\t\tHeat gain (&quot;).append(heat)</span>
+<span class="nc" id="L1233">              .append(LOG_DECIMAL.format(heat)).append(&quot;).&quot;);</span>
+
+        // Factor in potential damage.
+        double dmg;
+<span class="nc" id="L1237">        logMsg.append(&quot;\n\t\tDamage to &quot;);</span>
+<span class="nc bnc" id="L1238" title="All 2 branches missed.">        if (step.isProne()) {</span>
+<span class="nc" id="L1239">            dmg = 7 * movingUnit.locations();</span>
+<span class="nc" id="L1240">            logMsg.append(&quot;everything [prone] (&quot;);</span>
+<span class="nc bnc" id="L1241" title="All 2 branches missed.">        } else if (movingUnit instanceof BipedMech) {</span>
+<span class="nc" id="L1242">            dmg = 14;</span>
+<span class="nc" id="L1243">            logMsg.append(&quot;legs (&quot;);</span>
+<span class="nc bnc" id="L1244" title="All 2 branches missed.">        } else if (movingUnit instanceof TripodMech) {</span>
+<span class="nc" id="L1245">            dmg = 21;</span>
+<span class="nc" id="L1246">            logMsg.append(&quot;legs (&quot;);</span>
+        } else {
+<span class="nc" id="L1248">            dmg = 28;</span>
+<span class="nc" id="L1249">            logMsg.append(&quot;legs (&quot;);</span>
+        }
+<span class="nc" id="L1251">        logMsg.append(LOG_DECIMAL.format(dmg)).append(&quot;).&quot;);</span>
+<span class="nc" id="L1252">        hazardValue += dmg;</span>
+
+<span class="nc" id="L1254">        return hazardValue;</span>
+    }
+    
+    /**
+     * Simple data structure that holds a separate firing and physical damage number.
+     *
+     */
+<span class="nc" id="L1261">    protected class FiringPhysicalDamage {</span>
+        public double firingDamage;
+        public double physicalDamage;
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

@@ -1,0 +1,1970 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Board.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">Board.java</span></div><h1>Board.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000,2001,2002,2003,2004 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.common;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
+import java.io.Serializable;
+import java.io.StreamTokenizer;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+
+import megamek.MegaMek;
+import megamek.client.ui.swing.GUIPreferences;
+import megamek.common.Building.BasementType;
+import megamek.common.annotations.Nullable;
+import megamek.common.event.BoardEvent;
+import megamek.common.event.BoardListener;
+import megamek.common.util.fileUtils.MegaMekFile;
+
+public class Board implements Serializable, IBoard {
+    private static final long serialVersionUID = -5744058872091016636L;
+
+    public static final String BOARD_REQUEST_ROTATION = &quot;rotate:&quot;;
+
+    // starting positions
+    public static final int START_NONE = -1;
+    public static final int START_ANY = 0;
+    public static final int START_NW = 1;
+    public static final int START_N = 2;
+    public static final int START_NE = 3;
+    public static final int START_E = 4;
+    public static final int START_SE = 5;
+    public static final int START_S = 6;
+    public static final int START_SW = 7;
+    public static final int START_W = 8;
+    public static final int START_EDGE = 9;
+    public static final int START_CENTER = 10;
+    
+    //Board Dimensions
+    //Used for things like artillery rules that reference the standard mapsheet dimensions
+    public static final int DEFAULT_BOARD_HEIGHT = 17;
+    public static final int DEFAULT_BOARD_WIDTH = 16;
+    //Variable board width and height. Used for most everything else since we're not restricted to paper map sizes
+    protected int width;
+    protected int height;
+
+    // MapType
+    public static final int T_GROUND = 0;
+    public static final int T_ATMOSPHERE = 1;
+    public static final int T_SPACE = 2;
+
+<span class="fc" id="L86">    private static final String[] typeNames = { &quot;Ground&quot;, &quot;Low Atmosphere&quot;, &quot;Space&quot; };</span>
+
+    // Min and Max elevation values for when they are undefined (since you cant
+    // set an int to null).
+    private static final int UNDEFINED_MIN_ELEV = 10000;
+    private static final int UNDEFINED_MAX_ELEV = -10000;
+
+    // The min and max elevation values for this board.
+    // set when getMinElevation/getMax is called for the first time.
+<span class="pc" id="L95">    private int minElevation = UNDEFINED_MIN_ELEV;</span>
+<span class="pc" id="L96">    private int maxElevation = UNDEFINED_MAX_ELEV;</span>
+
+<span class="pc" id="L98">    private int mapType = T_GROUND;</span>
+
+    private IHex[] data;
+
+    /**
+     * The path to the file to load as background image for this board. To avoid
+     * the Server sending a serialized image, the image isn't loaded until
+     * requested.
+     */
+<span class="pc" id="L107">    private List&lt;String&gt; backgroundPaths = new ArrayList&lt;&gt;();</span>
+
+    /**
+     * Keeps track of how many boards were combined to create this board. These
+     * are necessary to properly index into the background image, and only need
+     * to be set if backgroundPaths are present.
+     */
+    private int numBoardsWidth, numBoardsHeight;
+
+    /**
+     * Keeps track of the size of the boards used to create this board. These
+     * are necessary to properly index into the background image, and only need
+     * to be set if backgroundPaths are present.
+     */
+    private int subBoardWidth, subBoardHeight;
+
+    /**
+     * Flags that determine if the background image should be flipped. These are
+     * necessary to properly index into the background image, and only need to
+     * be set if backgroundPaths are present.
+     */
+<span class="pc" id="L128">    private List&lt;Boolean&gt; flipBGHoriz = new ArrayList&lt;&gt;(), flipBGVert = new ArrayList&lt;&gt;();</span>
+
+    /**
+     * Building data structures.
+     */
+<span class="pc" id="L133">    private Vector&lt;Building&gt; buildings = new Vector&lt;Building&gt;();</span>
+<span class="pc" id="L134">    private transient Hashtable&lt;Coords, Building&gt; bldgByCoords = new Hashtable&lt;Coords, Building&gt;();</span>
+
+<span class="pc" id="L136">    protected transient Vector&lt;BoardListener&gt; boardListeners = new Vector&lt;BoardListener&gt;();</span>
+
+    /**
+     * Record the infernos placed on the board.
+     */
+<span class="pc" id="L141">    private Hashtable&lt;Coords, InfernoTracker&gt; infernos = new Hashtable&lt;Coords, InfernoTracker&gt;();</span>
+
+<span class="pc" id="L143">    private Hashtable&lt;Coords, Collection&lt;SpecialHexDisplay&gt;&gt; specialHexes = new Hashtable&lt;Coords, Collection&lt;SpecialHexDisplay&gt;&gt;();</span>
+
+    /**
+     * Option to turn have roads auto-exiting to pavement.
+     */
+<span class="pc" id="L148">    private boolean roadsAutoExit = true;</span>
+
+    /**
+     * A description of the map.
+     */
+    private String description;
+
+    /**
+     * Per-hex annotations on the map.
+     */
+<span class="pc" id="L158">    private Map&lt;Coords, Collection&lt;String&gt;&gt; annotations = new HashMap&lt;&gt;();</span>
+
+    /**
+     * Creates a new board with zero as its width and height parameters.
+     */
+    public Board() {
+<span class="fc" id="L164">        this(0, 0);</span>
+<span class="fc" id="L165">    }</span>
+
+    /**
+     * Creates a new board of the specified dimensions. All hexes in the board
+     * will be null until otherwise set.
+     *
+     * @param width
+     *            the width dimension.
+     * @param height
+     *            the height dimension.
+     */
+<span class="fc" id="L176">    public Board(int width, int height) {</span>
+<span class="fc" id="L177">        this.width = width;</span>
+<span class="fc" id="L178">        this.height = height;</span>
+<span class="fc" id="L179">        data = new IHex[width * height];</span>
+<span class="fc" id="L180">    }</span>
+
+    /**
+     * Creates a new board of the specified dimensions and specified hex data.
+     *
+     * @param width
+     *            the width dimension.
+     * @param height
+     *            the height dimension.
+     * @param data
+     */
+<span class="nc" id="L191">    public Board(int width, int height, IHex[] data) {</span>
+<span class="nc" id="L192">        this.width = width;</span>
+<span class="nc" id="L193">        this.height = height;</span>
+<span class="nc" id="L194">        this.data = new IHex[width * height];</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">        for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            for (int x = 0; x &lt; width; x++) {</span>
+<span class="nc" id="L197">                this.data[(y * width) + x] = data[(y * width) + x];</span>
+            }
+        }
+<span class="nc" id="L200">    }</span>
+
+    /**
+     * Creates a new board of the specified dimensions, hexes, buildings, and
+     * inferno trackers. Do *not* use this method unless you have carefully
+     * examined this class.
+     *
+     * @param width
+     *            The &lt;code&gt;int&lt;/code&gt; width dimension in hexes.
+     * @param height
+     *            The &lt;code&gt;int&lt;/code&gt; height dimension in hexes.
+     * @param hexes
+     *            The array of &lt;code&gt;Hex&lt;/code&gt;es for this board. This object is
+     *            used directly without being copied. This value should only be
+     *            &lt;code&gt;null&lt;/code&gt; if either &lt;code&gt;width&lt;/code&gt; or
+     *            &lt;code&gt;height&lt;/code&gt; is zero.
+     * @param bldgs
+     *            The &lt;code&gt;Vector&lt;/code&gt; of &lt;code&gt;Building&lt;/code&gt;s for this
+     *            board. This object is used directly without being copied.
+     * @param infMap
+     *            The &lt;code&gt;Hashtable&lt;/code&gt; that map &lt;code&gt;Coords&lt;/code&gt; to
+     *            &lt;code&gt;InfernoTracker&lt;/code&gt;s for this board. This object is
+     *            used directly without being copied.
+     */
+    public Board(int width, int height, IHex[] hexes, Vector&lt;Building&gt; bldgs,
+<span class="nc" id="L225">            Hashtable&lt;Coords, InfernoTracker&gt; infMap) {</span>
+<span class="nc" id="L226">        this.width = width;</span>
+<span class="nc" id="L227">        this.height = height;</span>
+<span class="nc" id="L228">        data = hexes;</span>
+<span class="nc" id="L229">        buildings = bldgs;</span>
+<span class="nc" id="L230">        infernos = infMap;</span>
+<span class="nc" id="L231">        createBldgByCoords();</span>
+<span class="nc" id="L232">    }</span>
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#getHeight()
+     */
+    public int getHeight() {
+<span class="nc" id="L240">        return height;</span>
+    }
+
+    @Override
+    public Coords getCenter() {
+<span class="nc" id="L245">        return new Coords(getWidth() / 2, getHeight() / 2);</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#getWidth()
+     */
+    public int getWidth() {
+<span class="nc" id="L254">        return width;</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#newData(int, int, megamek.common.IHex[])
+     */
+    public void newData(int width, int height, IHex[] data, StringBuffer errBuff) {
+<span class="nc" id="L263">        this.width = width;</span>
+<span class="nc" id="L264">        this.height = height;</span>
+<span class="nc" id="L265">        this.data = data;</span>
+
+<span class="nc" id="L267">        initializeAll(errBuff);</span>
+<span class="nc" id="L268">        processBoardEvent(new BoardEvent(this, null, BoardEvent.BOARD_NEW_BOARD));</span>
+<span class="nc" id="L269">    }</span>
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#newData(int, int)
+     */
+    public void newData(int width, int height) {
+<span class="nc" id="L277">        newData(width, height, new IHex[width * height], null);</span>
+<span class="nc" id="L278">    }</span>
+
+    /**
+     * Determines if this Board contains the (x, y) Coords, and if so, returns
+     * the Hex at that position.
+     *
+     * @param x
+     *            the x Coords.
+     * @param y
+     *            the y Coords.
+     * @return the Hex, if this Board contains the (x, y) location; null
+     *         otherwise.
+     */
+    public IHex getHex(int x, int y) {
+<span class="nc bnc" id="L292" title="All 2 branches missed.">        if (contains(x, y)) {</span>
+<span class="nc" id="L293">            return data[(y * width) + x];</span>
+        }
+<span class="nc" id="L295">        return null;</span>
+    }
+
+    /**
+     * Gets the hex in the specified direction from the specified starting
+     * coordinates.
+     */
+    public IHex getHexInDir(Coords c, int dir) {
+<span class="nc" id="L303">        return getHex(c.xInDir(dir), c.yInDir(dir));</span>
+    }
+
+    /**
+     * Gets the hex in the specified direction from the specified starting
+     * coordinates. Avoids calls to Coords.translated, and thus, object
+     * construction.
+     */
+    public IHex getHexInDir(int x, int y, int dir) {
+<span class="nc" id="L312">        return getHex(Coords.xInDir(x, y, dir), Coords.yInDir(x, y, dir));</span>
+    }
+
+    /**
+     * Initialize all hexes
+     */
+    protected void initializeAll(StringBuffer errBuff) {
+        // Initialize all buildings.
+<span class="nc" id="L320">        buildings.removeAllElements();</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">        if (bldgByCoords == null) {</span>
+<span class="nc" id="L322">            bldgByCoords = new Hashtable&lt;Coords, Building&gt;();</span>
+        } else {
+<span class="nc" id="L324">            bldgByCoords.clear();</span>
+        }
+        // Walk through the hexes, creating buildings.
+<span class="nc bnc" id="L327" title="All 2 branches missed.">        for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">            for (int x = 0; x &lt; width; x++) {</span>
+                // Does this hex contain a building?
+<span class="nc" id="L330">                IHex curHex = getHex(x, y);</span>
+<span class="nc bnc" id="L331" title="All 4 branches missed.">                if ((curHex != null) &amp;&amp; (curHex.containsTerrain(Terrains.BUILDING))) {</span>
+                    // Yup, but is it a repeat?
+<span class="nc" id="L333">                    Coords coords = new Coords(x, y);</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">                    if (!bldgByCoords.containsKey(coords)) {</span>
+
+                        // Nope. Try to create an object for the new building.
+                        try {
+<span class="nc" id="L338">                            Building bldg = new Building(coords, this, Terrains.BUILDING,</span>
+<span class="nc" id="L339">                                    BasementType.getType(curHex.terrainLevel(Terrains.BLDG_BASEMENT_TYPE)));</span>
+<span class="nc" id="L340">                            buildings.addElement(bldg);</span>
+
+                            // Each building will identify the hexes it covers.
+<span class="nc" id="L343">                            Enumeration&lt;Coords&gt; iter = bldg.getCoords();</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">                            while (iter.hasMoreElements()) {</span>
+<span class="nc" id="L345">                                bldgByCoords.put(iter.nextElement(), bldg);</span>
+                            }
+<span class="nc" id="L347">                        } catch (IllegalArgumentException excep) {</span>
+                            // Log the error and remove the
+                            // building from the board.
+<span class="nc bnc" id="L350" title="All 2 branches missed.">                            if (errBuff == null) {</span>
+<span class="nc" id="L351">                                MegaMek.getLogger().error(this, &quot;Unable to create building.&quot;);</span>
+<span class="nc" id="L352">                                excep.printStackTrace();</span>
+                            } else {
+<span class="nc" id="L354">                                errBuff.append(&quot;Unable to create building at &quot; + coords.toString() + &quot;!\n&quot;);</span>
+<span class="nc" id="L355">                                errBuff.append(excep.getMessage() + &quot;\n&quot;);</span>
+                            }
+<span class="nc" id="L357">                            curHex.removeTerrain(Terrains.BUILDING);</span>
+<span class="nc" id="L358">                        }</span>
+                    } // End building-is-new
+                } // End hex-has-building
+<span class="nc bnc" id="L361" title="All 4 branches missed.">                if ((curHex != null) &amp;&amp; (curHex.containsTerrain(Terrains.FUEL_TANK))) {</span>
+                    // Yup, but is it a repeat?
+<span class="nc" id="L363">                    Coords coords = new Coords(x, y);</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">                    if (!bldgByCoords.containsKey(coords)) {</span>
+
+                        // Nope. Try to create an object for the new building.
+                        try {
+<span class="nc" id="L368">                            int magnitude = curHex.getTerrain(Terrains.FUEL_TANK_MAGN).getLevel();</span>
+<span class="nc" id="L369">                            FuelTank bldg = new FuelTank(coords, this, Terrains.FUEL_TANK, magnitude);</span>
+<span class="nc" id="L370">                            buildings.addElement(bldg);</span>
+
+                            // Each building will identify the hexes it covers.
+<span class="nc" id="L373">                            Enumeration&lt;Coords&gt; iter = bldg.getCoords();</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                            while (iter.hasMoreElements()) {</span>
+<span class="nc" id="L375">                                bldgByCoords.put(iter.nextElement(), bldg);</span>
+                            }
+<span class="nc" id="L377">                        } catch (IllegalArgumentException excep) {</span>
+                            // Log the error and remove the
+                            // fuel tank from the board.
+<span class="nc bnc" id="L380" title="All 2 branches missed.">                            if (errBuff == null) {</span>
+<span class="nc" id="L381">                                MegaMek.getLogger().error(this, &quot;Unable to create fuel tank.&quot;);</span>
+<span class="nc" id="L382">                                excep.printStackTrace();</span>
+                            } else {
+<span class="nc" id="L384">                                errBuff.append(&quot;Unable to create fuel tank at &quot; + coords.toString() + &quot;!\n&quot;);</span>
+<span class="nc" id="L385">                                errBuff.append(excep.getMessage() + &quot;\n&quot;);</span>
+                            }
+<span class="nc" id="L387">                            curHex.removeTerrain(Terrains.FUEL_TANK);</span>
+<span class="nc" id="L388">                        }</span>
+                    } // End building-is-new
+                } // End hex-has-building
+<span class="nc bnc" id="L391" title="All 4 branches missed.">                if ((curHex != null) &amp;&amp; curHex.containsTerrain(Terrains.BRIDGE)) {</span>
+
+                    // Yup, but is it a repeat?
+<span class="nc" id="L394">                    Coords coords = new Coords(x, y);</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">                    if (!bldgByCoords.containsKey(coords)) {</span>
+
+                        // Nope. Try to create an object for the new building.
+                        try {
+<span class="nc" id="L399">                            Building bldg = new Building(coords, this, Terrains.BRIDGE, BasementType.NONE);</span>
+<span class="nc" id="L400">                            buildings.addElement(bldg);</span>
+
+                            // Each building will identify the hexes it covers.
+<span class="nc" id="L403">                            Enumeration&lt;Coords&gt; iter = bldg.getCoords();</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">                            while (iter.hasMoreElements()) {</span>
+<span class="nc" id="L405">                                bldgByCoords.put(iter.nextElement(), bldg);</span>
+                            }
+<span class="nc" id="L407">                        } catch (IllegalArgumentException excep) {</span>
+                            // Log the error and remove the
+                            // bridge from the board.
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                            if (errBuff == null) {</span>
+<span class="nc" id="L411">                                MegaMek.getLogger().error(this, &quot;Unable to create bridge.&quot;);</span>
+<span class="nc" id="L412">                                excep.printStackTrace();</span>
+                            } else {
+<span class="nc" id="L414">                                errBuff.append(&quot;Unable to create bridge at &quot; + coords.toString() + &quot;!\n&quot;);</span>
+<span class="nc" id="L415">                                errBuff.append(excep.getMessage() + &quot;\n&quot;);</span>
+                            }
+<span class="nc" id="L417">                            curHex.removeTerrain(Terrains.BRIDGE);</span>
+<span class="nc" id="L418">                        }</span>
+
+                    } // End bridge-is-new
+
+                } // End hex-has-bridge
+            }
+        }
+        // Initialize all exits.
+<span class="nc bnc" id="L426" title="All 2 branches missed.">        for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">            for (int x = 0; x &lt; width; x++) {</span>
+<span class="nc" id="L428">                initializeHex(x, y, false);</span>
+            }
+        }
+<span class="nc" id="L431">        processBoardEvent(new BoardEvent(this, null, BoardEvent.BOARD_CHANGED_ALL_HEXES));</span>
+        // good time to ensure hex cache
+<span class="nc" id="L433">        IdealHex.ensureCacheSize(width + 1, height + 1);</span>
+
+<span class="nc" id="L435">    } // End private void initializeAll()</span>
+
+    /**
+     * Initialize a hex and the hexes around it
+     */
+    public void initializeAround(int x, int y) {
+<span class="nc" id="L441">        initializeHex(x, y);</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">        for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc" id="L443">            initializeInDir(x, y, i);</span>
+        }
+<span class="nc" id="L445">    }</span>
+
+    /**
+     * Initializes a hex in a specific direction from an origin hex
+     */
+    private void initializeInDir(int x, int y, int dir) {
+<span class="nc" id="L451">        initializeHex(Coords.xInDir(x, y, dir), Coords.yInDir(x, y, dir));</span>
+<span class="nc" id="L452">    }</span>
+
+    /**
+     * Initializes a hex in its surroundings. Currently sets the connects
+     * parameter appropriately to the surrounding hexes. If a surrounding hex is
+     * off the board, it checks the hex opposite the missing hex.
+     */
+    public void initializeHex(int x, int y) {
+<span class="nc" id="L460">        initializeHex(x, y, true);</span>
+<span class="nc" id="L461">    }</span>
+
+    private void initializeHex(int x, int y, boolean event) {
+<span class="nc" id="L464">        IHex hex = getHex(x, y);</span>
+
+<span class="nc bnc" id="L466" title="All 2 branches missed.">        if (hex == null) {</span>
+<span class="nc" id="L467">            return;</span>
+        }
+
+        // Always make the coords of the hex match the actual position on the board
+<span class="nc" id="L471">        hex.setCoords(new Coords(x, y));</span>
+        
+<span class="nc" id="L473">        hex.clearExits();</span>
+<span class="nc bnc" id="L474" title="All 2 branches missed.">        for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc" id="L475">            IHex other = getHexInDir(x, y, i);</span>
+<span class="nc" id="L476">            hex.setExits(other, i, roadsAutoExit);</span>
+        }
+        
+        // Internally handled terrain (inclines, cliff-bottoms)
+<span class="nc" id="L480">        initializeAutomaticTerrain(x, y);</span>
+        
+        // Add woods/jungle elevation where none was saved
+<span class="nc" id="L483">        initializeFoliageElev(x, y);</span>
+        
+<span class="nc bnc" id="L485" title="All 2 branches missed.">        if (event) {</span>
+<span class="nc" id="L486">            processBoardEvent(new BoardEvent(this, new Coords(x, y), BoardEvent.BOARD_CHANGED_HEX));</span>
+        }
+<span class="nc" id="L488">    }</span>
+    
+    /** Adds the FOLIAGE_ELEV terrain when none is present. */
+    private void initializeFoliageElev(int x, int y) {
+<span class="nc" id="L492">        IHex hex = getHex(x, y);</span>
+
+        // If the foliage elevation is present or the hex doesn't even have foliage,
+        // nothing needs to be done
+<span class="nc bnc" id="L496" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.FOLIAGE_ELEV) || </span>
+<span class="nc bnc" id="L497" title="All 4 branches missed.">                (!hex.containsTerrain(Terrains.WOODS) &amp;&amp; !hex.containsTerrain(Terrains.JUNGLE))) {</span>
+<span class="nc" id="L498">            return;</span>
+        }
+        
+        // Foliage is missing, therefore add it with the standard TW values
+        // elevation 3 for Ultra Woods/Jungle and 2 for Light/Heavy
+<span class="nc bnc" id="L503" title="All 4 branches missed.">        if (hex.terrainLevel(Terrains.WOODS) == 3 || hex.terrainLevel(Terrains.JUNGLE) == 3) {</span>
+<span class="nc" id="L504">            hex.addTerrain(Terrains.getTerrainFactory()</span>
+<span class="nc" id="L505">                    .createTerrain(Terrains.FOLIAGE_ELEV, 3));    </span>
+        } else {
+<span class="nc" id="L507">            hex.addTerrain(Terrains.getTerrainFactory()</span>
+<span class="nc" id="L508">                    .createTerrain(Terrains.FOLIAGE_ELEV, 2));</span>
+        }
+<span class="nc" id="L510">    }</span>
+    
+    /** 
+     * Checks all hex edges of the hex at (x,y) if automatically handled 
+     * terrains such as inclines must be placed or removed. 
+     */
+    private void initializeAutomaticTerrain(int x, int y) {
+<span class="nc" id="L517">        IHex hex = getHex(x, y);</span>
+<span class="nc" id="L518">        int origCliffTopExits = 0;</span>
+<span class="nc" id="L519">        int correctedCliffTopExits = 0;</span>
+<span class="nc" id="L520">        int cliffBotExits = 0;</span>
+<span class="nc" id="L521">        int inclineTopExits = 0;</span>
+<span class="nc" id="L522">        int inclineBotExits = 0;</span>
+<span class="nc" id="L523">        int highInclineTopExits = 0;</span>
+<span class="nc" id="L524">        int highInclineBotExits = 0;</span>
+
+        // Get the currently set cliff-tops for correction. When exits
+        // are not specified, the cliff-tops are removed.
+<span class="nc bnc" id="L528" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.CLIFF_TOP) </span>
+<span class="nc bnc" id="L529" title="All 2 branches missed.">                &amp;&amp; hex.getTerrain(Terrains.CLIFF_TOP).hasExitsSpecified()) {</span>
+<span class="nc" id="L530">            origCliffTopExits = hex.getTerrain(Terrains.CLIFF_TOP).getExits();</span>
+        }
+
+<span class="nc bnc" id="L533" title="All 2 branches missed.">        for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc" id="L534">            IHex other = getHexInDir(x, y, i);</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">            if (other == null) {</span>
+<span class="nc" id="L536">                continue;</span>
+            }
+
+//            int levelDiff = hex.getLevel() - other.getLevel();
+<span class="nc" id="L540">            int levelDiff = hex.floor() - other.floor();</span>
+<span class="nc" id="L541">            int levelDiffToWaterSurface = hex.floor() - other.getLevel();</span>
+<span class="nc" id="L542">            boolean inWater = hex.containsTerrain(Terrains.WATER);</span>
+<span class="nc" id="L543">            boolean towardsWater = other.containsTerrain(Terrains.WATER);</span>
+<span class="nc bnc" id="L544" title="All 2 branches missed.">            boolean manualCliffTopExitInThisDir = ((origCliffTopExits &amp; (1 &lt;&lt; i)) != 0);</span>
+<span class="nc" id="L545">            boolean cliffTopExitInThisDir = false;</span>
+
+<span class="nc bnc" id="L547" title="All 6 branches missed.">            if ( ((levelDiff == 1) || (levelDiff == 2))  </span>
+                    &amp;&amp; manualCliffTopExitInThisDir ) {
+<span class="nc" id="L549">                correctedCliffTopExits += (1 &lt;&lt; i);</span>
+<span class="nc" id="L550">                cliffTopExitInThisDir = true;</span>
+            }
+
+            // Should there be an incline top?
+<span class="nc bnc" id="L554" title="All 10 branches missed.">            if ( ((levelDiff == 1) || (levelDiff == 2))  </span>
+                    &amp;&amp; !cliffTopExitInThisDir 
+                    &amp;&amp; !inWater
+                    &amp;&amp; !towardsWater) {
+<span class="nc" id="L558">                inclineTopExits += (1 &lt;&lt; i);</span>
+            }
+            
+<span class="nc bnc" id="L561" title="All 10 branches missed.">            if (towardsWater</span>
+                    &amp;&amp; !inWater
+                    &amp;&amp; !cliffTopExitInThisDir 
+                    &amp;&amp; ((levelDiffToWaterSurface == 1) || levelDiffToWaterSurface == 2)) {
+<span class="nc" id="L565">                inclineTopExits += (1 &lt;&lt; i);</span>
+            }
+
+            // Should there be a high level cliff top?
+<span class="nc bnc" id="L569" title="All 8 branches missed.">            if (levelDiff &gt; 2 </span>
+                    &amp;&amp; !inWater
+                    &amp;&amp; (!towardsWater || levelDiffToWaterSurface &gt; 2)) {
+<span class="nc" id="L572">                highInclineTopExits += (1 &lt;&lt; i);</span>
+            }
+            
+            // Should there be an incline bottom or a cliff bottom?
+            // This needs to check for a cliff-top in the other hex and
+            // in the opposite direction
+<span class="nc bnc" id="L578" title="All 4 branches missed.">            if ((levelDiff == -1) || (levelDiff == -2)) {</span>
+<span class="nc bnc" id="L579" title="All 2 branches missed.">                if (other.hasCliffTopTowards(hex)) {</span>
+<span class="nc" id="L580">                    cliffBotExits += (1 &lt;&lt; i);</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">                } else if (!inWater) {</span>
+<span class="nc" id="L582">                    inclineBotExits += (1 &lt;&lt; i);</span>
+                }
+            }
+
+            // Should there be a high level cliff bottom?
+<span class="nc bnc" id="L587" title="All 4 branches missed.">            if (levelDiff &lt; -2 &amp;&amp; !inWater) {</span>
+<span class="nc" id="L588">                highInclineBotExits += (1 &lt;&lt; i);</span>
+            }
+        }
+<span class="nc" id="L591">        addOrRemoveAutoTerrain(hex, Terrains.CLIFF_TOP, correctedCliffTopExits);</span>
+<span class="nc" id="L592">        addOrRemoveAutoTerrain(hex, Terrains.CLIFF_BOTTOM, cliffBotExits);</span>
+<span class="nc bnc" id="L593" title="All 2 branches missed.">        if (GUIPreferences.getInstance().getHexInclines()) {</span>
+<span class="nc" id="L594">            addOrRemoveAutoTerrain(hex, Terrains.INCLINE_TOP, inclineTopExits);</span>
+<span class="nc" id="L595">            addOrRemoveAutoTerrain(hex, Terrains.INCLINE_BOTTOM, inclineBotExits);</span>
+<span class="nc" id="L596">            addOrRemoveAutoTerrain(hex, Terrains.INCLINE_HIGH_TOP, highInclineTopExits);</span>
+<span class="nc" id="L597">            addOrRemoveAutoTerrain(hex, Terrains.INCLINE_HIGH_BOTTOM, highInclineBotExits);</span>
+        } else {
+<span class="nc" id="L599">            hex.removeTerrain(Terrains.INCLINE_TOP);</span>
+<span class="nc" id="L600">            hex.removeTerrain(Terrains.INCLINE_BOTTOM);</span>
+<span class="nc" id="L601">            hex.removeTerrain(Terrains.INCLINE_HIGH_TOP);</span>
+<span class="nc" id="L602">            hex.removeTerrain(Terrains.INCLINE_HIGH_BOTTOM);</span>
+        }
+<span class="nc" id="L604">    }</span>
+
+    /** 
+     * Adds automatically handled terrain such as inclines when the given
+     * exits value is not 0, otherwise removes it.
+     */
+    private void addOrRemoveAutoTerrain(IHex hex, int terrainType, int exits) {
+<span class="nc bnc" id="L611" title="All 2 branches missed.">        if (exits &gt; 0) {</span>
+<span class="nc" id="L612">            hex.addTerrain(Terrains.getTerrainFactory()</span>
+<span class="nc" id="L613">                    .createTerrain(terrainType, 1, true, exits));</span>
+        } else {
+<span class="nc" id="L615">            hex.removeTerrain(terrainType);</span>
+        }
+<span class="nc" id="L617">    }</span>
+    
+    /** Rebuilds automatic terrains for the whole board. */
+    public void initializeAllAutomaticTerrain() {
+<span class="nc bnc" id="L621" title="All 2 branches missed.">        for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">            for (int x = 0; x &lt; width; x++) {</span>
+<span class="nc" id="L623">                initializeAutomaticTerrain(x, y);</span>
+            }
+        }
+<span class="nc" id="L626">        processBoardEvent(new BoardEvent(this, null, BoardEvent.BOARD_CHANGED_ALL_HEXES));</span>
+<span class="nc" id="L627">    }</span>
+
+    /**
+     * Determines whether this Board &quot;contains&quot; the specified Coords.
+     *
+     * @param x
+     *            the x Coords.
+     * @param y
+     *            the y Coords.
+     */
+    public boolean contains(int x, int y) {
+<span class="nc bnc" id="L638" title="All 8 branches missed.">        return (x &gt;= 0) &amp;&amp; (y &gt;= 0) &amp;&amp; (x &lt; width) &amp;&amp; (y &lt; height);</span>
+    }
+
+    /**
+     * Determines whether this Board &quot;contains&quot; the specified Coords.
+     *
+     * @param c
+     *            the Coords.
+     */
+    public boolean contains(Coords c) {
+<span class="nc bnc" id="L648" title="All 2 branches missed.">        if (c == null) {</span>
+<span class="nc" id="L649">            return false;</span>
+        }
+<span class="nc" id="L651">        return contains(c.getX(), c.getY());</span>
+    }
+
+    /**
+     * Returns the Hex at the specified Coords.
+     *
+     * @param c
+     *            the Coords.
+     */
+    public IHex getHex(Coords c) {
+<span class="nc bnc" id="L661" title="All 2 branches missed.">        if (c == null) {</span>
+<span class="nc" id="L662">            return null;</span>
+        }
+<span class="nc" id="L664">        return getHex(c.getX(), c.getY());</span>
+    }
+
+    /**
+     * Determines if this Board contains the (x, y) Coords, and if so, sets the
+     * specified Hex into that position and initializes it.
+     *
+     * @param x
+     *            the x Coords.
+     * @param y
+     *            the y Coords.
+     * @param hex
+     *            the hex to be set into position.
+     */
+    public void setHex(int x, int y, IHex hex) {
+<span class="nc" id="L679">        data[(y * width) + x] = hex;</span>
+<span class="nc" id="L680">        initializeHex(x, y);</span>
+        // If this hex has exitable terrain, we may need to update the exits in
+        // adjacent hexes
+<span class="nc bnc" id="L683" title="All 2 branches missed.">        if (hex.hasExitableTerrain()) {</span>
+<span class="nc bnc" id="L684" title="All 2 branches missed.">            for (int dir = 0; dir &lt; 6; dir++) {</span>
+<span class="nc bnc" id="L685" title="All 2 branches missed.">                if (hex.containsExit(dir)) {</span>
+<span class="nc" id="L686">                    initializeInDir(x, y, dir);</span>
+                }
+            }
+        }
+<span class="nc" id="L690">    }</span>
+
+    /**
+     * Similar to the setHex function for a collection of coordinates and hexes.
+     * For each coord/hex pair in the supplied collections, this method
+     * determines if the Board contains the coords and if so updates the
+     * specified hex into that position and intializes it.
+     * &lt;p/&gt;
+     * The method ensures that each hex that needs to be updated is only updated
+     * once.
+     *
+     * @param coords
+     *            A list of coordinates to be updated
+     * @param hexes
+     *            The hex to be updated for each coordinate
+     */
+    public void setHexes(List&lt;Coords&gt; coords, List&lt;IHex&gt; hexes) {
+        // Keeps track of hexes that will need to be reinitialized
+<span class="nc" id="L708">        LinkedHashSet&lt;Coords&gt; needsUpdate = new LinkedHashSet&lt;Coords&gt;((int) (coords.size() * 1.25 + 0.5));</span>
+
+        // Sanity check
+<span class="nc bnc" id="L711" title="All 2 branches missed.">        if (coords.size() != hexes.size()) {</span>
+<span class="nc" id="L712">            throw new IllegalStateException(&quot;setHexes received two collections differeing size!&quot;);</span>
+        }
+
+        // Update all input hexes, plus create a set of coords that need
+        // updating
+<span class="nc" id="L717">        Iterator&lt;Coords&gt; coordIter = coords.iterator();</span>
+<span class="nc" id="L718">        Iterator&lt;IHex&gt; hexIter = hexes.iterator();</span>
+<span class="nc bnc" id="L719" title="All 4 branches missed.">        while (coordIter.hasNext() &amp;&amp; hexIter.hasNext()) {</span>
+<span class="nc" id="L720">            Coords currCoord = coordIter.next();</span>
+<span class="nc" id="L721">            IHex currHex = hexIter.next();</span>
+<span class="nc" id="L722">            int x = currCoord.getX();</span>
+<span class="nc" id="L723">            int y = currCoord.getY();</span>
+<span class="nc" id="L724">            data[(y * width) + x] = currHex;</span>
+<span class="nc" id="L725">            initializeHex(x, y);</span>
+
+            // Add any adjacent hexes that may need to have exits updated
+<span class="nc bnc" id="L728" title="All 2 branches missed.">            if (currHex.hasExitableTerrain()) {</span>
+<span class="nc bnc" id="L729" title="All 2 branches missed.">                for (int dir = 0; dir &lt; 6; dir++) {</span>
+<span class="nc bnc" id="L730" title="All 2 branches missed.">                    if (currHex.containsExit(dir)) {</span>
+<span class="nc" id="L731">                        needsUpdate.add(currCoord.translated(dir));</span>
+                    }
+                }
+            }
+
+<span class="nc" id="L736">        }</span>
+
+<span class="nc bnc" id="L738" title="All 2 branches missed.">        for (Coords coord : needsUpdate) {</span>
+<span class="nc" id="L739">            initializeHex(coord.getX(), coord.getY());</span>
+<span class="nc" id="L740">        }</span>
+
+<span class="nc" id="L742">    }</span>
+
+    /**
+     * Sets the hex into the location specified by the Coords.
+     *
+     * @param c
+     *            the Coords.
+     * @param hex
+     *            the hex to be set into position.
+     */
+    public void setHex(Coords c, IHex hex) {
+<span class="nc" id="L753">        setHex(c.getX(), c.getY(), hex);</span>
+<span class="nc bnc" id="L754" title="All 4 branches missed.">        if (hex.getLevel() &lt; minElevation &amp;&amp; minElevation != UNDEFINED_MIN_ELEV) {</span>
+<span class="nc" id="L755">            minElevation = hex.getLevel();</span>
+        }
+<span class="nc bnc" id="L757" title="All 4 branches missed.">        if (hex.getLevel() &gt; maxElevation &amp;&amp; maxElevation != UNDEFINED_MAX_ELEV) {</span>
+<span class="nc" id="L758">            maxElevation = hex.getLevel();</span>
+        }
+<span class="nc" id="L760">    }</span>
+
+    /**
+     * Checks if a board file is the specified size.
+     *
+     * @param filepath
+     *            The path to the board file.
+     * @param size
+     *            The dimensions of the board to test.
+     * @return {@code true} if the dimensions match.
+     */
+    public static boolean boardIsSize(final File filepath, final BoardDimensions size) {
+<span class="nc" id="L772">        int boardx = 0;</span>
+<span class="nc" id="L773">        int boardy = 0;</span>
+<span class="nc" id="L774">        try (Reader r = new BufferedReader(new FileReader(filepath))) {</span>
+            // read board, looking for &quot;size&quot;
+<span class="nc" id="L776">            StreamTokenizer st = new StreamTokenizer(r);</span>
+<span class="nc" id="L777">            st.eolIsSignificant(true);</span>
+<span class="nc" id="L778">            st.commentChar('#');</span>
+<span class="nc" id="L779">            st.quoteChar('&quot;');</span>
+<span class="nc" id="L780">            st.wordChars('_', '_');</span>
+<span class="nc bnc" id="L781" title="All 2 branches missed.">            while (st.nextToken() != StreamTokenizer.TT_EOF) {</span>
+<span class="nc bnc" id="L782" title="All 4 branches missed.">                if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;size&quot;)) {</span>
+<span class="nc" id="L783">                    st.nextToken();</span>
+<span class="nc" id="L784">                    boardx = (int) st.nval;</span>
+<span class="nc" id="L785">                    st.nextToken();</span>
+<span class="nc" id="L786">                    boardy = (int) st.nval;</span>
+<span class="nc" id="L787">                    break;</span>
+                }
+            }
+<span class="nc" id="L790">        } catch (IOException ex) {</span>
+<span class="nc" id="L791">            return false;</span>
+<span class="nc" id="L792">        }</span>
+
+        // check and return
+<span class="nc bnc" id="L795" title="All 4 branches missed.">        return (boardx == size.width()) &amp;&amp; (boardy == size.height());</span>
+    }
+
+    /**
+     * Inspect specified board file and return its dimensions.
+     *
+     * @param filepath
+     *            The path to the board file.
+     * @return A {@link BoardDimensions} object containing the dimension.
+     */
+    public static BoardDimensions getSize(final File filepath) {
+<span class="nc" id="L806">        int boardx = 0;</span>
+<span class="nc" id="L807">        int boardy = 0;</span>
+<span class="nc" id="L808">        try (Reader r = new BufferedReader(new FileReader(filepath))) {</span>
+            // read board, looking for &quot;size&quot;
+<span class="nc" id="L810">            StreamTokenizer st = new StreamTokenizer(r);</span>
+<span class="nc" id="L811">            st.eolIsSignificant(true);</span>
+<span class="nc" id="L812">            st.commentChar('#');</span>
+<span class="nc" id="L813">            st.quoteChar('&quot;');</span>
+<span class="nc" id="L814">            st.wordChars('_', '_');</span>
+<span class="nc bnc" id="L815" title="All 2 branches missed.">            while (st.nextToken() != StreamTokenizer.TT_EOF) {</span>
+<span class="nc bnc" id="L816" title="All 4 branches missed.">                if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;size&quot;)) {</span>
+<span class="nc" id="L817">                    st.nextToken();</span>
+<span class="nc" id="L818">                    boardx = (int) st.nval;</span>
+<span class="nc" id="L819">                    st.nextToken();</span>
+<span class="nc" id="L820">                    boardy = (int) st.nval;</span>
+<span class="nc" id="L821">                    break;</span>
+                }
+            }
+<span class="nc" id="L824">        } catch (IOException ex) {</span>
+<span class="nc" id="L825">            return null;</span>
+<span class="nc" id="L826">        }</span>
+<span class="nc" id="L827">        return new BoardDimensions(boardx, boardy);</span>
+    }
+
+    /**
+     * Can the player deploy an entity here? There are no canon rules for the
+     * deployment phase (?!). I'm using 3 hexes from map edge.
+     */
+    public boolean isLegalDeployment(Coords c, int nDir) {
+<span class="nc bnc" id="L835" title="All 4 branches missed.">        if ((c == null) || !contains(c)) {</span>
+<span class="nc" id="L836">            return false;</span>
+        }
+
+<span class="nc" id="L839">        int nLimit = 3;</span>
+        // int nDir = en.getStartingPos();
+<span class="nc" id="L841">        int minx = 0;</span>
+<span class="nc" id="L842">        int maxx = width;</span>
+<span class="nc" id="L843">        int miny = 0;</span>
+<span class="nc" id="L844">        int maxy = height;</span>
+<span class="nc bnc" id="L845" title="All 2 branches missed.">        if (nDir &gt; 10) {</span>
+            // Deep deployment, the board is effectively smaller
+<span class="nc" id="L847">            nDir -= 10;</span>
+<span class="nc" id="L848">            minx = width / 5;</span>
+<span class="nc" id="L849">            maxx -= width / 5;</span>
+<span class="nc" id="L850">            miny = height / 5;</span>
+<span class="nc" id="L851">            maxy -= height / 5;</span>
+<span class="nc bnc" id="L852" title="All 8 branches missed.">            if ((c.getX() &lt; minx) || (c.getY() &lt; miny) || (c.getX() &gt;= maxx) || (c.getY() &gt;= maxy)) {</span>
+<span class="nc" id="L853">                return false;</span>
+            }
+        }
+<span class="nc bnc" id="L856" title="All 12 branches missed.">        switch (nDir) {</span>
+        case START_ANY:
+<span class="nc" id="L858">            return true;</span>
+        case START_NW:
+<span class="nc bnc" id="L860" title="All 6 branches missed.">            return ((c.getX() &lt; (minx + nLimit)) &amp;&amp; (c.getX() &gt;= minx) &amp;&amp; (c.getY() &lt; (height / 2)))</span>
+<span class="nc bnc" id="L861" title="All 6 branches missed.">                    || ((c.getY() &lt; (miny + nLimit)) &amp;&amp; (c.getY() &gt;= miny) &amp;&amp; (c.getX() &lt; (width / 2)));</span>
+        case START_N:
+<span class="nc bnc" id="L863" title="All 4 branches missed.">            return (c.getY() &lt; (miny + nLimit)) &amp;&amp; (c.getY() &gt;= miny);</span>
+        case START_NE:
+<span class="nc bnc" id="L865" title="All 6 branches missed.">            return ((c.getX() &gt; (maxx - nLimit)) &amp;&amp; (c.getX() &lt; maxx) &amp;&amp; (c.getY() &lt; (height / 2)))</span>
+<span class="nc bnc" id="L866" title="All 6 branches missed.">                    || ((c.getY() &lt; (miny + nLimit)) &amp;&amp; (c.getY() &gt;= miny) &amp;&amp; (c.getX() &gt; (width / 2)));</span>
+        case START_E:
+<span class="nc bnc" id="L868" title="All 4 branches missed.">            return (c.getX() &gt;= (maxx - nLimit)) &amp;&amp; (c.getX() &lt; maxx);</span>
+        case START_SE:
+<span class="nc bnc" id="L870" title="All 6 branches missed.">            return ((c.getX() &gt;= (maxx - nLimit)) &amp;&amp; (c.getX() &lt; maxx) &amp;&amp; (c.getY() &gt; (height / 2)))</span>
+<span class="nc bnc" id="L871" title="All 6 branches missed.">                    || ((c.getY() &gt;= (maxy - nLimit)) &amp;&amp; (c.getY() &lt; maxy) &amp;&amp; (c.getX() &gt; (width / 2)));</span>
+        case START_S:
+<span class="nc bnc" id="L873" title="All 4 branches missed.">            return (c.getY() &gt;= (maxy - nLimit)) &amp;&amp; (c.getY() &lt; maxy);</span>
+        case START_SW:
+<span class="nc bnc" id="L875" title="All 6 branches missed.">            return ((c.getX() &lt; (minx + nLimit)) &amp;&amp; (c.getX() &gt;= minx) &amp;&amp; (c.getY() &gt; (height / 2)))</span>
+<span class="nc bnc" id="L876" title="All 6 branches missed.">                    || ((c.getY() &gt;= (maxy - nLimit)) &amp;&amp; (c.getY() &lt; maxy) &amp;&amp; (c.getX() &lt; (width / 2)));</span>
+        case START_W:
+<span class="nc bnc" id="L878" title="All 4 branches missed.">            return (c.getX() &lt; (minx + nLimit)) &amp;&amp; (c.getX() &gt;= minx);</span>
+        case START_EDGE:
+<span class="nc bnc" id="L880" title="All 4 branches missed.">            return ((c.getX() &lt; (minx + nLimit)) &amp;&amp; (c.getX() &gt;= minx))</span>
+<span class="nc bnc" id="L881" title="All 4 branches missed.">                    || ((c.getY() &lt; (miny + nLimit)) &amp;&amp; (c.getY() &gt;= miny))</span>
+<span class="nc bnc" id="L882" title="All 4 branches missed.">                    || ((c.getX() &gt;= (maxx - nLimit)) &amp;&amp; (c.getX() &lt; maxx))</span>
+<span class="nc bnc" id="L883" title="All 4 branches missed.">                    || ((c.getY() &gt;= (maxy - nLimit)) &amp;&amp; (c.getY() &lt; maxy));</span>
+        case START_CENTER:
+<span class="nc bnc" id="L885" title="All 6 branches missed.">            return (c.getX() &gt;= (width / 3)) &amp;&amp; (c.getX() &lt;= ((2 * width) / 3)) &amp;&amp; (c.getY() &gt;= (height / 3))</span>
+<span class="nc bnc" id="L886" title="All 2 branches missed.">                    &amp;&amp; (c.getY() &lt;= ((2 * height) / 3));</span>
+        default: // ummm. .
+<span class="nc" id="L888">            return false;</span>
+        }
+
+    }
+
+    /**
+     * Determine the opposite edge from the given edge
+     * Returns START_NONE for non-cardinal edges (North, South, West, East)
+     * @param cardinalEdge The edge to return the opposite off
+     * @return Constant representing the opposite edge
+     */
+    public int getOppositeEdge(int cardinalEdge) {
+<span class="nc bnc" id="L900" title="All 5 branches missed.">        switch(cardinalEdge) {</span>
+        case Board.START_E:
+<span class="nc" id="L902">            return Board.START_W;</span>
+        case Board.START_N:
+<span class="nc" id="L904">            return Board.START_S;</span>
+        case Board.START_W:
+<span class="nc" id="L906">            return Board.START_E;</span>
+        case Board.START_S:
+<span class="nc" id="L908">            return Board.START_N;</span>
+        default:
+<span class="nc" id="L910">            return Board.START_NONE;</span>
+        }
+    }
+    
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Deprecated
+    public void load(final String filename) {
+<span class="nc" id="L920">        load(new MegaMekFile(Configuration.boardsDir(), filename).getFile());</span>
+<span class="nc" id="L921">    }</span>
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void load(final File filepath) {
+<span class="nc" id="L928">        try (InputStream is = new FileInputStream(filepath)) {</span>
+<span class="nc" id="L929">            load(is);</span>
+<span class="nc" id="L930">        } catch (IOException ex) {</span>
+<span class="nc" id="L931">            MegaMek.getLogger().error(this, &quot;IO Error opening file to load board! &quot; + ex);</span>
+<span class="nc" id="L932">        }</span>
+<span class="nc" id="L933">    }</span>
+
+    /**
+     * Loads this board from an InputStream
+     */
+    public void load(InputStream is) {
+<span class="nc" id="L939">        load(is, null, false);</span>
+<span class="nc" id="L940">    }</span>
+
+    public void load(InputStream is, StringBuffer errBuff, boolean continueLoadOnError) {
+<span class="nc" id="L943">        int nw = 0, nh = 0, di = 0;</span>
+<span class="nc" id="L944">        IHex[] nd = new IHex[0];</span>
+<span class="nc" id="L945">        int index = 0;</span>
+<span class="nc" id="L946">        resetStoredElevation();</span>
+<span class="nc" id="L947">        try (Reader r = new BufferedReader(new InputStreamReader(is))) {</span>
+<span class="nc" id="L948">            StreamTokenizer st = new StreamTokenizer(r);</span>
+<span class="nc" id="L949">            st.eolIsSignificant(true);</span>
+<span class="nc" id="L950">            st.commentChar('#');</span>
+<span class="nc" id="L951">            st.quoteChar('&quot;');</span>
+<span class="nc" id="L952">            st.wordChars('_', '_');</span>
+<span class="nc bnc" id="L953" title="All 2 branches missed.">            while (st.nextToken() != StreamTokenizer.TT_EOF) {</span>
+<span class="nc bnc" id="L954" title="All 4 branches missed.">                if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;size&quot;)) {</span>
+                    // read rest of line
+<span class="nc" id="L956">                    String[] args = { &quot;0&quot;, &quot;0&quot; };</span>
+<span class="nc" id="L957">                    int i = 0;</span>
+<span class="nc bnc" id="L958" title="All 6 branches missed.">                    while ((st.nextToken() == StreamTokenizer.TT_WORD) || (st.ttype == '&quot;')</span>
+                            || (st.ttype == StreamTokenizer.TT_NUMBER)) {
+<span class="nc bnc" id="L960" title="All 2 branches missed.">                        args[i++] = st.ttype == StreamTokenizer.TT_NUMBER ? (int) st.nval + &quot;&quot; : st.sval;</span>
+                    }
+<span class="nc" id="L962">                    nw = Integer.parseInt(args[0]);</span>
+<span class="nc" id="L963">                    nh = Integer.parseInt(args[1]);</span>
+<span class="nc" id="L964">                    nd = new IHex[nw * nh];</span>
+<span class="nc" id="L965">                    di = 0;</span>
+<span class="nc bnc" id="L966" title="All 4 branches missed.">                } else if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;option&quot;)) {</span>
+                    // read rest of line
+<span class="nc" id="L968">                    String[] args = { &quot;&quot;, &quot;&quot; };</span>
+<span class="nc" id="L969">                    int i = 0;</span>
+<span class="nc bnc" id="L970" title="All 6 branches missed.">                    while ((st.nextToken() == StreamTokenizer.TT_WORD) || (st.ttype == '&quot;')</span>
+                            || (st.ttype == StreamTokenizer.TT_NUMBER)) {
+<span class="nc bnc" id="L972" title="All 2 branches missed.">                        args[i++] = st.ttype == StreamTokenizer.TT_NUMBER ? (int) st.nval + &quot;&quot; : st.sval;</span>
+                    }
+                    // Only expect certain options.
+<span class="nc bnc" id="L975" title="All 2 branches missed.">                    if (args[0].equalsIgnoreCase(&quot;exit_roads_to_pavement&quot;)) {</span>
+<span class="nc bnc" id="L976" title="All 2 branches missed.">                        if (args[1].equalsIgnoreCase(&quot;false&quot;)) {</span>
+<span class="nc" id="L977">                            roadsAutoExit = false;</span>
+                        } else {
+<span class="nc" id="L979">                            roadsAutoExit = true;</span>
+                        }
+                    } // End exit_roads_to_pavement-option
+<span class="nc bnc" id="L982" title="All 4 branches missed.">                } else if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;hex&quot;)) {</span>
+                    // read rest of line
+<span class="nc" id="L984">                    String[] args = { &quot;&quot;, &quot;0&quot;, &quot;&quot;, &quot;&quot; };</span>
+<span class="nc" id="L985">                    int i = 0;</span>
+<span class="nc bnc" id="L986" title="All 6 branches missed.">                    while ((st.nextToken() == StreamTokenizer.TT_WORD) || (st.ttype == '&quot;')</span>
+                            || (st.ttype == StreamTokenizer.TT_NUMBER)) {
+<span class="nc bnc" id="L988" title="All 2 branches missed.">                        args[i++] = st.ttype == StreamTokenizer.TT_NUMBER ? (int) st.nval + &quot;&quot; : st.sval;</span>
+                    }
+<span class="nc" id="L990">                    int elevation = Integer.parseInt(args[1]);</span>
+                    // The coordinates in the .board file are ignored!
+<span class="nc" id="L992">                    nd[index] = new Hex(elevation, args[2], args[3], new Coords(index % nw, index / nw));</span>
+<span class="nc" id="L993">                    index++;</span>
+<span class="nc bnc" id="L994" title="All 4 branches missed.">                } else if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;background&quot;)) {</span>
+<span class="nc" id="L995">                    st.nextToken();</span>
+<span class="nc" id="L996">                    File bgFile = new MegaMekFile(Configuration.boardBackgroundsDir(),</span>
+<span class="nc" id="L997">                            st.sval).getFile();</span>
+<span class="nc bnc" id="L998" title="All 2 branches missed.">                    if (bgFile.exists()) {</span>
+<span class="nc" id="L999">                        backgroundPaths.add(bgFile.getPath());</span>
+                    } else {
+<span class="nc" id="L1001">                        MegaMek.getLogger().error(this, </span>
+<span class="nc" id="L1002">                                &quot;Board specified background image, but path couldn't be found! Path: &quot; + bgFile.getPath());</span>
+                    }
+<span class="nc bnc" id="L1004" title="All 4 branches missed.">                } else if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;description&quot;)) {</span>
+<span class="nc" id="L1005">                    st.nextToken();</span>
+<span class="nc bnc" id="L1006" title="All 2 branches missed.">                    if (st.ttype == '&quot;') {</span>
+<span class="nc" id="L1007">                        String d = getDescription();</span>
+<span class="nc bnc" id="L1008" title="All 2 branches missed.">                        if (null == d) {</span>
+<span class="nc" id="L1009">                            setDescription(st.sval);</span>
+                        } else {
+<span class="nc" id="L1011">                            setDescription(d + &quot;\n\n&quot; + st.sval);</span>
+                        }
+<span class="nc" id="L1013">                    }</span>
+<span class="nc bnc" id="L1014" title="All 4 branches missed.">                } else if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;note&quot;)) {</span>
+<span class="nc" id="L1015">                    st.nextToken();</span>
+<span class="nc bnc" id="L1016" title="All 2 branches missed.">                    if (st.ttype == StreamTokenizer.TT_NUMBER) {</span>
+<span class="nc" id="L1017">                        int x, y, coordWidth = 100;</span>
+<span class="nc" id="L1018">                        int coords = (int)st.nval;</span>
+<span class="nc bnc" id="L1019" title="All 2 branches missed.">                        if (coords &gt; 9999) {</span>
+<span class="nc" id="L1020">                            coordWidth = 1000;</span>
+                        }
+<span class="nc" id="L1022">                        y = coords % coordWidth;</span>
+<span class="nc" id="L1023">                        coords /= coordWidth;</span>
+<span class="nc" id="L1024">                        x = coords;</span>
+<span class="nc" id="L1025">                        st.nextToken();</span>
+<span class="nc" id="L1026">                        Coords c = new Coords(x, y);</span>
+<span class="nc bnc" id="L1027" title="All 2 branches missed.">                        if (st.ttype == '&quot;') {</span>
+<span class="nc" id="L1028">                            Collection&lt;String&gt; a = new ArrayList&lt;&gt;(getAnnotations(c));</span>
+<span class="nc" id="L1029">                            a.add(st.sval);</span>
+<span class="nc" id="L1030">                            setAnnotations(c, a);</span>
+                        }
+<span class="nc" id="L1032">                    }</span>
+<span class="nc bnc" id="L1033" title="All 4 branches missed.">                } else if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equalsIgnoreCase(&quot;end&quot;)) {</span>
+<span class="nc" id="L1034">                    break;</span>
+                }
+            }
+<span class="nc" id="L1037">        } catch (IOException ex) {</span>
+<span class="nc" id="L1038">            MegaMek.getLogger().error(this, &quot;I/O Error: &quot; + ex);</span>
+<span class="nc" id="L1039">        }</span>
+
+        // fill nulls with blank hexes
+<span class="nc bnc" id="L1042" title="All 2 branches missed.">        for (int i = 0; i &lt; nd.length; i++) {</span>
+<span class="nc bnc" id="L1043" title="All 2 branches missed.">            if (nd[i] == null) {</span>
+<span class="nc" id="L1044">                nd[i] = new Hex();</span>
+            }
+        }
+
+        // check data integrity
+<span class="nc bnc" id="L1049" title="All 8 branches missed.">        if (isValid(nd, nw, nh, errBuff) &amp;&amp; ((nw &gt; 1) || (nh &gt; 1) || (di == (nw * nh)))) {</span>
+<span class="nc" id="L1050">            newData(nw, nh, nd, errBuff);</span>
+<span class="nc bnc" id="L1051" title="All 8 branches missed.">        } else if (continueLoadOnError &amp;&amp; ((nw &gt; 1) || (nh &gt; 1) || (di == (nw * nh)))) {</span>
+<span class="nc" id="L1052">            MegaMek.getLogger().error(this, &quot;Invalid board data!&quot;);</span>
+<span class="nc" id="L1053">            newData(nw, nh, nd, errBuff);</span>
+<span class="nc bnc" id="L1054" title="All 2 branches missed.">        } else if (errBuff == null){</span>
+<span class="nc" id="L1055">            MegaMek.getLogger().error(this, &quot;Invalid board data!&quot;);</span>
+        }
+
+<span class="nc" id="L1058">    }</span>
+
+    public boolean isValid() {
+        // Search for black-listed hexes
+<span class="nc" id="L1062">        return isValid(data, width, height, null);</span>
+    }
+
+    public boolean isValid(StringBuffer errBuff) {
+        // Search for black-listed hexes
+<span class="nc" id="L1067">        return isValid(data, width, height, errBuff);</span>
+    }
+
+    private boolean isValid(IHex[] data, int width, int height, StringBuffer errBuff) {
+        // Search for black-listed hexes
+<span class="nc bnc" id="L1072" title="All 2 branches missed.">        for (int x = 0; x &lt; width; x++) {</span>
+<span class="nc bnc" id="L1073" title="All 2 branches missed.">            for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc" id="L1074">                IHex hex = data[(y * width) + x];</span>
+<span class="nc bnc" id="L1075" title="All 2 branches missed.">                if (hex == null) {</span>
+<span class="nc" id="L1076">                    return false;</span>
+                }
+<span class="nc" id="L1078">                StringBuffer currBuff = new StringBuffer();</span>
+<span class="nc" id="L1079">                boolean valid = hex.isValid(currBuff);</span>
+                
+                // Multi-hex problems 
+                // A building hex must only have exits to other building hexes of the same Building Type and Class
+<span class="nc bnc" id="L1083" title="All 4 branches missed.">                if (hex.containsTerrain(Terrains.BUILDING) &amp;&amp; hex.getTerrain(Terrains.BUILDING).hasExitsSpecified()) {</span>
+<span class="nc bnc" id="L1084" title="All 2 branches missed.">                    for (int dir = 0; dir &lt; 6; dir++) {</span>
+<span class="nc" id="L1085">                        IHex adjHex = getHexInDir(x, y, dir);</span>
+<span class="nc bnc" id="L1086" title="All 2 branches missed.">                        if ((adjHex != null) </span>
+<span class="nc bnc" id="L1087" title="All 2 branches missed.">                                &amp;&amp; adjHex.containsTerrain(Terrains.BUILDING) </span>
+<span class="nc bnc" id="L1088" title="All 2 branches missed.">                                &amp;&amp; hex.containsTerrainExit(Terrains.BUILDING, dir)) {</span>
+<span class="nc bnc" id="L1089" title="All 2 branches missed.">                            if (adjHex.getTerrain(Terrains.BUILDING).getLevel() != hex.getTerrain(Terrains.BUILDING).getLevel()) {</span>
+<span class="nc" id="L1090">                                valid = false;</span>
+<span class="nc" id="L1091">                                currBuff.append(&quot;Building has an exit to a building of another Building Type (Light, Medium...).\n&quot;);</span>
+                            }
+<span class="nc bnc" id="L1093" title="All 2 branches missed.">                            if (hex.containsTerrain(Terrains.BLDG_CLASS) </span>
+<span class="nc bnc" id="L1094" title="All 2 branches missed.">                                    &amp;&amp; ((adjHex.containsTerrain(Terrains.BLDG_CLASS) </span>
+<span class="nc bnc" id="L1095" title="All 2 branches missed.">                                            &amp;&amp; (adjHex.getTerrain(Terrains.BLDG_CLASS).getLevel() != hex.getTerrain(Terrains.BLDG_CLASS).getLevel()))</span>
+<span class="nc bnc" id="L1096" title="All 2 branches missed.">                                            || (!adjHex.containsTerrain(Terrains.BLDG_CLASS)))) {</span>
+<span class="nc" id="L1097">                                valid = false;</span>
+<span class="nc" id="L1098">                                currBuff.append(&quot;Building has an exit in direction &quot;).append(dir).append(&quot; to a building of another Building Class.\n&quot;);</span>
+                            }
+                        }
+                    }
+                }
+                
+                // Return early if we aren't logging errors
+<span class="nc bnc" id="L1105" title="All 4 branches missed.">                if (!valid &amp;&amp; (errBuff == null)) {</span>
+<span class="nc" id="L1106">                    return false;</span>
+<span class="nc bnc" id="L1107" title="All 2 branches missed.">                } else if (!valid) { // Otherwise, log the error for later output</span>
+<span class="nc bnc" id="L1108" title="All 2 branches missed.">                    if (errBuff.length() &gt; 0) {</span>
+<span class="nc" id="L1109">                        errBuff.append(&quot;----\n&quot;);</span>
+                    }
+<span class="nc" id="L1111">                    Coords c = new Coords(x, y);</span>
+<span class="nc" id="L1112">                    errBuff.append(&quot;Hex &quot; + c.getBoardNum() + &quot; is invalid:\n&quot; + currBuff.toString());</span>
+                }
+            }
+        }
+<span class="nc" id="L1116">        return true;</span>
+    }
+
+    /**
+     * Writes data for the board, as text to the OutputStream
+     */
+    public void save(OutputStream os) {
+<span class="nc" id="L1123">        try (Writer w = new OutputStreamWriter(os)) {</span>
+<span class="nc" id="L1124">            w.write(&quot;size &quot; + width + &quot; &quot; + height + &quot;\r\n&quot;);</span>
+<span class="nc bnc" id="L1125" title="All 2 branches missed.">            if (!roadsAutoExit) {</span>
+<span class="nc" id="L1126">                w.write(&quot;option exit_roads_to_pavement false\r\n&quot;);</span>
+            }
+<span class="nc bnc" id="L1128" title="All 2 branches missed.">            for (int i = 0; i &lt; data.length; i++) {</span>
+<span class="nc" id="L1129">                IHex hex = data[i];</span>
+<span class="nc" id="L1130">                boolean firstTerrain = true;</span>
+
+<span class="nc" id="L1132">                StringBuffer hexBuff = new StringBuffer(&quot;hex &quot;);</span>
+                // The coordinates in the .board file are ignored when loading the board!
+<span class="nc" id="L1134">                hexBuff.append(new Coords(i % width, i / width).getBoardNum());</span>
+<span class="nc" id="L1135">                hexBuff.append(&quot; &quot;);</span>
+<span class="nc" id="L1136">                hexBuff.append(hex.getLevel());</span>
+<span class="nc" id="L1137">                hexBuff.append(&quot; \&quot;&quot;);</span>
+<span class="nc" id="L1138">                int terrainTypes[] = hex.getTerrainTypes();</span>
+<span class="nc bnc" id="L1139" title="All 2 branches missed.">                for (int j = 0; j &lt; terrainTypes.length; j++) {</span>
+<span class="nc" id="L1140">                    int terrType = terrainTypes[j];</span>
+                    // do not save internally handled terrains
+<span class="nc bnc" id="L1142" title="All 2 branches missed.">                    if (Terrains.AUTOMATIC.contains(terrType)) {</span>
+<span class="nc" id="L1143">                        continue;</span>
+                    }
+<span class="nc" id="L1145">                    ITerrain terrain = hex.getTerrain(terrType);</span>
+<span class="nc bnc" id="L1146" title="All 2 branches missed.">                    if (terrain != null) {</span>
+<span class="nc bnc" id="L1147" title="All 2 branches missed.">                        if (!firstTerrain) {</span>
+<span class="nc" id="L1148">                            hexBuff.append(&quot;;&quot;);</span>
+                        }
+<span class="nc" id="L1150">                        hexBuff.append(terrain.toString());</span>
+                        // Do something funky to save building exits.
+<span class="nc bnc" id="L1152" title="All 4 branches missed.">                        if (((Terrains.BUILDING == terrType) || (terrType == Terrains.FUEL_TANK))</span>
+<span class="nc bnc" id="L1153" title="All 4 branches missed.">                                &amp;&amp; !terrain.hasExitsSpecified() &amp;&amp; (terrain.getExits() != 0)) {</span>
+<span class="nc" id="L1154">                            hexBuff.append(&quot;:&quot;).append(terrain.getExits());</span>
+                        }
+<span class="nc" id="L1156">                        firstTerrain = false;</span>
+                    }
+                }
+<span class="nc" id="L1159">                hexBuff.append(&quot;\&quot; \&quot;&quot;);</span>
+<span class="nc bnc" id="L1160" title="All 2 branches missed.">                if (hex.getTheme() != null) {</span>
+<span class="nc" id="L1161">                    hexBuff.append(hex.getTheme());</span>
+                }
+<span class="nc" id="L1163">                hexBuff.append(&quot;\&quot;\r\n&quot;);</span>
+
+<span class="nc" id="L1165">                w.write(hexBuff.toString());</span>
+                // w.write(&quot;hex \&quot;&quot; + hex.getTerrain().name + &quot;\&quot; &quot; +
+                // Terrain.TERRAIN_NAMES[hex.getTerrainType()] + &quot; \&quot;&quot; +
+                // hex.getTerrain().picfile + &quot;\&quot; &quot; + hex.getElevation() +
+                // &quot;\r\n&quot;);
+            }
+<span class="nc" id="L1171">            w.write(&quot;end\r\n&quot;);</span>
+            // make sure it's written
+<span class="nc" id="L1173">            w.flush();</span>
+<span class="nc" id="L1174">        } catch (IOException ex) {</span>
+<span class="nc" id="L1175">            MegaMek.getLogger().error(this, &quot;I/O Error: &quot; + ex);</span>
+<span class="nc" id="L1176">        }</span>
+<span class="nc" id="L1177">    }</span>
+
+    /**
+     * Writes data for the board, as serialization, to the OutputStream
+     */
+    public void save2(OutputStream os) {
+        try {
+<span class="nc" id="L1184">            ObjectOutputStream oos = new ObjectOutputStream(os);</span>
+<span class="nc" id="L1185">            oos.writeObject(this);</span>
+<span class="nc" id="L1186">            oos.flush();</span>
+<span class="nc" id="L1187">        } catch (IOException ex) {</span>
+<span class="nc" id="L1188">            MegaMek.getLogger().error(this, &quot;I/O Error: &quot; + ex);</span>
+<span class="nc" id="L1189">        }</span>
+<span class="nc" id="L1190">    }</span>
+
+    /**
+     * Record that the given coordinates have recieved a hit from an inferno.
+     *
+     * @param coords
+     *            - the &lt;code&gt;Coords&lt;/code&gt; of the hit.
+     * @param round
+     *            - the kind of round that hit the hex.
+     * @param hits
+     *            - the &lt;code&gt;int&lt;/code&gt; number of rounds that hit. If a
+     *            negative number is passed, then an
+     *            &lt;code&gt;IllegalArgumentException&lt;/code&gt; will be thrown.
+     */
+    public void addInfernoTo(Coords coords, InfernoTracker.Inferno round, int hits) {
+        // Declare local variables.
+<span class="nc" id="L1206">        InfernoTracker tracker = null;</span>
+
+        // Make sure the # of hits is valid.
+<span class="nc bnc" id="L1209" title="All 2 branches missed.">        if (hits &lt; 0) {</span>
+<span class="nc" id="L1210">            throw new IllegalArgumentException(&quot;Board can't track negative hits. &quot;);</span>
+        }
+
+        // Do nothing if the coords aren't on this board.
+<span class="nc bnc" id="L1214" title="All 2 branches missed.">        if (!this.contains(coords)) {</span>
+<span class="nc" id="L1215">            return;</span>
+        }
+
+        // Do we already have a tracker for those coords?
+<span class="nc" id="L1219">        tracker = infernos.get(coords);</span>
+<span class="nc bnc" id="L1220" title="All 2 branches missed.">        if (null == tracker) {</span>
+            // Nope. Make one.
+<span class="nc" id="L1222">            tracker = new InfernoTracker();</span>
+<span class="nc" id="L1223">            infernos.put(coords, tracker);</span>
+        }
+
+        // Update the tracker.
+<span class="nc" id="L1227">        tracker.add(round, hits);</span>
+
+<span class="nc" id="L1229">    }</span>
+
+    public void removeInfernoFrom(Coords coords) {
+        // Do nothing if the coords aren't on this board.
+<span class="nc bnc" id="L1233" title="All 2 branches missed.">        if (!this.contains(coords)) {</span>
+<span class="nc" id="L1234">            return;</span>
+        }
+<span class="nc" id="L1236">        infernos.remove(coords);</span>
+<span class="nc" id="L1237">    }</span>
+
+    /**
+     * Determine if the given coordinates has a burning inferno.
+     *
+     * @param coords
+     *            - the &lt;code&gt;Coords&lt;/code&gt; being checked.
+     * @return &lt;code&gt;true&lt;/code&gt; if those coordinates have a burning inferno
+     *         round. &lt;code&gt;false&lt;/code&gt; if no inferno has hit those coordinates
+     *         or if it has burned out.
+     */
+    public boolean isInfernoBurning(Coords coords) {
+<span class="nc" id="L1249">        boolean result = false;</span>
+<span class="nc" id="L1250">        InfernoTracker tracker = null;</span>
+
+        // Get the tracker for those coordinates
+        // and see if the fire is still burning.
+<span class="nc" id="L1254">        tracker = infernos.get(coords);</span>
+<span class="nc bnc" id="L1255" title="All 2 branches missed.">        if (null != tracker) {</span>
+<span class="nc bnc" id="L1256" title="All 2 branches missed.">            if (tracker.isStillBurning()) {</span>
+<span class="nc" id="L1257">                result = true;</span>
+            }
+        }
+
+<span class="nc" id="L1261">        return result;</span>
+    }
+
+    /**
+     * Record that a new round of burning has passed for the given coordinates.
+     * This routine also determines if the fire is still burning.
+     *
+     * @param coords
+     *            - the &lt;code&gt;Coords&lt;/code&gt; being checked.
+     * @return &lt;code&gt;true&lt;/code&gt; if those coordinates have a burning inferno
+     *         round. &lt;code&gt;false&lt;/code&gt; if no inferno has hit those coordinates
+     *         or if it has burned out.
+     */
+    public boolean burnInferno(Coords coords) {
+<span class="nc" id="L1275">        boolean result = false;</span>
+<span class="nc" id="L1276">        InfernoTracker tracker = null;</span>
+
+        // Get the tracker for those coordinates, record the round
+        // of burning and see if the fire is still burning.
+<span class="nc" id="L1280">        tracker = infernos.get(coords);</span>
+<span class="nc bnc" id="L1281" title="All 2 branches missed.">        if (null != tracker) {</span>
+<span class="nc" id="L1282">            tracker.newRound(-1);</span>
+<span class="nc bnc" id="L1283" title="All 2 branches missed.">            if (tracker.isStillBurning()) {</span>
+<span class="nc" id="L1284">                result = true;</span>
+            } else {
+<span class="nc" id="L1286">                infernos.remove(coords);</span>
+            }
+        }
+
+<span class="nc" id="L1290">        return result;</span>
+    }
+
+    /**
+     * Get an enumeration of all coordinates with infernos still burning.
+     *
+     * @return an &lt;code&gt;Enumeration&lt;/code&gt; of &lt;code&gt;Coords&lt;/code&gt; that have
+     *         infernos still burning.
+     */
+    public Enumeration&lt;Coords&gt; getInfernoBurningCoords() {
+        // Only include *burning* inferno trackers.
+<span class="nc" id="L1301">        Vector&lt;Coords&gt; burning = new Vector&lt;Coords&gt;();</span>
+<span class="nc" id="L1302">        Enumeration&lt;Coords&gt; iter = infernos.keys();</span>
+<span class="nc bnc" id="L1303" title="All 2 branches missed.">        while (iter.hasMoreElements()) {</span>
+<span class="nc" id="L1304">            final Coords coords = iter.nextElement();</span>
+<span class="nc bnc" id="L1305" title="All 2 branches missed.">            if (isInfernoBurning(coords)) {</span>
+<span class="nc" id="L1306">                burning.addElement(coords);</span>
+            }
+<span class="nc" id="L1308">        }</span>
+<span class="nc" id="L1309">        return burning.elements();</span>
+    }
+
+    /**
+     * Determine the remaining number of turns the given coordinates will have a
+     * burning inferno.
+     *
+     * @param coords
+     *            - the &lt;code&gt;Coords&lt;/code&gt; being checked. This value must not
+     *            be &lt;code&gt;null&lt;/code&gt;. Unchecked.
+     * @return the &lt;code&gt;int&lt;/code&gt; number of burn turns left for all infernos
+     *         This value will be non-negative.
+     */
+    public int getInfernoBurnTurns(Coords coords) {
+<span class="nc" id="L1323">        int turns = 0;</span>
+<span class="nc" id="L1324">        InfernoTracker tracker = null;</span>
+
+        // Get the tracker for those coordinates
+        // and see if the fire is still burning.
+<span class="nc" id="L1328">        tracker = infernos.get(coords);</span>
+<span class="nc bnc" id="L1329" title="All 2 branches missed.">        if (null != tracker) {</span>
+<span class="nc" id="L1330">            turns = tracker.getTurnsLeftToBurn();</span>
+        }
+<span class="nc" id="L1332">        return turns;</span>
+    }
+
+    /**
+     * Determine the remaining number of turns the given coordinates will have a
+     * burning Inferno IV round.
+     *
+     * @param coords
+     *            - the &lt;code&gt;Coords&lt;/code&gt; being checked. This value must not
+     *            be &lt;code&gt;null&lt;/code&gt;. Unchecked.
+     * @return the &lt;code&gt;int&lt;/code&gt; number of burn turns left for Arrow IV
+     *         infernos. This value will be non-negative.
+     */
+    public int getInfernoIVBurnTurns(Coords coords) {
+<span class="nc" id="L1346">        int turns = 0;</span>
+<span class="nc" id="L1347">        InfernoTracker tracker = null;</span>
+
+        // Get the tracker for those coordinates
+        // and see if the fire is still burning.
+<span class="nc" id="L1351">        tracker = infernos.get(coords);</span>
+<span class="nc bnc" id="L1352" title="All 2 branches missed.">        if (null != tracker) {</span>
+<span class="nc" id="L1353">            turns = tracker.getArrowIVTurnsLeftToBurn();</span>
+        }
+<span class="nc" id="L1355">        return turns;</span>
+    }
+
+    /**
+     * Get an enumeration of all buildings on the board.
+     *
+     * @return an &lt;code&gt;Enumeration&lt;/code&gt; of &lt;code&gt;Building&lt;/code&gt;s.
+     */
+    public Enumeration&lt;Building&gt; getBuildings() {
+<span class="nc" id="L1364">        return buildings.elements();</span>
+    }
+
+    /**
+     * Get the building at the given coordinates.
+     *
+     * @param coords
+     *            - the &lt;code&gt;Coords&lt;/code&gt; being examined.
+     * @return a &lt;code&gt;Building&lt;/code&gt; object, if there is one at the given
+     *         coordinates, otherwise a &lt;code&gt;null&lt;/code&gt; will be returned.
+     */
+    public Building getBuildingAt(Coords coords) {
+<span class="nc" id="L1376">        return bldgByCoords.get(coords);</span>
+    }
+
+    /**
+     * Get the local object for the given building. Call this routine any time
+     * the input &lt;code&gt;Building&lt;/code&gt; is suspect.
+     *
+     * @param other
+     *            - a &lt;code&gt;Building&lt;/code&gt; object which may or may not be
+     *            represented on this board. This value may be &lt;code&gt;null&lt;/code&gt;
+     *            .
+     * @return The local &lt;code&gt;Building&lt;/code&gt; object if we can find a match. If
+     *         the other building is not on this board, a &lt;code&gt;null&lt;/code&gt; is
+     *         returned instead.
+     */
+    private Building getLocalBuilding(Building other) {
+
+        // Handle garbage input.
+<span class="nc bnc" id="L1394" title="All 2 branches missed.">        if (other == null) {</span>
+<span class="nc" id="L1395">            return null;</span>
+        }
+
+        // ASSUMPTION: it is better to use the Hashtable than the Vector.
+<span class="nc" id="L1399">        Building local = null;</span>
+<span class="nc" id="L1400">        Enumeration&lt;Coords&gt; coords = other.getCoords();</span>
+<span class="nc bnc" id="L1401" title="All 2 branches missed.">        if (coords.hasMoreElements()) {</span>
+<span class="nc" id="L1402">            local = bldgByCoords.get(coords.nextElement());</span>
+<span class="nc bnc" id="L1403" title="All 2 branches missed.">            if (!other.equals(local)) {</span>
+<span class="nc" id="L1404">                local = null;</span>
+            }
+        }
+
+        // TODO: if local is still null, try the Vector.
+<span class="nc" id="L1409">        return local;</span>
+    }
+
+    /**
+     * Collapse a vector of building hexes.
+     *
+     * @param coords
+     *            - the &lt;code&gt;Vector&lt;/code&gt; of &lt;code&gt;Coord&lt;/code&gt; objects to be
+     *            collapsed.
+     */
+    public void collapseBuilding(Vector&lt;Coords&gt; coords) {
+
+        // Walk through the vector of coords.
+<span class="nc" id="L1422">        Enumeration&lt;Coords&gt; loop = coords.elements();</span>
+<span class="nc bnc" id="L1423" title="All 2 branches missed.">        while (loop.hasMoreElements()) {</span>
+<span class="nc" id="L1424">            final Coords other = loop.nextElement();</span>
+
+            // Update the building.
+<span class="nc" id="L1427">            this.collapseBuilding(other);</span>
+
+<span class="nc" id="L1429">        } // Handle the next building.</span>
+
+<span class="nc" id="L1431">    }</span>
+
+    /**
+     * The given building hex has collapsed. Remove it from the board and
+     * replace it with rubble.
+     *
+     * @param coords
+     *            - the &lt;code&gt;Building&lt;/code&gt; that has collapsed.
+     */
+    public void collapseBuilding(Coords coords) {
+<span class="nc" id="L1441">        final IHex curHex = this.getHex(coords);</span>
+
+        // Remove the building from the building map.
+<span class="nc" id="L1444">        Building bldg = bldgByCoords.get(coords);</span>
+<span class="nc bnc" id="L1445" title="All 2 branches missed.">        if (bldg == null) {</span>
+<span class="nc" id="L1446">            return;</span>
+        }
+<span class="nc" id="L1448">        bldg.removeHex(coords);</span>
+<span class="nc" id="L1449">        bldgByCoords.remove(coords);</span>
+
+        // determine type of rubble
+        // Terrain type can be a max of 4 for harded building
+        // 5 for walls, but the only place where we actually check
+        // for rubble type is resolveFindClub in Server, and we
+        // make it impossible to find clubs in wallrubble there
+<span class="nc" id="L1456">        int type = curHex.terrainLevel(Terrains.BUILDING);</span>
+<span class="nc" id="L1457">        type = Math.max(type, curHex.terrainLevel(Terrains.BRIDGE));</span>
+<span class="nc" id="L1458">        type = Math.max(type, curHex.terrainLevel(Terrains.FUEL_TANK));</span>
+
+        // Remove the building terrain.
+<span class="nc" id="L1461">        curHex.removeTerrain(Terrains.BUILDING);</span>
+<span class="nc" id="L1462">        curHex.removeTerrain(Terrains.BLDG_CF);</span>
+<span class="nc" id="L1463">        curHex.removeTerrain(Terrains.BLDG_ELEV);</span>
+<span class="nc" id="L1464">        curHex.removeTerrain(Terrains.FUEL_TANK);</span>
+<span class="nc" id="L1465">        curHex.removeTerrain(Terrains.FUEL_TANK_CF);</span>
+<span class="nc" id="L1466">        curHex.removeTerrain(Terrains.FUEL_TANK_ELEV);</span>
+<span class="nc" id="L1467">        curHex.removeTerrain(Terrains.FUEL_TANK_MAGN);</span>
+<span class="nc" id="L1468">        curHex.removeTerrain(Terrains.BRIDGE);</span>
+<span class="nc" id="L1469">        curHex.removeTerrain(Terrains.BRIDGE_CF);</span>
+<span class="nc" id="L1470">        curHex.removeTerrain(Terrains.BRIDGE_ELEV);</span>
+
+        // Add rubble terrain that matches the building type.
+<span class="nc bnc" id="L1473" title="All 2 branches missed.">        if (type &gt; 0) {</span>
+<span class="nc bnc" id="L1474" title="All 2 branches missed.">            int rubbleLevel = bldg.getBldgClass() == Building.FORTRESS ? 2 : 1;</span>
+<span class="nc" id="L1475">            curHex.addTerrain(Terrains.getTerrainFactory().createTerrain(Terrains.RUBBLE, rubbleLevel));</span>
+        }
+
+<span class="nc bnc" id="L1478" title="All 2 branches missed.">        if (curHex.containsTerrain(Terrains.BLDG_BASEMENT_TYPE)) {</span>
+            // per TW 176 the basement doesn't change the elevation of the
+            // bulding hex
+            // the basement fills in with the rubble of the building
+            // any units in the basement are destroyed
+<span class="nc" id="L1483">            curHex.removeTerrain(Terrains.BLDG_BASEMENT_TYPE);</span>
+        }
+
+        // Update the hex.
+        // TODO : Do I need to initialize it???
+        // ASSUMPTION: It's faster to update one at a time.
+<span class="nc" id="L1489">        this.setHex(coords, curHex);</span>
+
+<span class="nc" id="L1491">    }</span>
+
+    /**
+     * The given building has collapsed. Remove it from the board and replace it
+     * with rubble.
+     *
+     * @param bldg
+     *            - the &lt;code&gt;Building&lt;/code&gt; that has collapsed.
+     */
+    public void collapseBuilding(Building bldg) {
+
+        // Remove the building from our building vector.
+<span class="nc" id="L1503">        buildings.removeElement(bldg);</span>
+
+        // Walk through the building's hexes.
+<span class="nc" id="L1506">        Enumeration&lt;Coords&gt; bldgCoords = bldg.getCoords();</span>
+<span class="nc bnc" id="L1507" title="All 2 branches missed.">        while (bldgCoords.hasMoreElements()) {</span>
+<span class="nc" id="L1508">            final Coords coords = bldgCoords.nextElement();</span>
+<span class="nc" id="L1509">            collapseBuilding(coords);</span>
+<span class="nc" id="L1510">        } // Handle the next building hex.</span>
+
+<span class="nc" id="L1512">    } // End public void collapseBuilding( Building )</span>
+
+    /**
+     * Update the construction factors on an array of buildings.
+     *
+     * @param bldgs
+     *            - the &lt;code&gt;Vector&lt;/code&gt; of &lt;code&gt;Building&lt;/code&gt; objects to
+     *            be updated.
+     */
+    public void updateBuildings(Vector&lt;Building&gt; bldgs) {
+
+        // Walk through the vector of buildings.
+<span class="nc" id="L1524">        Enumeration&lt;Building&gt; loop = bldgs.elements();</span>
+<span class="nc bnc" id="L1525" title="All 2 branches missed.">        while (loop.hasMoreElements()) {</span>
+<span class="nc" id="L1526">            final Building other = loop.nextElement();</span>
+
+            // Find the local object for the given building.
+<span class="nc" id="L1529">            Building bldg = getLocalBuilding(other);</span>
+
+            // Handle garbage input.
+<span class="nc bnc" id="L1532" title="All 2 branches missed.">            if (bldg == null) {</span>
+<span class="nc" id="L1533">                MegaMek.getLogger().error(this, &quot;Could not find a match for &quot; + other + &quot; to update.&quot;);</span>
+<span class="nc" id="L1534">                continue;</span>
+            }
+<span class="nc" id="L1536">            Enumeration&lt;Coords&gt; coordsEnum = bldg.getCoords();</span>
+<span class="nc bnc" id="L1537" title="All 2 branches missed.">            while (coordsEnum.hasMoreElements()) {</span>
+                // Set the current and phase CFs of the building hexes.
+<span class="nc" id="L1539">                final Coords coords = coordsEnum.nextElement();</span>
+<span class="nc" id="L1540">                bldg.setCurrentCF(other.getCurrentCF(coords), coords);</span>
+<span class="nc" id="L1541">                bldg.setPhaseCF(other.getPhaseCF(coords), coords);</span>
+<span class="nc" id="L1542">                bldg.setArmor(other.getArmor(coords), coords);</span>
+<span class="nc" id="L1543">                bldg.setBasement(coords,</span>
+<span class="nc" id="L1544">                        BasementType.getType(getHex(coords).terrainLevel(Terrains.BLDG_BASEMENT_TYPE)));</span>
+<span class="nc" id="L1545">                bldg.setBasementCollapsed(coords, other.getBasementCollapsed(coords));</span>
+<span class="nc" id="L1546">                bldg.setDemolitionCharges(other.getDemolitionCharges());</span>
+<span class="nc" id="L1547">            }</span>
+<span class="nc" id="L1548">        } // Handle the next building.</span>
+
+<span class="nc" id="L1550">    }</span>
+
+    /**
+     * Get the current value of the &quot;road auto-exit&quot; option.
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if roads should automatically exit onto all
+     *         adjacent pavement hexes. &lt;code&gt;false&lt;/code&gt; otherwise.
+     */
+    public boolean getRoadsAutoExit() {
+<span class="nc" id="L1559">        return roadsAutoExit;</span>
+    }
+
+    /**
+     * Set the value of the &quot;road auto-exit&quot; option.
+     *
+     * @param value
+     *            - The value to set for the option; &lt;code&gt;true&lt;/code&gt; if roads
+     *            should automatically exit onto all adjacent pavement hexes.
+     *            &lt;code&gt;false&lt;/code&gt; otherwise.
+     */
+    public void setRoadsAutoExit(boolean value) {
+<span class="nc" id="L1571">        roadsAutoExit = value;</span>
+<span class="nc" id="L1572">    }</span>
+
+    /**
+     * Populate the &lt;code&gt;bldgByCoords&lt;/code&gt; member from the current
+     * &lt;code&gt;Vector&lt;/code&gt; of buildings. Use this method after de- serializing a
+     * &lt;code&gt;Board&lt;/code&gt; object.
+     */
+    private void createBldgByCoords() {
+
+        // Make a new hashtable.
+<span class="nc" id="L1582">        bldgByCoords = new Hashtable&lt;Coords, Building&gt;();</span>
+
+        // Walk through the vector of buildings.
+<span class="nc" id="L1585">        Enumeration&lt;Building&gt; loop = buildings.elements();</span>
+<span class="nc bnc" id="L1586" title="All 2 branches missed.">        while (loop.hasMoreElements()) {</span>
+<span class="nc" id="L1587">            final Building bldg = loop.nextElement();</span>
+
+            // Each building identifies the hexes it covers.
+<span class="nc" id="L1590">            Enumeration&lt;Coords&gt; iter = bldg.getCoords();</span>
+<span class="nc bnc" id="L1591" title="All 2 branches missed.">            while (iter.hasMoreElements()) {</span>
+<span class="nc" id="L1592">                bldgByCoords.put(iter.nextElement(), bldg);</span>
+            }
+
+<span class="nc" id="L1595">        }</span>
+
+<span class="nc" id="L1597">    }</span>
+
+    /**
+     * Override the default deserialization to populate the transient
+     * &lt;code&gt;bldgByCoords&lt;/code&gt; member.
+     *
+     * @param in
+     *            - the &lt;code&gt;ObjectInputStream&lt;/code&gt; to read.
+     * @throws &lt;code&gt;IOException&lt;/code&gt;
+     * @throws &lt;code&gt;ClassNotFoundException&lt;/code&gt;
+     */
+    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+<span class="nc" id="L1609">        in.defaultReadObject();</span>
+
+        // Restore bldgByCoords from buildings.
+<span class="nc" id="L1612">        createBldgByCoords();</span>
+<span class="nc" id="L1613">    }</span>
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#addBoardListener(megamek.common.BoardListener)
+     */
+    public void addBoardListener(BoardListener listener) {
+<span class="nc bnc" id="L1621" title="All 2 branches missed.">        if (boardListeners == null) {</span>
+<span class="nc" id="L1622">            boardListeners = new Vector&lt;BoardListener&gt;();</span>
+        }
+<span class="nc" id="L1624">        boardListeners.addElement(listener);</span>
+<span class="nc" id="L1625">    }</span>
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see
+     * megamek.common.IBoard#removeBoardListener(megamek.common.BoardListener)
+     */
+    public void removeBoardListener(BoardListener listener) {
+<span class="nc bnc" id="L1634" title="All 2 branches missed.">        if (boardListeners != null) {</span>
+<span class="nc" id="L1635">            boardListeners.removeElement(listener);</span>
+        }
+<span class="nc" id="L1637">    }</span>
+
+    protected void processBoardEvent(BoardEvent event) {
+<span class="nc bnc" id="L1640" title="All 2 branches missed.">        if (boardListeners == null) {</span>
+<span class="nc" id="L1641">            return;</span>
+        }
+<span class="nc bnc" id="L1643" title="All 2 branches missed.">        for (BoardListener l : boardListeners) {</span>
+<span class="nc bnc" id="L1644" title="All 4 branches missed.">            switch (event.getType()) {</span>
+            case BoardEvent.BOARD_CHANGED_HEX:
+<span class="nc" id="L1646">                l.boardChangedHex(event);</span>
+<span class="nc" id="L1647">                break;</span>
+            case BoardEvent.BOARD_NEW_BOARD:
+<span class="nc" id="L1649">                l.boardNewBoard(event);</span>
+<span class="nc" id="L1650">                break;</span>
+            case BoardEvent.BOARD_CHANGED_ALL_HEXES:
+<span class="nc" id="L1652">                l.boardChangedAllHexes(event);</span>
+                break;
+            }
+<span class="nc" id="L1655">        }</span>
+<span class="nc" id="L1656">    }</span>
+
+    protected Vector&lt;BoardListener&gt; getListeners() {
+<span class="nc bnc" id="L1659" title="All 2 branches missed.">        if (boardListeners == null) {</span>
+<span class="nc" id="L1660">            boardListeners = new Vector&lt;BoardListener&gt;();</span>
+        }
+<span class="nc" id="L1662">        return boardListeners;</span>
+    }
+
+    // Is there any way I can get around using this?
+    public Hashtable&lt;Coords, InfernoTracker&gt; getInfernos() {
+<span class="nc" id="L1667">        return infernos;</span>
+    }
+
+    public void setBridgeCF(int value) {
+<span class="nc bnc" id="L1671" title="All 2 branches missed.">        for (Building bldg : buildings) {</span>
+<span class="nc bnc" id="L1672" title="All 2 branches missed.">            for (Enumeration&lt;Coords&gt; coords = bldg.getCoords(); coords.hasMoreElements();) {</span>
+<span class="nc" id="L1673">                Coords c = coords.nextElement();</span>
+<span class="nc" id="L1674">                IHex h = getHex(c);</span>
+<span class="nc bnc" id="L1675" title="All 2 branches missed.">                if (h.containsTerrain(Terrains.BRIDGE)) {</span>
+<span class="nc" id="L1676">                    bldg.setCurrentCF(value, c);</span>
+                }
+<span class="nc" id="L1678">            }</span>
+<span class="nc" id="L1679">        }</span>
+<span class="nc" id="L1680">    }</span>
+
+    // Kill all the unknown basements
+    public void setRandomBasementsOff() {
+<span class="nc" id="L1684">        Coords c = null;</span>
+<span class="nc bnc" id="L1685" title="All 2 branches missed.">        for (Building b : buildings) {</span>
+<span class="nc bnc" id="L1686" title="All 2 branches missed.">            for (Enumeration&lt;Coords&gt; coords = b.getCoords(); coords.hasMoreElements();) {</span>
+<span class="nc" id="L1687">                c = coords.nextElement();</span>
+<span class="nc bnc" id="L1688" title="All 2 branches missed.">                if (b.getBasement(c) == BasementType.UNKNOWN) {</span>
+<span class="nc" id="L1689">                    b.setBasement(c, BasementType.NONE);</span>
+                }
+            }
+<span class="nc" id="L1692">        }</span>
+<span class="nc" id="L1693">    }</span>
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#getSpecialHexDisplay(megamek.common.Coords)
+     */
+    public Collection&lt;SpecialHexDisplay&gt; getSpecialHexDisplay(Coords coords) {
+<span class="nc" id="L1701">        return specialHexes.get(coords);</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#addSpecialHexDisplay(megamek.common.Coords,
+     * megamek.common.SpecialHexDisplay)
+     */
+    public void addSpecialHexDisplay(Coords coords, SpecialHexDisplay shd) {
+        Collection&lt;SpecialHexDisplay&gt; col;
+<span class="nc bnc" id="L1712" title="All 2 branches missed.">        if (!specialHexes.containsKey(coords)) {</span>
+<span class="nc" id="L1713">            col = new LinkedList&lt;SpecialHexDisplay&gt;();</span>
+<span class="nc" id="L1714">            specialHexes.put(coords, col);</span>
+        } else {
+<span class="nc" id="L1716">            col = specialHexes.get(coords);</span>
+            // It's possible we are updating a SHD that is already entered.
+            // If that is the case, we want to remove the original entry.
+<span class="nc bnc" id="L1719" title="All 2 branches missed.">            if (col.contains(shd)) {</span>
+<span class="nc" id="L1720">                col.remove(shd);</span>
+            }
+        }
+
+<span class="nc" id="L1724">        col.add(shd);</span>
+<span class="nc" id="L1725">    }</span>
+
+    public void removeSpecialHexDisplay(Coords coords, SpecialHexDisplay shd) {
+<span class="nc" id="L1728">        Collection&lt;SpecialHexDisplay&gt; col = specialHexes.get(coords);</span>
+<span class="nc bnc" id="L1729" title="All 2 branches missed.">        if (col != null) {</span>
+<span class="nc" id="L1730">            col.remove(shd);</span>
+        }
+<span class="nc" id="L1732">    }</span>
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#getSpecialHexDisplayTable()
+     */
+    public Hashtable&lt;Coords, Collection&lt;SpecialHexDisplay&gt;&gt; getSpecialHexDisplayTable() {
+<span class="nc" id="L1740">        return specialHexes;</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see megamek.common.IBoard#setSpecialHexDisplayTable(java.util.Hashtable)
+     */
+    public void setSpecialHexDisplayTable(Hashtable&lt;Coords, Collection&lt;SpecialHexDisplay&gt;&gt; shd) {
+<span class="nc" id="L1749">        specialHexes = shd;</span>
+<span class="nc" id="L1750">    }</span>
+
+    public void setType(int t) {
+<span class="nc" id="L1753">        mapType = t;</span>
+<span class="nc" id="L1754">    }</span>
+
+    public int getType() {
+<span class="nc" id="L1757">        return mapType;</span>
+    }
+
+    public static String getTypeName(int t) {
+<span class="nc" id="L1761">        return typeNames[t];</span>
+    }
+
+    // some convenience functions
+    public boolean onGround() {
+<span class="nc bnc" id="L1766" title="All 2 branches missed.">        return (mapType == T_GROUND);</span>
+    }
+
+    public boolean inAtmosphere() {
+<span class="nc bnc" id="L1770" title="All 2 branches missed.">        return (mapType == T_ATMOSPHERE);</span>
+    }
+
+    public boolean inSpace() {
+<span class="nc bnc" id="L1774" title="All 2 branches missed.">        return (mapType == T_SPACE);</span>
+    }
+
+    public int getMaxElevation() {
+<span class="nc bnc" id="L1778" title="All 2 branches missed.">        if (maxElevation != UNDEFINED_MAX_ELEV) {</span>
+<span class="nc" id="L1779">            return maxElevation;</span>
+        }
+
+<span class="nc bnc" id="L1782" title="All 2 branches missed.">        for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc bnc" id="L1783" title="All 2 branches missed.">            for (int x = 0; x &lt; width; x++) {</span>
+<span class="nc" id="L1784">                int elevation = data[(y * width) + x].getLevel();</span>
+<span class="nc bnc" id="L1785" title="All 2 branches missed.">                if (maxElevation &lt; elevation) {</span>
+<span class="nc" id="L1786">                    maxElevation = elevation;</span>
+                }
+            }
+        }
+<span class="nc" id="L1790">        return maxElevation;</span>
+    }
+
+    public int getMinElevation() {
+<span class="nc bnc" id="L1794" title="All 2 branches missed.">        if (minElevation != UNDEFINED_MIN_ELEV) {</span>
+<span class="nc" id="L1795">            return minElevation;</span>
+        }
+
+<span class="nc bnc" id="L1798" title="All 2 branches missed.">        for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc bnc" id="L1799" title="All 2 branches missed.">            for (int x = 0; x &lt; width; x++) {</span>
+<span class="nc" id="L1800">                int elevation = data[(y * width) + x].getLevel();</span>
+<span class="nc bnc" id="L1801" title="All 2 branches missed.">                if (minElevation &gt; elevation) {</span>
+<span class="nc" id="L1802">                    minElevation = elevation;</span>
+                }
+            }
+        }
+<span class="nc" id="L1806">        return minElevation;</span>
+    }
+
+    public void resetStoredElevation() {
+<span class="nc" id="L1810">        minElevation = UNDEFINED_MIN_ELEV;</span>
+<span class="nc" id="L1811">        maxElevation = UNDEFINED_MAX_ELEV;</span>
+<span class="nc" id="L1812">    }</span>
+
+    @Override
+    public boolean containsBridges() {
+<span class="nc bnc" id="L1816" title="All 2 branches missed.">        for (Coords c : bldgByCoords.keySet()) {</span>
+<span class="nc" id="L1817">            IHex hex = getHex(c);</span>
+<span class="nc bnc" id="L1818" title="All 2 branches missed.">            if (hex.containsTerrain(Terrains.BRIDGE)) {</span>
+<span class="nc" id="L1819">                return true;</span>
+            }
+<span class="nc" id="L1821">        }</span>
+<span class="nc" id="L1822">        return false;</span>
+    }
+
+    public List&lt;String&gt; getBackgroundPaths() {
+<span class="nc" id="L1826">        return backgroundPaths;</span>
+    }
+
+    public String getBackgroundPath() {
+<span class="nc bnc" id="L1830" title="All 2 branches missed.">        if (backgroundPaths.size() &gt; 0) {</span>
+<span class="nc" id="L1831">            return backgroundPaths.get(0);</span>
+        } else {
+<span class="nc" id="L1833">            return null;</span>
+        }
+    }
+
+    public int getNumBoardsWidth() {
+<span class="nc" id="L1838">        return numBoardsWidth;</span>
+    }
+
+    public int getNumBoardsHeight() {
+<span class="nc" id="L1842">        return numBoardsHeight;</span>
+    }
+
+    public List&lt;Boolean&gt; getFlipBGHoriz() {
+<span class="nc" id="L1846">        return flipBGHoriz;</span>
+    }
+
+    public List&lt;Boolean&gt; getFlipBGVert() {
+<span class="nc" id="L1850">        return flipBGVert;</span>
+    }
+
+    public int getSubBoardWidth() {
+<span class="nc" id="L1854">        return subBoardWidth;</span>
+    }
+
+    public int getSubBoardHeight() {
+<span class="nc" id="L1858">        return subBoardHeight;</span>
+    }
+
+    public void setSubBoardWidth(int width) {
+<span class="nc" id="L1862">        subBoardWidth = width;</span>
+<span class="nc" id="L1863">    }</span>
+
+    public void setSubBoardHeight(int height) {
+<span class="nc" id="L1866">        subBoardHeight = height;</span>
+<span class="nc" id="L1867">    }</span>
+
+    public void setNumBoardsWidth(int width) {
+<span class="nc" id="L1870">        numBoardsWidth = width;</span>
+<span class="nc" id="L1871">    }</span>
+
+    public void setNumBoardsHeight(int height) {
+<span class="nc" id="L1874">        numBoardsHeight = height;</span>
+<span class="nc" id="L1875">    }</span>
+
+    public void addBackgroundPath(String path, boolean flipVert, boolean flipHorz) {
+<span class="nc" id="L1878">        backgroundPaths.add(path);</span>
+
+<span class="nc" id="L1880">        flipBGVert.add(flipVert);</span>
+<span class="nc" id="L1881">        flipBGHoriz.add(flipHorz);</span>
+<span class="nc" id="L1882">    }</span>
+
+    public boolean hasBoardBackground() {
+<span class="nc bnc" id="L1885" title="All 4 branches missed.">        return (backgroundPaths != null) &amp;&amp; backgroundPaths.size() &gt; 0;</span>
+    }
+
+    /**
+     * Gets the description of the map.
+     * @return The description of the map, if one exists, otherwise null.
+     */
+    @Nullable
+    public String getDescription() {
+<span class="nc" id="L1894">        return description;</span>
+    }
+
+    /**
+     * Sets the description of the map.
+     * @param s The description of the map; may be null.
+     */
+    public void setDescription(@Nullable String s) {
+<span class="nc" id="L1902">        description = s;</span>
+<span class="nc" id="L1903">    }</span>
+
+    /**
+     * Gets every annotations on the map.
+     * @return A read-only map of per-hex annotations.
+     */
+    public Map&lt;Coords, Collection&lt;String&gt;&gt; getAnnotations() {
+<span class="nc" id="L1910">        return Collections.unmodifiableMap(annotations);</span>
+    }
+
+    /**
+     * Gets the annotations associated with a hex.
+     * @param x The X-Coordinate of the hex.
+     * @param y The Y-Coordinate of the hex.
+     * @return A collection of annotations for the hex.
+     */
+    public Collection&lt;String&gt; getAnnotations(int x, int y) {
+<span class="nc" id="L1920">        return getAnnotations(new Coords(x, y));</span>
+    }
+
+    /**
+     * Gets the annotations associated with a hex.
+     * @param c Coordinates of the hex.
+     * @return A collection of annotations for the hex.
+     */
+    public Collection&lt;String&gt; getAnnotations(Coords c) {
+<span class="nc" id="L1929">        return annotations.getOrDefault(c, Collections.emptyList());</span>
+    }
+
+    /**
+     * Sets annotations on a given hex.
+     * @param c Coordinates of the hex to apply the annotations to.
+     * @param a A collection of annotations to assign to the hex. This may be null.
+     */
+    public void setAnnotations(Coords c, @Nullable Collection&lt;String&gt; a) {
+<span class="nc bnc" id="L1938" title="All 4 branches missed.">        if (null == a || a.isEmpty()) {</span>
+<span class="nc" id="L1939">            annotations.remove(c);</span>
+        } else {
+<span class="nc" id="L1941">            annotations.put(c, a);</span>
+        }
+<span class="nc" id="L1943">    }</span>
+
+    /** 
+     * Sets a tileset theme for all hexes of the board. 
+     * Passing null as newTheme resets the theme to the 
+     * theme specified in the board file. 
+     */ 
+    public void setTheme(String newTheme) {
+<span class="nc bnc" id="L1951" title="All 2 branches missed.">        boolean reset = newTheme == null;</span>
+        
+<span class="nc bnc" id="L1953" title="All 2 branches missed.">        for (int c = 0; c &lt; width * height; c++) {</span>
+<span class="nc bnc" id="L1954" title="All 2 branches missed.">            if (reset) {</span>
+<span class="nc" id="L1955">                data[c].resetTheme();</span>
+            } else {
+<span class="nc" id="L1957">                data[c].setTheme(newTheme);</span>
+            }
+        }
+<span class="nc" id="L1960">        processBoardEvent(new BoardEvent(this, null, BoardEvent.BOARD_CHANGED_ALL_HEXES));</span>
+<span class="nc" id="L1961">    }</span>
+    
+    public boolean isOnBoardEdge(Coords c) {
+<span class="nc bnc" id="L1964" title="All 2 branches missed.">        return (c.getX() == 0) </span>
+<span class="nc bnc" id="L1965" title="All 2 branches missed.">                || (c.getY() == 0)</span>
+<span class="nc bnc" id="L1966" title="All 2 branches missed.">                || (c.getX() == (width - 1)) </span>
+<span class="nc bnc" id="L1967" title="All 2 branches missed.">                || (c.getY() == (height - 1));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

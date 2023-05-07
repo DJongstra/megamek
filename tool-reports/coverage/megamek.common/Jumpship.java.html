@@ -1,0 +1,2591 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Jumpship.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">Jumpship.java</span></div><h1>Jumpship.java</h1><pre class="source lang-java linenums">/*
+ * MegaAero - Copyright (C) 2007 Jay Lawson This program is free software; you
+ * can redistribute it and/or modify it under the terms of the GNU General
+ * Public License as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+ * details.
+ */
+/*
+ * Created on Jun 17, 2007
+ */
+package megamek.common;
+
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+import megamek.common.options.OptionsConstants;
+import megamek.common.weapons.bayweapons.BayWeapon;
+
+/**
+ * @author Jay Lawson
+ */
+public class Jumpship extends Aero {
+
+    /**
+     *
+     */
+    private static final long serialVersionUID = 9154398176617208384L;
+    // Additional Jumpship locations (FLS, FRS and ALS override Aero locations)
+    public static final int LOC_FLS = 1;
+    public static final int LOC_FRS = 2;
+    public static final int LOC_ALS = 4;
+    public static final int LOC_ARS = 5;
+    public static final int LOC_HULL = 6;
+
+    public static final int GRAV_DECK_STANDARD_MAX = 100;
+    public static final int GRAV_DECK_LARGE_MAX = 250;
+    public static final int GRAV_DECK_HUGE_MAX = 1500;
+    
+    public static final int DRIVE_CORE_STANDARD    = 0;
+    public static final int DRIVE_CORE_COMPACT     = 1;
+    public static final int DRIVE_CORE_SUBCOMPACT  = 2;
+    public static final int DRIVE_CORE_NONE        = 3;
+    public static final int DRIVE_CORE_PRIMITIVE   = 4;
+    
+    // The percentage of the total unit weight taken up by the drive core. The value
+    // given for primitive assumes a 30ly range, but the final value has to be computed.
+<span class="nc" id="L55">    private static double[] DRIVE_CORE_WEIGHT_PCT = { 0.95, 0.4525, 0.5, 0.0, 0.95 };</span>
+
+<span class="nc" id="L57">    private static String[] LOCATION_ABBRS = { &quot;NOS&quot;, &quot;FLS&quot;, &quot;FRS&quot;, &quot;AFT&quot;, &quot;ALS&quot;, &quot;ARS&quot;, &quot;HULL&quot; };</span>
+<span class="nc" id="L58">    private static String[] LOCATION_NAMES = { &quot;Nose&quot;, &quot;Left Front Side&quot;, &quot;Right Front Side&quot;,</span>
+            &quot;Aft&quot;, &quot;Aft Left Side&quot;, &quot;Aft Right Side&quot;, &quot;Hull&quot; };
+
+    //K-F Drive Stuff
+<span class="nc" id="L62">    private int original_kf_integrity = 0;</span>
+<span class="nc" id="L63">    private int kf_integrity = 0;</span>
+<span class="nc" id="L64">    private int original_sail_integrity = 0;</span>
+<span class="nc" id="L65">    private int sail_integrity = 0;</span>
+<span class="nc" id="L66">    private int helium_tankage = 0;</span>
+<span class="nc" id="L67">    private boolean heliumTankHit = false;</span>
+<span class="nc" id="L68">    private boolean driveCoilHit = false;</span>
+<span class="nc" id="L69">    private boolean fieldInitiatorHit = false;</span>
+<span class="nc" id="L70">    private boolean chargingSystemHit = false;</span>
+<span class="nc" id="L71">    private boolean driveControllerHit = false;</span>
+<span class="nc" id="L72">    private boolean lfBatteryHit = false;</span>
+<span class="nc" id="L73">    private boolean sail = true;</span>
+<span class="nc" id="L74">    private int driveCoreType = DRIVE_CORE_STANDARD;</span>
+<span class="nc" id="L75">    private int jumpRange = 30; // Primitive jumpships can have a reduced range</span>
+    
+    // lithium fusion
+<span class="nc" id="L78">    boolean hasLF = false;</span>
+
+    // crew and passengers
+<span class="nc" id="L81">    private int nBattleArmor = 0;</span>
+<span class="nc" id="L82">    private int nOtherCrew = 0;</span>
+<span class="nc" id="L83">    private int nOfficers = 0;</span>
+<span class="nc" id="L84">    private int nGunners = 0;</span>
+    
+    // lifeboats and escape pods
+<span class="nc" id="L87">    private int lifeBoats = 0;</span>
+<span class="nc" id="L88">    private int escapePods = 0;</span>
+<span class="nc" id="L89">    private int escapePodsLaunched = 0;</span>
+<span class="nc" id="L90">    private int lifeBoatsLaunched = 0;</span>
+
+    // Battlestation
+<span class="nc" id="L93">    private boolean isBattleStation = false;</span>
+
+    // HPG
+<span class="nc" id="L96">    private boolean hasHPG = false;</span>
+
+    /**
+     * Keep track of all of the grav decks and their sizes.
+     *
+     * This is a new approach for storing grav decks, which allows the size of each deck to be stored.  Previously,
+     * we just stored the number of standard, large and huge grav decks, and could not specify the exact size of the
+     * deck.
+     */
+<span class="nc" id="L105">    private List&lt;Integer&gt; gravDecks = new ArrayList&lt;&gt;();</span>
+    
+    /**
+     * Keep track of all of the grav decks and their damage status
+     *
+     * Stores the number of hits on each grav deck by the index value from the list gravDecks
+     */
+<span class="nc" id="L112">    private Map&lt;Integer,Integer&gt; damagedGravDecks = new HashMap&lt;&gt;();</span>
+
+    // station-keeping thrust and accumulated thrust
+<span class="nc" id="L115">    private double stationThrust = 0.2;</span>
+<span class="nc" id="L116">    private double accumulatedThrust = 0.0;</span>
+
+    public Jumpship() {
+<span class="nc" id="L119">        super();</span>
+<span class="nc" id="L120">        damThresh = new int[] { 0, 0, 0, 0, 0, 0, 0 };</span>
+<span class="nc" id="L121">    }</span>
+
+    @Override
+    public boolean tracksHeat() {
+<span class="nc" id="L125">        return false;</span>
+    }
+
+    @Override
+    public int getUnitType() {
+        // While large craft perform heat calculations, they are not considered heat-tracking units
+        // because they cannot generate more heat than they can dissipate in the same turn.
+<span class="nc" id="L132">        return UnitType.JUMPSHIP;</span>
+    }
+
+    //ASEW Missile Effects, per location
+    //Values correspond to Locations: NOS,FLS,FRS,AFT,ALS,ARS
+<span class="nc" id="L137">    private int asewAffectedTurns[] = { 0, 0, 0, 0, 0, 0};</span>
+    
+    /*
+     * Accessor for the asewAffectedTurns array, which may be different for inheriting classes.
+     */
+    protected int[] getAsewAffectedTurns() {
+<span class="nc" id="L143">        return asewAffectedTurns;</span>
+    }
+    
+    /*
+     * Sets the number of rounds a specified firing arc is affected by an ASEW missile
+     * @param arc - integer representing the desired firing arc
+     * @param turns - integer specifying the number of end phases that the effects last through
+     * Technically, about 1.5 turns elapse per the rules for ASEW missiles in TO
+     */
+    public void setASEWAffected(int arc, int turns) {
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (arc &lt; getAsewAffectedTurns().length) {</span>
+<span class="nc" id="L154">            getAsewAffectedTurns()[arc] = turns;</span>
+        }
+<span class="nc" id="L156">    }</span>
+    
+    /*
+     * Returns the number of rounds a specified firing arc is affected by an ASEW missile
+     * @param arc - integer representing the desired firing arc
+     */
+    public int getASEWAffected(int arc) {
+<span class="nc bnc" id="L163" title="All 2 branches missed.">        if (arc &lt; getAsewAffectedTurns().length) {</span>
+<span class="nc" id="L164">            return getAsewAffectedTurns()[arc];</span>
+        }
+<span class="nc" id="L166">        return 0;</span>
+    }
+    
+    /**
+     * Primitive Jumpships may be constructed with standard docking collars, or with pre-boom collars. 
+     * 
+     */
+    public static final int COLLAR_STANDARD  = 0;
+    public static final int COLLAR_NO_BOOM = 1;
+
+<span class="nc" id="L176">    protected static final TechAdvancement TA_JUMPSHIP = new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L177">            .setAdvancement(DATE_NONE, 2300).setISApproximate(false, true)</span>
+<span class="nc" id="L178">            .setProductionFactions(F_TA).setTechRating(RATING_D)</span>
+<span class="nc" id="L179">            .setAvailability(RATING_D, RATING_E, RATING_D, RATING_F)</span>
+<span class="nc" id="L180">            .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+<span class="nc" id="L181">    protected static final TechAdvancement TA_JUMPSHIP_PRIMITIVE = new TechAdvancement(TECH_BASE_IS)</span>
+<span class="nc" id="L182">            .setISAdvancement(2100, 2200, DATE_NONE, 2500)</span>
+<span class="nc" id="L183">            .setISApproximate(true, true, false, false)</span>
+<span class="nc" id="L184">            .setProductionFactions(F_TA).setTechRating(RATING_D)</span>
+<span class="nc" id="L185">            .setAvailability(RATING_D, RATING_X, RATING_X, RATING_X)</span>
+<span class="nc" id="L186">            .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    
+    @Override
+    public TechAdvancement getConstructionTechAdvancement() {
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        return isPrimitive()? TA_JUMPSHIP_PRIMITIVE : TA_JUMPSHIP;</span>
+    }
+    
+    /**
+     * Tech advancement data for lithium fusion batteries
+     */
+    public static TechAdvancement getLFBatteryTA() {
+<span class="nc" id="L197">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L198">                .setISAdvancement(2520, 2529, DATE_NONE, 2819, 3043)</span>
+<span class="nc" id="L199">                .setISApproximate(true, false, false, false, false)</span>
+<span class="nc" id="L200">                .setPrototypeFactions(F_TH).setProductionFactions(F_TH).setReintroductionFactions(F_FS)</span>
+<span class="nc" id="L201">                .setClanAdvancement(2520, 2529)</span>
+<span class="nc" id="L202">                .setTechRating(RATING_E)</span>
+<span class="nc" id="L203">                .setAvailability(RATING_E, RATING_F, RATING_E, RATING_E)</span>
+<span class="nc" id="L204">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+    
+    /**
+     * Tech advancement data for the jump sail
+     */
+    public static TechAdvancement getJumpSailTA() {
+<span class="nc" id="L211">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L212">                .setAdvancement(2200, 2300, 2325)</span>
+<span class="nc" id="L213">                .setPrototypeFactions(F_TA).setProductionFactions(F_TA)</span>
+<span class="nc" id="L214">                .setTechRating(RATING_D)</span>
+<span class="nc" id="L215">                .setAvailability(RATING_E, RATING_E, RATING_D, RATING_D)</span>
+<span class="nc" id="L216">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+    
+    /**
+     * @return Returns the autoEject setting (always off for large craft)
+     */
+    @Override
+    public boolean isAutoEject() {
+<span class="nc" id="L224">        return false;</span>
+    }
+
+    public String getCritDamageString() {
+<span class="nc" id="L228">        StringBuilder toReturn = new StringBuilder(super.getCritDamageString());</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        boolean first = toReturn.length() == 0;</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">        if (getTotalDamagedGravDeck() &gt; 0) {</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">            if (!first) {</span>
+<span class="nc" id="L232">                toReturn.append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L234">            toReturn.append(String.format(Messages.getString(&quot;Jumpship.gravDeckDamageString&quot;), getTotalDamagedGravDeck()));</span>
+<span class="nc" id="L235">            first = false;</span>
+        }
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (getTotalDamagedDockingCollars() &gt; 0) {</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">            if (!first) {</span>
+<span class="nc" id="L239">                toReturn.append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L241">            toReturn.append(String.format(Messages.getString(&quot;Jumpship.dockingCollarsDamageString&quot;), getTotalDamagedDockingCollars()));</span>
+<span class="nc" id="L242">            first = false;</span>
+        }
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if (getKFDriveCoilHit()) {</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">            if (!first) {</span>
+<span class="nc" id="L246">                toReturn.append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L248">            toReturn.append(Messages.getString(&quot;Jumpship.driveCoilDamageString&quot;));</span>
+<span class="nc" id="L249">            first = false;</span>
+        }
+<span class="nc bnc" id="L251" title="All 2 branches missed.">        if (getKFDriveControllerHit()) {</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">            if (!first) {</span>
+<span class="nc" id="L253">                toReturn.append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L255">            toReturn.append(Messages.getString(&quot;Jumpship.driveControllerDamageString&quot;));</span>
+<span class="nc" id="L256">            first = false;</span>
+        }
+<span class="nc bnc" id="L258" title="All 2 branches missed.">        if (getKFHeliumTankHit()) {</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">            if (!first) {</span>
+<span class="nc" id="L260">                toReturn.append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L262">            toReturn.append(Messages.getString(&quot;Jumpship.heliumTankDamageString&quot;));</span>
+<span class="nc" id="L263">            first = false;</span>
+        }
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        if (getKFFieldInitiatorHit()) {</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">            if (!first) {</span>
+<span class="nc" id="L267">                toReturn.append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L269">            toReturn.append(Messages.getString(&quot;Jumpship.fieldInitiatorDamageString&quot;));</span>
+<span class="nc" id="L270">            first = false;</span>
+        }
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (getKFChargingSystemHit()) {</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">            if (!first) {</span>
+<span class="nc" id="L274">                toReturn.append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L276">            toReturn.append(Messages.getString(&quot;Jumpship.chargingSystemDamageString&quot;));</span>
+<span class="nc" id="L277">            first = false;</span>
+        }
+<span class="nc bnc" id="L279" title="All 2 branches missed.">        if (getLFBatteryHit()) {</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            if (!first) {</span>
+<span class="nc" id="L281">                toReturn.append(&quot;, &quot;);</span>
+            }
+<span class="nc" id="L283">            toReturn.append(Messages.getString(&quot;Jumpship.lfBatteryDamageString&quot;));</span>
+<span class="nc" id="L284">            first = false;</span>
+        }
+<span class="nc" id="L286">        return toReturn.toString();</span>
+    }
+
+    @Override
+    public CrewType defaultCrewType() {
+<span class="nc" id="L291">        return CrewType.VESSEL;</span>
+    }
+    
+    @Override
+    public int locations() {
+<span class="nc" id="L296">        return 7;</span>
+    }
+
+    @Override
+    public int getBodyLocation() {
+<span class="nc" id="L301">        return LOC_HULL;</span>
+    }
+    
+    /**
+     * Get the docking collar type used by the ship.
+     *
+     * @return the docking collar type
+     */
+    public int getDockingCollarType() {
+<span class="nc bnc" id="L310" title="All 2 branches missed.">        return (isPrimitive() ? Jumpship.COLLAR_NO_BOOM : Jumpship.COLLAR_STANDARD);</span>
+    }
+    
+    /**
+     * Get the number of damaged docking collars on the ship.
+     * Used by crit damage string on unit display
+     *
+     * @return the number of damaged docking collars
+     */
+    public int getTotalDamagedDockingCollars() {
+<span class="nc" id="L320">        int count = 0;</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">        for (DockingCollar collar : getDockingCollars()) {</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">            if (collar.isDamaged()) {</span>
+<span class="nc" id="L323">                count++;</span>
+            }
+<span class="nc" id="L325">        }</span>
+<span class="nc" id="L326">        return count;</span>
+    }
+
+    /**
+     * Get the number of grav decks on the ship.
+     *
+     * @return the total number of grav decks
+     */
+    public int getTotalGravDeck() {
+<span class="nc" id="L335">        return gravDecks.size();</span>
+    }
+    
+    /**
+     * Get the number of damaged grav decks on the ship.
+     * Used by JS/WS MapSet widget to display critical hits
+     *
+     * @return the number of damaged grav decks
+     */
+    public int getTotalDamagedGravDeck() {
+<span class="nc" id="L345">        int count = 0;</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">        for (int hits : damagedGravDecks.values()) {</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">            if (hits == 1) {</span>
+<span class="nc" id="L348">                count++;</span>
+            }
+<span class="nc" id="L350">        }</span>
+<span class="nc" id="L351">        return count;</span>
+    }
+
+    /**
+     * Adds a grav deck whose size in meters is specified.
+     *
+     * @param size  The size in meters of the grav deck.
+     */
+    public void addGravDeck(int size) {
+<span class="nc" id="L360">        gravDecks.add(size);</span>
+<span class="nc" id="L361">    }</span>
+
+    /**
+     * Get a list of all grav decks mounted on this ship. Returns the size in meters of the deck
+     *
+     * @return a list of grav deck diameters, in meters
+     */
+    public List&lt;Integer&gt; getGravDecks() {
+<span class="nc" id="L369">        return gravDecks;</span>
+    }
+    
+    /**
+     * Adds a grav deck damage value that maps to the index of each deck size in meters
+     *
+     */
+    public void initializeGravDeckDamage(int index) {
+<span class="nc" id="L377">        damagedGravDecks.put(index, 0);</span>
+<span class="nc" id="L378">    }</span>
+
+    /**
+     * Gets the damage flag for the grav deck with the specified key
+     *
+     * @return the damage status for the deck 0 (undamaged) or 1 (damaged)
+     */
+    public int getGravDeckDamageFlag(int key) {
+<span class="nc" id="L386">        return damagedGravDecks.get(key);</span>
+    }
+    
+    /**
+     * Sets the damage flag for the grav deck with the specified key to the specified value
+     *
+     * @param key - the id of the deck to affect
+     * @param damaged - 0 (undamaged), 1 (damaged)
+     */
+    public void setGravDeckDamageFlag(int key, int damaged) {
+<span class="nc" id="L396">        damagedGravDecks.replace(key, damaged);</span>
+<span class="nc" id="L397">    }</span>
+
+    /**
+     * Old style for setting the number of grav decks.  This allows the user to specify N standard grav decks, which
+     * will get added at a default value.
+     *
+     * @param n
+     */
+    public void setGravDeck(int n) {
+<span class="nc bnc" id="L406" title="All 2 branches missed.">        for (int i = 0; i &lt; n; i++) {</span>
+<span class="nc" id="L407">            addGravDeck(GRAV_DECK_STANDARD_MAX / 2);</span>
+        }
+<span class="nc" id="L409">    }</span>
+
+    /**
+     * Get the number of standard grav decks
+     * @return the number of 0-99 meter grav decks installed
+     */
+    public int getGravDeck() {
+<span class="nc" id="L416">        int count = 0;</span>
+<span class="nc bnc" id="L417" title="All 2 branches missed.">        for (int deck : gravDecks) {</span>
+<span class="nc bnc" id="L418" title="All 2 branches missed.">            if (deck &lt; GRAV_DECK_STANDARD_MAX) {</span>
+<span class="nc" id="L419">                count++;</span>
+            }
+<span class="nc" id="L421">        }</span>
+<span class="nc" id="L422">        return count;</span>
+    }
+
+    /**
+     * Old style method for adding N large grav decks.  A default value is chosen that is half-way between the standard
+     * and huge sizes.
+     *
+     * @param n
+     */
+    public void setGravDeckLarge(int n) {
+<span class="nc bnc" id="L432" title="All 2 branches missed.">        for (int i = 0; i &lt; n; i++) {</span>
+<span class="nc" id="L433">            addGravDeck(GRAV_DECK_STANDARD_MAX + (GRAV_DECK_LARGE_MAX - GRAV_DECK_STANDARD_MAX) / 2);</span>
+        }
+<span class="nc" id="L435">    }</span>
+
+    /**
+     * Get the number of large grav decks.
+     *
+     * @return the number of 100-249 meter grav decks installed
+     */
+    public int getGravDeckLarge() {
+<span class="nc" id="L443">        int count = 0;</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">        for (int deck : gravDecks) {</span>
+<span class="nc bnc" id="L445" title="All 4 branches missed.">            if (deck &gt;= GRAV_DECK_STANDARD_MAX &amp;&amp; deck &lt;= GRAV_DECK_LARGE_MAX) {</span>
+<span class="nc" id="L446">                count++;</span>
+            }
+<span class="nc" id="L448">        }</span>
+<span class="nc" id="L449">        return count;</span>
+    }
+
+    /**
+     * Old style method for adding N huge grav decks.  A default value is chosen that is the current large maximum plus
+     * half that value.
+     *
+     * @param n
+     */
+    public void setGravDeckHuge(int n) {
+<span class="nc bnc" id="L459" title="All 2 branches missed.">        for (int i = 0; i &lt; n; i++) {</span>
+<span class="nc" id="L460">            addGravDeck(GRAV_DECK_LARGE_MAX + (GRAV_DECK_LARGE_MAX) / 2);</span>
+        }
+<span class="nc" id="L462">    }</span>
+
+    /**
+     * Get the number of huge grav decks.
+     *
+     * @return the number of 250 meter and larger grav decks installed
+     */
+    public int getGravDeckHuge() {
+<span class="nc" id="L470">        int count = 0;</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">        for (int deck : gravDecks) {</span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">            if (deck &gt; GRAV_DECK_LARGE_MAX) {</span>
+<span class="nc" id="L473">                count++;</span>
+            }
+<span class="nc" id="L475">        }</span>
+<span class="nc" id="L476">        return count;</span>
+    }
+
+    public void setHPG(boolean b) {
+<span class="nc" id="L480">        hasHPG = b;</span>
+<span class="nc" id="L481">    }</span>
+
+    public boolean hasHPG() {
+<span class="nc" id="L484">        return hasHPG;</span>
+    }
+
+    public void setBattleStation(boolean b) {
+<span class="nc" id="L488">        isBattleStation = b;</span>
+
+<span class="nc" id="L490">    }</span>
+
+    public boolean isBattleStation() {
+<span class="nc" id="L493">        return isBattleStation;</span>
+    }
+
+    public void setLF(boolean b) {
+<span class="nc" id="L497">        hasLF = b;</span>
+<span class="nc" id="L498">    }</span>
+
+    public boolean hasLF() {
+<span class="nc" id="L501">        return hasLF;</span>
+    }
+
+    public void setEscapePods(int n) {
+<span class="nc" id="L505">        escapePods = n;</span>
+<span class="nc" id="L506">    }</span>
+
+    @Override
+    public int getEscapePods() {
+<span class="nc" id="L510">        return escapePods;</span>
+    }
+    
+    /**
+     * Returns the total number of escape pods launched so far
+     */
+    @Override
+    public int getLaunchedEscapePods() {
+<span class="nc" id="L518">        return escapePodsLaunched;</span>
+    }
+    
+    /**
+     * Updates the total number of escape pods launched so far
+     * @param n The number to change
+     */
+    @Override
+    public void setLaunchedEscapePods(int n) {
+<span class="nc" id="L527">        escapePodsLaunched = n;</span>
+<span class="nc" id="L528">    }</span>
+
+    public void setLifeBoats(int n) {
+<span class="nc" id="L531">        lifeBoats = n;</span>
+<span class="nc" id="L532">    }</span>
+
+    @Override
+    public int getLifeBoats() {
+<span class="nc" id="L536">        return lifeBoats;</span>
+    }
+    
+    /**
+     * Returns the total number of life boats launched so far
+     */
+    @Override
+    public int getLaunchedLifeBoats() {
+<span class="nc" id="L544">        return lifeBoatsLaunched;</span>
+    }
+    
+    /**
+     * Updates the total number of life boats launched so far
+     * @param n The number to change
+     */
+    @Override
+    public void setLaunchedLifeBoats(int n) {
+<span class="nc" id="L553">        lifeBoatsLaunched = n;</span>
+<span class="nc" id="L554">    }</span>
+
+    @Override
+    public void setNCrew(int crew) {
+<span class="nc" id="L558">        nCrew = crew;</span>
+<span class="nc" id="L559">    }</span>
+
+    @Override
+    public int getNCrew() {
+<span class="nc" id="L563">        return nCrew;</span>
+    }
+
+    @Override
+    public void setNPassenger(int pass) {
+<span class="nc" id="L568">        nPassenger = pass;</span>
+<span class="nc" id="L569">    }</span>
+
+    public void setNOfficers(int officer) {
+<span class="nc" id="L572">        nOfficers = officer;</span>
+<span class="nc" id="L573">    }</span>
+    
+    @Override
+    public int getNOfficers() {
+<span class="nc" id="L577">        return nOfficers;</span>
+    }
+    
+    public void setNGunners(int gunners) {
+<span class="nc" id="L581">        nGunners = gunners;</span>
+<span class="nc" id="L582">    }</span>
+    
+    @Override
+    public int getNGunners() {
+<span class="nc" id="L586">        return nGunners;</span>
+    }
+    
+    @Override
+    public int getNPassenger() {
+<span class="nc" id="L591">        return nPassenger;</span>
+    }
+
+    @Override
+    public void setNMarines(int m) {
+<span class="nc" id="L596">        nMarines = m;</span>
+<span class="nc" id="L597">    }</span>
+
+    /**
+     * Returns the number of marines assigned to a unit
+     * Used for abandoning a unit
+     * @return
+     */
+    public int getNMarines() {
+<span class="nc" id="L605">        return nMarines;</span>
+    }
+
+    public void setNBattleArmor(int m) {
+<span class="nc" id="L609">        nBattleArmor = m;</span>
+<span class="nc" id="L610">    }</span>
+
+    public int getNBattleArmor() {
+<span class="nc" id="L613">        return nBattleArmor;</span>
+    }
+
+    public void setNOtherCrew(int m) {
+<span class="nc" id="L617">        nOtherCrew = m;</span>
+<span class="nc" id="L618">    }</span>
+
+    public int getNOtherCrew() {
+<span class="nc" id="L621">        return nOtherCrew;</span>
+    }
+    
+    @Override
+    public double getFuelPointsPerTon() {
+        double ppt;
+<span class="nc bnc" id="L627" title="All 2 branches missed.">        if (getWeight() &lt; 110000) {</span>
+<span class="nc" id="L628">            ppt = 10;</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">        } else if (getWeight() &lt; 250000) {</span>
+<span class="nc" id="L630">            ppt = 5;</span>
+        } else {
+<span class="nc" id="L632">            ppt = 2.5;</span>
+        }
+<span class="nc bnc" id="L634" title="All 2 branches missed.">        if (isPrimitive()) {</span>
+<span class="nc" id="L635">            return ppt / primitiveFuelFactor();</span>
+        }
+<span class="nc" id="L637">        return ppt;</span>
+    }
+
+    @Override
+    public double getStrategicFuelUse() {
+        double fuelUse;
+<span class="nc bnc" id="L643" title="All 2 branches missed.">        if (weight &gt;= 200000) {</span>
+<span class="nc" id="L644">            fuelUse = 39.52;</span>
+<span class="nc bnc" id="L645" title="All 2 branches missed.">        } else if (weight &gt;= 100000) {</span>
+<span class="nc" id="L646">            fuelUse = 19.75;</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">        } else if (weight &gt;= 50000) {</span>
+<span class="nc" id="L648">            fuelUse = 9.77;</span>
+        } else {
+<span class="nc" id="L650">            fuelUse = 2.82;</span>
+        }
+<span class="nc bnc" id="L652" title="All 2 branches missed.">        if (isPrimitive()) {</span>
+<span class="nc" id="L653">            return fuelUse * primitiveFuelFactor();</span>
+        }
+        // JS and SS (and WS without transit drives) use fuel at 10% the rate.
+<span class="nc bnc" id="L656" title="All 2 branches missed.">        if (hasStationKeepingDrive()) {</span>
+<span class="nc" id="L657">            fuelUse *= 0.1;</span>
+        }
+<span class="nc" id="L659">        return fuelUse;</span>
+    }
+
+    @Override
+    public double primitiveFuelFactor() {
+<span class="nc" id="L664">        int year = getOriginalBuildYear();</span>
+<span class="nc bnc" id="L665" title="All 2 branches missed.">        if (year &gt;= 2300) {</span>
+<span class="nc" id="L666">            return 1.0;</span>
+<span class="nc bnc" id="L667" title="All 2 branches missed.">        } else if (year &gt;= 2251) {</span>
+<span class="nc" id="L668">            return 1.1;</span>
+<span class="nc bnc" id="L669" title="All 2 branches missed.">        } else if (year &gt;= 2201) {</span>
+<span class="nc" id="L670">            return 1.4;</span>
+<span class="nc bnc" id="L671" title="All 2 branches missed.">        } else if (year &gt;= 2151) {</span>
+<span class="nc" id="L672">            return 1.7;</span>
+        } else {
+<span class="nc" id="L674">            return 2.0;</span>
+        }
+    }
+
+    @Override
+    public String[] getLocationAbbrs() {
+<span class="nc" id="L680">        return LOCATION_ABBRS;</span>
+    }
+
+    @Override
+    public String[] getLocationNames() {
+<span class="nc" id="L685">        return LOCATION_NAMES;</span>
+    }
+    
+    //Methods for dealing with the K-F Drive, Sail and L-F Battery
+    
+    //Set the current KF Drive integrity
+    public void setKFIntegrity(int kf) {
+<span class="nc" id="L692">        kf_integrity = kf;</span>
+<span class="nc" id="L693">    }</span>
+    
+    //Return the current KF Drive integrity
+    public int getKFIntegrity() {
+<span class="nc" id="L697">        return kf_integrity;</span>
+    }
+    
+    //Set the original/undamaged KF Drive integrity
+    public void setOKFIntegrity(int kf) {
+<span class="nc" id="L702">        original_kf_integrity = kf;</span>
+<span class="nc" id="L703">    }</span>
+    
+    //Return the original/undamaged KF Drive integrity
+    public int getOKFIntegrity() {
+<span class="nc" id="L707">        return original_kf_integrity;</span>
+    }
+    
+    //Return the damage taken to the KF Drive
+    public int getKFDriveDamage() {
+<span class="nc" id="L712">        return (getOKFIntegrity() - getKFIntegrity());</span>
+    }
+    
+    //Is any part of the KF Drive damaged?  Used by MHQ for repairs.
+    public boolean isKFDriveDamaged() {
+<span class="nc bnc" id="L717" title="All 2 branches missed.">        return (getKFHeliumTankHit() </span>
+<span class="nc bnc" id="L718" title="All 2 branches missed.">                || getKFDriveCoilHit() </span>
+<span class="nc bnc" id="L719" title="All 2 branches missed.">                || getKFDriveControllerHit() </span>
+<span class="nc bnc" id="L720" title="All 2 branches missed.">                || getLFBatteryHit() </span>
+<span class="nc bnc" id="L721" title="All 2 branches missed.">                || getKFChargingSystemHit()</span>
+<span class="nc bnc" id="L722" title="All 2 branches missed.">                || getKFFieldInitiatorHit());</span>
+    }
+    
+    //Set the portion of the total drive integrity represented by the helium tanks
+    public void setKFHeliumTankIntegrity(int ht) {
+<span class="nc" id="L727">        helium_tankage = ht;</span>
+<span class="nc" id="L728">    }</span>
+    
+    //Used by MHQ when repairing the helium tanks. Allows restoration of up to 2/3 of the total drive integrity
+    public int getKFHeliumTankIntegrity() {
+<span class="nc" id="L732">        return helium_tankage;</span>
+    }
+    
+    //Record a hit on the KF Drive Helium Tank
+    public void setKFHeliumTankHit(boolean hit) {
+<span class="nc" id="L737">        heliumTankHit = hit;</span>
+<span class="nc" id="L738">    }</span>
+    
+    //Return the status of the KF Drive Helium Tank
+    public boolean getKFHeliumTankHit() {
+<span class="nc" id="L742">        return heliumTankHit;</span>
+    }
+    
+    //Record a hit on the KF Drive Coil
+    public void setKFDriveCoilHit(boolean hit) {
+<span class="nc" id="L747">        driveCoilHit = hit;</span>
+<span class="nc" id="L748">    }</span>
+    
+    //Return the status of the KF Drive Coil
+    public boolean getKFDriveCoilHit() {
+<span class="nc" id="L752">        return driveCoilHit;</span>
+    }
+    
+    //Record a hit on the KF Field Initiator
+    public void setKFFieldInitiatorHit(boolean hit) {
+<span class="nc" id="L757">        fieldInitiatorHit = hit;</span>
+<span class="nc" id="L758">    }</span>
+    
+    //Return the status of the KF Field Initiator
+    public boolean getKFFieldInitiatorHit() {
+<span class="nc" id="L762">        return fieldInitiatorHit;</span>
+    }
+    
+    //Record a hit on the KF Charging System
+    public void setKFChargingSystemHit(boolean hit) {
+<span class="nc" id="L767">        chargingSystemHit = hit;</span>
+<span class="nc" id="L768">    }</span>
+    
+    //Return the status of the KF Charging System
+    public boolean getKFChargingSystemHit() {
+<span class="nc" id="L772">        return chargingSystemHit;</span>
+    }
+    
+    //Record a hit on the KF Drive Controller
+    public void setKFDriveControllerHit(boolean hit) {
+<span class="nc" id="L777">        driveControllerHit = hit;</span>
+<span class="nc" id="L778">    }</span>
+    
+    //Return the status of the KF Drive Controller
+    public boolean getKFDriveControllerHit() {
+<span class="nc" id="L782">        return driveControllerHit;</span>
+    }
+    
+    //Return the status of the LF Battery
+    public boolean getLFBatteryHit() {
+<span class="nc" id="L787">        return lfBatteryHit;</span>
+    }
+    
+    //Record a hit on the LF Battery
+    public void setLFBatteryHit(boolean hit) {
+<span class="nc" id="L792">        lfBatteryHit = hit;</span>
+<span class="nc" id="L793">    }</span>
+    
+    //Set the original/undamaged Jump Sail integrity
+    public void setOSailIntegrity(int sail) {
+<span class="nc" id="L797">        original_sail_integrity = sail;</span>
+<span class="nc" id="L798">    }</span>
+    
+    //Return the original/undamaged Jump Sail integrity
+    public int getOSailIntegrity() {
+<span class="nc" id="L802">        return original_sail_integrity;</span>
+    }
+    
+    //Return the damage taken to the Jump Sail
+    public int getSailDamage() {
+<span class="nc" id="L807">        return (getOSailIntegrity() - getSailIntegrity());</span>
+    }
+
+    //Set the current integrity of the jump sail
+    public void setSailIntegrity(int sail) {
+<span class="nc" id="L812">        sail_integrity = sail;</span>
+<span class="nc" id="L813">    }</span>
+    
+    //Return the current integrity of the jump sail
+    public int getSailIntegrity() {
+<span class="nc" id="L817">        return sail_integrity;</span>
+    }
+    
+    /**
+     * @return Whether this ship has a jump sail (optional on space stations and primitive jumpships)
+     */
+    public boolean hasSail() {
+<span class="nc" id="L824">        return sail;</span>
+    }
+    
+    /**
+     * @param sail Whether this ship has an energy collection sail
+     */
+    public void setSail(boolean sail) {
+<span class="nc" id="L831">        this.sail = sail;</span>
+<span class="nc" id="L832">    }</span>
+
+    public void initializeSailIntegrity() {
+<span class="nc" id="L835">        int integrity = 1 + (int) Math.ceil((30.0 + (weight / 7500.0)) / 20.0);</span>
+<span class="nc" id="L836">        setOSailIntegrity(integrity);</span>
+<span class="nc" id="L837">        setSailIntegrity(integrity);</span>
+<span class="nc" id="L838">    }</span>
+
+    public void initializeKFIntegrity() {
+<span class="nc" id="L841">        int integrity = (int) Math.ceil(1.2 + (getJumpDriveWeight() / 60000.0));</span>
+<span class="nc" id="L842">        setOKFIntegrity(integrity);</span>
+<span class="nc" id="L843">        setKFIntegrity(integrity);</span>
+        //Helium Tanks make up about 2/3 of the drive core. 
+<span class="nc" id="L845">        setKFHeliumTankIntegrity((int) (integrity * 0.67));</span>
+<span class="nc" id="L846">    }</span>
+
+    public boolean canJump() {
+<span class="nc bnc" id="L849" title="All 2 branches missed.">        return kf_integrity &gt; 0;</span>
+    }
+    
+    public int getDriveCoreType() {
+<span class="nc" id="L853">        return driveCoreType;</span>
+    }
+    
+    public void setDriveCoreType(int driveCoreType) {
+<span class="nc" id="L857">        this.driveCoreType = driveCoreType;</span>
+<span class="nc" id="L858">    }</span>
+
+    /**
+     * Get maximum range of a jump
+     */
+    public int getJumpRange() {
+<span class="nc" id="L864">        return jumpRange;</span>
+    }
+    
+    /**
+     * Set maximum jump range (used for primitive jumpships)
+     */
+    public void setJumpRange(int range) {
+<span class="nc" id="L871">        jumpRange = range;</span>
+<span class="nc" id="L872">    }</span>
+    
+    /**
+     * @return The weight of the jump drive core for this unit
+     */
+    public double getJumpDriveWeight() {
+<span class="nc" id="L878">        double pct = DRIVE_CORE_WEIGHT_PCT[driveCoreType];</span>
+<span class="nc bnc" id="L879" title="All 2 branches missed.">        if (driveCoreType == DRIVE_CORE_PRIMITIVE) {</span>
+<span class="nc" id="L880">            pct = 0.05 + 0.03 * jumpRange;</span>
+        }
+<span class="nc" id="L882">        return Math.ceil(getWeight() * pct); </span>
+    }
+
+    // different firing arcs
+    // different firing arcs
+    @Override
+    public int getWeaponArc(int wn) {
+<span class="nc" id="L889">        final Mounted mounted = getEquipment(wn);</span>
+
+<span class="nc" id="L891">        int arc = Compute.ARC_NOSE;</span>
+<span class="nc bnc" id="L892" title="All 7 branches missed.">        switch (mounted.getLocation()) {</span>
+        case LOC_NOSE:
+<span class="nc bnc" id="L894" title="All 2 branches missed.">            if (mounted.isInWaypointLaunchMode()) {</span>
+<span class="nc" id="L895">                arc = Compute.ARC_NOSE_WPL;</span>
+<span class="nc" id="L896">                break;</span>
+            }
+<span class="nc" id="L898">            arc = Compute.ARC_NOSE;</span>
+<span class="nc" id="L899">            break;</span>
+        case LOC_FRS:
+<span class="nc bnc" id="L901" title="All 2 branches missed.">            if (mounted.isInWaypointLaunchMode()) {</span>
+<span class="nc" id="L902">                arc = Compute.ARC_RIGHTSIDE_SPHERE_WPL;</span>
+<span class="nc" id="L903">                break;</span>
+            }
+<span class="nc" id="L905">            arc = Compute.ARC_RIGHTSIDE_SPHERE;</span>
+<span class="nc" id="L906">            break;</span>
+        case LOC_FLS:
+<span class="nc bnc" id="L908" title="All 2 branches missed.">            if (mounted.isInWaypointLaunchMode()) {</span>
+<span class="nc" id="L909">                arc = Compute.ARC_LEFTSIDE_SPHERE_WPL;</span>
+<span class="nc" id="L910">                break;</span>
+            }
+<span class="nc" id="L912">            arc = Compute.ARC_LEFTSIDE_SPHERE;</span>
+<span class="nc" id="L913">            break;</span>
+        case LOC_ARS:
+<span class="nc bnc" id="L915" title="All 2 branches missed.">            if (mounted.isInWaypointLaunchMode()) {</span>
+<span class="nc" id="L916">                arc = Compute.ARC_RIGHTSIDEA_SPHERE_WPL;</span>
+<span class="nc" id="L917">                break;</span>
+            }
+<span class="nc" id="L919">            arc = Compute.ARC_RIGHTSIDEA_SPHERE;</span>
+<span class="nc" id="L920">            break;</span>
+        case LOC_ALS:
+<span class="nc bnc" id="L922" title="All 2 branches missed.">            if (mounted.isInWaypointLaunchMode()) {</span>
+<span class="nc" id="L923">                arc = Compute.ARC_LEFTSIDEA_SPHERE_WPL;</span>
+<span class="nc" id="L924">                break;</span>
+            }
+<span class="nc" id="L926">            arc = Compute.ARC_LEFTSIDEA_SPHERE;</span>
+<span class="nc" id="L927">            break;</span>
+        case LOC_AFT:
+<span class="nc bnc" id="L929" title="All 2 branches missed.">            if (mounted.isInWaypointLaunchMode()) {</span>
+<span class="nc" id="L930">                arc = Compute.ARC_AFT_WPL;</span>
+<span class="nc" id="L931">                break;</span>
+            }
+<span class="nc" id="L933">            arc = Compute.ARC_AFT;</span>
+<span class="nc" id="L934">            break;</span>
+        default:
+<span class="nc" id="L936">            arc = Compute.ARC_360;</span>
+        }
+<span class="nc" id="L938">        return rollArcs(arc);</span>
+    }
+
+    // different hit locations
+    @Override
+    public HitData rollHitLocation(int table, int side) {
+
+        /*
+         * Unlike other units, ASFs determine potential crits based on the
+         * to-hit roll so I need to set this potential value as well as return
+         * the to hit data
+         */
+
+<span class="nc" id="L951">        int roll = Compute.d6(2);</span>
+<span class="nc bnc" id="L952" title="All 2 branches missed.">        if (side == ToHitData.SIDE_FRONT) {</span>
+            // normal front hits
+<span class="nc bnc" id="L954" title="All 12 branches missed.">            switch (roll) {</span>
+            case 2:
+<span class="nc" id="L956">                setPotCrit(CRIT_LIFE_SUPPORT);</span>
+<span class="nc" id="L957">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            case 3:
+<span class="nc" id="L959">                setPotCrit(CRIT_CONTROL);</span>
+<span class="nc" id="L960">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            case 4:
+<span class="nc" id="L962">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L963">                return new HitData(LOC_FRS, false, HitData.EFFECT_NONE);</span>
+            case 5:
+<span class="nc" id="L965">                setPotCrit(CRIT_RIGHT_THRUSTER);</span>
+<span class="nc" id="L966">                return new HitData(LOC_FRS, false, HitData.EFFECT_NONE);</span>
+            case 6:
+<span class="nc" id="L968">                setPotCrit(CRIT_CIC);</span>
+<span class="nc" id="L969">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            case 7:
+<span class="nc" id="L971">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L972">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            case 8:
+<span class="nc" id="L974">                setPotCrit(CRIT_SENSOR);</span>
+<span class="nc" id="L975">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            case 9:
+<span class="nc" id="L977">                setPotCrit(CRIT_LEFT_THRUSTER);</span>
+<span class="nc" id="L978">                return new HitData(LOC_FLS, false, HitData.EFFECT_NONE);</span>
+            case 10:
+<span class="nc" id="L980">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L981">                return new HitData(LOC_FLS, false, HitData.EFFECT_NONE);</span>
+            case 11:
+<span class="nc" id="L983">                setPotCrit(CRIT_CREW);</span>
+<span class="nc" id="L984">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            case 12:
+<span class="nc" id="L986">                setPotCrit(CRIT_KF_DRIVE);</span>
+<span class="nc" id="L987">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            }
+<span class="nc bnc" id="L989" title="All 2 branches missed.">        } else if (side == ToHitData.SIDE_LEFT) {</span>
+            // normal left-side hits
+<span class="nc bnc" id="L991" title="All 12 branches missed.">            switch (roll) {</span>
+            case 2:
+<span class="nc" id="L993">                setPotCrit(CRIT_AVIONICS);</span>
+<span class="nc" id="L994">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            case 3:
+<span class="nc" id="L996">                setPotCrit(CRIT_SENSOR);</span>
+<span class="nc" id="L997">                return new HitData(LOC_FLS, false, HitData.EFFECT_NONE);</span>
+            case 4:
+<span class="nc" id="L999">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L1000">                return new HitData(LOC_FLS, false, HitData.EFFECT_NONE);</span>
+            case 5:
+<span class="nc" id="L1002">                setPotCrit(CRIT_DOCK_COLLAR);</span>
+<span class="nc" id="L1003">                return new HitData(LOC_FLS, false, HitData.EFFECT_NONE);</span>
+            case 6:
+<span class="nc" id="L1005">                setPotCrit(CRIT_KF_DRIVE);</span>
+<span class="nc" id="L1006">                return new HitData(LOC_FLS, false, HitData.EFFECT_NONE);</span>
+            case 7:
+<span class="nc" id="L1008">                setPotCrit(CRIT_WEAPON_BROAD);</span>
+<span class="nc" id="L1009">                return new HitData(LOC_ALS, false, HitData.EFFECT_NONE);</span>
+            case 8:
+<span class="nc" id="L1011">                setPotCrit(CRIT_GRAV_DECK);</span>
+<span class="nc" id="L1012">                return new HitData(LOC_ALS, false, HitData.EFFECT_NONE);</span>
+            case 9:
+<span class="nc" id="L1014">                setPotCrit(CRIT_DOOR);</span>
+<span class="nc" id="L1015">                return new HitData(LOC_ALS, false, HitData.EFFECT_NONE);</span>
+            case 10:
+<span class="nc" id="L1017">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L1018">                return new HitData(LOC_ALS, false, HitData.EFFECT_NONE);</span>
+            case 11:
+<span class="nc" id="L1020">                setPotCrit(CRIT_CARGO);</span>
+<span class="nc" id="L1021">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            case 12:
+<span class="nc" id="L1023">                setPotCrit(CRIT_ENGINE);</span>
+<span class="nc" id="L1024">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            }
+<span class="nc bnc" id="L1026" title="All 2 branches missed.">        } else if (side == ToHitData.SIDE_RIGHT) {</span>
+            // normal left-side hits
+<span class="nc bnc" id="L1028" title="All 12 branches missed.">            switch (roll) {</span>
+            case 2:
+<span class="nc" id="L1030">                setPotCrit(CRIT_AVIONICS);</span>
+<span class="nc" id="L1031">                return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+            case 3:
+<span class="nc" id="L1033">                setPotCrit(CRIT_SENSOR);</span>
+<span class="nc" id="L1034">                return new HitData(LOC_FRS, false, HitData.EFFECT_NONE);</span>
+            case 4:
+<span class="nc" id="L1036">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L1037">                return new HitData(LOC_FRS, false, HitData.EFFECT_NONE);</span>
+            case 5:
+<span class="nc" id="L1039">                setPotCrit(CRIT_DOCK_COLLAR);</span>
+<span class="nc" id="L1040">                return new HitData(LOC_FRS, false, HitData.EFFECT_NONE);</span>
+            case 6:
+<span class="nc" id="L1042">                setPotCrit(CRIT_KF_DRIVE);</span>
+<span class="nc" id="L1043">                return new HitData(LOC_FRS, false, HitData.EFFECT_NONE);</span>
+            case 7:
+<span class="nc" id="L1045">                setPotCrit(CRIT_WEAPON_BROAD);</span>
+<span class="nc" id="L1046">                return new HitData(LOC_ARS, false, HitData.EFFECT_NONE);</span>
+            case 8:
+<span class="nc" id="L1048">                setPotCrit(CRIT_GRAV_DECK);</span>
+<span class="nc" id="L1049">                return new HitData(LOC_ARS, false, HitData.EFFECT_NONE);</span>
+            case 9:
+<span class="nc" id="L1051">                setPotCrit(CRIT_DOOR);</span>
+<span class="nc" id="L1052">                return new HitData(LOC_ARS, false, HitData.EFFECT_NONE);</span>
+            case 10:
+<span class="nc" id="L1054">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L1055">                return new HitData(LOC_ARS, false, HitData.EFFECT_NONE);</span>
+            case 11:
+<span class="nc" id="L1057">                setPotCrit(CRIT_CARGO);</span>
+<span class="nc" id="L1058">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            case 12:
+<span class="nc" id="L1060">                setPotCrit(CRIT_ENGINE);</span>
+<span class="nc" id="L1061">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            }
+<span class="nc bnc" id="L1063" title="All 2 branches missed.">        } else if (side == ToHitData.SIDE_REAR) {</span>
+            // normal aft hits
+<span class="nc bnc" id="L1065" title="All 12 branches missed.">            switch (roll) {</span>
+            case 2:
+<span class="nc" id="L1067">                setPotCrit(CRIT_FUEL_TANK);</span>
+<span class="nc" id="L1068">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            case 3:
+<span class="nc" id="L1070">                setPotCrit(CRIT_AVIONICS);</span>
+<span class="nc" id="L1071">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            case 4:
+<span class="nc" id="L1073">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L1074">                return new HitData(LOC_ARS, false, HitData.EFFECT_NONE);</span>
+            case 5:
+<span class="nc" id="L1076">                setPotCrit(CRIT_RIGHT_THRUSTER);</span>
+<span class="nc" id="L1077">                return new HitData(LOC_ARS, false, HitData.EFFECT_NONE);</span>
+            case 6:
+<span class="nc" id="L1079">                setPotCrit(CRIT_ENGINE);</span>
+<span class="nc" id="L1080">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            case 7:
+<span class="nc" id="L1082">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L1083">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            case 8:
+<span class="nc" id="L1085">                setPotCrit(CRIT_ENGINE);</span>
+<span class="nc" id="L1086">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            case 9:
+<span class="nc" id="L1088">                setPotCrit(CRIT_LEFT_THRUSTER);</span>
+<span class="nc" id="L1089">                return new HitData(LOC_ALS, false, HitData.EFFECT_NONE);</span>
+            case 10:
+<span class="nc" id="L1091">                setPotCrit(CRIT_WEAPON);</span>
+<span class="nc" id="L1092">                return new HitData(LOC_ALS, false, HitData.EFFECT_NONE);</span>
+            case 11:
+<span class="nc" id="L1094">                setPotCrit(CRIT_CONTROL);</span>
+<span class="nc" id="L1095">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            case 12:
+<span class="nc" id="L1097">                setPotCrit(CRIT_KF_DRIVE);</span>
+<span class="nc" id="L1098">                return new HitData(LOC_AFT, false, HitData.EFFECT_NONE);</span>
+            }
+        }
+<span class="nc" id="L1101">        return new HitData(LOC_NOSE, false, HitData.EFFECT_NONE);</span>
+    }
+
+    @Override
+    public int getMaxEngineHits() {
+<span class="nc" id="L1106">        return 6;</span>
+    }
+
+    @Override
+    public int calculateBattleValue(boolean ignoreC3, boolean ignorePilot) {
+<span class="nc bnc" id="L1111" title="All 2 branches missed.">        if (useManualBV) {</span>
+<span class="nc" id="L1112">            return manualBV;</span>
+        }
+<span class="nc" id="L1114">        bvText = new StringBuffer(&quot;&lt;HTML&gt;&lt;BODY&gt;&lt;CENTER&gt;&lt;b&gt;Battle Value Calculations For &quot;);</span>
+
+<span class="nc" id="L1116">        bvText.append(getChassis());</span>
+<span class="nc" id="L1117">        bvText.append(&quot; &quot;);</span>
+<span class="nc" id="L1118">        bvText.append(getModel());</span>
+<span class="nc" id="L1119">        bvText.append(&quot;&lt;/b&gt;&lt;/CENTER&gt;&quot;);</span>
+<span class="nc" id="L1120">        bvText.append(nl);</span>
+
+<span class="nc" id="L1122">        bvText.append(&quot;&lt;b&gt;Defensive Battle Rating Calculation:&lt;/b&gt;&quot;);</span>
+<span class="nc" id="L1123">        bvText.append(nl);</span>
+
+<span class="nc" id="L1125">        double dbv = 0; // defensive battle value</span>
+<span class="nc" id="L1126">        double obv = 0; // offensive bv</span>
+
+<span class="nc" id="L1128">        bvText.append(startTable);</span>
+<span class="nc" id="L1129">        bvText.append(startRow);</span>
+<span class="nc" id="L1130">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1132">        bvText.append(&quot;Total Armor Factor x 25&quot;);</span>
+<span class="nc" id="L1133">        bvText.append(endColumn);</span>
+<span class="nc" id="L1134">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1136">        dbv += getTotalArmor();</span>
+
+<span class="nc" id="L1138">        bvText.append(dbv);</span>
+<span class="nc" id="L1139">        bvText.append(&quot; x 25 &quot;);</span>
+<span class="nc" id="L1140">        bvText.append(endColumn);</span>
+<span class="nc" id="L1141">        bvText.append(startColumn);</span>
+<span class="nc" id="L1142">        bvText.append(&quot;= &quot;);</span>
+        
+<span class="nc" id="L1144">        dbv *= 25.0;</span>
+
+<span class="nc" id="L1146">        bvText.append(dbv);</span>
+<span class="nc" id="L1147">        bvText.append(endColumn);</span>
+<span class="nc" id="L1148">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1150">        bvText.append(startRow);</span>
+<span class="nc" id="L1151">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1153">        bvText.append(&quot;Total SI x 20&quot;);</span>
+<span class="nc" id="L1154">        bvText.append(endColumn);</span>
+<span class="nc" id="L1155">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1157">        double dbvSI = getSI() * 20.0;</span>
+<span class="nc" id="L1158">        dbv += dbvSI;</span>
+
+<span class="nc" id="L1160">        bvText.append(getSI());</span>
+<span class="nc" id="L1161">        bvText.append(&quot; x 20&quot;);</span>
+<span class="nc" id="L1162">        bvText.append(endColumn);</span>
+<span class="nc" id="L1163">        bvText.append(startColumn);</span>
+<span class="nc" id="L1164">        bvText.append(&quot;= &quot;);</span>
+<span class="nc" id="L1165">        bvText.append(dbvSI);</span>
+<span class="nc" id="L1166">        bvText.append(endColumn);</span>
+<span class="nc" id="L1167">        bvText.append(endRow);</span>
+        
+        // add defensive equipment
+<span class="nc" id="L1170">        double amsBV = 0;</span>
+<span class="nc" id="L1171">        double amsAmmoBV = 0;</span>
+<span class="nc" id="L1172">        double screenBV = 0;</span>
+<span class="nc" id="L1173">        double screenAmmoBV = 0;</span>
+<span class="nc" id="L1174">        double defEqBV = 0;</span>
+<span class="nc bnc" id="L1175" title="All 2 branches missed.">        for (Mounted mounted : getEquipment()) {</span>
+<span class="nc" id="L1176">            EquipmentType etype = mounted.getType();</span>
+
+            // don't count destroyed equipment
+<span class="nc bnc" id="L1179" title="All 2 branches missed.">            if (mounted.isDestroyed()) {</span>
+<span class="nc" id="L1180">                continue;</span>
+            }
+<span class="nc bnc" id="L1182" title="All 4 branches missed.">            if (((etype instanceof WeaponType) &amp;&amp; (etype.hasFlag(WeaponType.F_AMS)))) {</span>
+<span class="nc" id="L1183">                amsBV += etype.getBV(this);</span>
+<span class="nc" id="L1184">                bvText.append(startRow);</span>
+<span class="nc" id="L1185">                bvText.append(startColumn);</span>
+<span class="nc" id="L1186">                bvText.append(etype.getName());</span>
+<span class="nc" id="L1187">                bvText.append(endColumn);</span>
+<span class="nc" id="L1188">                bvText.append(startColumn);</span>
+<span class="nc" id="L1189">                bvText.append(&quot;+&quot;);</span>
+<span class="nc" id="L1190">                bvText.append(etype.getBV(this));</span>
+<span class="nc" id="L1191">                bvText.append(endColumn);</span>
+<span class="nc" id="L1192">                bvText.append(startColumn);</span>
+<span class="nc" id="L1193">                bvText.append(endColumn);</span>
+<span class="nc" id="L1194">                bvText.append(endRow);</span>
+<span class="nc bnc" id="L1195" title="All 4 branches missed.">            } else if ((etype instanceof AmmoType) &amp;&amp; (((AmmoType) etype).getAmmoType() == AmmoType.T_AMS)) {</span>
+                // we need to deal with cases where ammo is loaded in multi-ton
+                // increments
+                // (on dropships and jumpships) - lets take the ratio of shots
+                // to shots left
+<span class="nc" id="L1200">                double ratio = mounted.getUsableShotsLeft() / ((AmmoType) etype).getShots();</span>
+
+                // if the ratio is less than one, we will treat as a full ton
+                // since
+                // we don't make that adjustment elsewhere
+<span class="nc bnc" id="L1205" title="All 2 branches missed.">                if (ratio &lt; 1.0) {</span>
+<span class="nc" id="L1206">                    ratio = 1.0;</span>
+                }
+<span class="nc" id="L1208">                amsAmmoBV += ratio * etype.getBV(this);</span>
+<span class="nc" id="L1209">                bvText.append(startRow);</span>
+<span class="nc" id="L1210">                bvText.append(startColumn);</span>
+<span class="nc" id="L1211">                bvText.append(etype.getName());</span>
+<span class="nc" id="L1212">                bvText.append(endColumn);</span>
+<span class="nc" id="L1213">                bvText.append(startColumn);</span>
+<span class="nc" id="L1214">                bvText.append(&quot;+&quot;);</span>
+<span class="nc" id="L1215">                bvText.append(ratio * etype.getBV(this));</span>
+<span class="nc" id="L1216">                bvText.append(endColumn);</span>
+<span class="nc" id="L1217">                bvText.append(startColumn);</span>
+<span class="nc" id="L1218">                bvText.append(endColumn);</span>
+<span class="nc" id="L1219">                bvText.append(endRow);</span>
+<span class="nc bnc" id="L1220" title="All 2 branches missed.">            } else if ((etype instanceof AmmoType)</span>
+<span class="nc bnc" id="L1221" title="All 2 branches missed.">                    &amp;&amp; (((AmmoType) etype).getAmmoType() == AmmoType.T_SCREEN_LAUNCHER)) {</span>
+                // we need to deal with cases where ammo is loaded in multi-ton
+                // increments
+                // (on dropships and jumpships) - lets take the ratio of shots
+                // to shots left
+<span class="nc" id="L1226">                double ratio = mounted.getUsableShotsLeft() / ((AmmoType) etype).getShots();</span>
+
+                // if the ratio is less than one, we will treat as a full ton
+                // since
+                // we don't make that adjustment elsewhere
+<span class="nc bnc" id="L1231" title="All 2 branches missed.">                if (ratio &lt; 1.0) {</span>
+<span class="nc" id="L1232">                    ratio = 1.0;</span>
+                }
+<span class="nc" id="L1234">                screenAmmoBV += ratio * etype.getBV(this);</span>
+<span class="nc" id="L1235">                bvText.append(startRow);</span>
+<span class="nc" id="L1236">                bvText.append(startColumn);</span>
+<span class="nc" id="L1237">                bvText.append(etype.getName());</span>
+<span class="nc" id="L1238">                bvText.append(endColumn);</span>
+<span class="nc" id="L1239">                bvText.append(startColumn);</span>
+<span class="nc" id="L1240">                bvText.append(&quot;+&quot;);</span>
+<span class="nc" id="L1241">                bvText.append(ratio * etype.getBV(this));</span>
+<span class="nc" id="L1242">                bvText.append(endColumn);</span>
+<span class="nc" id="L1243">                bvText.append(startColumn);</span>
+<span class="nc" id="L1244">                bvText.append(endColumn);</span>
+<span class="nc" id="L1245">                bvText.append(endRow);</span>
+<span class="nc bnc" id="L1246" title="All 2 branches missed.">            } else if ((etype instanceof WeaponType)</span>
+<span class="nc bnc" id="L1247" title="All 2 branches missed.">                    &amp;&amp; (((WeaponType) etype).getAtClass() == WeaponType.CLASS_SCREEN)) {</span>
+<span class="nc" id="L1248">                screenBV += etype.getBV(this);</span>
+<span class="nc" id="L1249">                bvText.append(startRow);</span>
+<span class="nc" id="L1250">                bvText.append(startColumn);</span>
+<span class="nc" id="L1251">                bvText.append(etype.getName());</span>
+<span class="nc" id="L1252">                bvText.append(endColumn);</span>
+<span class="nc" id="L1253">                bvText.append(startColumn);</span>
+<span class="nc" id="L1254">                bvText.append(&quot;+&quot;);</span>
+<span class="nc" id="L1255">                bvText.append(etype.getBV(this));</span>
+<span class="nc" id="L1256">                bvText.append(endColumn);</span>
+<span class="nc" id="L1257">                bvText.append(startColumn);</span>
+<span class="nc" id="L1258">                bvText.append(endColumn);</span>
+<span class="nc" id="L1259">                bvText.append(endRow);</span>
+<span class="nc bnc" id="L1260" title="All 2 branches missed.">            } else if ((etype instanceof MiscType)</span>
+<span class="nc bnc" id="L1261" title="All 4 branches missed.">                    &amp;&amp; (etype.hasFlag(MiscType.F_ECM) || etype.hasFlag(MiscType.F_BAP))) {</span>
+<span class="nc" id="L1262">                defEqBV += etype.getBV(this);</span>
+<span class="nc" id="L1263">                bvText.append(startRow);</span>
+<span class="nc" id="L1264">                bvText.append(startColumn);</span>
+<span class="nc" id="L1265">                bvText.append(mounted.getName());</span>
+<span class="nc" id="L1266">                bvText.append(endColumn);</span>
+<span class="nc" id="L1267">                bvText.append(startColumn);</span>
+<span class="nc" id="L1268">                bvText.append(&quot;+&quot;);</span>
+<span class="nc" id="L1269">                bvText.append(etype.getBV(this));</span>
+<span class="nc" id="L1270">                bvText.append(endColumn);</span>
+<span class="nc" id="L1271">                bvText.append(startColumn);</span>
+<span class="nc" id="L1272">                bvText.append(endColumn);</span>
+<span class="nc" id="L1273">                bvText.append(endRow);</span>
+            }
+<span class="nc" id="L1275">        }</span>
+<span class="nc bnc" id="L1276" title="All 2 branches missed.">        if (amsBV &gt; 0) {</span>
+<span class="nc" id="L1277">            bvText.append(startRow);</span>
+<span class="nc" id="L1278">            bvText.append(startColumn);</span>
+<span class="nc" id="L1279">            bvText.append(&quot;Total AMS BV:&quot;);</span>
+<span class="nc" id="L1280">            bvText.append(endColumn);</span>
+<span class="nc" id="L1281">            bvText.append(startColumn);</span>
+<span class="nc" id="L1282">            bvText.append(endColumn);</span>
+<span class="nc" id="L1283">            bvText.append(startColumn);</span>
+<span class="nc" id="L1284">            bvText.append(amsBV);</span>
+<span class="nc" id="L1285">            dbv += amsBV;</span>
+<span class="nc" id="L1286">            bvText.append(endColumn);</span>
+<span class="nc" id="L1287">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1289" title="All 2 branches missed.">        if (screenBV &gt; 0) {</span>
+<span class="nc" id="L1290">            bvText.append(startRow);</span>
+<span class="nc" id="L1291">            bvText.append(startColumn);</span>
+<span class="nc" id="L1292">            bvText.append(&quot;Total Screen BV:&quot;);</span>
+<span class="nc" id="L1293">            bvText.append(endColumn);</span>
+<span class="nc" id="L1294">            bvText.append(startColumn);</span>
+<span class="nc" id="L1295">            bvText.append(endColumn);</span>
+<span class="nc" id="L1296">            bvText.append(startColumn);</span>
+<span class="nc" id="L1297">            bvText.append(screenBV);</span>
+<span class="nc" id="L1298">            dbv += screenBV;</span>
+<span class="nc" id="L1299">            bvText.append(endColumn);</span>
+<span class="nc" id="L1300">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1302" title="All 2 branches missed.">        if (amsAmmoBV &gt; 0) {</span>
+<span class="nc" id="L1303">            bvText.append(startRow);</span>
+<span class="nc" id="L1304">            bvText.append(startColumn);</span>
+<span class="nc" id="L1305">            bvText.append(&quot;Total AMS Ammo BV (to a maximum of AMS BV):&quot;);</span>
+<span class="nc" id="L1306">            bvText.append(endColumn);</span>
+<span class="nc" id="L1307">            bvText.append(startColumn);</span>
+<span class="nc" id="L1308">            bvText.append(endColumn);</span>
+<span class="nc" id="L1309">            bvText.append(startColumn);</span>
+<span class="nc" id="L1310">            bvText.append(Math.min(amsBV, amsAmmoBV));</span>
+<span class="nc" id="L1311">            dbv += Math.min(amsBV, amsAmmoBV);</span>
+<span class="nc" id="L1312">            bvText.append(endColumn);</span>
+<span class="nc" id="L1313">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1315" title="All 2 branches missed.">        if (screenAmmoBV &gt; 0) {</span>
+<span class="nc" id="L1316">            bvText.append(startRow);</span>
+<span class="nc" id="L1317">            bvText.append(startColumn);</span>
+<span class="nc" id="L1318">            bvText.append(&quot;Total Screen Ammo BV (to a maximum of Screen BV):&quot;);</span>
+<span class="nc" id="L1319">            bvText.append(endColumn);</span>
+<span class="nc" id="L1320">            bvText.append(startColumn);</span>
+<span class="nc" id="L1321">            bvText.append(endColumn);</span>
+<span class="nc" id="L1322">            bvText.append(startColumn);</span>
+<span class="nc" id="L1323">            bvText.append(Math.min(screenBV, screenAmmoBV));</span>
+<span class="nc" id="L1324">            dbv += Math.min(screenBV, screenAmmoBV);</span>
+<span class="nc" id="L1325">            bvText.append(endColumn);</span>
+<span class="nc" id="L1326">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1328" title="All 2 branches missed.">        if (defEqBV &gt; 0) {</span>
+<span class="nc" id="L1329">            bvText.append(startRow);</span>
+<span class="nc" id="L1330">            bvText.append(startColumn);</span>
+<span class="nc" id="L1331">            bvText.append(&quot;Total misc defensive equipment BV:&quot;);</span>
+<span class="nc" id="L1332">            bvText.append(endColumn);</span>
+<span class="nc" id="L1333">            bvText.append(startColumn);</span>
+<span class="nc" id="L1334">            bvText.append(endColumn);</span>
+<span class="nc" id="L1335">            bvText.append(startColumn);</span>
+<span class="nc" id="L1336">            bvText.append(defEqBV);</span>
+<span class="nc" id="L1337">            dbv += defEqBV;</span>
+<span class="nc" id="L1338">            bvText.append(endColumn);</span>
+<span class="nc" id="L1339">            bvText.append(endRow);</span>
+        }
+
+<span class="nc" id="L1342">        bvText.append(startRow);</span>
+<span class="nc" id="L1343">        bvText.append(startColumn);</span>
+<span class="nc" id="L1344">        bvText.append(endColumn);</span>
+<span class="nc" id="L1345">        bvText.append(startColumn);</span>
+<span class="nc" id="L1346">        bvText.append(endColumn);</span>
+<span class="nc" id="L1347">        bvText.append(startColumn);</span>
+<span class="nc" id="L1348">        bvText.append(&quot;-------------&quot;);</span>
+<span class="nc" id="L1349">        bvText.append(endColumn);</span>
+<span class="nc" id="L1350">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1352">        bvText.append(startRow);</span>
+<span class="nc" id="L1353">        bvText.append(startColumn);</span>
+<span class="nc" id="L1354">        bvText.append(endColumn);</span>
+<span class="nc" id="L1355">        bvText.append(startColumn);</span>
+<span class="nc" id="L1356">        bvText.append(endColumn);</span>
+<span class="nc" id="L1357">        bvText.append(startColumn);</span>
+<span class="nc" id="L1358">        bvText.append(dbv);</span>
+<span class="nc" id="L1359">        bvText.append(endColumn);</span>
+<span class="nc" id="L1360">        bvText.append(endRow);</span>
+
+        // unit type multiplier
+<span class="nc" id="L1363">        bvText.append(startRow);</span>
+<span class="nc" id="L1364">        bvText.append(startColumn);</span>
+<span class="nc" id="L1365">        bvText.append(&quot;Multiply by Unit type Modifier&quot;);</span>
+<span class="nc" id="L1366">        bvText.append(endColumn);</span>
+<span class="nc" id="L1367">        bvText.append(startColumn);</span>
+<span class="nc" id="L1368">        bvText.append(getBVTypeModifier());</span>
+<span class="nc" id="L1369">        dbv *= getBVTypeModifier();</span>
+<span class="nc" id="L1370">        bvText.append(endColumn);</span>
+<span class="nc" id="L1371">        bvText.append(startColumn);</span>
+<span class="nc" id="L1372">        bvText.append(&quot;x&quot; + getBVTypeModifier());</span>
+<span class="nc" id="L1373">        bvText.append(endColumn);</span>
+<span class="nc" id="L1374">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1376">        bvText.append(startRow);</span>
+<span class="nc" id="L1377">        bvText.append(startColumn);</span>
+<span class="nc" id="L1378">        bvText.append(endColumn);</span>
+<span class="nc" id="L1379">        bvText.append(startColumn);</span>
+<span class="nc" id="L1380">        bvText.append(endColumn);</span>
+<span class="nc" id="L1381">        bvText.append(startColumn);</span>
+<span class="nc" id="L1382">        bvText.append(&quot;-------------&quot;);</span>
+<span class="nc" id="L1383">        bvText.append(endColumn);</span>
+<span class="nc" id="L1384">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1386">        bvText.append(startRow);</span>
+<span class="nc" id="L1387">        bvText.append(startColumn);</span>
+<span class="nc" id="L1388">        bvText.append(endColumn);</span>
+<span class="nc" id="L1389">        bvText.append(startColumn);</span>
+<span class="nc" id="L1390">        bvText.append(endColumn);</span>
+<span class="nc" id="L1391">        bvText.append(startColumn);</span>
+<span class="nc" id="L1392">        bvText.append(dbv);</span>
+<span class="nc" id="L1393">        bvText.append(endColumn);</span>
+<span class="nc" id="L1394">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1396">        bvText.append(startRow);</span>
+<span class="nc" id="L1397">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1399">        bvText.append(&quot;&lt;b&gt;Offensive Battle Rating Calculation:&lt;/b&gt;&quot;);</span>
+<span class="nc" id="L1400">        bvText.append(endColumn);</span>
+<span class="nc" id="L1401">        bvText.append(startColumn);</span>
+<span class="nc" id="L1402">        bvText.append(endColumn);</span>
+<span class="nc" id="L1403">        bvText.append(startColumn);</span>
+<span class="nc" id="L1404">        bvText.append(endColumn);</span>
+<span class="nc" id="L1405">        bvText.append(endRow);</span>
+
+        // calculate heat efficiency
+<span class="nc" id="L1408">        int aeroHeatEfficiency = getHeatCapacity();</span>
+
+<span class="nc" id="L1410">        bvText.append(startRow);</span>
+<span class="nc" id="L1411">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1413">        bvText.append(&quot;Base Heat Efficiency &quot;);</span>
+
+<span class="nc" id="L1415">        bvText.append(endColumn);</span>
+<span class="nc" id="L1416">        bvText.append(startColumn);</span>
+<span class="nc" id="L1417">        bvText.append(aeroHeatEfficiency);</span>
+
+<span class="nc" id="L1419">        bvText.append(endColumn);</span>
+<span class="nc" id="L1420">        bvText.append(endRow);</span>
+
+        // get arc BV and heat
+        // and add up BVs for ammo-using weapon types for excessive ammo rule
+<span class="nc" id="L1424">        TreeMap&lt;String, Double&gt; weaponsForExcessiveAmmo = new TreeMap&lt;String, Double&gt;();</span>
+<span class="nc" id="L1425">        TreeMap&lt;Integer, Double&gt; arcBVs = new TreeMap&lt;Integer, Double&gt;();</span>
+<span class="nc" id="L1426">        TreeMap&lt;Integer, Double&gt; arcHeat = new TreeMap&lt;Integer, Double&gt;();</span>
+        
+<span class="nc" id="L1428">        bvText.append(startRow);</span>
+<span class="nc" id="L1429">        bvText.append(startColumn);</span>
+<span class="nc" id="L1430">        bvText.append(&quot;Arc BV and Heat&quot;);</span>
+<span class="nc" id="L1431">        bvText.append(endColumn);</span>
+<span class="nc" id="L1432">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1434">        Map&lt;Integer, String&gt; arcNameLookup = new HashMap&lt;&gt;();</span>
+        // cycle through locations
+<span class="nc bnc" id="L1436" title="All 2 branches missed.">        for (int loc = 0; loc &lt; locations(); loc++) {</span>
+<span class="nc" id="L1437">            int l = loc;</span>
+<span class="nc bnc" id="L1438" title="All 2 branches missed.">            boolean isRear = (loc &gt;= locations());</span>
+<span class="nc" id="L1439">            String rear = &quot;&quot;;</span>
+<span class="nc bnc" id="L1440" title="All 2 branches missed.">            if (isRear) {</span>
+<span class="nc" id="L1441">                l = l - 3;</span>
+<span class="nc" id="L1442">                rear = &quot; (R)&quot;;</span>
+            }
+<span class="nc" id="L1444">            this.getLocationName(l);</span>
+
+<span class="nc" id="L1446">            bvText.append(startRow);</span>
+<span class="nc" id="L1447">            bvText.append(startColumn);</span>
+<span class="nc" id="L1448">            bvText.append(&quot;&lt;i&gt;&quot; + getLocationName(l) + rear + &quot;&lt;/i&gt;&quot;);</span>
+<span class="nc" id="L1449">            bvText.append(endColumn);</span>
+<span class="nc" id="L1450">            bvText.append(startColumn);</span>
+<span class="nc" id="L1451">            bvText.append(&quot;&lt;i&gt;BV&lt;/i&gt;&quot;);</span>
+<span class="nc" id="L1452">            bvText.append(endColumn);</span>
+<span class="nc" id="L1453">            bvText.append(startColumn);</span>
+<span class="nc" id="L1454">            bvText.append(&quot;&lt;i&gt;Heat&lt;/i&gt;&quot;);</span>
+<span class="nc" id="L1455">            bvText.append(endColumn);</span>
+<span class="nc" id="L1456">            bvText.append(endRow);</span>
+
+<span class="nc bnc" id="L1458" title="All 2 branches missed.">            for (Mounted mounted : getTotalWeaponList()) {</span>
+<span class="nc bnc" id="L1459" title="All 2 branches missed.">                if (mounted.getLocation() != loc) {</span>
+<span class="nc" id="L1460">                    continue;</span>
+                }
+<span class="nc" id="L1462">                WeaponType wtype = (WeaponType) mounted.getType();</span>
+<span class="nc" id="L1463">                double weaponHeat = wtype.getHeat();</span>
+<span class="nc" id="L1464">                int arc = getWeaponArc(getEquipmentNum(mounted));</span>
+<span class="nc" id="L1465">                arcNameLookup.put(arc, getLocationName(loc));</span>
+<span class="nc" id="L1466">                double dBV = wtype.getBV(this);</span>
+                // skip bays
+<span class="nc bnc" id="L1468" title="All 2 branches missed.">                if (wtype instanceof BayWeapon) {</span>
+<span class="nc" id="L1469">                    continue;</span>
+                }
+                // don't count defensive weapons
+<span class="nc bnc" id="L1472" title="All 2 branches missed.">                if (wtype.hasFlag(WeaponType.F_AMS)) {</span>
+<span class="nc" id="L1473">                    continue;</span>
+                }
+                // don't count screen launchers, they are defensive
+<span class="nc bnc" id="L1476" title="All 2 branches missed.">                if (wtype.getAtClass() == WeaponType.CLASS_SCREEN) {</span>
+<span class="nc" id="L1477">                    continue;</span>
+                }
+                // only count non-damaged equipment
+<span class="nc bnc" id="L1480" title="All 8 branches missed.">                if (mounted.isMissing() || mounted.isHit() || mounted.isDestroyed() || mounted.isBreached()) {</span>
+<span class="nc" id="L1481">                    continue;</span>
+                }
+    
+                // double heat for ultras
+<span class="nc bnc" id="L1485" title="All 4 branches missed.">                if ((wtype.getAmmoType() == AmmoType.T_AC_ULTRA) || (wtype.getAmmoType() == AmmoType.T_AC_ULTRA_THB)) {</span>
+<span class="nc" id="L1486">                    weaponHeat *= 2;</span>
+                }
+                // Six times heat for RAC
+<span class="nc bnc" id="L1489" title="All 2 branches missed.">                if (wtype.getAmmoType() == AmmoType.T_AC_ROTARY) {</span>
+<span class="nc" id="L1490">                    weaponHeat *= 6;</span>
+                }
+                // add up BV of ammo-using weapons for each type of weapon,
+                // to compare with ammo BV later for excessive ammo BV rule
+<span class="nc bnc" id="L1494" title="All 4 branches missed.">                if (!((wtype.hasFlag(WeaponType.F_ENERGY) &amp;&amp; !(wtype.getAmmoType() == AmmoType.T_PLASMA))</span>
+<span class="nc bnc" id="L1495" title="All 4 branches missed.">                        || wtype.hasFlag(WeaponType.F_ONESHOT) || wtype.hasFlag(WeaponType.F_INFANTRY)</span>
+<span class="nc bnc" id="L1496" title="All 2 branches missed.">                        || (wtype.getAmmoType() == AmmoType.T_NA))) {</span>
+<span class="nc" id="L1497">                    String key = wtype.getAmmoType() + &quot;:&quot; + wtype.getRackSize() + &quot;;&quot; + arc;</span>
+<span class="nc bnc" id="L1498" title="All 2 branches missed.">                    if (!weaponsForExcessiveAmmo.containsKey(key)) {</span>
+<span class="nc" id="L1499">                        weaponsForExcessiveAmmo.put(key, wtype.getBV(this));</span>
+                    } else {
+<span class="nc" id="L1501">                        weaponsForExcessiveAmmo.put(key, wtype.getBV(this) + weaponsForExcessiveAmmo.get(key));</span>
+                    }
+                }
+                // calc MG Array here:
+<span class="nc bnc" id="L1505" title="All 2 branches missed.">                if (wtype.hasFlag(WeaponType.F_MGA)) {</span>
+<span class="nc" id="L1506">                    double mgaBV = 0;</span>
+<span class="nc bnc" id="L1507" title="All 2 branches missed.">                    for (Mounted possibleMG : getTotalWeaponList()) {</span>
+<span class="nc bnc" id="L1508" title="All 2 branches missed.">                        if (possibleMG.getType().hasFlag(WeaponType.F_MG)</span>
+<span class="nc bnc" id="L1509" title="All 2 branches missed.">                                &amp;&amp; (possibleMG.getLocation() == mounted.getLocation())) {</span>
+<span class="nc" id="L1510">                            mgaBV += possibleMG.getType().getBV(this);</span>
+                        }
+<span class="nc" id="L1512">                    }</span>
+<span class="nc" id="L1513">                    dBV = mgaBV * 0.67;</span>
+                }
+                // and we'll add the tcomp here too
+<span class="nc bnc" id="L1516" title="All 2 branches missed.">                if (wtype.hasFlag(WeaponType.F_DIRECT_FIRE)) {</span>
+<span class="nc bnc" id="L1517" title="All 2 branches missed.">                    if (hasTargComp()) {</span>
+<span class="nc" id="L1518">                        dBV *= 1.25;</span>
+                    }
+                }
+                // artemis bumps up the value
+<span class="nc bnc" id="L1522" title="All 2 branches missed.">                if (mounted.getLinkedBy() != null) {</span>
+<span class="nc" id="L1523">                    Mounted mLinker = mounted.getLinkedBy();</span>
+<span class="nc bnc" id="L1524" title="All 4 branches missed.">                    if ((mLinker.getType() instanceof MiscType) &amp;&amp; mLinker.getType().hasFlag(MiscType.F_ARTEMIS)) {</span>
+<span class="nc" id="L1525">                        dBV *= 1.2;</span>
+                    }
+<span class="nc bnc" id="L1527" title="All 4 branches missed.">                    if ((mLinker.getType() instanceof MiscType) &amp;&amp; mLinker.getType().hasFlag(MiscType.F_ARTEMIS_PROTO)) {</span>
+<span class="nc" id="L1528">                        dBV *= 1.1;</span>
+                    }
+<span class="nc bnc" id="L1530" title="All 4 branches missed.">                    if ((mLinker.getType() instanceof MiscType) &amp;&amp; mLinker.getType().hasFlag(MiscType.F_ARTEMIS_V)) {</span>
+<span class="nc" id="L1531">                        dBV *= 1.3;</span>
+                    }
+<span class="nc bnc" id="L1533" title="All 4 branches missed.">                    if ((mLinker.getType() instanceof MiscType) &amp;&amp; mLinker.getType().hasFlag(MiscType.F_APOLLO)) {</span>
+<span class="nc" id="L1534">                        dBV *= 1.15;</span>
+                    }
+<span class="nc bnc" id="L1536" title="All 2 branches missed.">                    if ((mLinker.getType() instanceof MiscType)</span>
+<span class="nc bnc" id="L1537" title="All 2 branches missed.">                            &amp;&amp; mLinker.getType().hasFlag(MiscType.F_RISC_LASER_PULSE_MODULE)) {</span>
+<span class="nc" id="L1538">                        dBV *= 1.15;</span>
+                    }
+                }
+
+<span class="nc" id="L1542">                bvText.append(startRow);</span>
+<span class="nc" id="L1543">                bvText.append(startColumn);</span>
+<span class="nc" id="L1544">                bvText.append(wtype.getName());</span>
+<span class="nc" id="L1545">                bvText.append(endColumn);</span>
+<span class="nc" id="L1546">                bvText.append(startColumn);</span>
+<span class="nc" id="L1547">                bvText.append(&quot;+&quot; + dBV);</span>
+<span class="nc" id="L1548">                bvText.append(endColumn);</span>
+<span class="nc" id="L1549">                bvText.append(startColumn);</span>
+<span class="nc" id="L1550">                bvText.append(&quot;+&quot; + weaponHeat);</span>
+<span class="nc" id="L1551">                bvText.append(endColumn);</span>
+<span class="nc" id="L1552">                bvText.append(endRow);</span>
+
+<span class="nc" id="L1554">                double currentArcBV = 0.0;</span>
+<span class="nc" id="L1555">                double currentArcHeat = 0.0;</span>
+<span class="nc bnc" id="L1556" title="All 2 branches missed.">                if (null != arcBVs.get(arc)) {</span>
+<span class="nc" id="L1557">                    currentArcBV = arcBVs.get(arc);</span>
+                }
+<span class="nc bnc" id="L1559" title="All 2 branches missed.">                if (null != arcHeat.get(arc)) {</span>
+<span class="nc" id="L1560">                    currentArcHeat = arcHeat.get(arc);</span>
+                }
+<span class="nc" id="L1562">                arcBVs.put(arc, currentArcBV + dBV);</span>
+<span class="nc" id="L1563">                arcHeat.put(arc, currentArcHeat + weaponHeat);</span>
+<span class="nc" id="L1564">            }</span>
+        }
+<span class="nc" id="L1566">        double weaponBV = 0.0;</span>
+        // lets traverse the hash and find the highest value BV arc
+<span class="nc" id="L1568">        int highArc = Integer.MIN_VALUE;</span>
+<span class="nc" id="L1569">        int adjArc = Integer.MIN_VALUE;</span>
+<span class="nc" id="L1570">        int oppArc = Integer.MIN_VALUE;</span>
+<span class="nc" id="L1571">        double adjArcMult = 1.0;</span>
+<span class="nc" id="L1572">        double oppArcMult = 0.5;</span>
+<span class="nc" id="L1573">        double highBV = 0.0;</span>
+<span class="nc" id="L1574">        double heatUsed = 0.0;</span>
+<span class="nc bnc" id="L1575" title="All 2 branches missed.">        for (int key : arcBVs.keySet()) {</span>
+            // Warships only look at nose, aft, and broadsides for primary arc. Jumpships and space stations
+            // look at all six arcs.
+<span class="nc bnc" id="L1578" title="All 10 branches missed.">            if (hasETypeFlag(ETYPE_WARSHIP)</span>
+                    &amp;&amp; (key != Compute.ARC_NOSE)
+                    &amp;&amp; (key != Compute.ARC_LEFT_BROADSIDE)
+                    &amp;&amp; (key != Compute.ARC_RIGHT_BROADSIDE)
+                    &amp;&amp; (key != Compute.ARC_AFT)) {
+<span class="nc" id="L1583">                continue;</span>
+            }
+<span class="nc bnc" id="L1585" title="All 2 branches missed.">            if (arcBVs.get(key) &gt; highBV) {</span>
+<span class="nc" id="L1586">                highArc = key;</span>
+<span class="nc" id="L1587">                highBV = arcBVs.get(key);</span>
+            }
+<span class="nc" id="L1589">        }</span>
+        // now lets identify the adjacent and opposite arcs
+<span class="nc bnc" id="L1591" title="All 2 branches missed.">        if (highArc &gt; Integer.MIN_VALUE) {</span>
+<span class="nc" id="L1592">            heatUsed += arcHeat.getOrDefault(highArc, 0.0);</span>
+            // now get the BV and heat for the two adjacent arcs
+<span class="nc" id="L1594">            int adjArcCW = getAdjacentArcCW(highArc);</span>
+<span class="nc" id="L1595">            int adjArcCCW = getAdjacentArcCCW(highArc);</span>
+<span class="nc" id="L1596">            double adjArcCWBV = 0.0;</span>
+<span class="nc" id="L1597">            double adjArcCWHeat = 0.0;</span>
+<span class="nc bnc" id="L1598" title="All 4 branches missed.">            if ((adjArcCW &gt; Integer.MIN_VALUE) &amp;&amp; (null != arcBVs.get(adjArcCW))) {</span>
+<span class="nc" id="L1599">                adjArcCWBV = arcBVs.get(adjArcCW);</span>
+<span class="nc" id="L1600">                adjArcCWHeat = arcHeat.getOrDefault(adjArcCW, 0.0);</span>
+            }
+<span class="nc" id="L1602">            double adjArcCCWBV = 0.0;</span>
+<span class="nc" id="L1603">            double adjArcCCWHeat = 0.0;</span>
+<span class="nc bnc" id="L1604" title="All 4 branches missed.">            if ((adjArcCCW &gt; Integer.MIN_VALUE) &amp;&amp; (null != arcBVs.get(adjArcCCW))) {</span>
+<span class="nc" id="L1605">                adjArcCCWBV = arcBVs.get(adjArcCCW);</span>
+<span class="nc" id="L1606">                adjArcCCWHeat = arcHeat.getOrDefault(adjArcCCW, 0.0);</span>
+            }
+<span class="nc bnc" id="L1608" title="All 2 branches missed.">            if (adjArcCWBV &gt; adjArcCCWBV) {</span>
+<span class="nc" id="L1609">                adjArc = adjArcCW;</span>
+<span class="nc bnc" id="L1610" title="All 2 branches missed.">                if ((heatUsed + adjArcCWHeat) &gt; aeroHeatEfficiency) {</span>
+<span class="nc" id="L1611">                    adjArcMult = 0.5;</span>
+                }
+<span class="nc" id="L1613">                heatUsed += adjArcCWHeat;</span>
+            } else {
+<span class="nc" id="L1615">                adjArc = adjArcCCW;</span>
+<span class="nc bnc" id="L1616" title="All 2 branches missed.">                if ((heatUsed + adjArcCCWHeat) &gt; aeroHeatEfficiency) {</span>
+<span class="nc" id="L1617">                    adjArcMult = 0.5;</span>
+                }
+<span class="nc" id="L1619">                heatUsed += adjArcCCWHeat;</span>
+            }
+<span class="nc" id="L1621">            oppArc = getOppositeArc(highArc);</span>
+<span class="nc bnc" id="L1622" title="All 2 branches missed.">            if ((heatUsed + arcHeat.getOrDefault(oppArc, 0.0)) &gt; aeroHeatEfficiency) {</span>
+<span class="nc" id="L1623">                oppArcMult = 0.25;</span>
+            }
+        }
+        // According to an email with Welshman, ammo should be now added into
+        // each arc BV
+        // for the final calculation of BV, including the excessive ammo rule
+<span class="nc" id="L1629">        Map&lt;String, Double&gt; ammo = new HashMap&lt;String, Double&gt;();</span>
+<span class="nc" id="L1630">        ArrayList&lt;String&gt; keys = new ArrayList&lt;String&gt;();</span>
+<span class="nc bnc" id="L1631" title="All 2 branches missed.">        for (Mounted mounted : getAmmo()) {</span>
+<span class="nc" id="L1632">            int arc = getWeaponArc(getEquipmentNum(mounted));</span>
+<span class="nc" id="L1633">            AmmoType atype = (AmmoType) mounted.getType();</span>
+
+            // don't count depleted ammo
+<span class="nc bnc" id="L1636" title="All 2 branches missed.">            if (mounted.getUsableShotsLeft() == 0) {</span>
+<span class="nc" id="L1637">                continue;</span>
+            }
+
+            // don't count AMS, it's defensive
+<span class="nc bnc" id="L1641" title="All 2 branches missed.">            if (atype.getAmmoType() == AmmoType.T_AMS) {</span>
+<span class="nc" id="L1642">                continue;</span>
+            }
+            // don't count screen launchers, they are defensive
+<span class="nc bnc" id="L1645" title="All 2 branches missed.">            if (atype.getAmmoType() == AmmoType.T_SCREEN_LAUNCHER) {</span>
+<span class="nc" id="L1646">                continue;</span>
+            }
+            // don't count oneshot ammo, it's considered part of the launcher.
+<span class="nc bnc" id="L1649" title="All 2 branches missed.">            if (mounted.getLocation() == Entity.LOC_NONE) {</span>
+                // assumption: ammo without a location is for a oneshot weapon
+<span class="nc" id="L1651">                continue;</span>
+            }
+<span class="nc" id="L1653">            String key = atype.getAmmoType() + &quot;:&quot; + atype.getRackSize() + &quot;;&quot; + arc;</span>
+<span class="nc" id="L1654">            String key2 = atype.getName() + &quot;;&quot; + key;</span>
+            // MML needs special casing so they don't count double
+<span class="nc bnc" id="L1656" title="All 2 branches missed.">            if (atype.getAmmoType() == AmmoType.T_MML) {</span>
+<span class="nc" id="L1657">                key2 = &quot;MML &quot; + atype.getRackSize() + &quot; Ammo;&quot; + key;</span>
+            }
+            // same for the different AR10 ammos
+<span class="nc bnc" id="L1660" title="All 2 branches missed.">            if (atype.getAmmoType() == AmmoType.T_AR10) {</span>
+<span class="nc" id="L1661">                key2 = &quot;AR10 Ammo;&quot; + key;</span>
+            }
+<span class="nc" id="L1663">            double ammoWeight = mounted.getTonnage();</span>
+<span class="nc bnc" id="L1664" title="All 2 branches missed.">            if (atype.isCapital()) {</span>
+<span class="nc" id="L1665">                ammoWeight = mounted.getUsableShotsLeft() * atype.getAmmoRatio();</span>
+            }
+            // new errata: round partial tons of ammo up to the full ton
+<span class="nc" id="L1668">            ammoWeight = Math.ceil(weight);</span>
+<span class="nc bnc" id="L1669" title="All 2 branches missed.">            if (atype.hasFlag(AmmoType.F_CAP_MISSILE)) {</span>
+<span class="nc" id="L1670">                ammoWeight = mounted.getUsableShotsLeft();</span>
+            }
+<span class="nc bnc" id="L1672" title="All 2 branches missed.">            if (!keys.contains(key2)) {</span>
+<span class="nc" id="L1673">                keys.add(key2);</span>
+            }
+<span class="nc bnc" id="L1675" title="All 2 branches missed.">            if (!ammo.containsKey(key)) {</span>
+<span class="nc" id="L1676">                ammo.put(key, ammoWeight * atype.getBV(this));</span>
+            } else {
+<span class="nc" id="L1678">                ammo.put(key, (ammoWeight * atype.getBV(this)) + ammo.get(key));</span>
+            }
+<span class="nc" id="L1680">        }</span>
+
+        // Excessive ammo rule:
+        // Only count BV for ammo for a weapontype until the BV of all weapons
+        // in that arc is reached
+<span class="nc bnc" id="L1685" title="All 2 branches missed.">        for (String fullkey : keys) {</span>
+<span class="nc" id="L1686">            double ammoBV = 0.0;</span>
+<span class="nc" id="L1687">            String[] k = fullkey.split(&quot;;&quot;);</span>
+<span class="nc" id="L1688">            String key = k[1] + &quot;;&quot; + k[2];</span>
+<span class="nc" id="L1689">            int arc = Integer.parseInt(k[2]);</span>
+<span class="nc" id="L1690">            bvText.append(startRow);</span>
+<span class="nc" id="L1691">            bvText.append(startColumn);</span>
+<span class="nc" id="L1692">            bvText.append(k[0]);</span>
+<span class="nc" id="L1693">            bvText.append(endColumn);</span>
+<span class="nc" id="L1694">            bvText.append(startColumn);</span>
+            // get the arc
+<span class="nc bnc" id="L1696" title="All 2 branches missed.">            if (weaponsForExcessiveAmmo.get(key) != null) {</span>
+<span class="nc bnc" id="L1697" title="All 2 branches missed.">                if (ammo.get(key) &gt; weaponsForExcessiveAmmo.get(key)) {</span>
+<span class="nc" id="L1698">                    bvText.append(&quot;+&quot; + weaponsForExcessiveAmmo.get(key) + &quot;*&quot;);</span>
+<span class="nc" id="L1699">                    ammoBV += weaponsForExcessiveAmmo.get(key);</span>
+                } else {
+<span class="nc" id="L1701">                    bvText.append(&quot;+&quot; + ammo.get(key));</span>
+<span class="nc" id="L1702">                    ammoBV += ammo.get(key);</span>
+                }
+            }
+<span class="nc" id="L1705">            bvText.append(endColumn);</span>
+<span class="nc" id="L1706">            bvText.append(startColumn);</span>
+<span class="nc" id="L1707">            bvText.append(&quot;&quot;);</span>
+<span class="nc" id="L1708">            bvText.append(endColumn);</span>
+<span class="nc" id="L1709">            bvText.append(endRow);</span>
+<span class="nc" id="L1710">            double currentArcBV = 0.0;</span>
+<span class="nc bnc" id="L1711" title="All 2 branches missed.">            if (null != arcBVs.get(arc)) {</span>
+<span class="nc" id="L1712">                currentArcBV = arcBVs.get(arc);</span>
+            }
+<span class="nc" id="L1714">            arcBVs.put(arc, currentArcBV + ammoBV);</span>
+<span class="nc" id="L1715">        }</span>
+
+        // ok now lets go in and add the arcs
+<span class="nc bnc" id="L1718" title="All 2 branches missed.">        if (highArc &gt; Integer.MIN_VALUE) {</span>
+            // ok now add the BV from this arc and reset to zero
+<span class="nc" id="L1720">            bvText.append(startRow);</span>
+<span class="nc" id="L1721">            bvText.append(startColumn);</span>
+<span class="nc" id="L1722">            bvText.append(&quot;Highest BV Arc (&quot; + arcNameLookup.get(highArc) + &quot;)&quot; + arcBVs.get(highArc) + &quot;*1.0&quot;);</span>
+<span class="nc" id="L1723">            bvText.append(endColumn);</span>
+<span class="nc" id="L1724">            bvText.append(startColumn);</span>
+<span class="nc" id="L1725">            bvText.append(&quot;+&quot; + arcBVs.get(highArc));</span>
+<span class="nc" id="L1726">            bvText.append(endColumn);</span>
+<span class="nc" id="L1727">            bvText.append(endRow);</span>
+<span class="nc" id="L1728">            bvText.append(startColumn);</span>
+<span class="nc" id="L1729">            double totalHeat = arcHeat.getOrDefault(highArc, 0.0);</span>
+<span class="nc" id="L1730">            bvText.append(&quot;Total Heat: &quot; + totalHeat);</span>
+<span class="nc" id="L1731">            bvText.append(endColumn);</span>
+<span class="nc" id="L1732">            bvText.append(endRow);</span>
+<span class="nc" id="L1733">            weaponBV += arcBVs.get(highArc);</span>
+<span class="nc" id="L1734">            arcBVs.put(highArc, 0.0);</span>
+<span class="nc bnc" id="L1735" title="All 4 branches missed.">            if ((adjArc &gt; Integer.MIN_VALUE) &amp;&amp; (null != arcBVs.get(adjArc))) {</span>
+<span class="nc" id="L1736">                bvText.append(startRow);</span>
+<span class="nc" id="L1737">                bvText.append(startColumn);</span>
+<span class="nc" id="L1738">                bvText.append(</span>
+<span class="nc" id="L1739">                        &quot;Adjacent High BV Arc (&quot; + arcNameLookup.get(adjArc) + &quot;) &quot; + arcBVs.get(adjArc) + &quot;*&quot; + adjArcMult);</span>
+<span class="nc" id="L1740">                bvText.append(endColumn);</span>
+<span class="nc" id="L1741">                bvText.append(startColumn);</span>
+<span class="nc" id="L1742">                bvText.append(&quot;+&quot; + (arcBVs.get(adjArc) * adjArcMult));</span>
+<span class="nc" id="L1743">                bvText.append(endColumn);</span>
+<span class="nc" id="L1744">                bvText.append(endRow);</span>
+<span class="nc" id="L1745">                bvText.append(startRow);</span>
+<span class="nc" id="L1746">                bvText.append(startColumn);</span>
+<span class="nc" id="L1747">                totalHeat += arcHeat.getOrDefault(adjArc, 0.0);</span>
+<span class="nc" id="L1748">                String over = &quot;&quot;;</span>
+<span class="nc bnc" id="L1749" title="All 2 branches missed.">                if (totalHeat &gt; aeroHeatEfficiency) {</span>
+<span class="nc" id="L1750">                    over = &quot; (Greater than heat efficiency)&quot;;</span>
+                }
+<span class="nc" id="L1752">                bvText.append(&quot;Total Heat: &quot; + totalHeat + over);</span>
+<span class="nc" id="L1753">                bvText.append(endColumn);</span>
+<span class="nc" id="L1754">                bvText.append(endRow);</span>
+<span class="nc" id="L1755">                weaponBV += adjArcMult * arcBVs.get(adjArc);</span>
+<span class="nc" id="L1756">                arcBVs.put(adjArc, 0.0);</span>
+            }
+<span class="nc bnc" id="L1758" title="All 4 branches missed.">            if ((oppArc &gt; Integer.MIN_VALUE) &amp;&amp; (null != arcBVs.get(oppArc))) {</span>
+<span class="nc" id="L1759">                bvText.append(startRow);</span>
+<span class="nc" id="L1760">                bvText.append(startColumn);</span>
+<span class="nc" id="L1761">                bvText.append(</span>
+<span class="nc" id="L1762">                        &quot;Adjacent Low BV Arc (&quot; + arcNameLookup.get(oppArc) + &quot;) &quot; + arcBVs.get(oppArc) + &quot;*&quot; + oppArcMult);</span>
+<span class="nc" id="L1763">                bvText.append(endColumn);</span>
+<span class="nc" id="L1764">                bvText.append(startColumn);</span>
+<span class="nc" id="L1765">                bvText.append(&quot;+&quot; + (oppArc * arcBVs.get(oppArc)));</span>
+<span class="nc" id="L1766">                bvText.append(endColumn);</span>
+<span class="nc" id="L1767">                bvText.append(endRow);</span>
+<span class="nc" id="L1768">                bvText.append(startRow);</span>
+<span class="nc" id="L1769">                bvText.append(startColumn);</span>
+<span class="nc" id="L1770">                totalHeat += arcHeat.getOrDefault(oppArc, 0.0);</span>
+<span class="nc" id="L1771">                String over = &quot;&quot;;</span>
+<span class="nc bnc" id="L1772" title="All 2 branches missed.">                if (totalHeat &gt; aeroHeatEfficiency) {</span>
+<span class="nc" id="L1773">                    over = &quot; (Greater than heat efficiency)&quot;;</span>
+                }
+<span class="nc" id="L1775">                bvText.append(&quot;Total Heat: &quot; + totalHeat + over);</span>
+<span class="nc" id="L1776">                bvText.append(endColumn);</span>
+<span class="nc" id="L1777">                bvText.append(endRow);</span>
+<span class="nc" id="L1778">                weaponBV += oppArcMult * arcBVs.get(oppArc);</span>
+<span class="nc" id="L1779">                arcBVs.put(oppArc, 0.0);</span>
+            }
+            // ok now we can cycle through the rest and add 25%
+<span class="nc" id="L1782">            bvText.append(startRow);</span>
+<span class="nc" id="L1783">            bvText.append(startColumn);</span>
+<span class="nc" id="L1784">            bvText.append(&quot;Remaining Arcs&quot;);</span>
+<span class="nc" id="L1785">            bvText.append(endColumn);</span>
+<span class="nc" id="L1786">            bvText.append(endRow);</span>
+<span class="nc bnc" id="L1787" title="All 2 branches missed.">            for (int loc : arcBVs.keySet()) {</span>
+<span class="nc bnc" id="L1788" title="All 2 branches missed.">                if (arcBVs.get(loc) &gt; 0) {</span>
+<span class="nc" id="L1789">                    bvText.append(startRow);</span>
+<span class="nc" id="L1790">                    bvText.append(startColumn);</span>
+<span class="nc" id="L1791">                    bvText.append(arcNameLookup.get(loc) + &quot; &quot; + arcBVs.get(loc) + &quot;*0.25&quot;);</span>
+<span class="nc" id="L1792">                    bvText.append(endColumn);</span>
+<span class="nc" id="L1793">                    bvText.append(startColumn);</span>
+<span class="nc" id="L1794">                    bvText.append(&quot;+&quot; + (0.25 * arcBVs.get(loc)));</span>
+<span class="nc" id="L1795">                    bvText.append(endColumn);</span>
+<span class="nc" id="L1796">                    bvText.append(endRow);</span>
+<span class="nc" id="L1797">                    weaponBV += (0.25 * arcBVs.get(loc));</span>
+                }
+<span class="nc" id="L1799">            }</span>
+        }
+
+<span class="nc" id="L1802">        bvText.append(&quot;Total Weapons BV Adjusted For Heat:&quot;);</span>
+<span class="nc" id="L1803">        bvText.append(endColumn);</span>
+<span class="nc" id="L1804">        bvText.append(startColumn);</span>
+<span class="nc" id="L1805">        bvText.append(endColumn);</span>
+<span class="nc" id="L1806">        bvText.append(startColumn);</span>
+<span class="nc" id="L1807">        bvText.append(weaponBV);</span>
+<span class="nc" id="L1808">        bvText.append(endColumn);</span>
+<span class="nc" id="L1809">        bvText.append(endRow);</span>
+
+        // add offensive misc. equipment BV (everything except AMS, A-Pod, ECM -
+        // BMR p152)
+<span class="nc" id="L1813">        double oEquipmentBV = 0;</span>
+<span class="nc bnc" id="L1814" title="All 2 branches missed.">        for (Mounted mounted : getMisc()) {</span>
+<span class="nc" id="L1815">            MiscType mtype = (MiscType) mounted.getType();</span>
+
+            // don't count destroyed equipment
+<span class="nc bnc" id="L1818" title="All 2 branches missed.">            if (mounted.isDestroyed()) {</span>
+<span class="nc" id="L1819">                continue;</span>
+            }
+
+<span class="nc bnc" id="L1822" title="All 2 branches missed.">            if (mtype.hasFlag(MiscType.F_TARGCOMP)) {</span>
+<span class="nc" id="L1823">                continue;</span>
+            }
+<span class="nc" id="L1825">            double bv = mtype.getBV(this);</span>
+<span class="nc bnc" id="L1826" title="All 2 branches missed.">            if (bv &gt; 0) {</span>
+<span class="nc" id="L1827">                bvText.append(startRow);</span>
+<span class="nc" id="L1828">                bvText.append(startColumn);</span>
+
+<span class="nc" id="L1830">                bvText.append(mounted.getName());</span>
+<span class="nc" id="L1831">                bvText.append(endColumn);</span>
+<span class="nc" id="L1832">                bvText.append(startColumn);</span>
+<span class="nc" id="L1833">                bvText.append(endColumn);</span>
+<span class="nc" id="L1834">                bvText.append(startColumn);</span>
+<span class="nc" id="L1835">                bvText.append(bv);</span>
+<span class="nc" id="L1836">                bvText.append(endColumn);</span>
+<span class="nc" id="L1837">                bvText.append(endRow);</span>
+
+<span class="nc" id="L1839">                oEquipmentBV += bv;</span>
+            }
+<span class="nc" id="L1841">        }</span>
+<span class="nc" id="L1842">        bvText.append(startRow);</span>
+<span class="nc" id="L1843">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1845">        bvText.append(&quot;Total Misc Offensive Equipment BV: &quot;);</span>
+<span class="nc" id="L1846">        bvText.append(endColumn);</span>
+<span class="nc" id="L1847">        bvText.append(startColumn);</span>
+<span class="nc" id="L1848">        bvText.append(endColumn);</span>
+<span class="nc" id="L1849">        bvText.append(startColumn);</span>
+<span class="nc" id="L1850">        bvText.append(oEquipmentBV);</span>
+<span class="nc" id="L1851">        bvText.append(endColumn);</span>
+<span class="nc" id="L1852">        bvText.append(endRow);</span>
+<span class="nc" id="L1853">        weaponBV += oEquipmentBV;</span>
+
+        // adjust further for speed factor
+<span class="nc" id="L1856">        int runMp = 1;</span>
+<span class="nc bnc" id="L1857" title="All 2 branches missed.">        if (hasETypeFlag(ETYPE_WARSHIP)) {</span>
+<span class="nc" id="L1858">            runMp = getRunMP();</span>
+<span class="nc bnc" id="L1859" title="All 2 branches missed.">        } else if (hasETypeFlag(ETYPE_SPACE_STATION)) {</span>
+<span class="nc" id="L1860">            runMp = 0;</span>
+        }
+<span class="nc" id="L1862">        double speedFactor = Math.pow(1 + (((double) runMp - 5) / 10), 1.2);</span>
+<span class="nc" id="L1863">        speedFactor = Math.round(speedFactor * 100) / 100.0;</span>
+
+<span class="nc" id="L1865">        bvText.append(startRow);</span>
+<span class="nc" id="L1866">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1868">        bvText.append(&quot;Final Speed Factor: &quot;);</span>
+<span class="nc" id="L1869">        bvText.append(endColumn);</span>
+<span class="nc" id="L1870">        bvText.append(startColumn);</span>
+<span class="nc" id="L1871">        bvText.append(endColumn);</span>
+<span class="nc" id="L1872">        bvText.append(startColumn);</span>
+<span class="nc" id="L1873">        bvText.append(speedFactor);</span>
+<span class="nc" id="L1874">        bvText.append(endColumn);</span>
+<span class="nc" id="L1875">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1877">        obv = weaponBV * speedFactor;</span>
+
+<span class="nc" id="L1879">        bvText.append(startRow);</span>
+<span class="nc" id="L1880">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1882">        bvText.append(&quot;Weapons BV * Speed Factor &quot;);</span>
+<span class="nc" id="L1883">        bvText.append(endColumn);</span>
+<span class="nc" id="L1884">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1886">        bvText.append(weaponBV);</span>
+<span class="nc" id="L1887">        bvText.append(&quot; * &quot;);</span>
+<span class="nc" id="L1888">        bvText.append(speedFactor);</span>
+<span class="nc" id="L1889">        bvText.append(endColumn);</span>
+<span class="nc" id="L1890">        bvText.append(startColumn);</span>
+<span class="nc" id="L1891">        bvText.append(&quot; = &quot;);</span>
+<span class="nc" id="L1892">        bvText.append(obv);</span>
+<span class="nc" id="L1893">        bvText.append(endColumn);</span>
+<span class="nc" id="L1894">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1896">        bvText.append(startRow);</span>
+<span class="nc" id="L1897">        bvText.append(startColumn);</span>
+
+        double finalBV;
+<span class="nc bnc" id="L1900" title="All 2 branches missed.">        if (useGeometricMeanBV()) {</span>
+<span class="nc" id="L1901">            bvText.append(&quot;2 * sqrt(Offensive BV * Defensive BV&quot;);</span>
+<span class="nc" id="L1902">            finalBV = 2 * Math.sqrt(obv * dbv);</span>
+<span class="nc bnc" id="L1903" title="All 2 branches missed.">            if (finalBV == 0) {</span>
+<span class="nc" id="L1904">                finalBV = dbv + obv;</span>
+            }
+<span class="nc" id="L1906">            bvText.append(&quot;2 * sqrt(&quot;);</span>
+<span class="nc" id="L1907">            bvText.append(obv);</span>
+<span class="nc" id="L1908">            bvText.append(&quot; + &quot;);</span>
+<span class="nc" id="L1909">            bvText.append(dbv);</span>
+<span class="nc" id="L1910">            bvText.append(&quot;)&quot;);</span>
+        } else {
+<span class="nc" id="L1912">            bvText.append(&quot;Offensive BV + Defensive BV&quot;);</span>
+<span class="nc" id="L1913">            finalBV = dbv + obv;</span>
+<span class="nc" id="L1914">            bvText.append(obv);</span>
+<span class="nc" id="L1915">            bvText.append(&quot; + &quot;);</span>
+<span class="nc" id="L1916">            bvText.append(dbv);</span>
+        }
+
+<span class="nc" id="L1919">        bvText.append(endColumn);</span>
+<span class="nc" id="L1920">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1922">        bvText.append(startRow);</span>
+<span class="nc" id="L1923">        bvText.append(startColumn);</span>
+<span class="nc" id="L1924">        bvText.append(endColumn);</span>
+<span class="nc" id="L1925">        bvText.append(startColumn);</span>
+<span class="nc" id="L1926">        bvText.append(endColumn);</span>
+<span class="nc" id="L1927">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1929">        bvText.append(&quot;-------------&quot;);</span>
+<span class="nc" id="L1930">        bvText.append(endColumn);</span>
+<span class="nc" id="L1931">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1933">        bvText.append(startRow);</span>
+<span class="nc" id="L1934">        bvText.append(startColumn);</span>
+<span class="nc" id="L1935">        bvText.append(&quot;Final BV&quot;);</span>
+<span class="nc" id="L1936">        bvText.append(endColumn);</span>
+<span class="nc" id="L1937">        bvText.append(startColumn);</span>
+<span class="nc" id="L1938">        bvText.append(endColumn);</span>
+<span class="nc" id="L1939">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1941">        bvText.append(finalBV);</span>
+<span class="nc" id="L1942">        bvText.append(endColumn);</span>
+<span class="nc" id="L1943">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1945">        bvText.append(endTable);</span>
+<span class="nc" id="L1946">        bvText.append(&quot;&lt;/BODY&gt;&lt;/HTML&gt;&quot;);</span>
+
+        // we get extra bv from some stuff
+<span class="nc" id="L1949">        double xbv = 0.0;</span>
+        // extra from c3 networks. a valid network requires at least 2 members
+        // some hackery and magic numbers here. could be better
+        // also, each 'has' loops through all equipment. inefficient to do it 3
+        // times
+<span class="nc bnc" id="L1954" title="All 4 branches missed.">        if (!ignoreC3 &amp;&amp; (game != null)) {</span>
+<span class="nc" id="L1955">            xbv += getExtraC3BV((int) Math.round(finalBV));</span>
+        }
+
+<span class="nc" id="L1958">        finalBV = Math.round(finalBV + xbv);</span>
+
+        // and then factor in pilot
+<span class="nc" id="L1961">        double pilotFactor = 1;</span>
+<span class="nc bnc" id="L1962" title="All 2 branches missed.">        if (!ignorePilot) {</span>
+<span class="nc" id="L1963">            pilotFactor = getCrew().getBVSkillMultiplier(game);</span>
+        }
+
+<span class="nc" id="L1966">        int retVal = (int) Math.round((finalBV) * pilotFactor);</span>
+
+<span class="nc" id="L1968">        return retVal;</span>
+    }
+
+    public int getArcswGuns() {
+        // return the number
+<span class="nc" id="L1973">        int nArcs = 0;</span>
+<span class="nc bnc" id="L1974" title="All 2 branches missed.">        for (int i = 0; i &lt; locations(); i++) {</span>
+<span class="nc bnc" id="L1975" title="All 2 branches missed.">            if (hasWeaponInArc(i)) {</span>
+<span class="nc" id="L1976">                nArcs++;</span>
+            }
+        }
+<span class="nc" id="L1979">        return nArcs;</span>
+    }
+
+    public boolean hasWeaponInArc(int loc) {
+<span class="nc" id="L1983">        boolean hasWeapons = false;</span>
+<span class="nc bnc" id="L1984" title="All 2 branches missed.">        for (Mounted weap : getWeaponList()) {</span>
+<span class="nc bnc" id="L1985" title="All 2 branches missed.">            if (weap.getLocation() == loc) {</span>
+<span class="nc" id="L1986">                hasWeapons = true;</span>
+            }
+<span class="nc" id="L1988">        }</span>
+<span class="nc" id="L1989">        return hasWeapons;</span>
+    }
+
+    public double getFuelPerTon() {
+
+<span class="nc" id="L1994">        double points = 10.0;</span>
+
+<span class="nc bnc" id="L1996" title="All 2 branches missed.">        if (weight &gt;= 250000) {</span>
+<span class="nc" id="L1997">            points = 2.5;</span>
+<span class="nc" id="L1998">            return points;</span>
+<span class="nc bnc" id="L1999" title="All 2 branches missed.">        } else if (weight &gt;= 110000) {</span>
+<span class="nc" id="L2000">            points = 5.0;</span>
+<span class="nc" id="L2001">            return points;</span>
+        }
+
+<span class="nc" id="L2004">        return points;</span>
+    }
+    
+    @Override
+    public double getArmorWeight() {
+<span class="nc" id="L2009">        return getArmorWeight(locations() - 1); // no armor in hull location</span>
+    }
+    
+    @Override
+    public double getArmorWeight(int locCount) {
+<span class="nc" id="L2014">        double armorPoints = getTotalOArmor();</span>
+
+<span class="nc bnc" id="L2016" title="All 2 branches missed.">        if (!isPrimitive()) {</span>
+<span class="nc" id="L2017">            armorPoints -= Math.round(get0SI() / 10.0) * locCount;</span>
+        } else {
+<span class="nc" id="L2019">            armorPoints -= Math.floor(Math.round(get0SI() / 10.0) * locCount * 0.66);</span>
+<span class="nc" id="L2020">            armorPoints = Math.ceil(armorPoints / 0.66);</span>
+        }
+
+        // now I need to determine base armor points by type and weight
+<span class="nc" id="L2024">        boolean clan = TechConstants.isClan(getArmorTechLevel(firstArmorIndex()));</span>
+<span class="nc bnc" id="L2025" title="All 2 branches missed.">        double baseArmor = clan ? 1.0 : 0.8;</span>
+
+<span class="nc bnc" id="L2027" title="All 2 branches missed.">        if (weight &gt;= 250000) {</span>
+<span class="nc bnc" id="L2028" title="All 2 branches missed.">            baseArmor = clan ? 0.5 : 0.4;</span>
+<span class="nc bnc" id="L2029" title="All 2 branches missed.">        } else if (weight &gt;= 150000) {</span>
+<span class="nc bnc" id="L2030" title="All 2 branches missed.">            baseArmor = clan ? 0.7 : 0.6;</span>
+        }
+
+<span class="nc bnc" id="L2033" title="All 2 branches missed.">        if (armorType[0] == EquipmentType.T_ARMOR_LC_FERRO_IMP) {</span>
+<span class="nc" id="L2034">            baseArmor += 0.2;</span>
+<span class="nc bnc" id="L2035" title="All 2 branches missed.">        } else if (armorType[0] == EquipmentType.T_ARMOR_LC_FERRO_CARBIDE) {</span>
+<span class="nc" id="L2036">            baseArmor += 0.4;</span>
+<span class="nc bnc" id="L2037" title="All 2 branches missed.">        } else if (armorType[0] == EquipmentType.T_ARMOR_LC_LAMELLOR_FERRO_CARBIDE) {</span>
+<span class="nc" id="L2038">            baseArmor += 0.6;</span>
+        }
+
+<span class="nc" id="L2041">        return RoundWeight.standard(armorPoints / baseArmor, this);</span>
+    }
+
+    @Override
+    public double getCost(boolean ignoreAmmo) {
+<span class="nc" id="L2046">        double[] costs = new double[23];</span>
+<span class="nc" id="L2047">        int costIdx = 0;</span>
+<span class="nc" id="L2048">        double cost = 0;</span>
+
+        // Control Systems
+        // Bridge
+<span class="nc" id="L2052">        costs[costIdx++] += 200000 + 10 * weight;</span>
+        // Computer
+<span class="nc" id="L2054">        costs[costIdx++] += 200000;</span>
+        // Life Support
+<span class="nc" id="L2056">        costs[costIdx++] += 5000 * (getNCrew() + getNPassenger());</span>
+        // Sensors
+<span class="nc" id="L2058">        costs[costIdx++] += 80000;</span>
+        // Fire Control Computer
+<span class="nc" id="L2060">        costs[costIdx++] += 100000;</span>
+        // Gunnery Control Systems
+<span class="nc" id="L2062">        costs[costIdx++] += 10000 * getArcswGuns();</span>
+        // Structural Integrity
+<span class="nc" id="L2064">        costs[costIdx++] += 100000 * getSI();</span>
+
+        // Station-Keeping Drive
+        // Engine
+<span class="nc" id="L2068">        costs[costIdx++] += 1000 * weight * 0.012;</span>
+        // Engine Control Unit
+<span class="nc" id="L2070">        costs[costIdx++] += 1000;</span>
+
+        // KF Drive
+<span class="nc" id="L2073">        double[] driveCost = new double[6];</span>
+<span class="nc" id="L2074">        int driveIdx = 0;</span>
+<span class="nc" id="L2075">        double driveCosts = 0;</span>
+        // Drive Coil
+<span class="nc" id="L2077">        driveCost[driveIdx++] += 60000000.0 + (75000000.0 * getDocks(true));</span>
+        // Initiator
+<span class="nc" id="L2079">        driveCost[driveIdx++] += 25000000.0 + (5000000.0 * getDocks(true));</span>
+        // Controller
+<span class="nc" id="L2081">        driveCost[driveIdx++] += 50000000.0;</span>
+        // Tankage
+<span class="nc" id="L2083">        driveCost[driveIdx++] += 50000.0 * getKFIntegrity();</span>
+        // Sail
+<span class="nc" id="L2085">        driveCost[driveIdx++] += 50000.0 * (30 + (weight / 7500.0));</span>
+        // Charging System
+<span class="nc" id="L2087">        driveCost[driveIdx++] += 500000.0 + (200000.0 * getDocks(true));</span>
+        
+<span class="nc bnc" id="L2089" title="All 2 branches missed.">        for (int i = 0; i &lt; driveIdx; i++) {</span>
+<span class="nc" id="L2090">            driveCosts += driveCost[i];</span>
+        }
+
+<span class="nc bnc" id="L2093" title="All 2 branches missed.">        if (hasLF()) {</span>
+<span class="nc" id="L2094">            driveCosts *= 3;</span>
+        }
+        
+<span class="nc" id="L2097">        costs[costIdx++] += driveCosts;</span>
+
+        // K-F Drive Support Systems
+<span class="nc" id="L2100">        costs[costIdx++] += 10000000 * (weight / 10000);</span>
+
+        // Additional Ships Systems
+        // Attitude Thrusters
+<span class="nc" id="L2104">        costs[costIdx++] += 25000;</span>
+        // Docking Collars
+<span class="nc" id="L2106">        costs[costIdx++] += 100000 * getDocks();</span>
+        // Fuel Tanks
+<span class="nc" id="L2108">        costs[costIdx++] += (200 * getFuel()) / getFuelPerTon() * 1.02;</span>
+
+        // Armor
+<span class="nc" id="L2111">        costs[costIdx++] += getArmorWeight() * EquipmentType.getArmorCost(armorType[0]);</span>
+
+        // Heat Sinks
+<span class="nc" id="L2114">        int sinkCost = 2000 + (4000 * getHeatType());</span>
+<span class="nc" id="L2115">        costs[costIdx++] += sinkCost * getHeatSinks();</span>
+
+        // Escape Craft
+<span class="nc" id="L2118">        costs[costIdx++] += 5000 * (getLifeBoats() + getEscapePods());</span>
+
+        // Grav Decks
+<span class="nc" id="L2121">        double deckCost = 0;</span>
+<span class="nc" id="L2122">        deckCost += 5000000 * getGravDeck();</span>
+<span class="nc" id="L2123">        deckCost += 10000000 * getGravDeckLarge();</span>
+<span class="nc" id="L2124">        deckCost += 40000000 * getGravDeckHuge();</span>
+<span class="nc" id="L2125">        costs[costIdx++] += deckCost;</span>
+
+        // Transport Bays
+<span class="nc" id="L2128">        int baydoors = 0;</span>
+<span class="nc" id="L2129">        long bayCost = 0;</span>
+<span class="nc" id="L2130">        long quartersCost = 0;</span>
+        // Passenger and crew quarters and infantry bays are considered part of the structure
+        // and don't add to the cost
+<span class="nc bnc" id="L2133" title="All 2 branches missed.">        for (Bay next : getTransportBays()) {</span>
+<span class="nc" id="L2134">            baydoors += next.getDoors();</span>
+<span class="nc bnc" id="L2135" title="All 6 branches missed.">            if (!next.isQuarters() &amp;&amp; !(next instanceof InfantryBay) &amp;&amp; !(next instanceof BattleArmorBay)) {</span>
+<span class="nc" id="L2136">                bayCost += next.getCost();</span>
+            }
+<span class="nc" id="L2138">        }</span>
+
+<span class="nc" id="L2140">        costs[costIdx++] += bayCost + (baydoors * 1000L);</span>
+<span class="nc" id="L2141">        costs[costIdx++] = quartersCost;</span>
+
+        // Weapons and Equipment
+        // HPG
+<span class="nc bnc" id="L2145" title="All 2 branches missed.">        if (hasHPG()) {</span>
+<span class="nc" id="L2146">            costs[costIdx++] += 1000000000;</span>
+        } else {
+<span class="nc" id="L2148">            costs[costIdx++] += 0;</span>
+        }
+        // Weapons and Equipment
+<span class="nc" id="L2151">        costs[costIdx++] += getWeaponsAndEquipmentCost(ignoreAmmo);</span>
+
+        // Sum Costs
+<span class="nc bnc" id="L2154" title="All 2 branches missed.">        for (int i = 0; i &lt; costIdx; i++) {</span>
+<span class="nc" id="L2155">            cost += costs[i];</span>
+        }
+
+<span class="nc" id="L2158">        costs[costIdx++] = -getPriceMultiplier(); // Negative indicates multiplier</span>
+<span class="nc" id="L2159">        cost = Math.round(cost * getPriceMultiplier());</span>
+<span class="nc" id="L2160">        addCostDetails(cost, costs);</span>
+<span class="nc" id="L2161">        return cost;</span>
+
+    }
+
+    @Override
+    public double getPriceMultiplier() {
+<span class="nc" id="L2167">        return 1.25; // weight multiplier</span>
+    }
+
+    private void addCostDetails(double cost, double[] costs) {
+<span class="nc" id="L2171">        bvText = new StringBuffer();</span>
+<span class="nc" id="L2172">        String[] left = { &quot;Bridge&quot;, &quot;Computer&quot;, &quot;Life Support&quot;, &quot;Sensors&quot;, &quot;FCS&quot;, &quot;Gunnery Control Systems&quot;,</span>
+                &quot;Structural Integrity&quot;, &quot;Engine&quot;, &quot;Engine Control Unit&quot;,
+                &quot;KF Drive&quot;, &quot;KF Drive Support System&quot;, &quot;Attitude Thrusters&quot;, &quot;Docking Collars&quot;,
+                &quot;Fuel Tanks&quot;, &quot;Armor&quot;, &quot;Heat Sinks&quot;, &quot;Life Boats/Escape Pods&quot;, &quot;Grav Decks&quot;,
+                &quot;Bays&quot;, &quot;Quarters&quot;, &quot;HPG&quot;, &quot;Weapons/Equipment&quot;, &quot;Weight Multiplier&quot; };
+
+<span class="nc" id="L2178">        NumberFormat commafy = NumberFormat.getInstance();</span>
+
+<span class="nc" id="L2180">        bvText.append(&quot;&lt;HTML&gt;&lt;BODY&gt;&lt;CENTER&gt;&lt;b&gt;Cost Calculations For &quot;);</span>
+<span class="nc" id="L2181">        bvText.append(getChassis());</span>
+<span class="nc" id="L2182">        bvText.append(&quot; &quot;);</span>
+<span class="nc" id="L2183">        bvText.append(getModel());</span>
+<span class="nc" id="L2184">        bvText.append(&quot;&lt;/b&gt;&lt;/CENTER&gt;&quot;);</span>
+<span class="nc" id="L2185">        bvText.append(nl);</span>
+
+<span class="nc" id="L2187">        bvText.append(startTable);</span>
+        // find the maximum length of the columns.
+<span class="nc bnc" id="L2189" title="All 2 branches missed.">        for (int l = 0; l &lt; left.length; l++) {</span>
+
+<span class="nc bnc" id="L2191" title="All 2 branches missed.">            if (l == 20) {</span>
+<span class="nc" id="L2192">                getWeaponsAndEquipmentCost(true);</span>
+            } else {
+<span class="nc" id="L2194">                bvText.append(startRow);</span>
+<span class="nc" id="L2195">                bvText.append(startColumn);</span>
+<span class="nc" id="L2196">                bvText.append(left[l]);</span>
+<span class="nc" id="L2197">                bvText.append(endColumn);</span>
+<span class="nc" id="L2198">                bvText.append(startColumn);</span>
+
+<span class="nc bnc" id="L2200" title="All 2 branches missed.">                if (costs[l] == 0) {</span>
+<span class="nc" id="L2201">                    bvText.append(&quot;N/A&quot;);</span>
+<span class="nc bnc" id="L2202" title="All 2 branches missed.">                } else if (costs[l] &lt; 0) {</span>
+<span class="nc" id="L2203">                    bvText.append(&quot;x &quot;);</span>
+<span class="nc" id="L2204">                    bvText.append(commafy.format(-costs[l]));</span>
+                } else {
+<span class="nc" id="L2206">                    bvText.append(commafy.format(costs[l]));</span>
+
+                }
+<span class="nc" id="L2209">                bvText.append(endColumn);</span>
+<span class="nc" id="L2210">                bvText.append(endRow);</span>
+            }
+        }
+<span class="nc" id="L2213">        bvText.append(startRow);</span>
+<span class="nc" id="L2214">        bvText.append(startColumn);</span>
+<span class="nc" id="L2215">        bvText.append(endColumn);</span>
+<span class="nc" id="L2216">        bvText.append(startColumn);</span>
+<span class="nc" id="L2217">        bvText.append(&quot;-------------&quot;);</span>
+<span class="nc" id="L2218">        bvText.append(endColumn);</span>
+<span class="nc" id="L2219">        bvText.append(endRow);</span>
+
+<span class="nc" id="L2221">        bvText.append(startRow);</span>
+<span class="nc" id="L2222">        bvText.append(startColumn);</span>
+<span class="nc" id="L2223">        bvText.append(&quot;Total Cost:&quot;);</span>
+<span class="nc" id="L2224">        bvText.append(endColumn);</span>
+<span class="nc" id="L2225">        bvText.append(startColumn);</span>
+<span class="nc" id="L2226">        bvText.append(commafy.format(cost));</span>
+<span class="nc" id="L2227">        bvText.append(endColumn);</span>
+<span class="nc" id="L2228">        bvText.append(endRow);</span>
+
+<span class="nc" id="L2230">        bvText.append(endTable);</span>
+<span class="nc" id="L2231">        bvText.append(&quot;&lt;/BODY&gt;&lt;/HTML&gt;&quot;);</span>
+<span class="nc" id="L2232">    }</span>
+
+    @Override
+    public boolean doomedOnGround() {
+<span class="nc" id="L2236">        return true;</span>
+    }
+
+    @Override
+    public boolean doomedInAtmosphere() {
+<span class="nc" id="L2241">        return true;</span>
+    }
+
+    @Override
+    public boolean doomedInSpace() {
+<span class="nc" id="L2246">        return false;</span>
+    }
+
+    /**
+     * need to check bay location before loading ammo
+     */
+    @Override
+    public boolean loadWeapon(Mounted mounted, Mounted mountedAmmo) {
+<span class="nc" id="L2254">        boolean success = false;</span>
+<span class="nc" id="L2255">        WeaponType wtype = (WeaponType) mounted.getType();</span>
+<span class="nc" id="L2256">        AmmoType atype = (AmmoType) mountedAmmo.getType();</span>
+
+<span class="nc bnc" id="L2258" title="All 2 branches missed.">        if (mounted.getLocation() != mountedAmmo.getLocation()) {</span>
+<span class="nc" id="L2259">            return success;</span>
+        }
+
+        // for large craft, ammo must be in the same ba
+<span class="nc" id="L2263">        Mounted bay = whichBay(getEquipmentNum(mounted));</span>
+<span class="nc bnc" id="L2264" title="All 4 branches missed.">        if ((bay != null) &amp;&amp; !bay.ammoInBay(getEquipmentNum(mountedAmmo))) {</span>
+<span class="nc" id="L2265">            return success;</span>
+        }
+
+<span class="nc bnc" id="L2268" title="All 4 branches missed.">        if (mountedAmmo.isAmmoUsable() &amp;&amp; !wtype.hasFlag(WeaponType.F_ONESHOT)</span>
+<span class="nc bnc" id="L2269" title="All 4 branches missed.">                &amp;&amp; (atype.getAmmoType() == wtype.getAmmoType()) &amp;&amp; (atype.getRackSize() == wtype.getRackSize())) {</span>
+<span class="nc" id="L2270">            mounted.setLinked(mountedAmmo);</span>
+<span class="nc" id="L2271">            success = true;</span>
+        }
+<span class="nc" id="L2273">        return success;</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see megamek.common.Entity#getIniBonus()
+     */
+    @Override
+    public int getHQIniBonus() {
+        // large craft are considered to have &gt; 7 tons comm equipment
+        // hence they get +2 ini bonus as a mobile hq
+<span class="nc" id="L2285">        return 2;</span>
+    }
+
+    /**
+     * what location is opposite the given one
+     */
+    @Override
+    public int getOppositeLocation(int loc) {
+<span class="nc bnc" id="L2293" title="All 7 branches missed.">        switch (loc) {</span>
+        case LOC_NOSE:
+<span class="nc" id="L2295">            return LOC_AFT;</span>
+        case LOC_FLS:
+<span class="nc" id="L2297">            return LOC_ARS;</span>
+        case LOC_FRS:
+<span class="nc" id="L2299">            return LOC_ALS;</span>
+        case LOC_ALS:
+<span class="nc" id="L2301">            return LOC_FRS;</span>
+        case LOC_ARS:
+<span class="nc" id="L2303">            return LOC_FLS;</span>
+        case LOC_AFT:
+<span class="nc" id="L2305">            return LOC_NOSE;</span>
+        default:
+<span class="nc" id="L2307">            return LOC_NOSE;</span>
+        }
+    }
+
+    /**
+     * All military jumpships automatically have ECM if in space
+     */
+    @Override
+    public boolean hasActiveECM() {
+<span class="nc bnc" id="L2316" title="All 2 branches missed.">        if (!game.getOptions().booleanOption(OptionsConstants.ADVAERORULES_STRATOPS_ECM)</span>
+<span class="nc bnc" id="L2317" title="All 2 branches missed.">                || !game.getBoard().inSpace()) {</span>
+<span class="nc" id="L2318">            return super.hasActiveECM();</span>
+        }
+<span class="nc bnc" id="L2320" title="All 2 branches missed.">        return getECMRange() &gt;= 0;</span>
+    }
+
+    /**
+     * What's the range of the ECM equipment?
+     *
+     * @return the &lt;code&gt;int&lt;/code&gt; range of this unit's ECM. This value will be
+     *         &lt;code&gt;Entity.NONE&lt;/code&gt; if no ECM is active.
+     */
+    @Override
+    public int getECMRange() {
+<span class="nc bnc" id="L2331" title="All 2 branches missed.">        if (!game.getOptions().booleanOption(OptionsConstants.ADVAERORULES_STRATOPS_ECM)</span>
+<span class="nc bnc" id="L2332" title="All 2 branches missed.">                || !game.getBoard().inSpace()) {</span>
+<span class="nc" id="L2333">            return super.getECMRange();</span>
+        }
+<span class="nc bnc" id="L2335" title="All 2 branches missed.">        if (!isMilitary()) {</span>
+<span class="nc" id="L2336">            return Entity.NONE;</span>
+        }
+<span class="nc" id="L2338">        int range = 1;</span>
+        // the range might be affected by sensor/FCS damage
+<span class="nc" id="L2340">        range = range - getSensorHits() - getCICHits();</span>
+<span class="nc" id="L2341">        return range;</span>
+    }
+
+    /**
+     * @return is the crew of this vessel protected from gravitational effects,
+     *         see StratOps, pg. 36
+     */
+    @Override
+    public boolean isCrewProtected() {
+<span class="nc bnc" id="L2350" title="All 4 branches missed.">        return isMilitary() &amp;&amp; (getOriginalWalkMP() &gt; 4);</span>
+    }
+
+    public double getAccumulatedThrust() {
+<span class="nc" id="L2354">        return accumulatedThrust;</span>
+    }
+
+    public void setAccumulatedThrust(double d) {
+<span class="nc" id="L2358">        accumulatedThrust = d;</span>
+<span class="nc" id="L2359">    }</span>
+
+    public double getStationKeepingThrust() {
+<span class="nc" id="L2362">        return stationThrust;</span>
+    }
+
+    @Override
+    public void newRound(int roundNumber) {
+<span class="nc" id="L2367">        super.newRound(roundNumber);</span>
+
+        // accumulate some more 
+        // We assume that  will be accumulated. If this is proven wrong by
+        // the movement
+        // then we make the proper adjustments in server#processMovement
+        // until I hear from Welshman, I am assuming that you cannot &quot;hold back&quot;
+        // thrust. So once you
+        // get 1 thrust point, you have to spend it before you can accumulate
+        // more
+<span class="nc bnc" id="L2377" title="All 4 branches missed.">        if (isDeployed() &amp;&amp; (isBattleStation() == true)) {</span>
+<span class="nc" id="L2378">            setAccumulatedThrust(1);</span>
+        }
+
+<span class="nc bnc" id="L2381" title="All 4 branches missed.">        if (isDeployed() &amp;&amp; (getAccumulatedThrust() &lt; 1.0)) {</span>
+<span class="nc" id="L2382">            setAccumulatedThrust(getAccumulatedThrust() + stationThrust);</span>
+        }
+<span class="nc" id="L2384">    }</span>
+
+    @Override
+    public int getRunMP(boolean gravity, boolean ignoreheat, boolean ignoremodulararmor) {
+<span class="nc bnc" id="L2388" title="All 2 branches missed.">        if (!hasStationKeepingDrive()) {</span>
+<span class="nc" id="L2389">            return super.getRunMP(gravity, ignoreheat, ignoremodulararmor);</span>
+        }
+<span class="nc" id="L2391">        return (int) Math.floor(getAccumulatedThrust());</span>
+    }
+    
+    /**
+     * @return Whether this ship has station-keeping drive instead of transit drive.
+     */
+    public boolean hasStationKeepingDrive() {
+<span class="nc bnc" id="L2398" title="All 2 branches missed.">        return walkMP == 0;</span>
+    }
+
+    /**
+     * find the adjacent firing arc on this vessel clockwise
+     */
+    public int getAdjacentArcCW(int arc) {
+<span class="nc bnc" id="L2405" title="All 7 branches missed.">        switch (arc) {</span>
+        case Compute.ARC_NOSE:
+<span class="nc" id="L2407">            return Compute.ARC_RIGHTSIDE_SPHERE;</span>
+        case Compute.ARC_LEFTSIDE_SPHERE:
+<span class="nc" id="L2409">            return Compute.ARC_NOSE;</span>
+        case Compute.ARC_RIGHTSIDE_SPHERE:
+<span class="nc" id="L2411">            return Compute.ARC_RIGHTSIDEA_SPHERE;</span>
+        case Compute.ARC_LEFTSIDEA_SPHERE:
+<span class="nc" id="L2413">            return Compute.ARC_LEFTSIDE_SPHERE;</span>
+        case Compute.ARC_RIGHTSIDEA_SPHERE:
+<span class="nc" id="L2415">            return Compute.ARC_AFT;</span>
+        case Compute.ARC_AFT:
+<span class="nc" id="L2417">            return Compute.ARC_LEFTSIDEA_SPHERE;</span>
+        default:
+<span class="nc" id="L2419">            return Integer.MIN_VALUE;</span>
+        }
+    }
+
+    /**
+     * find the adjacent firing arc on this vessel counter-clockwise
+     */
+    public int getAdjacentArcCCW(int arc) {
+<span class="nc bnc" id="L2427" title="All 7 branches missed.">        switch (arc) {</span>
+        case Compute.ARC_NOSE:
+<span class="nc" id="L2429">            return Compute.ARC_LEFTSIDE_SPHERE;</span>
+        case Compute.ARC_RIGHTSIDE_SPHERE:
+<span class="nc" id="L2431">            return Compute.ARC_NOSE;</span>
+        case Compute.ARC_LEFTSIDE_SPHERE:
+<span class="nc" id="L2433">            return Compute.ARC_LEFTSIDEA_SPHERE;</span>
+        case Compute.ARC_LEFTSIDEA_SPHERE:
+<span class="nc" id="L2435">            return Compute.ARC_AFT;</span>
+        case Compute.ARC_RIGHTSIDEA_SPHERE:
+<span class="nc" id="L2437">            return Compute.ARC_RIGHTSIDE_SPHERE;</span>
+        case Compute.ARC_AFT:
+<span class="nc" id="L2439">            return Compute.ARC_RIGHTSIDEA_SPHERE;</span>
+        default:
+<span class="nc" id="L2441">            return Integer.MIN_VALUE;</span>
+        }
+    }
+
+    /**
+     * Finds the arc on the opposite side of the ship. Used in BV calculations.
+     * 
+     * @param arc A firing arc constant from &lt;code&gt;Compute&lt;/code&gt;
+     * @return    The arc on the opposite side of the ship.
+     */
+    public int getOppositeArc(int arc) {
+<span class="nc bnc" id="L2452" title="All 9 branches missed.">        switch (arc) {</span>
+            case Compute.ARC_NOSE:
+<span class="nc" id="L2454">                return Compute.ARC_AFT;</span>
+            case Compute.ARC_LEFTSIDE_SPHERE:
+<span class="nc" id="L2456">                return Compute.ARC_RIGHTSIDEA_SPHERE;</span>
+            case Compute.ARC_RIGHTSIDE_SPHERE:
+<span class="nc" id="L2458">                return Compute.ARC_LEFTSIDEA_SPHERE;</span>
+            case Compute.ARC_LEFTSIDEA_SPHERE:
+<span class="nc" id="L2460">                return Compute.ARC_RIGHTSIDE_SPHERE;</span>
+            case Compute.ARC_RIGHTSIDEA_SPHERE:
+<span class="nc" id="L2462">                return Compute.ARC_LEFTSIDE_SPHERE;</span>
+            case Compute.ARC_LEFT_BROADSIDE:
+<span class="nc" id="L2464">                return Compute.ARC_RIGHT_BROADSIDE;</span>
+            case Compute.ARC_RIGHT_BROADSIDE:
+<span class="nc" id="L2466">                return Compute.ARC_LEFT_BROADSIDE;</span>
+            case Compute.ARC_AFT:
+<span class="nc" id="L2468">                return Compute.ARC_NOSE;</span>
+            default:
+<span class="nc" id="L2470">                return Integer.MIN_VALUE;</span>
+        }
+    }
+
+    @Override
+    public double getBVTypeModifier() {
+<span class="nc" id="L2476">        return 0.75;</span>
+    }
+
+    @Override
+    public boolean usesWeaponBays() {
+<span class="nc" id="L2481">        return true;</span>
+    }
+    
+    @Override
+    public void setAlphaStrikeMovement(Map&lt;String,Integer&gt; moves) {
+<span class="nc" id="L2486">        moves.put(&quot;k&quot;, (int)(getStationKeepingThrust() * 10));</span>
+<span class="nc" id="L2487">    }</span>
+
+    @Override
+    public int getBattleForceSize() {
+        // The tables are on page 356 of StartOps
+<span class="nc bnc" id="L2492" title="All 2 branches missed.">        if (getWeight() &lt; 100000) {</span>
+<span class="nc" id="L2493">            return 1;</span>
+        }
+<span class="nc bnc" id="L2495" title="All 2 branches missed.">        if (getWeight() &lt; 300000) {</span>
+<span class="nc" id="L2496">            return 2;</span>
+        }
+<span class="nc" id="L2498">        return 3;</span>
+    }
+
+    @Override
+    public int getBattleForceStructurePoints() {
+<span class="nc" id="L2503">        return 1;</span>
+    }
+    
+    @Override
+    public int getNumBattleForceWeaponsLocations() {
+<span class="nc" id="L2508">        return 4;</span>
+    }
+    
+    @Override
+    public String getBattleForceLocationName(int index) {
+        // Remove leading F from FLS and FRS
+<span class="nc" id="L2514">        String retVal = getLocationAbbrs()[index];</span>
+<span class="nc bnc" id="L2515" title="All 2 branches missed.">        if (retVal.substring(0, 1).equals(&quot;F&quot;)) {</span>
+<span class="nc" id="L2516">            return retVal.substring(1);</span>
+        }
+<span class="nc" id="L2518">        return retVal;</span>
+    }
+
+    @Override
+    public double getBattleForceLocationMultiplier(int index, int location, boolean rearMounted) {
+<span class="nc bnc" id="L2523" title="All 5 branches missed.">        switch (index) {</span>
+        case LOC_NOSE:
+<span class="nc bnc" id="L2525" title="All 2 branches missed.">            if (location == LOC_NOSE) {</span>
+<span class="nc" id="L2526">                return 1.0;</span>
+            }
+<span class="nc bnc" id="L2528" title="All 8 branches missed.">            if (isSpheroid() &amp;&amp; (location == LOC_FLS || location == LOC_FRS)</span>
+                    &amp;&amp; !rearMounted) {
+<span class="nc" id="L2530">                return 0.5;</span>
+            }
+            break;
+        case LOC_FRS:
+<span class="nc bnc" id="L2534" title="All 4 branches missed.">            if (location == LOC_FRS || location == LOC_ARS) {</span>
+<span class="nc" id="L2535">                return 0.5;</span>
+            }
+            break;
+        case LOC_FLS:
+<span class="nc bnc" id="L2539" title="All 4 branches missed.">            if (location == LOC_FLS || location == LOC_ALS) {</span>
+<span class="nc" id="L2540">                return 0.5;</span>
+            }
+            break;
+        case LOC_AFT:
+<span class="nc bnc" id="L2544" title="All 2 branches missed.">            if (location == LOC_AFT) {</span>
+<span class="nc" id="L2545">                return 1.0;</span>
+            }
+<span class="nc bnc" id="L2547" title="All 4 branches missed.">            if (location == LOC_ALS || location == LOC_ARS) {</span>
+<span class="nc" id="L2548">                return 0.5;</span>
+            }
+            break;
+        }
+<span class="nc" id="L2552">        return 0;</span>
+    }
+    
+    @Override
+    public void addBattleForceSpecialAbilities(Map&lt;BattleForceSPA,Integer&gt; specialAbilities) {
+<span class="nc" id="L2557">        super.addBattleForceSpecialAbilities(specialAbilities);</span>
+<span class="nc" id="L2558">        specialAbilities.put(BattleForceSPA.KF, null);</span>
+<span class="nc bnc" id="L2559" title="All 2 branches missed.">        if (hasLF()) {</span>
+<span class="nc" id="L2560">            specialAbilities.put(BattleForceSPA.LF, null);</span>
+        }        
+<span class="nc bnc" id="L2562" title="All 2 branches missed.">        if (getNCrew() &gt;= 60) {</span>
+<span class="nc" id="L2563">            specialAbilities.put(BattleForceSPA.CRW, (int)Math.round(getNCrew() / 120.0));</span>
+        }
+<span class="nc" id="L2565">    }</span>
+    
+    @Override
+    public boolean isFighter() {
+<span class="nc" id="L2569">        return false;</span>
+    }
+    
+    @Override
+    public boolean isPrimitive() {
+<span class="nc bnc" id="L2574" title="All 2 branches missed.">        return getDriveCoreType() == DRIVE_CORE_PRIMITIVE;</span>
+    }
+
+    @Override
+    public long getEntityType() {
+<span class="nc" id="L2579">        return Entity.ETYPE_AERO | Entity.ETYPE_JUMPSHIP;</span>
+    }
+
+    /*
+     * Do not recalculate walkMP when adding engine.
+     */
+    @Override
+    protected int calculateWalk() {
+<span class="nc" id="L2587">    	return walkMP;</span>
+    }
+    
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

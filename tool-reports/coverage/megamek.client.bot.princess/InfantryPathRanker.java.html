@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InfantryPathRanker.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">InfantryPathRanker.java</span></div><h1>InfantryPathRanker.java</h1><pre class="source lang-java linenums">package megamek.client.bot.princess;
+
+import java.util.List;
+
+import megamek.client.bot.princess.FireControl.FireControlType;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IGame;
+import megamek.common.MechWarrior;
+import megamek.common.MovePath;
+import megamek.common.options.OptionsConstants;
+
+public class InfantryPathRanker extends BasicPathRanker implements IPathRanker {
+
+    public InfantryPathRanker(Princess princess) {
+<span class="nc" id="L16">        super(princess);</span>
+
+<span class="nc" id="L18">        setPathEnumerator(princess.getPrecognition().getPathEnumerator());</span>
+<span class="nc" id="L19">    }</span>
+
+    @Override
+    protected RankedPath rankPath(MovePath path, IGame game, int maxRange, double fallTolerance, int distanceHome,
+            List&lt;Entity&gt; enemies, Coords friendsCoords) {
+<span class="nc" id="L24">        Entity movingUnit = path.getEntity();</span>
+<span class="nc" id="L25">        StringBuilder formula = new StringBuilder(&quot;Calculation: {&quot;);</span>
+                
+        // Copy the path to avoid inadvertent changes.
+<span class="nc" id="L28">        MovePath pathCopy = path.clone();</span>
+                   
+        // look at all of my enemies
+<span class="nc" id="L31">        FiringPhysicalDamage damageEstimate = new FiringPhysicalDamage();</span>
+
+<span class="nc" id="L33">        double expectedDamageTaken = checkPathForHazards(pathCopy,</span>
+                                                  movingUnit,
+                                                  game);
+<span class="nc" id="L36">        boolean extremeRange = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_RANGE);</span>
+<span class="nc" id="L37">        boolean losRange = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_LOS_RANGE);</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">        for (Entity enemy : enemies) {</span>
+       
+            // Skip ejected pilots.
+<span class="nc bnc" id="L41" title="All 2 branches missed.">            if (enemy instanceof MechWarrior) {</span>
+<span class="nc" id="L42">                continue;</span>
+            }
+            
+            // Skip units not actually on the board.
+<span class="nc bnc" id="L46" title="All 4 branches missed.">            if (enemy.isOffBoard() || (enemy.getPosition() == null) </span>
+<span class="nc bnc" id="L47" title="All 2 branches missed.">                    || !game.getBoard().contains(enemy.getPosition())) {</span>
+<span class="nc" id="L48">                continue;</span>
+            }
+            
+            //skip broken enemies
+<span class="nc bnc" id="L52" title="All 2 branches missed.">            if (getOwner().getHonorUtil().isEnemyBroken(enemy.getId(),</span>
+<span class="nc" id="L53">                 enemy.getOwnerId(), getOwner().getForcedWithdrawal())) {</span>
+<span class="nc" id="L54">                continue;</span>
+            }
+            
+            EntityEvaluationResponse eval;
+            // For units that have already moved
+            // TODO: Always consider Aeros to have moved, as right now we
+            // don't try to predict their movement.
+<span class="nc bnc" id="L61" title="All 6 branches missed.">            if (!enemy.isSelectableThisTurn() || enemy.isImmobile() || enemy.isAero()) { </span>
+<span class="nc" id="L62">                eval = evaluateMovedEnemy(enemy, pathCopy, game);</span>
+            } else { //for units that have not moved this round
+<span class="nc" id="L64">                eval = evaluateUnmovedEnemy(enemy, pathCopy, extremeRange, losRange);</span>
+            }
+            
+<span class="nc bnc" id="L67" title="All 2 branches missed.">            if (damageEstimate.firingDamage &lt; eval.getMyEstimatedDamage()) {</span>
+<span class="nc" id="L68">                damageEstimate.firingDamage = eval.getMyEstimatedDamage();</span>
+            }
+            
+<span class="nc" id="L71">            expectedDamageTaken += eval.getEstimatedEnemyDamage();</span>
+<span class="nc" id="L72">        }</span>
+        
+<span class="nc" id="L74">        calcDamageToStrategicTargets(pathCopy, game, getOwner().getFireControlState(), damageEstimate);</span>
+<span class="nc" id="L75">        double maximumDamageDone = damageEstimate.firingDamage;</span>
+                
+        // My bravery modifier is based on my chance of getting to the 
+        // firing position (successProbability), how much damage I can do 
+        // (weighted by bravery), less the damage I might take.
+<span class="nc" id="L80">        double braveryValue =</span>
+<span class="nc" id="L81">         getOwner().getBehaviorSettings().getBraveryValue();</span>
+<span class="nc" id="L82">        double braveryMod = (maximumDamageDone * braveryValue) - expectedDamageTaken;</span>
+<span class="nc" id="L83">        formula.append(&quot; + braveryMod [&quot;)</span>
+<span class="nc" id="L84">        .append(LOG_DECIMAL.format(braveryMod)).append(&quot; = &quot;)</span>
+<span class="nc" id="L85">        .append(&quot;((&quot;)</span>
+<span class="nc" id="L86">        .append(LOG_DECIMAL.format(maximumDamageDone)).append(&quot; * &quot;)</span>
+<span class="nc" id="L87">        .append(LOG_DECIMAL.format(braveryValue)).append(&quot;) - &quot;)</span>
+<span class="nc" id="L88">        .append(LOG_DECIMAL.format(expectedDamageTaken)).append(&quot;]&quot;);</span>
+<span class="nc" id="L89">        double utility = braveryMod;</span>
+        
+        // If an infantry unit is not in range to do damage,
+        // then we want it to move closer. Otherwise, let's avoid charging up to unmoved units,
+        // that's not going to end well.
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if(maximumDamageDone &lt;= 0) {</span>
+<span class="nc" id="L95">        	utility -= calculateAggressionMod(movingUnit, pathCopy, game, formula);</span>
+        }
+        
+        // The further I am from my teammates, the lower this path 
+        // ranks (weighted by Herd Mentality).
+<span class="nc" id="L100">        utility -= calculateHerdingMod(friendsCoords, pathCopy, formula);</span>
+        
+        // If I need to flee the board, I want to get closer to my home edge.
+<span class="nc" id="L103">        utility -= calculateSelfPreservationMod(movingUnit, pathCopy, game,</span>
+                                         formula);
+        
+<span class="nc" id="L106">        RankedPath rankedPath = new RankedPath(utility, pathCopy, formula.toString());</span>
+<span class="nc" id="L107">        rankedPath.setExpectedDamage(maximumDamageDone);</span>
+<span class="nc" id="L108">        return rankedPath;</span>
+    }
+    
+    EntityEvaluationResponse evaluateUnmovedEnemy(Entity enemy, MovePath path, 
+            boolean useExtremeRange, boolean useLOSRange) {
+        
+        //some preliminary calculations
+<span class="nc" id="L115">        final double damageDiscount = 0.25;</span>
+<span class="nc" id="L116">        EntityEvaluationResponse returnResponse =</span>
+                new EntityEvaluationResponse();
+
+        //Aeros always move after other units, and would require an 
+        // entirely different evaluation
+        //TODO (low priority) implement a way to see if I can dodge aero units
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        if (enemy.isAirborneAeroOnGroundMap()) {</span>
+<span class="nc" id="L123">            return returnResponse;</span>
+        }
+        
+<span class="nc" id="L126">        Coords finalCoords = path.getFinalCoords();</span>
+<span class="nc" id="L127">        int myFacing = path.getFinalFacing();</span>
+<span class="nc" id="L128">        Coords behind = finalCoords.translated((myFacing + 3) % 6);</span>
+<span class="nc" id="L129">        Coords leftFlank = finalCoords.translated((myFacing + 2) % 6);</span>
+<span class="nc" id="L130">        Coords rightFlank = finalCoords.translated((myFacing + 4) % 6);</span>
+<span class="nc" id="L131">        Coords closest = getClosestCoordsTo(enemy.getId(), finalCoords);</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        if (closest == null) {</span>
+<span class="nc" id="L133">            return returnResponse;</span>
+        }
+        
+<span class="nc" id="L136">        int range = closest.distance(finalCoords);</span>
+        // assume that an enemy unit is highly unlikely to stand there and let you swarm them 
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if(range &lt;= 0) {</span>
+<span class="nc" id="L139">            range = 1;</span>
+        }
+
+<span class="nc" id="L142">        MovePath blankEnemyPath = new MovePath(getOwner().getGame(), enemy);</span>
+        
+        // for infantry, facing doesn't matter because you rotate for free
+        // (unless you're using &quot;dig in&quot; rules, but we're not there yet)
+<span class="nc" id="L146">        returnResponse.addToMyEstimatedDamage(</span>
+<span class="nc" id="L147">                    ((InfantryFireControl) getFireControl(path.getEntity())).getMaxDamageAtRange(</span>
+						path,
+						blankEnemyPath,
+						range,
+						useExtremeRange,
+						useLOSRange) * damageDiscount);
+
+        //in general if an enemy can end its position in range, it can hit me
+<span class="nc" id="L155">        returnResponse.addToEstimatedEnemyDamage(</span>
+<span class="nc" id="L156">        		((InfantryFireControl) getOwner().getFireControl(FireControlType.Infantry)).getMaxDamageAtRange(</span>
+        				blankEnemyPath,
+        				path,
+        				range,
+        				useExtremeRange,
+        				useLOSRange) * damageDiscount);
+        
+        //It is especially embarrassing if the enemy can move behind or flank me and then kick me
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (canFlankAndKick(enemy, behind, leftFlank, rightFlank, myFacing)) {</span>
+<span class="nc" id="L165">            returnResponse.addToEstimatedEnemyDamage(</span>
+<span class="nc" id="L166">                    Math.ceil(enemy.getWeight() / 5.0) *</span>
+                    damageDiscount);
+        }
+<span class="nc" id="L169">        return returnResponse;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

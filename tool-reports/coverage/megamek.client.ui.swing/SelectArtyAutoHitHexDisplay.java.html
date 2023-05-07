@@ -1,0 +1,399 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SelectArtyAutoHitHexDisplay.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing</a> &gt; <span class="el_source">SelectArtyAutoHitHexDisplay.java</span></div><h1>SelectArtyAutoHitHexDisplay.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2004 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.client.ui.swing;
+
+import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+
+import megamek.client.event.BoardViewEvent;
+import megamek.client.ui.Messages;
+import megamek.client.ui.swing.util.CommandAction;
+import megamek.client.ui.swing.util.KeyCommandBind;
+import megamek.client.ui.swing.util.MegaMekController;
+import megamek.client.ui.swing.widget.MegamekButton;
+import megamek.client.ui.swing.widget.SkinSpecification;
+import megamek.common.Coords;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.IPlayer;
+import megamek.common.SpecialHexDisplay;
+import megamek.common.containers.PlayerIDandList;
+import megamek.common.event.GamePhaseChangeEvent;
+import megamek.common.event.GameTurnChangeEvent;
+import megamek.common.options.OptionsConstants;
+
+public class SelectArtyAutoHitHexDisplay extends StatusBarPhaseDisplay {
+
+    private static final long serialVersionUID = -4948184589134809323L;
+
+    /**
+     * This enumeration lists all of the possible ActionCommands that can be
+     * carried out during the select arty auto hit phase.  Each command has a 
+     * string for the command plus a flag that determines what unit type it is 
+     * appropriate for.
+     * @author arlith
+     *
+     */
+<span class="nc" id="L53">    public static enum ArtyAutoHitCommand implements PhaseCommand {</span>
+<span class="nc" id="L54">    SET_HIT_HEX(&quot;setAutoHitHex&quot;);</span>
+    
+    String cmd;
+    
+        /**
+         * Priority that determines this buttons order
+         */
+       public int priority;
+    
+<span class="nc" id="L63">    private ArtyAutoHitCommand(String c){</span>
+<span class="nc" id="L64">    cmd = c;</span>
+<span class="nc" id="L65">    }</span>
+    
+    public String getCmd(){
+<span class="nc" id="L68">    return cmd;</span>
+    }
+    
+        public int getPriority() {
+<span class="nc" id="L72">            return priority;</span>
+        }
+        
+        public void setPriority(int p) {
+<span class="nc" id="L76">            priority = p;</span>
+<span class="nc" id="L77">        }</span>
+    
+    public String toString(){
+<span class="nc" id="L80">            return Messages</span>
+<span class="nc" id="L81">                    .getString(&quot;SelectArtyAutoHitHexDisplay.&quot; + getCmd());</span>
+    }
+    }
+    
+    // buttons
+    protected Map&lt;ArtyAutoHitCommand,MegamekButton&gt; buttons;
+
+    private IPlayer p;
+<span class="nc" id="L89">    private PlayerIDandList&lt;Coords&gt; artyAutoHitHexes = new PlayerIDandList&lt;Coords&gt;();</span>
+    
+    private int startingHexes;
+
+    /**
+     * Creates and lays out a new select designated hex phase display for the specified
+     * clientgui.getClient().
+     */
+    public SelectArtyAutoHitHexDisplay(ClientGUI clientgui) {
+<span class="nc" id="L98">        super(clientgui);</span>
+<span class="nc" id="L99">        clientgui.getClient().getGame().addGameListener(this);</span>
+
+<span class="nc" id="L101">        clientgui.getBoardView().addBoardViewListener(this);</span>
+        
+<span class="nc" id="L103">        setupStatusBar(Messages</span>
+<span class="nc" id="L104">                .getString(&quot;SelectArtyAutoHitHexDisplay.waitingArtillery&quot;)); //$NON-NLS-1$</span>
+
+<span class="nc" id="L106">        p = clientgui.getClient().getLocalPlayer();</span>
+
+<span class="nc" id="L108">        artyAutoHitHexes.setPlayerID(p.getId());</span>
+
+<span class="nc" id="L110">        buttons = new HashMap&lt;ArtyAutoHitCommand, MegamekButton&gt;(</span>
+<span class="nc" id="L111">                (int) (ArtyAutoHitCommand.values().length * 1.25 + 0.5));</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">        for (ArtyAutoHitCommand cmd : ArtyAutoHitCommand.values()) {</span>
+<span class="nc" id="L113">            String title = Messages.getString(&quot;SelectArtyAutoHitHexDisplay.&quot;</span>
+<span class="nc" id="L114">                    + cmd.getCmd());</span>
+<span class="nc" id="L115">            MegamekButton newButton = new MegamekButton(title,</span>
+<span class="nc" id="L116">                    SkinSpecification.UIComponents.PhaseDisplayButton.getComp());</span>
+<span class="nc" id="L117">            String ttKey = &quot;SelectArtyAutoHitHexDisplay.&quot; + cmd.getCmd() + &quot;.tooltip&quot;;</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">            if (Messages.keyExists(ttKey)) {</span>
+<span class="nc" id="L119">                newButton.setToolTipText(Messages.getString(ttKey));</span>
+            }
+<span class="nc" id="L121">            newButton.addActionListener(this);</span>
+<span class="nc" id="L122">            newButton.setActionCommand(cmd.getCmd());</span>
+<span class="nc" id="L123">            newButton.setEnabled(false);</span>
+<span class="nc" id="L124">            buttons.put(cmd, newButton);</span>
+        }
+<span class="nc" id="L126">        numButtonGroups = (int) Math.ceil((buttons.size() + 0.0)</span>
+                / buttonsPerGroup);
+
+<span class="nc" id="L129">        butDone.setText(Messages.getString(&quot;SelectArtyAutoHitHexDisplay.Done&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L130">        butDone.setEnabled(false);</span>
+
+<span class="nc" id="L132">        layoutScreen();</span>
+
+<span class="nc" id="L134">        setupButtonPanel();</span>
+        
+<span class="nc" id="L136">        registerKeyCommands();</span>
+<span class="nc" id="L137">    }</span>
+
+    protected ArrayList&lt;MegamekButton&gt; getButtonList() {
+<span class="nc" id="L140">        ArrayList&lt;MegamekButton&gt; buttonList = new ArrayList&lt;MegamekButton&gt;();</span>
+<span class="nc" id="L141">        ArtyAutoHitCommand commands[] = ArtyAutoHitCommand.values();</span>
+<span class="nc" id="L142">        CommandComparator comparator = new CommandComparator();</span>
+<span class="nc" id="L143">        Arrays.sort(commands, comparator);</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        for (ArtyAutoHitCommand cmd : commands) {</span>
+<span class="nc" id="L145">            buttonList.add(buttons.get(cmd));</span>
+        }
+<span class="nc" id="L147">        return buttonList;</span>
+    }
+
+    /**
+     * Enables relevant buttons and sets up for your turn.
+     */
+    private void beginMyTurn() {
+        // Make sure we've got the correct local player
+<span class="nc" id="L155">        p = clientgui.getClient().getLocalPlayer();</span>
+        // By default, we should get 5 hexes per 4 mapsheets (4 mapsheets is
+        // 16*17*4 hexes, so 1088)
+<span class="nc" id="L158">        IGame game = clientgui.getClient().getGame();</span>
+<span class="nc" id="L159">        IBoard board = game.getBoard();</span>
+<span class="nc" id="L160">        int preDesignateArea = game.getOptions().intOption(OptionsConstants.ADVCOMBAT_MAP_AREA_PREDESIGNATE);</span>
+<span class="nc" id="L161">        int hexesPer = game.getOptions().intOption(OptionsConstants.ADVCOMBAT_NUM_HEXES_PREDESIGNATE);</span>
+<span class="nc" id="L162">        double mapArea = board.getWidth() * board.getHeight();</span>
+<span class="nc" id="L163">        startingHexes = (int) Math.ceil((mapArea) / preDesignateArea) * hexesPer;</span>
+<span class="nc" id="L164">        artyAutoHitHexes.clear();</span>
+<span class="nc" id="L165">        setArtyEnabled(startingHexes);</span>
+<span class="nc" id="L166">        butDone.setEnabled(true);</span>
+<span class="nc" id="L167">    }</span>
+
+    /**
+     * Clears out old data and disables relevant buttons.
+     */
+    private void endMyTurn() {
+        // end my turn, then.
+<span class="nc" id="L174">        disableButtons();</span>
+<span class="nc" id="L175">        clientgui.getBoardView().select(null);</span>
+<span class="nc" id="L176">        clientgui.getBoardView().highlight(null);</span>
+<span class="nc" id="L177">        clientgui.getBoardView().cursor(null);</span>
+
+<span class="nc" id="L179">    }</span>
+
+    /**
+     * Disables all buttons in the interface
+     */
+    private void disableButtons() {
+<span class="nc" id="L185">        setArtyEnabled(0);</span>
+
+<span class="nc" id="L187">        butDone.setEnabled(false);</span>
+<span class="nc" id="L188">    }</span>
+
+    private void addArtyAutoHitHex(Coords coords) {
+<span class="nc bnc" id="L191" title="All 2 branches missed.">        if (!clientgui.getClient().getGame().getBoard().contains(coords)) {</span>
+<span class="nc" id="L192">            return;</span>
+        }
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        if (!artyAutoHitHexes.contains(coords)</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">                &amp;&amp; (artyAutoHitHexes.size() &lt; startingHexes)</span>
+                &amp;&amp; clientgui
+<span class="nc bnc" id="L197" title="All 2 branches missed.">                        .doYesNoDialog(</span>
+                                Messages
+<span class="nc" id="L199">                                        .getString(&quot;SelectArtyAutoHitHexDisplay.setArtilleryTargetDialog.title&quot;), //$NON-NLS-1$</span>
+                                Messages
+<span class="nc" id="L201">                                        .getString(</span>
+<span class="nc" id="L202">                                                &quot;SelectArtyAutoHitHexDisplay.setArtilleryTargetDialog.message&quot;, new Object[] { coords.getBoardNum() }))) { //$NON-NLS-1$</span>
+<span class="nc" id="L203">            artyAutoHitHexes.addElement(coords);</span>
+<span class="nc" id="L204">            setArtyEnabled(startingHexes - artyAutoHitHexes.size());</span>
+<span class="nc" id="L205">            p.addArtyAutoHitHex(coords);</span>
+<span class="nc" id="L206">            clientgui</span>
+<span class="nc" id="L207">                    .getClient()</span>
+<span class="nc" id="L208">                    .getGame()</span>
+<span class="nc" id="L209">                    .getBoard()</span>
+<span class="nc" id="L210">                    .addSpecialHexDisplay(</span>
+                            coords,
+                            new SpecialHexDisplay(
+                                    SpecialHexDisplay.Type.ARTILLERY_AUTOHIT,
+                                    SpecialHexDisplay.NO_ROUND, p,
+                                    &quot;Artilery autohit, for player &quot;
+<span class="nc" id="L216">                                            + p.getName(),</span>
+                                    SpecialHexDisplay.SHD_OBSCURED_TEAM));
+<span class="nc" id="L218">            clientgui.getBoardView().refreshDisplayables();</span>
+        }
+<span class="nc" id="L220">    }</span>
+
+    //
+    // BoardListener
+    //
+    @Override
+    public void hexMoused(BoardViewEvent b) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L230">            return;</span>
+        }
+
+<span class="nc bnc" id="L233" title="All 2 branches missed.">        if (b.getType() != BoardViewEvent.BOARD_HEX_DRAGGED) {</span>
+<span class="nc" id="L234">            return;</span>
+        }
+
+        // ignore buttons other than 1
+<span class="nc bnc" id="L238" title="All 2 branches missed.">        if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">                || ((b.getModifiers() &amp; InputEvent.BUTTON1_MASK) == 0)) {</span>
+<span class="nc" id="L240">            return;</span>
+        }
+
+        // check for a deployment
+<span class="nc" id="L244">        clientgui.getBoardView().select(b.getCoords());</span>
+<span class="nc" id="L245">        addArtyAutoHitHex(b.getCoords());</span>
+<span class="nc" id="L246">    }</span>
+
+    //
+    // GameListener
+    //
+    @Override
+    public void gameTurnChange(GameTurnChangeEvent e) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L255" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L256">            return;</span>
+        }
+
+<span class="nc" id="L259">        endMyTurn();</span>
+
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        if (clientgui.getClient().isMyTurn()) {</span>
+<span class="nc" id="L262">            beginMyTurn();</span>
+<span class="nc" id="L263">            setStatusBarText(Messages</span>
+<span class="nc" id="L264">                    .getString(&quot;SelectArtyAutoHitHexDisplay.its_your_turn&quot;)); //$NON-NLS-1$</span>
+        } else {
+            String playerName;
+<span class="nc bnc" id="L267" title="All 2 branches missed.">            if (e.getPlayer() != null) {</span>
+<span class="nc" id="L268">                playerName = e.getPlayer().getName();</span>
+            } else {
+<span class="nc" id="L270">                playerName = &quot;Unknown&quot;;</span>
+            }
+<span class="nc" id="L272">            setStatusBarText(Messages.getString(</span>
+                    &quot;SelectArtyAutoHitHexDisplay.its_others_turn&quot;, //$NON-NLS-1$
+                    new Object[] { playerName }));
+        }
+<span class="nc" id="L276">    }</span>
+
+    /**
+     * called when the game changes phase.
+     *
+     * @param e
+     *            ignored parameter
+     */
+    @Override
+    public void gamePhaseChange(final GamePhaseChangeEvent e) {
+        // Are we ignoring events?
+<span class="nc bnc" id="L287" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L288">            return;</span>
+        }
+
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">                &amp;&amp; (clientgui.getClient().getGame().getPhase() != IGame.Phase.PHASE_SET_ARTYAUTOHITHEXES)) {</span>
+<span class="nc" id="L293">            endMyTurn();</span>
+        }
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        if (clientgui.getClient().getGame().getPhase() == IGame.Phase.PHASE_SET_ARTYAUTOHITHEXES) {</span>
+<span class="nc" id="L296">            setStatusBarText(Messages</span>
+<span class="nc" id="L297">                    .getString(&quot;SelectArtyAutoHitHexDisplay.waitingMinefieldPhase&quot;)); //$NON-NLS-1$</span>
+        }
+<span class="nc" id="L299">    }</span>
+
+    //
+    // ActionListener
+    //
+    public void actionPerformed(ActionEvent ev) {
+
+        // Are we ignoring events?
+<span class="nc bnc" id="L307" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L308">            return;</span>
+        }
+
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        if (statusBarActionPerformed(ev, clientgui.getClient())) {</span>
+<span class="nc" id="L312">            return;</span>
+        }
+
+<span class="nc bnc" id="L315" title="All 2 branches missed.">        if (!clientgui.getClient().isMyTurn()) {</span>
+            // odd...
+<span class="nc" id="L317">            return;</span>
+        }
+<span class="nc" id="L319">    } // End public void actionPerformed(ActionEvent ev)</span>
+
+    @Override
+    public void clear() {
+<span class="nc" id="L323">        artyAutoHitHexes.clear();</span>
+<span class="nc" id="L324">        p.removeArtyAutoHitHexes();</span>
+<span class="nc" id="L325">        setArtyEnabled(startingHexes);</span>
+<span class="nc" id="L326">    }</span>
+
+    @Override
+    public void ready() {
+<span class="nc" id="L330">        endMyTurn();</span>
+<span class="nc" id="L331">        clientgui.getClient().sendArtyAutoHitHexes(artyAutoHitHexes);</span>
+<span class="nc" id="L332">        clientgui.getClient().sendPlayerInfo();</span>
+<span class="nc" id="L333">    }</span>
+
+    private void setArtyEnabled(int nbr) {
+<span class="nc" id="L336">        buttons.get(ArtyAutoHitCommand.SET_HIT_HEX).setText(Messages.getString(</span>
+<span class="nc" id="L337">        &quot;SelectArtyAutoHitHexDisplay.&quot; +ArtyAutoHitCommand.SET_HIT_HEX.getCmd(), </span>
+<span class="nc" id="L338">        new Object[] { Integer.valueOf(nbr) })); //$NON-NLS-1$</span>
+<span class="nc bnc" id="L339" title="All 2 branches missed.">        buttons.get(ArtyAutoHitCommand.SET_HIT_HEX).setEnabled(nbr &gt; 0);</span>
+        // clientgui.getMenuBar().setSelectArtyAutoHitHexEnabled(nbr);
+<span class="nc" id="L341">    }</span>
+
+    /**
+     * Stop just ignoring events and actually stop listening to them.
+     */
+    public void removeAllListeners() {
+<span class="nc" id="L347">        clientgui.getClient().getGame().removeGameListener(this);</span>
+<span class="nc" id="L348">        clientgui.getBoardView().removeBoardViewListener(this);</span>
+<span class="nc" id="L349">    }</span>
+
+    /**
+     * Register all of the &lt;code&gt;CommandAction&lt;/code&gt;s for this panel display.
+     */
+    private void registerKeyCommands() {
+<span class="nc" id="L355">        MegaMekController controller = clientgui.controller;</span>
+
+<span class="nc" id="L357">        final StatusBarPhaseDisplay display = this;</span>
+        // Register the action for AUTO_ARTY_DEPLOYMENT_ZONE
+<span class="nc" id="L359">        controller.registerCommandAction(KeyCommandBind.AUTO_ARTY_DEPLOYMENT_ZONE.cmd,</span>
+<span class="nc" id="L360">                new CommandAction() {</span>
+
+            @Override
+            public boolean shouldPerformAction() {
+<span class="nc bnc" id="L364" title="All 2 branches missed.">                if (!clientgui.getClient().isMyTurn()</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                        || clientgui.bv.getChatterBoxActive()</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                        || display.isIgnoringEvents()</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">                        || !display.isVisible()) {</span>
+<span class="nc" id="L368">                    return false;</span>
+                } else {
+<span class="nc" id="L370">                    return true;</span>
+                }
+            }
+
+<span class="nc" id="L374">            private boolean thisKeyPressed = false;</span>
+            
+            @Override
+            public void performAction() {
+<span class="nc bnc" id="L378" title="All 2 branches missed.">                if (!thisKeyPressed) {</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">                    clientgui.bv.showAllDeployment = !clientgui.bv.showAllDeployment;</span>
+<span class="nc" id="L380">                    clientgui.bv.repaint();</span>
+                }
+<span class="nc" id="L382">                thisKeyPressed = true;</span>
+<span class="nc" id="L383">            }</span>
+            
+            @Override
+            public void releaseAction() {
+<span class="nc" id="L387">                thisKeyPressed = false;</span>
+<span class="nc" id="L388">            }</span>
+            
+            @Override
+            public boolean hasReleaseAction() {
+<span class="nc" id="L392">                return true;</span>
+            }
+        });
+<span class="nc" id="L395">    }</span>
+    
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

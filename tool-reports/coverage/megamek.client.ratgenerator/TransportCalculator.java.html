@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TransportCalculator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ratgenerator</a> &gt; <span class="el_source">TransportCalculator.java</span></div><h1>TransportCalculator.java</h1><pre class="source lang-java linenums">/**
+ * 
+ */
+package megamek.client.ratgenerator;
+
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import megamek.common.ASFBay;
+import megamek.common.BattleArmorBay;
+import megamek.common.Bay;
+import megamek.common.Entity;
+import megamek.common.EntityMovementMode;
+import megamek.common.HeavyVehicleBay;
+import megamek.common.InfantryBay;
+import megamek.common.LightVehicleBay;
+import megamek.common.MechBay;
+import megamek.common.MechFileParser;
+import megamek.common.MechSummary;
+import megamek.common.ProtomechBay;
+import megamek.common.SmallCraftBay;
+import megamek.common.SuperHeavyVehicleBay;
+import megamek.common.UnitType;
+import megamek.common.loaders.EntityLoadingException;
+
+/**
+ * Generates dropships and jumpships to fulfill transport requirements for a unit.
+ * 
+ * @author Neoancient
+ *
+ */
+public class TransportCalculator {
+
+    // In order to determine the transport capacity of generated units we need to load the
+    // Entity and look at the bays and docking hardpoints. Since this is a relatively expensive
+    // operation we will cache the results.
+<span class="nc" id="L40">    private static final Map&lt;MechSummary, Map&lt;Integer, Integer&gt;&gt; bayTypeCache = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L41">    private static final Map&lt;MechSummary, Integer&gt; hardpointCache = new HashMap&lt;&gt;();</span>
+
+    public static void dispose() {
+<span class="nc" id="L44">        bayTypeCache.clear();</span>
+<span class="nc" id="L45">        hardpointCache.clear();</span>
+<span class="nc" id="L46">    }</span>
+
+    private ForceDescriptor fd;
+    private Map&lt;Integer, Integer&gt; unitCounts;
+
+<span class="nc" id="L51">    public TransportCalculator(ForceDescriptor fd) {</span>
+<span class="nc" id="L52">        this.fd = fd;</span>
+<span class="nc" id="L53">        this.unitCounts = getUnitTypeCounts();</span>
+<span class="nc" id="L54">    }</span>
+
+    /**
+     * Determines number of each type of unit based on transport requirements.
+     * 
+     * @return The number of units of each type mapped to its UnitType.
+     *         UnitType.VTOL is used for light vehicle bays and UnitType.NAVAL for superheavy vehicles.
+     */
+    private Map&lt;Integer, Integer&gt; getUnitTypeCounts() {
+<span class="nc" id="L63">        Map&lt;Integer, Integer&gt; unitCounts = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L64">        List&lt;Entity&gt; allUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L65">        fd.addAllEntities(allUnits);</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">        for (Entity en : allUnits) {</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">            if (en.hasETypeFlag(Entity.ETYPE_MECH)) {</span>
+<span class="nc" id="L68">                unitCounts.merge(UnitType.MEK, 1, Integer::sum);</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">            } else if (en.hasETypeFlag(Entity.ETYPE_PROTOMECH)) {</span>
+<span class="nc" id="L70">                unitCounts.merge(UnitType.PROTOMEK, 1, Integer::sum);</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">            } else if (en.hasETypeFlag(Entity.ETYPE_TANK)) {</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">                if (en.getWeight() &gt; 100) {</span>
+<span class="nc" id="L73">                    unitCounts.merge(UnitType.NAVAL, 1, Integer::sum);</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">                } else if (en.getWeight() &gt; 50) {</span>
+<span class="nc" id="L75">                    unitCounts.merge(UnitType.TANK, 1, Integer::sum);</span>
+                } else {
+<span class="nc" id="L77">                    unitCounts.merge(UnitType.VTOL, 1, Integer::sum);</span>
+                }
+<span class="nc bnc" id="L79" title="All 2 branches missed.">            } else if (en.hasETypeFlag(Entity.ETYPE_BATTLEARMOR)) {</span>
+<span class="nc" id="L80">                unitCounts.merge(UnitType.BATTLE_ARMOR, 1, Integer::sum);</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">            } else if (en.hasETypeFlag(Entity.ETYPE_INFANTRY)) {</span>
+                // Here we need to count the transport weight of the platoon rather than just the number
+<span class="nc" id="L83">                unitCounts.merge(UnitType.INFANTRY, InfantryBay.PlatoonType.getPlatoonType(en).getWeight(),</span>
+                        Integer::sum);
+<span class="nc bnc" id="L85" title="All 2 branches missed.">            } else if (en.hasETypeFlag(Entity.ETYPE_DROPSHIP)) {</span>
+<span class="nc" id="L86">                unitCounts.merge(UnitType.DROPSHIP, 1, Integer::sum);</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">            } else if (en.hasETypeFlag(Entity.ETYPE_SMALL_CRAFT)) {</span>
+<span class="nc" id="L88">                unitCounts.merge(UnitType.SMALL_CRAFT, 1, Integer::sum);</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">            } else if (en.isFighter()) {</span>
+<span class="nc" id="L90">                unitCounts.merge(UnitType.AERO, 1, Integer::sum);</span>
+            }
+<span class="nc" id="L92">        }</span>
+<span class="nc" id="L93">        return unitCounts;</span>
+    }
+
+    /**
+     * Generates dropships to provide enough capacity to transport the given ratio of the formation.
+     * 
+     * @param ratio            The ratio of dropships to generate to the total needs of the unit
+     * @return                 A list of generated dropships
+     */
+    public List&lt;MechSummary&gt; calcDropships(double ratio) {
+<span class="nc" id="L103">        UnitTable table = UnitTable.findTable(fd.getFactionRec(), UnitType.DROPSHIP,</span>
+<span class="nc" id="L104">                fd.getYear(), fd.getRating(), null, ModelRecord.NETWORK_NONE,</span>
+<span class="nc" id="L105">                EnumSet.noneOf(EntityMovementMode.class), EnumSet.noneOf(MissionRole.class),</span>
+                0);
+<span class="nc" id="L107">        List&lt;MechSummary&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L108">        Map&lt;Integer, Integer&gt; currentCapacity = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">        for (Integer unitType : unitCounts.keySet()) {</span>
+            // We counted dropships so we include them in the jumpship calculation, but we're
+            // not looking for transport bays for them.
+<span class="nc bnc" id="L112" title="All 2 branches missed.">            if (UnitType.DROPSHIP == unitType) {</span>
+<span class="nc" id="L113">                continue;</span>
+            }
+<span class="nc bnc" id="L115" title="All 2 branches missed.">            while (unitCounts.get(unitType) * ratio &gt; currentCapacity.getOrDefault(unitType, 0)) {</span>
+<span class="nc" id="L116">                MechSummary dropship = table.generateUnit(ms -&gt; hasBayFor(ms, unitType));</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">                if (null == dropship) {</span>
+<span class="nc" id="L118">                    break; // Could not find any transport for the unit type; skip</span>
+                }
+<span class="nc" id="L120">                bayTypeCache.get(dropship).forEach((k, v) -&gt; {</span>
+<span class="nc" id="L121">                    currentCapacity.merge(k, v, Integer::sum); </span>
+<span class="nc" id="L122">                });</span>
+<span class="nc" id="L123">                retVal.add(dropship);</span>
+<span class="nc" id="L124">            }</span>
+<span class="nc" id="L125">        }</span>
+<span class="nc" id="L126">        return retVal;</span>
+    }
+
+    /**
+     * Generates jumpships to provide enough docking collars to transport the given ratio of dropships.
+     * 
+     * @param ratio            The ratio of jumpships to generate to the total needs of the unit
+     * @param transportCollars The number of dropships generated for transport
+     * @return                 A list of generated jumpships
+     */
+    public List&lt;MechSummary&gt; calcJumpships(double ratio, int transportCollars) {
+<span class="nc" id="L137">        UnitTable table = UnitTable.findTable(fd.getFactionRec(), UnitType.JUMPSHIP,</span>
+<span class="nc" id="L138">                fd.getYear(), fd.getRating(), null, ModelRecord.NETWORK_NONE,</span>
+<span class="nc" id="L139">                EnumSet.noneOf(EntityMovementMode.class), EnumSet.noneOf(MissionRole.class),</span>
+                0);
+<span class="nc" id="L141">        List&lt;MechSummary&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L142">        int currentCapacity = 0;</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if (unitCounts.containsKey(UnitType.DROPSHIP)) {</span>
+<span class="nc" id="L144">            transportCollars += unitCounts.get(UnitType.DROPSHIP);</span>
+        }
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        while (transportCollars * ratio &gt; currentCapacity) {</span>
+            // It's possible to have a jumpship with no docking collars, e.g. for scout use
+<span class="nc bnc" id="L148" title="All 2 branches missed.">            MechSummary jumpship = table.generateUnit(ms -&gt; countHardpoints(ms) &gt; 0);</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">            if (null == jumpship) {</span>
+<span class="nc" id="L150">                break; // Could not find any transport for the unit type; skip</span>
+            }
+<span class="nc" id="L152">            currentCapacity += countHardpoints(jumpship);</span>
+<span class="nc" id="L153">            retVal.add(jumpship);</span>
+<span class="nc" id="L154">        }</span>
+<span class="nc" id="L155">        return retVal;</span>
+    }
+
+    /**
+     * Determines whether a potential transport has capacity for the type of unit.
+     * 
+     * @param ms        A potential tranporting unit
+     * @param unitType  The unit to be carried
+     * @return          True if the unit can be carried by the transporting unit.
+     */
+    private boolean hasBayFor(MechSummary ms, int unitType) {
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (getBayCount(ms, unitType) &gt; 0) {</span>
+<span class="nc" id="L167">            return true;</span>
+        }
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (unitType == UnitType.VTOL) {</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">            return (getBayCount(ms, UnitType.TANK) &gt; 0)</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">                    || (getBayCount(ms, UnitType.NAVAL) &gt; 0);</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        } else if (unitType == UnitType.TANK) {</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            return getBayCount(ms, UnitType.NAVAL) &gt; 0;</span>
+        }
+<span class="nc" id="L175">        return false;</span>
+    }
+
+    private int getBayCount(MechSummary ms, int unitType) {
+<span class="nc bnc" id="L179" title="All 4 branches missed.">        if (bayTypeCache.containsKey(ms) || countBays(ms)) {</span>
+<span class="nc" id="L180">            return bayTypeCache.get(ms).getOrDefault(unitType, 0);</span>
+        }
+<span class="nc" id="L182">        return 0;</span>
+    }
+
+    /**
+     * Loads the entity, counts the unit type transport capacity, and adds to the cache.
+     * 
+     * @param ms  The unit to load
+     * @return    true if the Entity can be loaded and counted, false if there was an EntityLoadingException
+     */
+    private boolean countBays(MechSummary ms) {
+        try {
+<span class="nc" id="L193">            Entity entity = new MechFileParser(ms.getSourceFile(), ms.getEntryName()).getEntity();</span>
+<span class="nc" id="L194">            bayTypeCache.put(ms, countBays(entity));</span>
+<span class="nc" id="L195">            return true;</span>
+<span class="nc" id="L196">        } catch (EntityLoadingException ex) {</span>
+<span class="nc" id="L197">            return false;</span>
+        }
+    }
+
+    /**
+     * Counts the unit type transport capacity, and adds to the cache.
+     * 
+     * @param entity  The transporting unit
+     * @return        true if the Entity can be loaded and counted, false if there was an EntityLoadingException
+     */
+    private Map&lt;Integer, Integer&gt; countBays(Entity entity) {
+<span class="nc" id="L208">        Map&lt;Integer, Integer&gt; bayCount = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">        for (Bay bay : entity.getTransportBays()) {</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">            if (bay instanceof MechBay) {</span>
+<span class="nc" id="L211">                bayCount.merge(UnitType.MEK, (int) bay.getCapacity(), Integer::sum);</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">            } else if (bay instanceof ProtomechBay) {</span>
+<span class="nc" id="L213">                bayCount.merge(UnitType.PROTOMEK, (int) bay.getCapacity(), Integer::sum);</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">            } else if (bay instanceof HeavyVehicleBay) {</span>
+<span class="nc" id="L215">                bayCount.merge(UnitType.TANK, (int) bay.getCapacity(), Integer::sum);</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">            } else if (bay instanceof LightVehicleBay) {</span>
+<span class="nc" id="L217">                bayCount.merge(UnitType.VTOL, (int) bay.getCapacity(), Integer::sum);</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">            } else if (bay instanceof SuperHeavyVehicleBay) {</span>
+<span class="nc" id="L219">                bayCount.merge(UnitType.NAVAL, (int) bay.getCapacity(), Integer::sum);</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            } else if (bay instanceof BattleArmorBay) {</span>
+<span class="nc" id="L221">                bayCount.merge(UnitType.BATTLE_ARMOR, (int) bay.getCapacity(), Integer::sum);</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">            } else if (bay instanceof InfantryBay) {</span>
+<span class="nc" id="L223">                bayCount.merge(UnitType.BATTLE_ARMOR, (int) bay.getCapacity(), Integer::sum);</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">            } else if (bay instanceof ASFBay) {</span>
+<span class="nc" id="L225">                bayCount.merge(UnitType.AERO, (int) bay.getCapacity(), Integer::sum);</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">            } else if (bay instanceof SmallCraftBay) {</span>
+<span class="nc" id="L227">                bayCount.merge(UnitType.SMALL_CRAFT, (int) bay.getCapacity(), Integer::sum);</span>
+            }
+<span class="nc" id="L229">        }</span>
+<span class="nc" id="L230">        return bayCount;</span>
+    }
+
+    /**
+     * Loads the Entity and counts the number of docking hardpoints.
+     * 
+     * @param ms The unit to load
+     * @return   The number of docking hardpoints on the unit.
+     */
+    private int countHardpoints(MechSummary ms) {
+        try {
+<span class="nc" id="L241">            Entity entity = new MechFileParser(ms.getSourceFile(), ms.getEntryName()).getEntity();</span>
+<span class="nc" id="L242">            int hardpoints = entity.getDockingCollars().size();</span>
+            // TODO: count dropshuttle bays
+<span class="nc" id="L244">            hardpointCache.put(ms, hardpoints);</span>
+<span class="nc" id="L245">            return hardpoints;</span>
+<span class="nc" id="L246">        } catch (EntityLoadingException ex) {</span>
+<span class="nc" id="L247">            return 0;</span>
+        }
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

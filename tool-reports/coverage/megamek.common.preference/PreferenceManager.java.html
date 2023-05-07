@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PreferenceManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.preference</a> &gt; <span class="el_source">PreferenceManager.java</span></div><h1>PreferenceManager.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.common.preference;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBElement;
+import javax.xml.bind.JAXBException;
+import javax.xml.bind.Marshaller;
+import javax.xml.bind.PropertyException;
+import javax.xml.bind.Unmarshaller;
+import javax.xml.bind.annotation.XmlAccessType;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlAttribute;
+import javax.xml.bind.annotation.XmlElement;
+import javax.xml.bind.annotation.XmlRootElement;
+import javax.xml.bind.annotation.XmlType;
+import javax.xml.namespace.QName;
+
+import megamek.MegaMek;
+import megamek.common.Configuration;
+import megamek.common.util.fileUtils.MegaMekFile;
+import megamek.utils.MegaMekXmlUtil;
+
+public class PreferenceManager {
+
+    public static final String DEFAULT_CFG_FILE_NAME = &quot;clientsettings.xml&quot;;
+    public static final String CFG_FILE_OPTION_NAME = &quot;cfgfilename&quot;;
+    public static final String ROOT_NODE_NAME = &quot;MegaMekSettings&quot;;
+    public static final String CLIENT_SETTINGS_STORE_NAME = &quot;ClientSettings&quot;;
+
+    protected Hashtable&lt;String, IPreferenceStore&gt; stores;
+    protected ClientPreferences clientPreferences;
+    protected PreferenceStore clientPreferenceStore;
+
+<span class="fc" id="L57">    protected static PreferenceManager instance = new PreferenceManager();</span>
+
+<span class="fc" id="L59">    protected PreferenceManager() {</span>
+<span class="fc" id="L60">        stores = new Hashtable&lt;&gt;();</span>
+<span class="fc" id="L61">        clientPreferenceStore = new PreferenceStore();</span>
+<span class="fc" id="L62">        load();</span>
+<span class="fc" id="L63">        clientPreferences = new ClientPreferences(clientPreferenceStore);</span>
+<span class="fc" id="L64">    }</span>
+
+    public static PreferenceManager getInstance() {
+<span class="fc" id="L67">        return instance;</span>
+    }
+
+    public static IClientPreferences getClientPreferences() {
+<span class="fc" id="L71">        return getInstance().clientPreferences;</span>
+    }
+
+    public IPreferenceStore getPreferenceStore(String name) {
+<span class="nc" id="L75">        IPreferenceStore result = stores.get(name);</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        if (result == null) {</span>
+<span class="nc" id="L77">            result = new PreferenceStore();</span>
+<span class="nc" id="L78">            stores.put(name, result);</span>
+        }
+<span class="nc" id="L80">        return result;</span>
+    }
+
+    protected void load() {
+<span class="fc" id="L84">        stores = new Hashtable&lt;String, IPreferenceStore&gt;();</span>
+<span class="fc" id="L85">        clientPreferenceStore = new PreferenceStore();</span>
+<span class="fc" id="L86">        String cfgName = System.getProperty(</span>
+                CFG_FILE_OPTION_NAME,
+<span class="fc" id="L88">                new MegaMekFile(Configuration.configDir(), DEFAULT_CFG_FILE_NAME).toString()</span>
+        );
+<span class="fc" id="L90">        load(cfgName);</span>
+<span class="fc" id="L91">        clientPreferences = new ClientPreferences(clientPreferenceStore);</span>
+<span class="fc" id="L92">    }</span>
+
+    protected void load(String fileName) {
+        InputStream is;
+
+        try {
+<span class="nc" id="L98">            is = new FileInputStream(new File(fileName));</span>
+<span class="fc" id="L99">        } catch (FileNotFoundException e) {</span>
+<span class="fc" id="L100">            return;</span>
+<span class="nc" id="L101">        }</span>
+
+        try {
+<span class="nc" id="L104">            JAXBContext jc = JAXBContext.newInstance(Settings.class);</span>
+            
+<span class="nc" id="L106">            Unmarshaller um = jc.createUnmarshaller();</span>
+<span class="nc" id="L107">            Settings opts = (Settings) um.unmarshal(MegaMekXmlUtil.createSafeXmlSource(is));</span>
+
+<span class="nc bnc" id="L109" title="All 2 branches missed.">            for (Store store : opts.stores) {</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">                if (CLIENT_SETTINGS_STORE_NAME.equals(store.name)) {</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">                    for (XmlProperty prop : store.preferences) {</span>
+<span class="nc" id="L112">                        clientPreferenceStore.putValue(prop.key, prop.value);</span>
+<span class="nc" id="L113">                    }</span>
+                } else {
+<span class="nc" id="L115">                    IPreferenceStore ips = getPreferenceStore(store.name);</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">                    for (XmlProperty prop : store.preferences) {</span>
+<span class="nc" id="L117">                        ips.putValue(prop.key, prop.value);</span>
+<span class="nc" id="L118">                    }</span>
+                }
+<span class="nc" id="L120">            }</span>
+<span class="nc" id="L121">        } catch (Exception e) {</span>
+<span class="nc" id="L122">            MegaMek.getLogger().error(&quot;Error loading XML for client settings: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L123">        }</span>
+<span class="nc" id="L124">    }</span>
+
+    public void save() {
+<span class="nc" id="L127">        save(new MegaMekFile(Configuration.configDir(), DEFAULT_CFG_FILE_NAME).getFile());</span>
+<span class="nc" id="L128">    }</span>
+    
+    public void save(final File file) {
+        try {
+<span class="nc" id="L132">            JAXBContext jc = JAXBContext.newInstance(Settings.class);</span>
+            
+<span class="nc" id="L134">            Marshaller marshaller = jc.createMarshaller();</span>
+<span class="nc" id="L135">            marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, true);</span>
+            
+            // The default header has the encoding and standalone properties
+<span class="nc" id="L138">            marshaller.setProperty(Marshaller.JAXB_FRAGMENT, true);</span>
+            try {
+<span class="nc" id="L140">            	marshaller.setProperty(&quot;com.sun.xml.internal.bind.xmlHeaders&quot;, &quot;&lt;?xml version=\&quot;1.0\&quot;?&gt;&quot;);</span>
+<span class="nc" id="L141">            } catch (PropertyException ex) {</span>
+<span class="nc" id="L142">            	marshaller.setProperty(&quot;com.sun.xml.bind.xmlHeaders&quot;, &quot;&lt;?xml version=\&quot;1.0\&quot;?&gt;&quot;);</span>
+<span class="nc" id="L143">            }</span>
+            
+<span class="nc" id="L145">            JAXBElement&lt;Settings&gt; element = new JAXBElement&lt;&gt;(new QName(ROOT_NODE_NAME), Settings.class, new Settings(clientPreferenceStore, stores));</span>
+            
+<span class="nc" id="L147">            marshaller.marshal(element, file);</span>
+<span class="nc" id="L148">        } catch (JAXBException ex) {</span>
+<span class="nc" id="L149">            System.err.println(&quot;Error writing XML for client settings: &quot; + ex.getMessage()); //$NON-NLS-1$</span>
+<span class="nc" id="L150">            ex.printStackTrace();</span>
+<span class="nc" id="L151">        }</span>
+<span class="nc" id="L152">    }</span>
+
+    /**
+     * A wrapper class for all of the client settings.
+     */
+    @XmlRootElement(name = ROOT_NODE_NAME)
+    @XmlAccessorType(XmlAccessType.NONE)
+    private static class Settings {
+
+<span class="nc" id="L161">        @XmlElement(name = &quot;store&quot;)</span>
+        List&lt;Store&gt; stores = new ArrayList&lt;&gt;();
+        
+<span class="nc" id="L164">        Settings(final PreferenceStore clientPreferenceStore, final Map&lt;String, IPreferenceStore&gt; stores) {</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">            if (clientPreferenceStore != null) {</span>
+<span class="nc" id="L166">                this.stores.add(new Store(CLIENT_SETTINGS_STORE_NAME, clientPreferenceStore));</span>
+            }
+            
+<span class="nc bnc" id="L169" title="All 2 branches missed.">            if (stores != null) {</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">                for (Entry&lt;String, IPreferenceStore&gt; ps : stores.entrySet()) {</span>
+<span class="nc" id="L171">                    this.stores.add(new Store(ps.getKey(), (PreferenceStore) ps.getValue()));</span>
+<span class="nc" id="L172">                }</span>
+            }
+<span class="nc" id="L174">        }</span>
+
+        /**
+         * Required for JAXB.
+         */
+        @SuppressWarnings(&quot;unused&quot;)
+<span class="nc" id="L180">        private Settings() {</span>
+<span class="nc" id="L181">        }</span>
+        
+    }
+    
+    /**
+     * A wrapper class for each PreferenceStore.
+     */
+    @XmlType
+    private static class Store {
+        
+        @XmlAttribute
+        String name;
+        
+<span class="nc" id="L194">        @XmlElement(name = &quot;preference&quot;)</span>
+        List&lt;XmlProperty&gt; preferences = new ArrayList&lt;&gt;();
+
+<span class="nc" id="L197">        Store(final String name, final PreferenceStore preferenceStore) {</span>
+<span class="nc" id="L198">            this.name = name;</span>
+            
+<span class="nc bnc" id="L200" title="All 2 branches missed.">            for (Entry&lt;Object, Object&gt; prop : preferenceStore.properties.entrySet()) {</span>
+<span class="nc" id="L201">                preferences.add(new XmlProperty(prop.getKey().toString(), prop.getValue().toString()));</span>
+<span class="nc" id="L202">            }</span>
+<span class="nc" id="L203">        }</span>
+
+        /**
+         * Required for JAXB.
+         */
+        @SuppressWarnings(&quot;unused&quot;)
+<span class="nc" id="L209">        private Store() {</span>
+<span class="nc" id="L210">        }</span>
+        
+    }
+    
+    /**
+     * A wrapper class for entries in a Properties object.
+     */
+    @XmlType
+    private static class XmlProperty {
+        
+        @XmlAttribute(name = &quot;name&quot;)
+        String key;
+        
+        @XmlAttribute
+        String value;
+
+<span class="nc" id="L226">        XmlProperty(final String key, final String value) {</span>
+<span class="nc" id="L227">            this.key = key;</span>
+<span class="nc" id="L228">            this.value = value;</span>
+<span class="nc" id="L229">        }</span>
+
+        /**
+         * Required for JAXB.
+         */
+        @SuppressWarnings(&quot;unused&quot;)
+        private XmlProperty() {
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

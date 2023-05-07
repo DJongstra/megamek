@@ -1,0 +1,864 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TestProtomech.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.verifier</a> &gt; <span class="el_source">TestProtomech.java</span></div><h1>TestProtomech.java</h1><pre class="source lang-java linenums">/*
+ * Copyright (C) 2018 - The MegaMek Team
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.common.verifier;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import megamek.common.AmmoType;
+import megamek.common.Entity;
+import megamek.common.EquipmentType;
+import megamek.common.ITechManager;
+import megamek.common.MiscType;
+import megamek.common.Mounted;
+import megamek.common.Protomech;
+import megamek.common.TechConstants;
+import megamek.common.WeaponType;
+import megamek.common.annotations.Nullable;
+import megamek.common.util.StringUtil;
+
+/**
+ * @author Neoancient
+ *
+ */
+public class TestProtomech extends TestEntity {
+
+    /**
+     * Minimum tonnage for a protomech
+     */
+    public static final double MIN_TONNAGE = 2.0;
+
+    /**
+     * Any protomech with a larger mass than this is ultra-heavy
+     */
+    public static final double MAX_STD_TONNAGE = 9.0;
+    
+    /**
+     * Maximum weight for a protomech
+     */
+    public static final double MAX_TONNAGE = 15.0;
+    
+    /**
+     * Minimum walk MP for glider protomech
+     */
+    public static final int GLIDER_MIN_MP = 4;
+    /**
+     * Minimum walk MP for quad protomech
+     */
+    public static final int QUAD_MIN_MP = 3;
+    
+<span class="nc" id="L65">    public enum ProtomechJumpJets {</span>
+<span class="nc" id="L66">        JJ_STANDARD (&quot;ProtomechJumpJet&quot;, false),</span>
+<span class="nc" id="L67">        JJ_EXTENDED (&quot;ExtendedJumpJetSystem&quot;, true),</span>
+<span class="nc" id="L68">        JJ_UMU (&quot;ProtomechUMU&quot;, false);</span>
+        
+        private final String internalName;
+        private final boolean improved;
+        
+<span class="nc" id="L73">        private ProtomechJumpJets(String internalName, boolean improved) {</span>
+<span class="nc" id="L74">            this.internalName = internalName;</span>
+<span class="nc" id="L75">            this.improved = improved;</span>
+<span class="nc" id="L76">        }</span>
+        
+        public String getName() {
+<span class="nc" id="L79">            return internalName;</span>
+        }
+        
+        public boolean isImproved() {
+<span class="nc" id="L83">            return improved;</span>
+        }
+        
+        public static List&lt;EquipmentType&gt; allJJs() {
+<span class="nc" id="L87">            return Arrays.stream(values())</span>
+<span class="nc" id="L88">                    .map(jj -&gt; EquipmentType.get(jj.internalName))</span>
+<span class="nc" id="L89">                    .collect(Collectors.toList());</span>
+        }
+    }
+    
+    /**
+     * All the protomech armor options. Both of the them.
+     *
+     */
+<span class="nc" id="L97">    public static enum ProtomechArmor {</span>
+<span class="nc" id="L98">        STANDARD (EquipmentType.T_ARMOR_STANDARD, 0),</span>
+<span class="nc" id="L99">        EDP (EquipmentType.T_ARMOR_EDP, 1);</span>
+
+        private final int type;
+        private final int torsoSlots;
+
+<span class="nc" id="L104">        ProtomechArmor(int t, int slots) {</span>
+<span class="nc" id="L105">            type = t;</span>
+<span class="nc" id="L106">            torsoSlots = slots;</span>
+<span class="nc" id="L107">        }</span>
+
+        public static int armorCount() {
+<span class="nc" id="L110">            return values().length;</span>
+        }
+
+        /**
+         * Given a protomech, return the {@link ProtomechArmor} instance that
+         * represents the type installed
+         *
+         * @param proto The protomech
+         * @return      The {@link ProtomechArmor} that corresponds to the given type
+         *              or null if no match was found.
+         */
+        public static @Nullable ProtomechArmor getArmor(Protomech proto) {
+<span class="nc" id="L122">            return getArmor(proto.getArmorType(Protomech.LOC_TORSO));</span>
+        }
+
+        /**
+         * Given an armor type, return the {@link ProtomechArmor} instance that
+         * represents that type.
+         *
+         * @param t   The armor type.
+         * @return    The {@link ProtomechArmor} that corresponds to the given type
+         *            or null if no match was found.
+         */
+        public static @Nullable ProtomechArmor getArmor(int t) {
+<span class="nc bnc" id="L134" title="All 2 branches missed.">            for (ProtomechArmor a : values()) {</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">                if (a.type == t) {</span>
+<span class="nc" id="L136">                    return a;</span>
+                }
+            }
+<span class="nc" id="L139">            return null;</span>
+        }
+
+        /**
+         * Given an armor type, return the {@link ProtomechArmor} instance that
+         * represents that type.
+         * @deprecated Use {@link #getArmor(int)} instead
+
+         * @param t   The armor type.
+         * @param c   Whether the armor has a Clan tech base
+         * @return    The {@link ProtomechArmor} that corresponds to the given type
+         *            or null if no match was found.
+         */
+        @Deprecated
+        public static @Nullable ProtomechArmor getArmor(int t, boolean c) {
+<span class="nc" id="L154">            return getArmor(t);</span>
+        }
+        
+        /**
+         * @return The {@link MiscType} for this armor.
+         */
+        public EquipmentType getArmorEqType() {
+<span class="nc" id="L161">            String name = EquipmentType.getArmorTypeName(type, true);</span>
+<span class="nc" id="L162">            return EquipmentType.get(name);</span>
+        }
+        
+        public int getType() {
+<span class="nc" id="L166">            return type;</span>
+        }
+        
+        public int getArmorTech() {
+<span class="nc" id="L170">            EquipmentType eq = getArmorEqType();</span>
+<span class="nc" id="L171">            return eq.getStaticTechLevel().getCompoundTechLevel(true);</span>
+        }
+        
+        public int getTorsoSlots() {
+<span class="nc" id="L175">            return torsoSlots;</span>
+        }
+        
+        public double getWtPerPoint() {
+<span class="nc" id="L179">            return EquipmentType.getProtomechArmorWeightPerPoint(type);</span>
+        }
+    }
+    
+    public static int maxJumpMP(Protomech proto) {
+<span class="nc" id="L184">        if (proto.getMisc().stream().map(Mounted::getType)</span>
+<span class="nc bnc" id="L185" title="All 4 branches missed.">                .anyMatch(eq -&gt; eq.hasFlag(MiscType.F_JUMP_JET)</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">                        &amp;&amp; eq.hasSubType(MiscType.S_IMPROVED))) {</span>
+<span class="nc" id="L187">            return (int) Math.ceil(proto.getOriginalWalkMP() * 1.5);</span>
+        }
+<span class="nc" id="L189">        return proto.getOriginalWalkMP();</span>
+    }
+
+
+
+    /**
+     * Filters all protomech armor according to given tech constraints
+     * 
+     * @param techManager
+     * @return A list of all armors that meet the tech constraints
+     */
+    public static List&lt;EquipmentType&gt; legalArmorsFor(ITechManager techManager) {
+<span class="nc" id="L201">        List&lt;EquipmentType&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        for (ProtomechArmor armor : ProtomechArmor.values()) {</span>
+<span class="nc" id="L203">            final EquipmentType eq = armor.getArmorEqType();</span>
+<span class="nc bnc" id="L204" title="All 4 branches missed.">            if ((null != eq) &amp;&amp; techManager.isLegal(eq)) {</span>
+<span class="nc" id="L205">                retVal.add(eq);</span>
+            }
+        }
+<span class="nc" id="L208">        return retVal;</span>
+    }
+        
+    private final Protomech proto;
+    private final String fileString;
+
+    public TestProtomech(Protomech proto, TestEntityOption option, String fileString) {
+<span class="nc" id="L215">        super(option, proto.getEngine(), getArmor(proto), null);</span>
+<span class="nc" id="L216">        this.proto = proto;</span>
+<span class="nc" id="L217">        this.fileString = fileString;</span>
+<span class="nc" id="L218">    }</span>
+
+    private static Armor[] getArmor(Protomech proto) {
+<span class="nc" id="L221">        Armor[] armor = new Armor[proto.locations()];</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">        for (int i = 0; i &lt; proto.locations(); i++) {</span>
+<span class="nc" id="L223">            int type = proto.getArmorType(i);</span>
+<span class="nc" id="L224">            int flag = 0;</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">            if (proto.isClanArmor(i)) {</span>
+<span class="nc" id="L226">                flag |= Armor.CLAN_ARMOR;</span>
+            }
+<span class="nc" id="L228">            armor[i] = new Armor(type, flag);</span>
+        }
+<span class="nc" id="L230">        return armor;</span>
+    }
+    
+    @Override
+    public Entity getEntity() {
+<span class="nc" id="L235">        return proto;</span>
+    }
+
+    @Override
+    public boolean isTank() {
+<span class="nc" id="L240">        return false;</span>
+    }
+
+    @Override
+    public boolean isMech() {
+<span class="nc" id="L245">        return false;</span>
+    }
+
+    @Override
+    public boolean isAero() {
+<span class="nc" id="L250">        return false;</span>
+    }
+
+    @Override
+    public boolean isSmallCraft() {
+<span class="nc" id="L255">        return false;</span>
+    }
+
+    @Override
+    public boolean isAdvancedAerospace() {
+<span class="nc" id="L260">        return false;</span>
+    }
+    
+    @Override
+    public boolean isProtomech() {
+<span class="nc" id="L265">        return true;</span>
+    }
+    
+    @Override
+    public double getWeightStructure() {
+<span class="nc" id="L270">        return round(proto.getWeight() * 0.1, Ceil.KILO);</span>
+    }
+    
+    @Override
+    public double getWeightEngine() {
+<span class="nc" id="L275">        return proto.getEngine().getWeightEngine(proto);</span>
+    }
+
+    @Override
+    public double getWeightControls() {
+<span class="nc bnc" id="L280" title="All 2 branches missed.">        return (proto.getWeight() &gt; MAX_STD_TONNAGE)? 0.75 : 0.5;</span>
+    }
+
+    @Override
+    public double getWeightMisc() {
+<span class="nc" id="L285">        return 0;</span>
+    }
+
+    @Override
+    public double getWeightHeatSinks() {
+<span class="nc" id="L290">        return getCountHeatSinks() * 0.25;</span>
+    }
+
+    @Override
+    public boolean hasDoubleHeatSinks() {
+<span class="nc" id="L295">        return false;</span>
+    }
+
+    @Override
+    public int getCountHeatSinks() {
+<span class="nc" id="L300">        return heatNeutralHSRequirement();</span>
+    }
+    
+    @Override
+    public double calculateWeight() {
+        // Deal with some floating point precision issues
+<span class="nc" id="L306">        return round(super.calculateWeight(), Ceil.KILO);</span>
+    }
+    
+    @Override
+    public double getWeightAllocatedArmor() {
+<span class="nc" id="L311">        ProtomechArmor armor = ProtomechArmor.getArmor(proto);</span>
+<span class="nc" id="L312">        double wtPerPoint = 0.0;</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">        if (null != armor) {</span>
+<span class="nc" id="L314">            wtPerPoint = armor.getWtPerPoint();</span>
+        }
+<span class="nc" id="L316">        return proto.getTotalArmor() * wtPerPoint;</span>
+    }
+
+    @Override
+    public String printWeightStructure() {
+<span class="nc" id="L321">        return StringUtil.makeLength(</span>
+                &quot;Structure: &quot;
+<span class="nc" id="L323">                        + Integer.toString(getEntity().getTotalOInternal()), getPrintSize() - 5)</span>
+<span class="nc" id="L324">                + TestEntity.makeWeightString(getWeightStructure(), true) + &quot;\n&quot;;</span>
+    }
+
+    @Override
+    public String printWeightMisc() {
+<span class="nc" id="L329">        return &quot;&quot;;</span>
+    }
+
+    @Override
+    public String printWeightControls() {
+<span class="nc" id="L334">        StringBuffer retVal = new StringBuffer(StringUtil.makeLength(</span>
+<span class="nc" id="L335">                &quot;Controls:&quot;, getPrintSize() - 5));</span>
+<span class="nc" id="L336">        retVal.append(makeWeightString(getWeightControls(), true));</span>
+<span class="nc" id="L337">        retVal.append(&quot;\n&quot;);</span>
+<span class="nc" id="L338">        return retVal.toString();</span>
+    }
+
+    @Override
+    public StringBuffer printMiscEquip(StringBuffer buff, int posLoc,
+            int posWeight) {
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        for (Mounted m : getEntity().getMisc()) {</span>
+<span class="nc" id="L345">            MiscType mt = (MiscType) m.getType();</span>
+
+<span class="nc" id="L347">            buff.append(StringUtil.makeLength(m.getName(), 20));</span>
+<span class="nc" id="L348">            buff.append(</span>
+<span class="nc" id="L349">                    StringUtil.makeLength(getLocationAbbr(m.getLocation()),</span>
+<span class="nc" id="L350">                            getPrintSize() - 5 - 20)).append(</span>
+<span class="nc" id="L351">                    TestEntity.makeWeightString(round(m.getTonnage(), Ceil.KILO), true));</span>
+<span class="nc" id="L352">            buff.append(&quot;\n&quot;);</span>
+<span class="nc" id="L353">        }</span>
+<span class="nc" id="L354">        return buff;</span>
+    }
+
+    @Override
+    public StringBuffer printWeapon(StringBuffer buff, int posLoc, int posWeight) {
+<span class="nc bnc" id="L359" title="All 2 branches missed.">        for (Mounted m : getEntity().getWeaponList()) {</span>
+<span class="nc" id="L360">            WeaponType mt = (WeaponType) m.getType();</span>
+
+<span class="nc" id="L362">            buff.append(StringUtil.makeLength(m.getName(), 20));</span>
+<span class="nc" id="L363">            buff.append(</span>
+<span class="nc" id="L364">                    StringUtil.makeLength(getLocationAbbr(m.getLocation()),</span>
+<span class="nc" id="L365">                            getPrintSize() - 5 - 20))</span>
+<span class="nc" id="L366">                    .append(TestEntity.makeWeightString(m.getTonnage(), true)).append(&quot;\n&quot;);</span>
+<span class="nc" id="L367">        }</span>
+<span class="nc" id="L368">        return buff;</span>
+    }
+
+    @Override
+    public StringBuffer printAmmo(StringBuffer buff, int posLoc, int posWeight) {
+<span class="nc bnc" id="L373" title="All 2 branches missed.">        for (Mounted m : getEntity().getAmmo()) {</span>
+<span class="nc" id="L374">            AmmoType mt = (AmmoType) m.getType();</span>
+
+<span class="nc" id="L376">            buff.append(StringUtil.makeLength(mt.getName(), 20));</span>
+<span class="nc" id="L377">            buff.append(&quot; &quot;).append(</span>
+<span class="nc" id="L378">                    StringUtil.makeLength(getLocationAbbr(m.getLocation()),</span>
+<span class="nc" id="L379">                            getPrintSize() - 5 - 20))</span>
+<span class="nc" id="L380">                    .append(TestEntity.makeWeightString(</span>
+<span class="nc" id="L381">                            Math.ceil(mt.getKgPerShot() * m.getBaseShotsLeft()) / 1000.0, true)).append(&quot;\n&quot;);</span>
+<span class="nc" id="L382">        }</span>
+<span class="nc" id="L383">        return buff;</span>
+    }
+
+    @Override
+    public double getWeightCarryingSpace() {
+<span class="nc" id="L388">        return 0.0;</span>
+    }
+
+    @Override
+    public boolean correctEntity(StringBuffer buff) {
+<span class="nc" id="L393">        return correctEntity(buff, getEntity().getTechLevel());</span>
+    }
+
+    @Override
+    public boolean correctEntity(StringBuffer buff, int ammoTechLvl) {
+<span class="nc" id="L398">        boolean correct = true;</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">        if (skip()) {</span>
+<span class="nc" id="L400">            return correct;</span>
+        }
+<span class="nc bnc" id="L402" title="All 2 branches missed.">        if (!correctWeight(buff)) {</span>
+<span class="nc" id="L403">            buff.insert(0, printTechLevel() + printShortMovement());</span>
+<span class="nc" id="L404">            buff.append(printWeightCalculation());</span>
+<span class="nc" id="L405">            correct = false;</span>
+        }
+<span class="nc bnc" id="L407" title="All 2 branches missed.">        if (!engine.engineValid) {</span>
+<span class="nc" id="L408">            buff.append(engine.problem.toString()).append(&quot;\n\n&quot;);</span>
+<span class="nc" id="L409">            correct = false;</span>
+        }
+<span class="nc bnc" id="L411" title="All 4 branches missed.">        if (showCorrectArmor() &amp;&amp; !correctArmor(buff)) {</span>
+<span class="nc" id="L412">            correct = false;</span>
+        }
+<span class="nc bnc" id="L414" title="All 4 branches missed.">        if (showFailedEquip() &amp;&amp; hasFailedEquipment(buff)) {</span>
+<span class="nc" id="L415">            correct = false;</span>
+        }
+<span class="nc bnc" id="L417" title="All 2 branches missed.">        if (hasIllegalTechLevels(buff, ammoTechLvl)) {</span>
+<span class="nc" id="L418">            correct = false;</span>
+        }
+<span class="nc bnc" id="L420" title="All 4 branches missed.">        if (showIncorrectIntroYear() &amp;&amp; hasIncorrectIntroYear(buff)) {</span>
+<span class="nc" id="L421">            correct = false;</span>
+        }
+<span class="nc bnc" id="L423" title="All 2 branches missed.">        if (hasIllegalEquipmentCombinations(buff)) {</span>
+<span class="nc" id="L424">            correct = false;</span>
+        }
+<span class="nc bnc" id="L426" title="All 4 branches missed.">        correct = correct &amp;&amp; correctMovement(buff);</span>
+<span class="nc" id="L427">        return correct;</span>
+    }
+    
+    @Override
+    public boolean correctWeight(StringBuffer buff) {
+<span class="nc" id="L432">        boolean correct = super.correctWeight(buff);</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">        if (proto.getWeight() &gt; MAX_TONNAGE) {</span>
+<span class="nc" id="L434">            buff.append(&quot;Exceeds maximum weight of &quot;).append(MAX_TONNAGE).append(&quot;\n&quot;);</span>
+<span class="nc" id="L435">            correct = false;</span>
+        }
+<span class="nc" id="L437">        return correct;</span>
+    }
+    
+    @Override
+    public boolean hasIllegalEquipmentCombinations(StringBuffer buff) {
+<span class="nc" id="L442">        boolean illegal = false;</span>
+<span class="nc" id="L443">        Map&lt;Integer, Integer&gt; slotsByLoc = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L444">        Map&lt;Integer, Double&gt; weightByLoc = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L445">        int meleeWeapons = 0;</span>
+<span class="nc bnc" id="L446" title="All 2 branches missed.">        for (Mounted mount : proto.getEquipment()) {</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">            if (!requiresSlot(mount.getType())) {</span>
+<span class="nc" id="L448">                continue;</span>
+            }
+<span class="nc" id="L450">            slotsByLoc.merge(mount.getLocation(), 1, Integer::sum);</span>
+<span class="nc" id="L451">            weightByLoc.merge(mount.getLocation(), mount.getTonnage(), Double::sum);</span>
+<span class="nc bnc" id="L452" title="All 4 branches missed.">            if (mount.isRearMounted() &amp;&amp; (mount.getLocation() != Protomech.LOC_TORSO)) {</span>
+<span class="nc" id="L453">                buff.append(&quot;Equipment can only be rear-mounted on the torso\n&quot;);</span>
+<span class="nc" id="L454">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L456" title="All 2 branches missed.">            if ((mount.getType() instanceof WeaponType)</span>
+<span class="nc bnc" id="L457" title="All 2 branches missed.">                    &amp;&amp; !mount.getType().hasFlag(WeaponType.F_PROTO_WEAPON)) {</span>
+<span class="nc" id="L458">                buff.append(mount.toString()).append(&quot; is not a legal protomech weapon.\n&quot;);</span>
+<span class="nc" id="L459">                illegal = true;</span>
+<span class="nc bnc" id="L460" title="All 2 branches missed.">            } else if ((mount.getType() instanceof MiscType)</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">                    &amp;&amp; !mount.getType().hasFlag(MiscType.F_PROTOMECH_EQUIPMENT)) {</span>
+<span class="nc" id="L462">                buff.append(mount.toString()).append(&quot; is not legal protomech equipment.\n&quot;);</span>
+<span class="nc" id="L463">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L465" title="All 4 branches missed.">            if ((mount.getType() instanceof MiscType) &amp;&amp; mount.getType().hasFlag(MiscType.F_MAGNETIC_CLAMP)) {</span>
+<span class="nc bnc" id="L466" title="All 4 branches missed.">                if (proto.isGlider() || proto.isQuad()) {</span>
+<span class="nc" id="L467">                    buff.append(&quot;Quad and glider protomechs cannot use a magnetic clamp system.\n&quot;);</span>
+<span class="nc" id="L468">                    illegal = true;</span>
+                }
+            }
+<span class="nc bnc" id="L471" title="All 4 branches missed.">            if ((mount.getType() instanceof MiscType) &amp;&amp; mount.getType().hasFlag(MiscType.F_PROTOMECH_MELEE)) {</span>
+<span class="nc" id="L472">                meleeWeapons++;</span>
+<span class="nc bnc" id="L473" title="All 2 branches missed.">                if (meleeWeapons == 2) {</span>
+<span class="nc" id="L474">                    buff.append(&quot;Cannot mount multiple melee weapons.\n&quot;);</span>
+<span class="nc" id="L475">                    illegal = true;</span>
+                }
+<span class="nc bnc" id="L477" title="All 4 branches missed.">                if (mount.getType().hasSubType(MiscType.S_PROTO_QMS) &amp;&amp; !proto.isQuad()) {</span>
+<span class="nc" id="L478">                    buff.append(mount.getType().getName() + &quot;can only be used by quad protomechs.\n&quot;);</span>
+<span class="nc" id="L479">                    illegal = true;</span>
+                }
+<span class="nc bnc" id="L481" title="All 4 branches missed.">                if (mount.getType().hasSubType(MiscType.S_PROTOMECH_WEAPON) &amp;&amp; proto.isQuad()) {</span>
+<span class="nc" id="L482">                    buff.append(mount.getType().getName() + &quot;cannot be used by quad protomechs.\n&quot;);</span>
+<span class="nc" id="L483">                    illegal = true;</span>
+                }
+            }
+<span class="nc" id="L486">        }</span>
+<span class="nc" id="L487">        ProtomechArmor armor = ProtomechArmor.getArmor(proto);</span>
+<span class="nc bnc" id="L488" title="All 2 branches missed.">        if (null == armor) {</span>
+<span class="nc" id="L489">            buff.append(&quot;Does not have legal armor type.\n&quot;);</span>
+<span class="nc" id="L490">            illegal = true;</span>
+        } else {
+<span class="nc" id="L492">            slotsByLoc.merge(Protomech.LOC_TORSO, armor.getTorsoSlots(), Integer::sum);</span>
+        }
+<span class="nc bnc" id="L494" title="All 2 branches missed.">        for (int loc = 0; loc &lt; proto.locations(); loc++) {</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">            if (slotsByLoc.getOrDefault(loc, 0) &gt; maxSlotsByLocation(loc, proto)) {</span>
+<span class="nc" id="L496">                buff.append(&quot;Exceeds &quot;).append(maxSlotsByLocation(loc, proto))</span>
+<span class="nc" id="L497">                    .append(&quot; slot limit in &quot;).append(proto.getLocationName(loc)).append(&quot;\n&quot;);</span>
+<span class="nc" id="L498">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L500" title="All 2 branches missed.">            if (weightByLoc.getOrDefault(loc, 0.0) &gt; maxWeightByLocation(loc, proto)) {</span>
+<span class="nc" id="L501">                buff.append(&quot;Exceeds &quot;).append(maxWeightByLocation(loc, proto) * 1000)</span>
+<span class="nc" id="L502">                    .append(&quot; kg limit in &quot;).append(proto.getLocationName(loc)).append(&quot;\n&quot;);</span>
+<span class="nc" id="L503">                illegal = true;</span>
+            }
+        }
+<span class="nc bnc" id="L506" title="All 4 branches missed.">        if (proto.isGlider() &amp;&amp; proto.isQuad()) {</span>
+<span class="nc" id="L507">            buff.append(&quot;Glider protomechs cannot be quads.\n&quot;);</span>
+<span class="nc" id="L508">            illegal = true;</span>
+        }
+        
+<span class="nc" id="L511">        return illegal;</span>
+    }
+
+    /**
+     * @param protomech  The Protomech
+     * @param eq         The equipment
+     * @param location   A location index on the Entity
+     * @param buffer    If non-null and the location is invalid, will be appended with an explanation
+     * @return           Whether the equipment can be mounted in the location on the Protomech
+     */
+    public static boolean isValidProtomechLocation(Protomech protomech, EquipmentType eq, int location,
+                                                   @Nullable StringBuffer buffer) {
+<span class="nc bnc" id="L523" title="All 2 branches missed.">        if (eq instanceof MiscType) {</span>
+<span class="nc bnc" id="L524" title="All 8 branches missed.">            if (eq.hasFlag(MiscType.F_PROTOMECH_MELEE) &amp;&amp; eq.hasSubType(MiscType.S_PROTOMECH_WEAPON)</span>
+                    &amp;&amp; (location != Protomech.LOC_LARM) &amp;&amp; (location != Protomech.LOC_RARM)) {
+<span class="nc bnc" id="L526" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L527">                    buffer.append(eq.getName()).append(&quot; must be mounted in an arm.\n&quot;);</span>
+                }
+<span class="nc" id="L529">                return false;</span>
+            }
+<span class="nc bnc" id="L531" title="All 2 branches missed.">            if ((eq.hasFlag(MiscType.F_MAGNETIC_CLAMP)</span>
+<span class="nc bnc" id="L532" title="All 6 branches missed.">                    || (eq.hasFlag(MiscType.F_PROTOMECH_MELEE) &amp;&amp; eq.hasSubType(MiscType.S_PROTO_QMS)))</span>
+                    &amp;&amp; (location != Protomech.LOC_TORSO)) {
+<span class="nc bnc" id="L534" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L535">                    buffer.append(eq.getName()).append(&quot; must be mounted in the torso.\n&quot;);</span>
+                }
+<span class="nc" id="L537">                return false;</span>
+            }
+        }
+<span class="nc bnc" id="L540" title="All 4 branches missed.">        if (!TestProtomech.eqRequiresLocation(protomech, eq) &amp;&amp; (location != Protomech.LOC_BODY)) {</span>
+<span class="nc bnc" id="L541" title="All 2 branches missed.">            if (buffer != null) {</span>
+<span class="nc" id="L542">                buffer.append(eq.getName()).append(&quot; must be mounted in the body.\n&quot;);</span>
+            }
+<span class="nc" id="L544">            return false;</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">        } else if (TestProtomech.maxSlotsByLocation(location, protomech) == 0) {</span>
+<span class="nc bnc" id="L546" title="All 2 branches missed.">            if (buffer != null) {</span>
+<span class="nc" id="L547">                buffer.append(eq.getName()).append(&quot; cannot be mounted in the &quot;)</span>
+<span class="nc" id="L548">                        .append(protomech.getLocationName(location)).append(&quot;\n&quot;);</span>
+            }
+<span class="nc" id="L550">            return false;</span>
+        }
+<span class="nc" id="L552">        return true;</span>
+    }
+    
+    /**
+     * Checks for exceeding the maximum number of armor points by location for the tonnage.
+     * 
+     * @param buffer  A string buffer for appending error messages.
+     * @return        Whether the number of armor points is legal
+     */
+    public boolean correctArmor(StringBuffer buffer) {
+<span class="nc" id="L562">        boolean correct = true;</span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">        for (int loc = 0; loc &lt; proto.locations(); loc++) {</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">            if (proto.getOArmor(loc) &gt; maxArmorFactor(proto, loc)) {</span>
+<span class="nc" id="L565">                buffer.append(proto.getLocationAbbr(loc))</span>
+<span class="nc" id="L566">                    .append(&quot; exceeds maximum of &quot;)</span>
+<span class="nc" id="L567">                    .append(maxArmorFactor(proto, loc)).append(&quot; armor points.\n&quot;);</span>
+<span class="nc" id="L568">                correct = false;</span>
+            }
+        }
+<span class="nc" id="L571">        return correct;</span>
+    }
+    
+    /**
+     * Checks whether the protomech meets the minimum MP requirements for the configuration.
+     * 
+     * @param buffer A buffer for error messages
+     * @return       Whether the MP is legal.
+     */
+    public boolean correctMovement(StringBuffer buffer) {
+<span class="nc" id="L581">        boolean correct = true;</span>
+<span class="nc bnc" id="L582" title="All 2 branches missed.">        if (proto.isGlider()</span>
+<span class="nc bnc" id="L583" title="All 2 branches missed.">                &amp;&amp; proto.getOriginalWalkMP() &lt; GLIDER_MIN_MP) {</span>
+<span class="nc" id="L584">            buffer.append(&quot;Glider protomechs have a minimum cruising MP of &quot; + GLIDER_MIN_MP + &quot;.\n&quot;);</span>
+<span class="nc" id="L585">            correct = false;</span>
+<span class="nc bnc" id="L586" title="All 2 branches missed.">        } else if (proto.isQuad()</span>
+<span class="nc bnc" id="L587" title="All 2 branches missed.">                &amp;&amp; proto.getOriginalWalkMP() &lt; QUAD_MIN_MP) {</span>
+<span class="nc" id="L588">            buffer.append(&quot;Quad protomechs have a minimum walk MP of &quot; + QUAD_MIN_MP + &quot;.\n&quot;);</span>
+<span class="nc" id="L589">            correct = false;</span>
+        }
+<span class="nc" id="L591">        int maxJump = maxJumpMP(proto);</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">        if (proto.getOriginalJumpMP() &gt; maxJump) {</span>
+<span class="nc" id="L593">            buffer.append(&quot;Exceeds maximum jump MP.\n&quot;);</span>
+<span class="nc" id="L594">            correct = false;</span>
+        }
+<span class="nc bnc" id="L596" title="All 2 branches missed.">        if (proto.getAllUMUCount() &gt; maxJump) { </span>
+<span class="nc" id="L597">            buffer.append(&quot;Exceeds maximum UMU MP.\n&quot;);</span>
+<span class="nc" id="L598">            correct = false;</span>
+        }
+<span class="nc" id="L600">        return correct;</span>
+    }
+    
+
+    @Override
+    public StringBuffer printEntity() {
+<span class="nc" id="L606">        StringBuffer buff = new StringBuffer();</span>
+<span class="nc" id="L607">        buff.append(&quot;Protomech: &quot;).append(proto.getDisplayName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L608">        buff.append(&quot;Found in: &quot;).append(fileString).append(&quot;\n&quot;);</span>
+<span class="nc" id="L609">        buff.append(printTechLevel());</span>
+<span class="nc" id="L610">        buff.append(&quot;Intro year: &quot;).append(proto.getYear()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L611">        buff.append(printSource());</span>
+<span class="nc" id="L612">        buff.append(printShortMovement());</span>
+<span class="nc bnc" id="L613" title="All 2 branches missed.">        if (correctWeight(buff, true, true)) {</span>
+<span class="nc" id="L614">            buff.append(&quot;Weight: &quot;).append(getWeight() * 1000).append(&quot; kg (&quot;)</span>
+<span class="nc" id="L615">                    .append(calculateWeight() * 1000).append(&quot; kg)\n&quot;);</span>
+        }
+<span class="nc" id="L617">        buff.append(printWeightCalculation()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L618">        buff.append(printArmorPlacement());</span>
+<span class="nc" id="L619">        correctArmor(buff);</span>
+<span class="nc" id="L620">        buff.append(printLocations());</span>
+<span class="nc" id="L621">        printFailedEquipment(buff);</span>
+<span class="nc" id="L622">        return buff;</span>
+    }
+
+    @Override
+    public String getName() {
+<span class="nc" id="L627">        return &quot;Protomech: &quot; + proto.getDisplayName();</span>
+    }
+
+    @Override
+    public double getWeightAmmo() {
+<span class="nc" id="L632">        double weight = 0.0;</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">        for (Mounted m : getEntity().getAmmo()) {</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">            if (!m.isOneShotAmmo()) {</span>
+<span class="nc" id="L635">                AmmoType mt = (AmmoType) m.getType();</span>
+<span class="nc" id="L636">                weight += ceil(mt.getKgPerShot() * m.getBaseShotsLeft() / 1000, Ceil.KILO);</span>
+            }
+<span class="nc" id="L638">        }</span>
+<span class="nc" id="L639">        return weight;</span>
+    }
+
+    @Override
+    public double getWeightPowerAmp() {
+<span class="nc" id="L644">        return 0;</span>
+    }
+    
+    /**
+     * Determine the minimum walk MP for the protomech based on configuration
+     * 
+     * @param proto The protomech
+     * @return      The minimum walk MP
+     */
+    public int getMinimumWalkMP(Protomech proto) {
+<span class="nc bnc" id="L654" title="All 2 branches missed.">        if (proto.isGlider()) {</span>
+<span class="nc" id="L655">            return 4;</span>
+<span class="nc bnc" id="L656" title="All 2 branches missed.">        } else if (proto.isQuad()) {</span>
+<span class="nc" id="L657">            return 3;</span>
+        } else {
+<span class="nc" id="L659">            return 1;</span>
+        }
+    }
+    
+    /**
+     * Computes the required engine rating
+     * 
+     * @param proto The protomech
+     * @return      The engine rating required for the weight, speed, and configuration
+     */
+    public static int calcEngineRating(Protomech proto) {
+<span class="nc" id="L670">        return calcEngineRating(proto.getOriginalWalkMP(),</span>
+<span class="nc bnc" id="L671" title="All 4 branches missed.">                proto.getWeight(), proto.isQuad() || proto.isGlider());</span>
+    }
+    
+    /**
+     * Computes the required engine rating
+     * 
+     * @param walkMP The base walking MP
+     * @param tonnage The weight of the protomech in tons
+     * @param quadOrGlider Whether the protomech is a quad or glider configuration
+     * @return      The engine rating required for the weight, speed, and configuration
+     */
+    public static int calcEngineRating(int walkMP, double tonnage, boolean quadOrGlider) {
+<span class="nc" id="L683">        int moveFactor = (int) Math.ceil(walkMP * 1.5);</span>
+        // More efficient engine use for gliders and quads
+<span class="nc bnc" id="L685" title="All 2 branches missed.">        if (quadOrGlider) {</span>
+<span class="nc" id="L686">            moveFactor -= 2;</span>
+        }
+<span class="nc" id="L688">        return Math.max(1, (int)(moveFactor * tonnage));</span>
+    }
+    
+    /**
+     * Determines whether a piece of equipment counts toward the slot and weight limits of a location.
+     * 
+     * @param etype The equipment
+     * @return      Whether the equipment takes a slot.
+     */
+    public static boolean requiresSlot(EquipmentType etype) {
+<span class="nc bnc" id="L698" title="All 2 branches missed.">        if (etype instanceof AmmoType) {</span>
+<span class="nc" id="L699">            return false;</span>
+        }
+<span class="nc bnc" id="L701" title="All 2 branches missed.">        if (etype instanceof MiscType) {</span>
+<span class="nc bnc" id="L702" title="All 2 branches missed.">            return !(etype.hasFlag(MiscType.F_MASC)</span>
+<span class="nc bnc" id="L703" title="All 2 branches missed.">                || etype.hasFlag(MiscType.F_UMU)</span>
+<span class="nc bnc" id="L704" title="All 2 branches missed.">                || etype.hasFlag(MiscType.F_JUMP_JET));</span>
+        }
+<span class="nc" id="L706">        return true;</span>
+    }
+    
+    /**
+     * Equipment slot limit by location
+     * 
+     * @param loc   The Protomech location
+     * @param proto The Protomech
+     * @return      The number of equipment slots in the location
+     */
+    public static int maxSlotsByLocation(int loc, Protomech proto) {
+<span class="nc bnc" id="L717" title="All 2 branches missed.">        return maxSlotsByLocation(loc, proto.isQuad(), proto.getWeight() &gt; MAX_STD_TONNAGE);</span>
+    }
+
+    /**
+     * Equipment slot limit by location
+     * 
+     * @param loc   The Protomech location
+     * @param quad  Whether the protomech is a quad
+     * @param ultra Whether the protomech is ultraheavy
+     * @return      The number of equipment slots in the location
+     */
+    public static int maxSlotsByLocation(int loc, boolean quad, boolean ultra) {
+<span class="nc bnc" id="L729" title="All 4 branches missed.">        switch(loc) {</span>
+            case Protomech.LOC_TORSO: {
+<span class="nc" id="L731">                int slots = 2;</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">                if (ultra) {</span>
+<span class="nc" id="L733">                    slots++;</span>
+                }
+<span class="nc bnc" id="L735" title="All 2 branches missed.">                if (quad) {</span>
+<span class="nc" id="L736">                    slots += slots;</span>
+                }
+<span class="nc" id="L738">                return slots;</span>
+            }
+            case Protomech.LOC_LARM:
+            case Protomech.LOC_RARM:
+<span class="nc bnc" id="L742" title="All 2 branches missed.">                return quad? 0 : 1;</span>
+            case Protomech.LOC_MAINGUN:
+<span class="nc bnc" id="L744" title="All 4 branches missed.">                return (quad &amp;&amp; ultra)? 2 : 1;</span>
+            case Protomech.LOC_HEAD:
+            case Protomech.LOC_LEG:
+            default:
+<span class="nc" id="L748">                return 0;</span>
+        }
+    }
+    
+    /**
+     * The maximum total weight that can be mounted in a given location.
+     * 
+     * @param loc   The Protomech location
+     * @param proto The Protomech
+     * @return      The weight limit for that location, in tons.
+     */
+    public static double maxWeightByLocation(int loc, Protomech proto) {
+<span class="nc bnc" id="L760" title="All 2 branches missed.">        return maxWeightByLocation(loc, proto.isQuad(), proto.getWeight() &gt; MAX_STD_TONNAGE);</span>
+    }
+    
+    /**
+     * The maximum total weight that can be mounted in a given location.
+     * 
+     * @param loc   The Protomech location
+     * @param quad  Whether the protomech is a quad
+     * @param ultra Whether the protomech is ultraheavy
+     * @return      The weight limit for that location, in tons.
+     */
+    public static double maxWeightByLocation(int loc, boolean quad, boolean ultra) {
+<span class="nc bnc" id="L772" title="All 4 branches missed.">        switch(loc) {</span>
+            case Protomech.LOC_TORSO:
+<span class="nc bnc" id="L774" title="All 2 branches missed.">                if (quad) {</span>
+<span class="nc bnc" id="L775" title="All 2 branches missed.">                    return ultra? 8.0 : 5.0;</span>
+                } else {
+<span class="nc bnc" id="L777" title="All 2 branches missed.">                    return ultra? 4.0 : 2.0;</span>
+                }
+            case Protomech.LOC_LARM:
+            case Protomech.LOC_RARM:
+<span class="nc bnc" id="L781" title="All 2 branches missed.">                if (quad) {</span>
+<span class="nc" id="L782">                    return 0;</span>
+                }
+<span class="nc bnc" id="L784" title="All 2 branches missed.">                return ultra? 1.0 : 0.5;</span>
+            case Protomech.LOC_MAINGUN:
+<span class="nc" id="L786">                return Double.MAX_VALUE;</span>
+            case Protomech.LOC_HEAD:
+            case Protomech.LOC_LEG:
+            default:
+<span class="nc" id="L790">                return 0.0;</span>
+        }
+    }
+    
+<span class="nc" id="L794">    private static final int MAX_ARMOR_FACTOR[] = { 15, 17, 22, 24, 33, 35, 40, 42, 51, 53, 58, 60, 65, 67 };</span>
+    
+    /**
+     * Calculate the maximum armor factor based on weight and whether there is a main gun location
+     * 
+     * @param proto   The protomech
+     * @return        The maximum total number of armor points
+     */
+    public static int maxArmorFactor(Protomech proto) {
+<span class="nc" id="L803">        return maxArmorFactor(proto.getWeight(), proto.hasMainGun());</span>
+    }
+    
+    /**
+     * Calculate the maximum armor factor based on weight and whether there is a main gun location
+     * 
+     * @param weight  The weight of the protomech in tons
+     * @param mainGun Whether the protomech has a main gun location
+     * @return        The maximum total number of armor points
+     */
+    public static int maxArmorFactor(double weight, boolean mainGun) {
+<span class="nc" id="L814">        final int weightIndex = Math.max(0, (int) weight - 2);</span>
+<span class="nc" id="L815">        int base = MAX_ARMOR_FACTOR[Math.min(weightIndex, MAX_ARMOR_FACTOR.length - 1)];</span>
+<span class="nc bnc" id="L816" title="All 2 branches missed.">        if (mainGun) {</span>
+<span class="nc bnc" id="L817" title="All 2 branches missed.">            return base + ((weight &gt; MAX_STD_TONNAGE)? 6 : 3);</span>
+        }
+<span class="nc" id="L819">        return base;</span>
+    }
+    /**
+     * Determine the maximum amount of armor in a location based on unit weight.
+     * 
+     * @param proto   The protomech
+     * @param location The location index
+     * @return        The maximum total number of armor points
+     */
+    public static int maxArmorFactor(Protomech proto, int location) {
+<span class="nc bnc" id="L829" title="All 2 branches missed.">        if (location == Protomech.LOC_HEAD) {</span>
+<span class="nc" id="L830">            return 2 + (int) proto.getWeight() / 2;</span>
+<span class="nc bnc" id="L831" title="All 2 branches missed.">        } else if (location == Protomech.LOC_MAINGUN) {</span>
+<span class="nc bnc" id="L832" title="All 2 branches missed.">            if (proto.hasMainGun()) {</span>
+<span class="nc" id="L833">                return proto.getOInternal(location) * 3;</span>
+            } else {
+<span class="nc" id="L835">                return 0;</span>
+            }
+<span class="nc bnc" id="L837" title="All 4 branches missed.">        } else if ((location == Protomech.LOC_LARM)</span>
+                || (location == Protomech.LOC_RARM)) {
+<span class="nc bnc" id="L839" title="All 2 branches missed.">            if (proto.isQuad()) {</span>
+<span class="nc" id="L840">                return 0;</span>
+<span class="nc bnc" id="L841" title="All 2 branches missed.">            } else if (proto.getWeight() &lt; 3) {</span>
+<span class="nc" id="L842">                return 2;</span>
+<span class="nc bnc" id="L843" title="All 2 branches missed.">            } else if (proto.getWeight() &lt; 10) {</span>
+<span class="nc" id="L844">                return 4;</span>
+            } else {
+<span class="nc" id="L846">                return 6;</span>
+            }
+<span class="nc bnc" id="L848" title="All 2 branches missed.">        } else if (location == Protomech.LOC_BODY) {</span>
+<span class="nc" id="L849">            return 0;</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">        } else if (proto.isQuad()) {</span>
+<span class="nc bnc" id="L851" title="All 3 branches missed.">            switch ((int) proto.getWeight()) {</span>
+                case 3:
+<span class="nc" id="L853">                    return 12;</span>
+                case 4:
+                case 5:
+<span class="nc" id="L856">                    return 14;</span>
+                // else drop through
+            }
+        }
+<span class="nc" id="L860">        return proto.getOInternal(location) * 2;</span>
+    }
+    
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

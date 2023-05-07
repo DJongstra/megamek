@@ -1,0 +1,1713 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BoardUtilities.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.util</a> &gt; <span class="el_source">BoardUtilities.java</span></div><h1>BoardUtilities.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.util;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
+
+import megamek.client.bot.princess.CardinalEdge;
+import megamek.common.Board;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.Hex;
+import megamek.common.IBoard;
+import megamek.common.IHex;
+import megamek.common.ITerrain;
+import megamek.common.ITerrainFactory;
+import megamek.common.MapSettings;
+import megamek.common.OffBoardDirection;
+import megamek.common.PlanetaryConditions;
+import megamek.common.Terrains;
+import megamek.common.util.generator.ElevationGenerator;
+import megamek.common.util.generator.SimplexGenerator;
+
+<span class="nc" id="L44">public class BoardUtilities {</span>
+<span class="nc" id="L45">    private static List&lt;ElevationGenerator&gt; elevationGenerators = new ArrayList&lt;ElevationGenerator&gt;();</span>
+    static {
+        // TODO: make this externally accessible via registerElevationGenerator()
+<span class="nc" id="L48">        elevationGenerators.add(new SimplexGenerator());</span>
+<span class="nc" id="L49">    }</span>
+
+    /** @return how many elevation generator algorithms there are; three built-in */
+    public static int getAmountElevationGenerators() {
+<span class="nc" id="L53">        return 3 + elevationGenerators.size();</span>
+    }
+
+    /**
+     * Combines one or more boards into one huge megaboard!
+     *
+     * @param width the width of each individual board, before the combine
+     * @param height the height of each individual board, before the combine
+     * @param sheetWidth how many sheets wide the combined map is
+     * @param sheetHeight how many sheets tall the combined map is
+     * @param boards an array of the boards to be combined
+     * @param isRotated Flag that determines if any of the maps are rotated
+     * @param medium Sets the medium the map is in (ie., ground, atmo, space)
+     */
+    public static IBoard combine(int width, int height, int sheetWidth,
+            int sheetHeight, IBoard[] boards, List&lt;Boolean&gt; isRotated,
+            int medium) {
+
+<span class="nc" id="L71">        int resultWidth = width * sheetWidth;</span>
+<span class="nc" id="L72">        int resultHeight = height * sheetHeight;</span>
+
+<span class="nc" id="L74">        IHex[] resultData = new IHex[resultWidth * resultHeight];</span>
+<span class="nc" id="L75">        boolean roadsAutoExit = true;</span>
+<span class="nc" id="L76">        boolean boardListContainsBackground = false;</span>
+        // Copy the data from the sub-boards.
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        for (int i = 0; i &lt; sheetHeight; i++) {</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">            for (int j = 0; j &lt; sheetWidth; j++) {</span>
+<span class="nc" id="L80">                IBoard b = boards[i * sheetWidth + j];</span>
+<span class="nc bnc" id="L81" title="All 4 branches missed.">                if ((b.getWidth() != width) || (b.getHeight() != height)) {</span>
+<span class="nc" id="L82">                    throw new IllegalArgumentException(</span>
+                            &quot;board is the wrong size, expected &quot; + width + &quot;x&quot;
+<span class="nc" id="L84">                                    + height + &quot;, got &quot; + b.getWidth() + &quot;x&quot;</span>
+<span class="nc" id="L85">                                    + b.getHeight());</span>
+                }
+<span class="nc" id="L87">                copyBoardInto(resultData, resultWidth, j * width, i * height,</span>
+                        boards[i * sheetWidth + j]);
+                // Copy in the other board's options.
+<span class="nc bnc" id="L90" title="All 2 branches missed.">                if (boards[i * sheetWidth + j].getRoadsAutoExit() == false) {</span>
+<span class="nc" id="L91">                    roadsAutoExit = false;</span>
+                }
+<span class="nc" id="L93">                boardListContainsBackground |= b.hasBoardBackground();</span>
+            }
+        }
+
+<span class="nc" id="L97">        IBoard result = new Board();</span>
+<span class="nc" id="L98">        result.setRoadsAutoExit(roadsAutoExit);</span>
+        // Initialize all hexes - buildings, exits, etc
+<span class="nc" id="L100">        result.newData(resultWidth, resultHeight, resultData, null);</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        if (boardListContainsBackground) {</span>
+<span class="nc" id="L102">            result.setNumBoardsHeight(sheetHeight);</span>
+<span class="nc" id="L103">            result.setNumBoardsWidth(sheetWidth);</span>
+<span class="nc" id="L104">            result.setSubBoardHeight(height);</span>
+<span class="nc" id="L105">            result.setSubBoardWidth(width);</span>
+<span class="nc" id="L106">            ListIterator&lt;Boolean&gt; flipIt = isRotated.listIterator();</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">            for (IBoard b : boards) {</span>
+<span class="nc" id="L108">                boolean flip = flipIt.next();</span>
+<span class="nc" id="L109">                result.addBackgroundPath(b.getBackgroundPath(), flip, flip);</span>
+            }
+        }
+
+        //assuming that the map setting and board types match
+<span class="nc" id="L114">        result.setType(medium);</span>
+
+<span class="nc" id="L116">        return result;</span>
+    }
+
+    /**
+     * Copies the data of another board into given array of Hexes, offset by the
+     * specified x and y.
+     */
+    protected static void copyBoardInto(IHex[] dest, int destWidth, int x,
+            int y, IBoard copied) {
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        for (int i = 0; i &lt; copied.getHeight(); i++) {</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            for (int j = 0; j &lt; copied.getWidth(); j++) {</span>
+<span class="nc" id="L127">                dest[(i + y) * destWidth + j + x] = copied.getHex(j, i);</span>
+            }
+        }
+<span class="nc" id="L130">    }</span>
+
+    /**
+     * Generates a Random Board
+     *
+     * @param mapSettings The parameters for random board creation.
+     */
+    public static IBoard generateRandom(MapSettings mapSettings) {
+<span class="nc" id="L138">        int elevationMap[][] = new int[mapSettings.getBoardWidth()][mapSettings</span>
+<span class="nc" id="L139">                .getBoardHeight()];</span>
+<span class="nc" id="L140">        double sizeScale = (double) (mapSettings.getBoardWidth() * mapSettings</span>
+<span class="nc" id="L141">                .getBoardHeight())</span>
+                / ((double) (16 * 17));
+
+<span class="nc" id="L144">        generateElevation(mapSettings.getHilliness(), mapSettings</span>
+<span class="nc" id="L145">                .getBoardWidth(), mapSettings.getBoardHeight(), mapSettings</span>
+<span class="nc" id="L146">                .getRange() + 1, mapSettings.getProbInvert(), mapSettings</span>
+<span class="nc" id="L147">                .getInvertNegativeTerrain(), elevationMap, mapSettings</span>
+<span class="nc" id="L148">                .getAlgorithmToUse());</span>
+
+<span class="nc" id="L150">        IHex[] nb = new IHex[mapSettings.getBoardWidth()</span>
+<span class="nc" id="L151">                * mapSettings.getBoardHeight()];</span>
+<span class="nc" id="L152">        int index = 0;</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        for (int h = 0; h &lt; mapSettings.getBoardHeight(); h++) {</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">            for (int w = 0; w &lt; mapSettings.getBoardWidth(); w++) {</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">                if(mapSettings.getMedium() == MapSettings.MEDIUM_SPACE) {</span>
+<span class="nc" id="L156">                    nb[index++] = new Hex(0,&quot;space:1&quot;,mapSettings.getTheme(), new Coords(w,h));</span>
+                } else {
+<span class="nc" id="L158">                    nb[index++] = new Hex(elevationMap[w][h], &quot;&quot;, mapSettings</span>
+<span class="nc" id="L159">                            .getTheme(), new Coords(w,h));</span>
+                }
+            }
+        }
+
+<span class="nc" id="L164">        IBoard result = new Board(mapSettings.getBoardWidth(), mapSettings</span>
+<span class="nc" id="L165">                .getBoardHeight(), nb);</span>
+
+<span class="nc bnc" id="L167" title="All 2 branches missed.">        if(mapSettings.getMedium() == MapSettings.MEDIUM_SPACE) {</span>
+<span class="nc" id="L168">            result.setType(Board.T_SPACE);</span>
+<span class="nc" id="L169">            return result;</span>
+        }
+
+        /* initalize reverseHex */
+<span class="nc" id="L173">        HashMap&lt;IHex, Point&gt; reverseHex = new HashMap&lt;IHex, Point&gt;(2</span>
+<span class="nc" id="L174">                * mapSettings.getBoardWidth() * mapSettings.getBoardHeight());</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        for (int y = 0; y &lt; mapSettings.getBoardHeight(); y++) {</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">            for (int x = 0; x &lt; mapSettings.getBoardWidth(); x++) {</span>
+<span class="nc" id="L177">                reverseHex.put(result.getHex(x, y), new Point(x, y));</span>
+            }
+        }
+
+<span class="nc" id="L181">        int peaks = mapSettings.getMountainPeaks();</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        while (peaks &gt; 0) {</span>
+<span class="nc" id="L183">            peaks--;</span>
+<span class="nc" id="L184">            int mountainHeight = mapSettings.getMountainHeightMin()</span>
+<span class="nc" id="L185">                    + Compute.randomInt(1 + mapSettings.getMountainHeightMax()</span>
+<span class="nc" id="L186">                            - mapSettings.getMountainHeightMin());</span>
+<span class="nc" id="L187">            int mountainWidth = mapSettings.getMountainWidthMin()</span>
+<span class="nc" id="L188">                    + Compute.randomInt(1 + mapSettings.getMountainWidthMax()</span>
+<span class="nc" id="L189">                            - mapSettings.getMountainWidthMin());</span>
+<span class="nc" id="L190">            int mapWidth = result.getWidth();</span>
+<span class="nc" id="L191">            int mapHeight = result.getHeight();</span>
+
+            // put the peak somewhere in the middle of the map...
+<span class="nc" id="L194">            Coords peak = new Coords(mapWidth / 4</span>
+<span class="nc" id="L195">                    + Compute.randomInt((mapWidth + 1) / 2), mapHeight / 4</span>
+<span class="nc" id="L196">                    + Compute.randomInt((mapHeight + 1) / 2));</span>
+
+<span class="nc" id="L198">            generateMountain(result, mountainWidth, peak, mountainHeight,</span>
+<span class="nc" id="L199">                    mapSettings.getMountainStyle());</span>
+<span class="nc" id="L200">        }</span>
+
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (mapSettings.getCliffs() &gt; 0) {</span>
+<span class="nc" id="L203">            addCliffs(result, mapSettings.getCliffs());</span>
+        }
+
+        /* Add the woods */
+<span class="nc" id="L207">        int count = mapSettings.getMinForestSpots();</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (mapSettings.getMaxForestSpots() &gt; 0) {</span>
+<span class="nc" id="L209">            count += Compute.randomInt(mapSettings.getMaxForestSpots());</span>
+        }
+<span class="nc" id="L211">        count *= sizeScale;</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L213">            placeSomeTerrain(result, Terrains.WOODS,</span>
+<span class="nc" id="L214">                    mapSettings.getProbHeavy(), mapSettings.getMinForestSize(),</span>
+<span class="nc" id="L215">                    mapSettings.getMaxForestSize(), reverseHex, true);</span>
+        }
+        
+        /* Add foliage (1 elevation high woods) */
+<span class="nc" id="L219">        count = mapSettings.getMinFoliageSpots();</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">        if (mapSettings.getMaxFoliageSpots() &gt; 0) {</span>
+<span class="nc" id="L221">            count += Compute.randomInt(mapSettings.getMaxFoliageSpots());</span>
+        }
+<span class="nc" id="L223">        count *= sizeScale;</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L225">            placeFoliage(result, Terrains.WOODS,</span>
+<span class="nc" id="L226">                    mapSettings.getProbFoliageHeavy(), mapSettings.getMinFoliageSize(),</span>
+<span class="nc" id="L227">                    mapSettings.getMaxFoliageSize(), reverseHex, true);</span>
+        }
+        
+        /* Add the rough */
+<span class="nc" id="L231">        count = mapSettings.getMinRoughSpots();</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        if (mapSettings.getMaxRoughSpots() &gt; 0) {</span>
+<span class="nc" id="L233">            count += Compute.randomInt(mapSettings.getMaxRoughSpots());</span>
+        }
+<span class="nc" id="L235">        count *= sizeScale;</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L237">            placeSomeTerrain(result, Terrains.ROUGH, 0, mapSettings</span>
+<span class="nc" id="L238">                    .getMinRoughSize(), mapSettings.getMaxRoughSize(),</span>
+                    reverseHex, true);
+        }
+        /* Add the sand */
+<span class="nc" id="L242">        count = mapSettings.getMinSandSpots();</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">        if (mapSettings.getMaxSandSpots() &gt; 0) {</span>
+<span class="nc" id="L244">            count += Compute.randomInt(mapSettings.getMaxSandSpots());</span>
+        }
+<span class="nc" id="L246">        count *= sizeScale;</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L248">            placeSomeTerrain(result, Terrains.SAND, 0, mapSettings</span>
+<span class="nc" id="L249">                    .getMinSandSize(), mapSettings.getMaxSandSize(),</span>
+                    reverseHex, true);
+        }
+        /* Add the planted field */
+<span class="nc" id="L253">        count = mapSettings.getMinPlantedFieldSpots();</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">        if (mapSettings.getMaxPlantedFieldSpots() &gt; 0) {</span>
+<span class="nc" id="L255">            count += Compute.randomInt(mapSettings.getMaxPlantedFieldSpots());</span>
+        }
+<span class="nc" id="L257">        count *= sizeScale;</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L259">            placeSomeTerrain(result, Terrains.FIELDS, 0, mapSettings</span>
+<span class="nc" id="L260">                    .getMinPlantedFieldSize(), mapSettings.getMaxPlantedFieldSize(),</span>
+                    reverseHex, true);
+        }
+        /* Add the swamp */
+<span class="nc" id="L264">        count = mapSettings.getMinSwampSpots();</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        if (mapSettings.getMaxSwampSpots() &gt; 0) {</span>
+<span class="nc" id="L266">            count += Compute.randomInt(mapSettings.getMaxSwampSpots());</span>
+        }
+<span class="nc" id="L268">        count *= sizeScale;</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L270">            placeSomeTerrain(result, Terrains.SWAMP, 0, mapSettings</span>
+<span class="nc" id="L271">                    .getMinSwampSize(), mapSettings.getMaxSwampSize(),</span>
+                    reverseHex, false); // can stack with woods or roughs
+        }
+
+        // Add the Fortified hexes
+<span class="nc" id="L276">        count = mapSettings.getMinFortifiedSpots();</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        if (mapSettings.getMaxFortifiedSpots() &gt; 0) {</span>
+<span class="nc" id="L278">            count += Compute.randomInt(mapSettings.getMaxFortifiedSpots());</span>
+        }
+<span class="nc" id="L280">        count *= sizeScale;</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L282">            placeSomeTerrain(result, Terrains.FORTIFIED, 0, mapSettings</span>
+<span class="nc" id="L283">                    .getMinFortifiedSize(), mapSettings.getMaxFortifiedSize(),</span>
+                    reverseHex, false);
+        }
+
+        // Add the rubble
+<span class="nc" id="L288">        count = mapSettings.getMinRubbleSpots();</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (mapSettings.getMaxRubbleSpots() &gt; 0) {</span>
+<span class="nc" id="L290">            count += Compute.randomInt(mapSettings.getMaxRubbleSpots());</span>
+        }
+<span class="nc" id="L292">        count *= sizeScale;</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L294">            placeSomeTerrain(result, Terrains.RUBBLE, 0, mapSettings</span>
+<span class="nc" id="L295">                    .getMinRubbleSize(), mapSettings.getMaxRubbleSize(),</span>
+                    reverseHex, true);
+        }
+
+        /* Add the water */
+<span class="nc" id="L300">        count = mapSettings.getMinWaterSpots();</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">        if (mapSettings.getMaxWaterSpots() &gt; 0) {</span>
+<span class="nc" id="L302">            count += Compute.randomInt(mapSettings.getMaxWaterSpots());</span>
+        }
+<span class="nc" id="L304">        count *= sizeScale;</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L306">            placeSomeTerrain(result, Terrains.WATER, mapSettings.getProbDeep(),</span>
+<span class="nc" id="L307">                    mapSettings.getMinWaterSize(), mapSettings</span>
+<span class="nc" id="L308">                            .getMaxWaterSize(), reverseHex, true);</span>
+        }
+        /* Add the pavements */
+<span class="nc" id="L311">        count = mapSettings.getMinPavementSpots();</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">        if (mapSettings.getMaxPavementSpots() &gt; 0) {</span>
+<span class="nc" id="L313">            count += Compute.randomInt(mapSettings.getMaxPavementSpots());</span>
+        }
+<span class="nc" id="L315">        count *= sizeScale;</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L317">            placeSomeTerrain(result, Terrains.PAVEMENT, 0, mapSettings</span>
+<span class="nc" id="L318">                    .getMinPavementSize(), mapSettings.getMaxPavementSize(),</span>
+                    reverseHex, true);
+        }
+
+        /* Add the ice */
+<span class="nc" id="L323">        count = mapSettings.getMinIceSpots();</span>
+<span class="nc bnc" id="L324" title="All 2 branches missed.">        if (mapSettings.getMaxIceSpots() &gt; 0) {</span>
+<span class="nc" id="L325">            count += Compute.randomInt(mapSettings.getMaxIceSpots());</span>
+        }
+<span class="nc" id="L327">        count *= sizeScale;</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L329">            placeSomeTerrain(result, Terrains.ICE, 0, mapSettings</span>
+<span class="nc" id="L330">                    .getMinIceSize(), mapSettings.getMaxIceSize(), reverseHex,</span>
+                    true);
+        }
+
+        /* Add the craters */
+<span class="nc bnc" id="L335" title="All 2 branches missed.">        if (Compute.randomInt(100) &lt; mapSettings.getProbCrater()) {</span>
+<span class="nc" id="L336">            addCraters(result, mapSettings.getMinRadius(), mapSettings.getMaxRadius(),</span>
+<span class="nc" id="L337">                    (int) (mapSettings.getMinCraters() * sizeScale),</span>
+<span class="nc" id="L338">                    (int) (mapSettings.getMaxCraters() * sizeScale));</span>
+        }
+
+        /* Add the river */
+<span class="nc bnc" id="L342" title="All 2 branches missed.">        if (Compute.randomInt(100) &lt; mapSettings.getProbRiver()) {</span>
+<span class="nc" id="L343">            addRiver(result, reverseHex);</span>
+        }
+
+        /* Add special effects */
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        if (Compute.randomInt(100) &lt; mapSettings.getProbFlood()) {</span>
+<span class="nc" id="L348">            postProcessFlood(nb, mapSettings.getFxMod());</span>
+        }
+<span class="nc bnc" id="L350" title="All 2 branches missed.">        if (Compute.randomInt(100) &lt; mapSettings.getProbDrought()) {</span>
+<span class="nc" id="L351">            postProcessDrought(nb, mapSettings.getFxMod());</span>
+        }
+<span class="nc bnc" id="L353" title="All 2 branches missed.">        if (Compute.randomInt(100) &lt; mapSettings.getProbFreeze()) {</span>
+<span class="nc" id="L354">            postProcessDeepFreeze(nb, mapSettings.getFxMod());</span>
+        }
+<span class="nc bnc" id="L356" title="All 2 branches missed.">        if (Compute.randomInt(100) &lt; mapSettings.getProbForestFire()) {</span>
+<span class="nc" id="L357">            postProcessForestFire(nb, mapSettings.getFxMod());</span>
+        }
+
+        /* Add the road */
+<span class="nc" id="L361">        boolean roadNeeded = false;</span>
+<span class="nc bnc" id="L362" title="All 2 branches missed.">        if (Compute.randomInt(100) &lt; mapSettings.getProbRoad()) {</span>
+<span class="nc" id="L363">            roadNeeded = true;</span>
+        }
+
+        // add buildings
+<span class="nc" id="L367">        ArrayList&lt;BuildingTemplate&gt; buildings = mapSettings.getBoardBuildings();</span>
+<span class="nc" id="L368">        CityBuilder cityBuilder = new CityBuilder(mapSettings, result);</span>
+<span class="nc bnc" id="L369" title="All 2 branches missed.">        if (buildings.size() == 0) {</span>
+<span class="nc" id="L370">            buildings = cityBuilder.generateCity(roadNeeded);</span>
+        }
+<span class="nc bnc" id="L372" title="All 2 branches missed.">        for (int i = 0; i &lt; buildings.size(); i++) {</span>
+<span class="nc" id="L373">            placeBuilding(result, (buildings.get(i)));</span>
+        }
+<span class="nc" id="L375">        return result;</span>
+    }
+
+    private static void placeBuilding(IBoard board, BuildingTemplate building) {
+<span class="nc" id="L379">        int type = building.getType();</span>
+<span class="nc" id="L380">        int cf = building.getCF();</span>
+<span class="nc" id="L381">        int height = building.getHeight();</span>
+<span class="nc" id="L382">        ITerrainFactory tf = Terrains.getTerrainFactory();</span>
+<span class="nc" id="L383">        ArrayList&lt;IHex&gt; hexes = new ArrayList&lt;IHex&gt;();</span>
+<span class="nc" id="L384">        int level = 0;</span>
+<span class="nc bnc" id="L385" title="All 2 branches missed.">        for (Iterator&lt;Coords&gt; i = building.getCoords(); i.hasNext();) {</span>
+<span class="nc" id="L386">            Coords c = i.next();</span>
+<span class="nc" id="L387">            IHex hex = board.getHex(c);</span>
+            // work out exits...
+<span class="nc" id="L389">            int exits = 0;</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">            for (int dir = 0; dir &lt; 6; dir++) {</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">                if (building.containsCoords(c.translated(dir))) {</span>
+<span class="nc" id="L392">                    exits |= (1 &lt;&lt; dir);</span>
+                }
+            }
+
+            // remove everything
+<span class="nc" id="L397">            hex.removeAllTerrains();</span>
+<span class="nc" id="L398">            hex.addTerrain(tf.createTerrain(Terrains.PAVEMENT, 1));</span>
+<span class="nc" id="L399">            hex.addTerrain(tf.createTerrain(Terrains.BUILDING, type, true,</span>
+                    exits));
+<span class="nc" id="L401">            hex.addTerrain(tf.createTerrain(Terrains.BLDG_CF, cf));</span>
+<span class="nc" id="L402">            hex.addTerrain(tf.createTerrain(Terrains.BLDG_ELEV, height));</span>
+            // hex.addTerrain(tf.createTerrain(Terrains.BLDG_BASEMENT,
+            // building.getBasement()));
+<span class="nc" id="L405">            hexes.add(hex);</span>
+<span class="nc" id="L406">            level += hex.getLevel();</span>
+<span class="nc" id="L407">        }</span>
+        // set everything to the same level
+<span class="nc bnc" id="L409" title="All 2 branches missed.">        for (int j = 0; j &lt; hexes.size(); j++) {</span>
+<span class="nc" id="L410">            hexes.get(j).setLevel(level / hexes.size());</span>
+        }
+<span class="nc" id="L412">    }</span>
+
+    /**
+     * Places randomly some connected Woods.
+     *
+     * @param board The board the terrain goes on.
+     * @param terrainType The type of terrain to place {@link Terrains}.
+     * @param probMore
+     * @param maxHexes Maximum number of hexes this terrain can cover.
+     * @param reverseHex
+     * @param exclusive Set TRUE if this terrain cannot be combined with any other terrain types.
+     */
+    protected static void placeSomeTerrain(IBoard board, int terrainType, int probMore, int minHexes, int maxHexes,
+            HashMap&lt;IHex, Point&gt; reverseHex, boolean exclusive) {
+<span class="nc" id="L426">        Point p = new Point(Compute.randomInt(board.getWidth()), Compute</span>
+<span class="nc" id="L427">                .randomInt(board.getHeight()));</span>
+<span class="nc" id="L428">        int count = minHexes;</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">        if ((maxHexes - minHexes) &gt; 0) {</span>
+<span class="nc" id="L430">            count += Compute.randomInt(maxHexes - minHexes);</span>
+        }
+        IHex field;
+
+<span class="nc" id="L434">        HashSet&lt;IHex&gt; alreadyUsed = new HashSet&lt;IHex&gt;();</span>
+<span class="nc" id="L435">        HashSet&lt;IHex&gt; unUsed = new HashSet&lt;IHex&gt;();</span>
+<span class="nc" id="L436">        field = board.getHex(p.x, p.y);</span>
+<span class="nc bnc" id="L437" title="All 2 branches missed.">        if (!field.containsTerrain(terrainType)) {</span>
+<span class="nc" id="L438">            unUsed.add(field);</span>
+        } else {
+<span class="nc" id="L440">            findAllUnused(board, terrainType, alreadyUsed, unUsed, field,</span>
+                    reverseHex);
+        }
+<span class="nc" id="L443">        ITerrainFactory f = Terrains.getTerrainFactory();</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">            if (unUsed.isEmpty()) {</span>
+<span class="nc" id="L446">                return;</span>
+            }
+<span class="nc" id="L448">            int which = Compute.randomInt(unUsed.size());</span>
+<span class="nc" id="L449">            Iterator&lt;IHex&gt; iter = unUsed.iterator();</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">            for (int n = 0; n &lt; (which - 1); n++) {</span>
+<span class="nc" id="L451">                iter.next();</span>
+            }
+<span class="nc" id="L453">            field = iter.next();</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">            if (exclusive) {</span>
+<span class="nc" id="L455">                field.removeAllTerrains();</span>
+            }
+<span class="nc bnc" id="L457" title="All 2 branches missed.">            int tempInt = (Compute.randomInt(100) &lt; probMore) ? 2 : 1;</span>
+<span class="nc" id="L458">            ITerrain tempTerrain = f.createTerrain(terrainType, tempInt);</span>
+<span class="nc" id="L459">            field.addTerrain(tempTerrain);</span>
+<span class="nc bnc" id="L460" title="All 2 branches missed.">            if (terrainType == Terrains.WOODS) {</span>
+<span class="nc" id="L461">                field.addTerrain(f.createTerrain(Terrains.FOLIAGE_ELEV, 2));</span>
+            }
+<span class="nc" id="L463">            unUsed.remove(field);</span>
+<span class="nc" id="L464">            findAllUnused(board, terrainType, alreadyUsed, unUsed, field,</span>
+                    reverseHex);
+        }
+
+<span class="nc bnc" id="L468" title="All 2 branches missed.">        if (terrainType == Terrains.WATER) {</span>
+            /*
+             * if next to an Water Hex is an lower lvl lower the hex. First we
+             * search for lowest Hex next to the lake
+             */
+<span class="nc" id="L473">            int min = Integer.MAX_VALUE;</span>
+<span class="nc" id="L474">            Iterator&lt;IHex&gt; iter = unUsed.iterator();</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">            while (iter.hasNext()) {</span>
+<span class="nc" id="L476">                field = iter.next();</span>
+<span class="nc bnc" id="L477" title="All 2 branches missed.">                if (field.getLevel() &lt; min) {</span>
+<span class="nc" id="L478">                    min = field.getLevel();</span>
+                }
+            }
+<span class="nc" id="L481">            iter = alreadyUsed.iterator();</span>
+<span class="nc bnc" id="L482" title="All 2 branches missed.">            while (iter.hasNext()) {</span>
+<span class="nc" id="L483">                field = iter.next();</span>
+<span class="nc" id="L484">                field.setLevel(min);</span>
+            }
+
+        }
+<span class="nc" id="L488">    }</span>
+    
+    /**
+     * Places randomly some connected Woods.
+     *
+     * @param board The board the terrain goes on.
+     * @param terrainType The type of terrain to place {@link Terrains}.
+     * @param probMore
+     * @param maxHexes Maximum number of hexes this terrain can cover.
+     * @param reverseHex
+     * @param exclusive Set TRUE if this terrain cannot be combined with any other terrain types.
+     */
+    protected static void placeFoliage(IBoard board, int terrainType, int probMore, int minHexes, int maxHexes,
+            HashMap&lt;IHex, Point&gt; reverseHex, boolean exclusive) {
+<span class="nc" id="L502">        Point p = new Point(Compute.randomInt(board.getWidth()), Compute</span>
+<span class="nc" id="L503">                .randomInt(board.getHeight()));</span>
+<span class="nc" id="L504">        int count = minHexes;</span>
+<span class="nc bnc" id="L505" title="All 2 branches missed.">        if ((maxHexes - minHexes) &gt; 0) {</span>
+<span class="nc" id="L506">            count += Compute.randomInt(maxHexes - minHexes);</span>
+        }
+        IHex field;
+
+<span class="nc" id="L510">        HashSet&lt;IHex&gt; alreadyUsed = new HashSet&lt;IHex&gt;();</span>
+<span class="nc" id="L511">        HashSet&lt;IHex&gt; unUsed = new HashSet&lt;IHex&gt;();</span>
+<span class="nc" id="L512">        field = board.getHex(p.x, p.y);</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">        if (!field.containsTerrain(terrainType)) {</span>
+<span class="nc" id="L514">            unUsed.add(field);</span>
+        } else {
+<span class="nc" id="L516">            findAllUnused(board, terrainType, alreadyUsed, unUsed, field,</span>
+                    reverseHex);
+        }
+<span class="nc" id="L519">        ITerrainFactory f = Terrains.getTerrainFactory();</span>
+<span class="nc bnc" id="L520" title="All 2 branches missed.">        for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">            if (unUsed.isEmpty()) {</span>
+<span class="nc" id="L522">                return;</span>
+            }
+<span class="nc" id="L524">            int which = Compute.randomInt(unUsed.size());</span>
+<span class="nc" id="L525">            Iterator&lt;IHex&gt; iter = unUsed.iterator();</span>
+<span class="nc bnc" id="L526" title="All 2 branches missed.">            for (int n = 0; n &lt; (which - 1); n++) {</span>
+<span class="nc" id="L527">                iter.next();</span>
+            }
+<span class="nc" id="L529">            field = iter.next();</span>
+<span class="nc bnc" id="L530" title="All 2 branches missed.">            if (exclusive) {</span>
+<span class="nc" id="L531">                field.removeAllTerrains();</span>
+            }
+<span class="nc bnc" id="L533" title="All 2 branches missed.">            int tempInt = (Compute.randomInt(100) &lt; probMore) ? 2 : 1;</span>
+<span class="nc" id="L534">            ITerrain tempTerrain = f.createTerrain(terrainType, tempInt);</span>
+<span class="nc" id="L535">            field.addTerrain(tempTerrain);</span>
+<span class="nc" id="L536">            field.addTerrain(f.createTerrain(Terrains.FOLIAGE_ELEV, 1));</span>
+<span class="nc" id="L537">            unUsed.remove(field);</span>
+<span class="nc" id="L538">            findAllUnused(board, terrainType, alreadyUsed, unUsed, field,</span>
+                    reverseHex);
+        }
+
+        
+<span class="nc" id="L543">    }</span>
+
+    /**
+     * Searching starting from one Hex, all Terrains not matching terrainType,
+     * next to one of terrainType.
+     *
+     * @param terrainType The terrainType which the searching hexes should not
+     *            have.
+     * @param alreadyUsed The hexes which should not looked at (because they are
+     *            already supposed to visited in some way)
+     * @param unUsed In this set the resulting hexes are stored. They are stored
+     *            in addition to all previously stored.
+     * @param searchFrom The Hex where to start
+     */
+    private static void findAllUnused(IBoard board, int terrainType,
+            HashSet&lt;IHex&gt; alreadyUsed, HashSet&lt;IHex&gt; unUsed, IHex searchFrom,
+            HashMap&lt;IHex, Point&gt; reverseHex) {
+        IHex field;
+<span class="nc" id="L561">        HashSet&lt;IHex&gt; notYetUsed = new HashSet&lt;IHex&gt;();</span>
+
+<span class="nc" id="L563">        notYetUsed.add(searchFrom);</span>
+        do {
+<span class="nc" id="L565">            Iterator&lt;IHex&gt; iter = notYetUsed.iterator();</span>
+<span class="nc" id="L566">            field = iter.next();</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">            if (field == null) {</span>
+<span class="nc" id="L568">                continue;</span>
+            }
+<span class="nc bnc" id="L570" title="All 2 branches missed.">            for (int dir = 0; dir &lt; 6; dir++) {</span>
+<span class="nc" id="L571">                Point loc = reverseHex.get(field);</span>
+<span class="nc" id="L572">                IHex newHex = board.getHexInDir(loc.x, loc.y, dir);</span>
+<span class="nc bnc" id="L573" title="All 4 branches missed.">                if ((newHex != null) &amp;&amp; (!alreadyUsed.contains(newHex))</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">                        &amp;&amp; (!notYetUsed.contains(newHex))</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">                        &amp;&amp; (!unUsed.contains(newHex))) {</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">                    ((newHex.containsTerrain(terrainType)) ? notYetUsed</span>
+<span class="nc" id="L577">                            : unUsed).add(newHex);</span>
+                }
+            }
+<span class="nc" id="L580">            notYetUsed.remove(field);</span>
+<span class="nc" id="L581">            alreadyUsed.add(field);</span>
+<span class="nc bnc" id="L582" title="All 2 branches missed.">        } while (!notYetUsed.isEmpty());</span>
+<span class="nc" id="L583">    }</span>
+
+    /**
+     * add a crater to the board
+     */
+    public static void addCraters(IBoard board, int minRadius, int maxRadius,
+            int minCraters, int maxCraters) {
+
+        // Calculate number of craters to generate.
+<span class="nc" id="L592">        int numberCraters = minCraters;</span>
+<span class="nc bnc" id="L593" title="All 2 branches missed.">        if (maxCraters &gt; minCraters) {</span>
+<span class="nc" id="L594">            numberCraters += Compute.randomInt(maxCraters - minCraters);</span>
+        }
+
+        // Stay within the board boundaries.
+<span class="nc" id="L598">        int width = board.getWidth();</span>
+<span class="nc" id="L599">        int height = board.getHeight();</span>
+
+<span class="nc" id="L601">        Map&lt;Coords, Integer&gt; usedHexes = new HashMap&lt;&gt;();</span>
+
+        // Generate each crater.
+<span class="nc bnc" id="L604" title="All 2 branches missed.">        for (int i = 0; i &lt; numberCraters; i++) {</span>
+
+            // Locate the center of the crater.
+<span class="nc" id="L607">            Point center = new Point(Compute.randomInt(width), Compute.randomInt(height));</span>
+
+            // What is the diameter of this crater?
+<span class="nc" id="L610">            int radius = Compute.randomInt(maxRadius - minRadius) + minRadius;</span>
+
+            // Terrestrial crater depth to radius ratio is typically 1:5 to 1:7.
+            // Hexes are 30m across and levels are 6m high.
+            // This ends up with rather deep craters (a 6-diameter crater can have a depth of 4-6).  For gamability
+            // and verisimilitude, we're making crater's more shallow than is typical (1:8 to 1:10 ratio).
+<span class="nc" id="L616">            int divisor = Compute.randomInt(2) + 8;</span>
+<span class="nc" id="L617">            int radiusM = radius * 30;</span>
+<span class="nc" id="L618">            int maxDepthM = Math.max(6, radiusM / divisor);</span>
+<span class="nc" id="L619">            int maxDepth = maxDepthM / 6;</span>
+
+            /* generate CraterProfile */
+<span class="nc" id="L622">            int cratDepth[] = new int[radius];</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">            for (int x = 0; x &lt; radius; x++) {</span>
+<span class="nc" id="L624">                cratDepth[x] = craterProfile(x, radius, maxDepth);</span>
+            }
+
+            /*
+             * btw, I am interested if someone actually reads this comments, so
+             * send me and email to f.stock@tu-bs.de, if you do ;-)
+             */
+            /* now recalculate every hex */
+<span class="nc bnc" id="L632" title="All 2 branches missed.">            for (int h = 0; h &lt; height; h++) {</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">                for (int w = 0; w &lt; width; w++) {</span>
+<span class="nc" id="L634">                    int distance = (int) distance(center, new Point(w, h));</span>
+<span class="nc bnc" id="L635" title="All 2 branches missed.">                    if (distance &lt; radius) {</span>
+<span class="nc" id="L636">                        IHex field = board.getHex(w, h);</span>
+                        int baseElevation;
+
+                        // If we've already placed a crater here, find it's original elevation.
+<span class="nc bnc" id="L640" title="All 2 branches missed.">                        if (usedHexes.containsKey(field.getCoords())) {</span>
+<span class="nc" id="L641">                            baseElevation = usedHexes.get(field.getCoords());</span>
+                        } else {
+                            // If no crater has been placed here, add this hex's original elevation to our list.
+<span class="nc" id="L644">                            baseElevation = field.getLevel();</span>
+<span class="nc" id="L645">                            usedHexes.put(field.getCoords(), baseElevation);</span>
+                        }
+
+                        // Calculate the crater depth based on the original hex elevation.
+<span class="nc" id="L649">                        int newElevation = baseElevation + cratDepth[distance];</span>
+
+                        // If the new elevation is deeper, use it, otherwise keep what we've already calculated.
+<span class="nc" id="L652">                        field.setLevel(Math.min(newElevation, field.getLevel()));</span>
+                    }
+                }
+            }
+        }
+<span class="nc" id="L657">    }</span>
+
+    public static int craterProfile(int distanceFromCenter, int fullRadius, int maxDepth) {
+        double depth;
+
+        // If we're at the center, we should use the max depth.
+<span class="nc bnc" id="L663" title="All 2 branches missed.">        if (distanceFromCenter == 0) {</span>
+<span class="nc" id="L664">            return -maxDepth;</span>
+<span class="nc bnc" id="L665" title="All 2 branches missed.">        } else if (distanceFromCenter == fullRadius) { // The edge should have no depth.</span>
+<span class="nc" id="L666">            return 0;</span>
+        }
+
+        // The crater's floor should be a relatively shallow parabola.
+<span class="nc" id="L670">        double radiusPercent = (double) distanceFromCenter / fullRadius;</span>
+<span class="nc bnc" id="L671" title="All 2 branches missed.">        if (radiusPercent &lt; 0.75) {</span>
+<span class="nc" id="L672">            depth = 0.02 * Math.pow(distanceFromCenter, 2) - maxDepth;</span>
+
+        } else { // The parabola should get steeper the closer to the crater wall you are.
+<span class="nc" id="L675">            depth = 0.04 * Math.pow(distanceFromCenter, 2) - maxDepth;</span>
+        }
+
+<span class="nc" id="L678">        return (int) Math.round(depth);</span>
+    }
+
+    /**
+     * The profile of a crater: interior is exp-function, exterior cos function.
+     *
+     * @param x The x value of the function. range 0..1. 0=center of crater.
+     *            1=border of outer wall.
+     * @param scale Apply this scale before returning the result (recommend
+     *            instead of afterwards scale, cause this way the intern
+     *            floating values are scaled, instead of int result).
+     * @return The height of the crater at the position x from center. Unscaled,
+     *         the results are between -0.5 and 1 (that means, if no scale is
+     *         applied -1, 0 or 1).
+     */
+//    public static int craterProfile(double x, int scale) {
+//        double result = 0;
+//
+//        result = (x &lt; 0.75) ? ((Math.exp(x * 5.0 / 0.75 - 3) - 0.04979) * 1.5 / 7.33926) - 0.5
+//                : ((Math.cos((x - 0.75) * 4.0) + 1.0) / 2.0);
+//
+//        return (int) (result * scale);
+//    }
+
+    /**
+     * calculate the distance between two points
+     *
+     * @param p1
+     * @param p2
+     */
+    private static double distance(Point p1, Point p2) {
+<span class="nc" id="L709">        double x = p1.x - p2.x;</span>
+<span class="nc" id="L710">        double y = p1.y - p2.y;</span>
+<span class="nc" id="L711">        return Math.sqrt(x * x + y * y);</span>
+    }
+
+    /**
+     * Adds an River to the map (if the map is at least 5x5 hexes big). The
+     * river has an width of 1-3 hexes (everything else is no more a river). The
+     * river goes from one border to another. Nor Params, no results.
+     */
+    public static void addRiver(IBoard board, HashMap&lt;IHex, Point&gt; reverseHex) {
+<span class="nc" id="L720">        int minElevation = Integer.MAX_VALUE;</span>
+<span class="nc" id="L721">        HashSet&lt;IHex&gt; riverHexes = new HashSet&lt;IHex&gt;();</span>
+        IHex field;
+<span class="nc" id="L723">        Point p = null;</span>
+<span class="nc" id="L724">        int direction = 0;</span>
+<span class="nc" id="L725">        int nextLeft = 0;</span>
+<span class="nc" id="L726">        int nextRight = 0;</span>
+
+<span class="nc" id="L728">        int width = board.getWidth();</span>
+<span class="nc" id="L729">        int height = board.getHeight();</span>
+
+        /* if map is smaller than 5x5 no real space for an river */
+<span class="nc bnc" id="L732" title="All 4 branches missed.">        if ((width &lt; 5) || (height &lt; 5)) {</span>
+<span class="nc" id="L733">            return;</span>
+        }
+        /* First select start and the direction */
+<span class="nc bnc" id="L736" title="All 4 branches missed.">        switch (Compute.randomInt(4)) {</span>
+            case 0:
+<span class="nc" id="L738">                p = new Point(0, Compute.randomInt(5) - 2 + height / 2);</span>
+<span class="nc" id="L739">                direction = Compute.randomInt(2) + 1;</span>
+<span class="nc" id="L740">                nextLeft = direction - 1;</span>
+<span class="nc" id="L741">                nextRight = direction + 1;</span>
+<span class="nc" id="L742">                break;</span>
+            case 1:
+<span class="nc" id="L744">                p = new Point(width - 1, Compute.randomInt(5) - 2 + height / 2);</span>
+<span class="nc" id="L745">                direction = Compute.randomInt(2) + 4;</span>
+<span class="nc" id="L746">                nextLeft = direction - 1;</span>
+<span class="nc" id="L747">                nextRight = (direction + 1) % 6;</span>
+<span class="nc" id="L748">                break;</span>
+            case 2:
+            case 3:
+<span class="nc" id="L751">                p = new Point(Compute.randomInt(5) - 2 + width / 2, 0);</span>
+<span class="nc" id="L752">                direction = 2;</span>
+<span class="nc" id="L753">                nextRight = 3;</span>
+<span class="nc" id="L754">                nextLeft = 4;</span>
+                break;
+        } // switch
+        /* place the river */
+<span class="nc" id="L758">        field = board.getHex(p.x, p.y);</span>
+<span class="nc" id="L759">        ITerrainFactory f = Terrains.getTerrainFactory();</span>
+        do {
+            /* first the hex itself */
+<span class="nc" id="L762">            field.removeAllTerrains();</span>
+<span class="nc" id="L763">            field.addTerrain(f.createTerrain(Terrains.WATER, 1));</span>
+<span class="nc" id="L764">            riverHexes.add(field);</span>
+<span class="nc" id="L765">            p = reverseHex.get(field);</span>
+            /* then maybe the left and right neighbours */
+<span class="nc" id="L767">            riverHexes.addAll(extendRiverToSide(board, p, Compute.randomInt(3),</span>
+                    nextLeft, reverseHex));
+<span class="nc" id="L769">            riverHexes.addAll(extendRiverToSide(board, p, Compute.randomInt(3),</span>
+                    nextRight, reverseHex));
+<span class="nc bnc" id="L771" title="All 3 branches missed.">            switch (Compute.randomInt(4)) {</span>
+                case 0:
+<span class="nc" id="L773">                    field = board.getHexInDir(p.x, p.y, (direction + 5) % 6);</span>
+<span class="nc" id="L774">                    break;</span>
+                case 1:
+<span class="nc" id="L776">                    field = board.getHexInDir(p.x, p.y, (direction + 1) % 6);</span>
+<span class="nc" id="L777">                    break;</span>
+                default:
+<span class="nc" id="L779">                    field = board.getHexInDir(p.x, p.y, direction);</span>
+                    break;
+            }
+
+<span class="nc bnc" id="L783" title="All 2 branches missed.">        } while (field != null);</span>
+
+        /* search the elevation for the river */
+<span class="nc" id="L786">        HashSet&lt;IHex&gt; tmpRiverHexes = new HashSet&lt;IHex&gt;(riverHexes);</span>
+<span class="nc bnc" id="L787" title="All 2 branches missed.">        while (!tmpRiverHexes.isEmpty()) {</span>
+<span class="nc" id="L788">            Iterator&lt;IHex&gt; iter = tmpRiverHexes.iterator();</span>
+<span class="nc" id="L789">            field = iter.next();</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">            if (field.getLevel() &lt; minElevation) {</span>
+<span class="nc" id="L791">                minElevation = field.getLevel();</span>
+            }
+<span class="nc" id="L793">            tmpRiverHexes.remove(field);</span>
+<span class="nc" id="L794">            Point thisHex = reverseHex.get(field);</span>
+            /* and now the six neighbours */
+<span class="nc bnc" id="L796" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc" id="L797">                field = board.getHexInDir(thisHex.x, thisHex.y, i);</span>
+<span class="nc bnc" id="L798" title="All 4 branches missed.">                if ((field != null) &amp;&amp; (field.getLevel() &lt; minElevation)) {</span>
+<span class="nc" id="L799">                    minElevation = field.getLevel();</span>
+                }
+<span class="nc" id="L801">                tmpRiverHexes.remove(field);</span>
+            }
+<span class="nc" id="L803">        }</span>
+
+        /* now adjust the elevation to same height */
+<span class="nc" id="L806">        Iterator&lt;IHex&gt; iter = riverHexes.iterator();</span>
+<span class="nc bnc" id="L807" title="All 2 branches missed.">        while (iter.hasNext()) {</span>
+<span class="nc" id="L808">            field = iter.next();</span>
+<span class="nc" id="L809">            field.setLevel(minElevation);</span>
+        }
+
+<span class="nc" id="L812">        return;</span>
+    }
+
+    /**
+     * Extends a river hex to left and right sides.
+     *
+     * @param hexloc The location of the river hex, from which it should get
+     *            started.
+     * @param width The width to wich the river should extend in the direction.
+     *            So the actual width of the river is 2*width+1.
+     * @param direction Direction too which the riverhexes should be extended.
+     * @return Hashset with the hexes from the side.
+     */
+    private static HashSet&lt;IHex&gt; extendRiverToSide(IBoard board, Point hexloc,
+            int width, int direction, HashMap&lt;IHex, Point&gt; reverseHex) {
+<span class="nc" id="L827">        Point current = new Point(hexloc);</span>
+<span class="nc" id="L828">        HashSet&lt;IHex&gt; result = new HashSet&lt;IHex&gt;();</span>
+        IHex hex;
+
+<span class="nc" id="L831">        hex = board.getHexInDir(current.x, current.y, direction);</span>
+<span class="nc bnc" id="L832" title="All 4 branches missed.">        while ((hex != null) &amp;&amp; (width-- &gt; 0)) {</span>
+<span class="nc" id="L833">            hex.removeAllTerrains();</span>
+<span class="nc" id="L834">            hex.addTerrain(Terrains.getTerrainFactory().createTerrain(</span>
+                    Terrains.WATER, 1));
+<span class="nc" id="L836">            result.add(hex);</span>
+<span class="nc" id="L837">            current = reverseHex.get(hex);</span>
+<span class="nc" id="L838">            hex = board.getHexInDir(current.x, current.y, direction);</span>
+        }
+<span class="nc" id="L840">        return result;</span>
+    }
+
+    /**
+     * Flood negative hex levels Shoreline / salt marshes effect Works best with
+     * more elevation
+     */
+    protected static void postProcessFlood(IHex[] hexSet, int modifier) {
+        int n;
+        IHex field;
+<span class="nc" id="L850">        ITerrainFactory f = Terrains.getTerrainFactory();</span>
+<span class="nc bnc" id="L851" title="All 2 branches missed.">        for (n = 0; n &lt; hexSet.length; n++) {</span>
+<span class="nc" id="L852">            field = hexSet[n];</span>
+<span class="nc" id="L853">            int elev = field.getLevel() - modifier;</span>
+<span class="nc bnc" id="L854" title="All 4 branches missed.">            if ((elev == 0) &amp;&amp; !(field.containsTerrain(Terrains.WATER))</span>
+<span class="nc bnc" id="L855" title="All 2 branches missed.">                    &amp;&amp; !(field.containsTerrain(Terrains.PAVEMENT))) {</span>
+<span class="nc" id="L856">                field.addTerrain(f.createTerrain(Terrains.SWAMP, 1));</span>
+<span class="nc bnc" id="L857" title="All 2 branches missed.">            } else if (elev &lt; 0) {</span>
+<span class="nc bnc" id="L858" title="All 2 branches missed.">                if (elev &lt; -4) {</span>
+<span class="nc" id="L859">                    elev = -4;</span>
+                }
+<span class="nc" id="L861">                field.removeAllTerrains();</span>
+<span class="nc" id="L862">                field.addTerrain(f.createTerrain(Terrains.WATER, -elev));</span>
+<span class="nc" id="L863">                field.setLevel(modifier);</span>
+            }
+        }
+<span class="nc" id="L866">    }</span>
+
+    /**
+     * Converts water hexes to ice hexes. Works best with snow&amp;ice theme.
+     */
+    protected static void postProcessDeepFreeze(IHex[] hexSet, int modifier) {
+        int n;
+        IHex field;
+<span class="nc" id="L874">        ITerrainFactory f = Terrains.getTerrainFactory();</span>
+<span class="nc bnc" id="L875" title="All 2 branches missed.">        for (n = 0; n &lt; hexSet.length; n++) {</span>
+<span class="nc" id="L876">            field = hexSet[n];</span>
+<span class="nc bnc" id="L877" title="All 2 branches missed.">            if (field.containsTerrain(Terrains.WATER)) {</span>
+<span class="nc" id="L878">                int level = field.terrainLevel(Terrains.WATER);</span>
+<span class="nc bnc" id="L879" title="All 2 branches missed.">                if (modifier != 0) {</span>
+<span class="nc" id="L880">                    level -= modifier;</span>
+<span class="nc" id="L881">                    field.removeTerrain(Terrains.WATER);</span>
+<span class="nc bnc" id="L882" title="All 2 branches missed.">                    if (level &gt; 0) {</span>
+<span class="nc" id="L883">                        field.addTerrain(f.createTerrain(Terrains.WATER,</span>
+                                        level));
+                    }
+                }
+<span class="nc" id="L887">                field.addTerrain(f.createTerrain(Terrains.ICE, 1));</span>
+<span class="nc bnc" id="L888" title="All 2 branches missed.">            } else if (field.containsTerrain(Terrains.SWAMP)) {</span>
+<span class="nc" id="L889">                field.removeTerrain(Terrains.SWAMP);</span>
+<span class="nc bnc" id="L890" title="All 2 branches missed.">                if (field.terrainsPresent() == 0) {</span>
+<span class="nc bnc" id="L891" title="All 2 branches missed.">                    if (Compute.randomInt(100) &lt; 30) {</span>
+                        // if no other terrains present, 30% chance to change to
+                        // rough
+<span class="nc" id="L894">                        field.addTerrain(f.createTerrain(Terrains.ROUGH, 1));</span>
+                    } else {
+<span class="nc" id="L896">                        field.addTerrain(f.createTerrain(Terrains.ICE, 1));</span>
+                    }
+                }
+            }
+        }
+<span class="nc" id="L901">    }</span>
+
+    /**
+     * Burning woods, with chance to be burnt down already
+     */
+    protected static void postProcessForestFire(IHex[] hexSet, int modifier) {
+        int n;
+        IHex field;
+        int level, newlevel;
+        int severity;
+<span class="nc" id="L911">        ITerrainFactory f = Terrains.getTerrainFactory();</span>
+<span class="nc bnc" id="L912" title="All 2 branches missed.">        for (n = 0; n &lt; hexSet.length; n++) {</span>
+<span class="nc" id="L913">            field = hexSet[n];</span>
+<span class="nc" id="L914">            level = field.terrainLevel(Terrains.WOODS);</span>
+<span class="nc bnc" id="L915" title="All 2 branches missed.">            if (level != ITerrain.LEVEL_NONE) {</span>
+<span class="nc" id="L916">                severity = Compute.randomInt(5) - 2 + modifier;</span>
+<span class="nc" id="L917">                newlevel = level - severity;</span>
+
+<span class="nc bnc" id="L919" title="All 2 branches missed.">                if (newlevel &lt;= level) {</span>
+<span class="nc" id="L920">                    field.removeTerrain(Terrains.WOODS);</span>
+<span class="nc" id="L921">                    field.removeTerrain(Terrains.FOLIAGE_ELEV);</span>
+<span class="nc bnc" id="L922" title="All 2 branches missed.">                    if (newlevel &lt;= 0) {</span>
+<span class="nc" id="L923">                        field.addTerrain(f.createTerrain(Terrains.ROUGH, 1));</span>
+                    } else {
+<span class="nc" id="L925">                        field.addTerrain(f.createTerrain(Terrains.WOODS,</span>
+                                newlevel));
+<span class="nc" id="L927">                        field.addTerrain(f.createTerrain(Terrains.FOLIAGE_ELEV,</span>
+<span class="nc bnc" id="L928" title="All 2 branches missed.">                                newlevel == 3 ? 3 : 2));</span>
+<span class="nc" id="L929">                        field.addTerrain(f.createTerrain(Terrains.FIRE, 1));</span>
+                    }
+                }
+            }
+        }
+<span class="nc" id="L934">    }</span>
+
+    /**
+     * Dries up all bodies of water by 1-3 levels. dried up water becomes swamp
+     * then rough
+     */
+    protected static void postProcessDrought(IHex[] hexSet, int modifier) {
+        int n;
+        IHex field;
+        int level, newlevel;
+<span class="nc" id="L944">        int severity = 1 + Compute.randomInt(3) + modifier;</span>
+<span class="nc bnc" id="L945" title="All 2 branches missed.">        if (severity &lt; 0) {</span>
+<span class="nc" id="L946">            return;</span>
+        }
+<span class="nc" id="L948">        ITerrainFactory f = Terrains.getTerrainFactory();</span>
+<span class="nc bnc" id="L949" title="All 2 branches missed.">        for (n = 0; n &lt; hexSet.length; n++) {</span>
+<span class="nc" id="L950">            field = hexSet[n];</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">            if (field.containsTerrain(Terrains.SWAMP)) {</span>
+<span class="nc" id="L952">                field.removeTerrain(Terrains.SWAMP); // any swamps are dried</span>
+                                                        // up to hardened mud
+<span class="nc bnc" id="L954" title="All 4 branches missed.">                if ((field.terrainsPresent() == 0) &amp;&amp; (Compute.randomInt(100) &lt; 30)) {</span>
+                    // if no other terrains present, 30% chance to change to
+                    // rough
+<span class="nc" id="L957">                    field.addTerrain(f.createTerrain(Terrains.ROUGH, 1));</span>
+                }
+            }
+<span class="nc" id="L960">            level = field.terrainLevel(Terrains.WATER);</span>
+<span class="nc bnc" id="L961" title="All 2 branches missed.">            if (level != ITerrain.LEVEL_NONE) {</span>
+<span class="nc" id="L962">                newlevel = level - severity;</span>
+<span class="nc" id="L963">                field.removeTerrain(Terrains.WATER);</span>
+<span class="nc bnc" id="L964" title="All 2 branches missed.">                if (newlevel == 0) {</span>
+<span class="nc" id="L965">                    field.addTerrain(f.createTerrain(Terrains.SWAMP, 1));</span>
+<span class="nc bnc" id="L966" title="All 2 branches missed.">                } else if (newlevel &lt; 0) {</span>
+<span class="nc" id="L967">                    field.addTerrain(f.createTerrain(Terrains.ROUGH, 1));</span>
+                } else {
+<span class="nc" id="L969">                    field.addTerrain(f.createTerrain(Terrains.WATER, newlevel));</span>
+                }
+<span class="nc bnc" id="L971" title="All 2 branches missed.">                if (level &gt; severity) {</span>
+<span class="nc" id="L972">                    newlevel = severity;</span>
+                } else {
+<span class="nc" id="L974">                    newlevel = level;</span>
+                }
+
+<span class="nc" id="L977">                field.setLevel(field.getLevel() - newlevel);</span>
+            }
+        }
+<span class="nc" id="L980">    }</span>
+
+    private static boolean hexCouldBeCliff(IBoard board, Coords c) {
+<span class="nc" id="L983">        int elevation = board.getHex(c).getLevel();</span>
+<span class="nc" id="L984">        boolean higher = false;</span>
+<span class="nc" id="L985">        boolean lower = false;</span>
+<span class="nc" id="L986">        int count = 0;</span>
+<span class="nc bnc" id="L987" title="All 2 branches missed.">        for (int dir = 0; dir &lt; 6; dir++) {</span>
+<span class="nc" id="L988">            Coords t = c.translated(dir);</span>
+<span class="nc bnc" id="L989" title="All 2 branches missed.">            if (board.contains(t)) {</span>
+<span class="nc" id="L990">                IHex hex = board.getHex(t);</span>
+<span class="nc" id="L991">                int el = hex.getLevel();</span>
+<span class="nc bnc" id="L992" title="All 2 branches missed.">                if (el &gt; elevation) {</span>
+<span class="nc" id="L993">                    lower = true;</span>
+<span class="nc bnc" id="L994" title="All 2 branches missed.">                } else if (el &lt; elevation) {</span>
+<span class="nc" id="L995">                    higher = true;</span>
+                } else {
+<span class="nc" id="L997">                    count++;</span>
+                }
+            }
+        }
+<span class="nc bnc" id="L1001" title="All 8 branches missed.">        return higher &amp;&amp; lower &amp;&amp; (count &lt;= 3) &amp;&amp; (count &gt; 0);</span>
+    }
+
+    private static void findCliffNeighbours(IBoard board, Coords c,
+            ArrayList&lt;Coords&gt; candidate, HashSet&lt;Coords&gt; ignore) {
+<span class="nc" id="L1006">        candidate.add(c);</span>
+<span class="nc" id="L1007">        ignore.add(c);</span>
+<span class="nc" id="L1008">        int elevation = board.getHex(c).getLevel();</span>
+<span class="nc bnc" id="L1009" title="All 2 branches missed.">        for (int dir = 0; dir &lt; 6; dir++) {</span>
+<span class="nc" id="L1010">            Coords t = c.translated(dir);</span>
+<span class="nc bnc" id="L1011" title="All 4 branches missed.">            if (board.contains(t) &amp;&amp; !ignore.contains(t)) {</span>
+<span class="nc bnc" id="L1012" title="All 2 branches missed.">                if (hexCouldBeCliff(board, t)) {</span>
+<span class="nc" id="L1013">                    IHex hex = board.getHex(t);</span>
+<span class="nc" id="L1014">                    int el = hex.getLevel();</span>
+<span class="nc bnc" id="L1015" title="All 2 branches missed.">                    if (el == elevation) {</span>
+<span class="nc" id="L1016">                        findCliffNeighbours(board, t, candidate, ignore);</span>
+                    }
+<span class="nc" id="L1018">                } else {</span>
+<span class="nc" id="L1019">                    ignore.add(t);</span>
+                }
+            }
+        }
+<span class="nc" id="L1023">    }</span>
+
+    protected static void addCliffs(IBoard board, int modifier) {
+<span class="nc" id="L1026">        HashSet&lt;Coords&gt; ignore = new HashSet&lt;Coords&gt;(); // previously considered</span>
+                                                        // hexes
+<span class="nc" id="L1028">        ArrayList&lt;Coords&gt; candidate = new ArrayList&lt;Coords&gt;();</span>
+<span class="nc bnc" id="L1029" title="All 2 branches missed.">        for (int x = 0; x &lt; board.getWidth(); x++) {</span>
+<span class="nc bnc" id="L1030" title="All 2 branches missed.">            for (int y = 0; y &lt; board.getHeight(); y++) {</span>
+<span class="nc" id="L1031">                Coords c = new Coords(x, y);</span>
+<span class="nc" id="L1032">                int elevation = board.getHex(c).getLevel();</span>
+<span class="nc bnc" id="L1033" title="All 2 branches missed.">                if (ignore.contains(c)) {</span>
+<span class="nc" id="L1034">                    continue;</span>
+                }
+<span class="nc bnc" id="L1036" title="All 2 branches missed.">                if (!hexCouldBeCliff(board, c)) {</span>
+<span class="nc" id="L1037">                    ignore.add(c);</span>
+<span class="nc" id="L1038">                    continue;</span>
+                }
+
+<span class="nc" id="L1041">                findCliffNeighbours(board, c, candidate, ignore);</span>
+                // is the candidate interesting (at least 3 hexes)?
+<span class="nc bnc" id="L1043" title="All 4 branches missed.">                if ((candidate.size() &gt;= 3) &amp;&amp; (Compute.randomInt(100) &lt; modifier)) {</span>
+<span class="nc bnc" id="L1044" title="All 2 branches missed.">                    if (elevation &gt; 0) {</span>
+<span class="nc" id="L1045">                        elevation--;</span>
+                    } else {
+<span class="nc" id="L1047">                        elevation++;</span>
+                    }
+<span class="nc bnc" id="L1049" title="All 2 branches missed.">                    for (Iterator&lt;Coords&gt; e = candidate.iterator(); e.hasNext();) {</span>
+<span class="nc" id="L1050">                        c = e.next();</span>
+<span class="nc" id="L1051">                        IHex hex = board.getHex(c);</span>
+<span class="nc" id="L1052">                        hex.setLevel(elevation);</span>
+<span class="nc" id="L1053">                    }</span>
+                }
+<span class="nc" id="L1055">                candidate.clear();</span>
+            }
+        }
+<span class="nc" id="L1058">    }</span>
+
+    /*
+     * adjust the board based on weather conditions
+     */
+    public static void addWeatherConditions(IBoard board, int weatherCond, int windCond) {
+<span class="nc" id="L1064">        ITerrainFactory tf = Terrains.getTerrainFactory();</span>
+
+<span class="nc bnc" id="L1066" title="All 2 branches missed.">        for (int x = 0; x &lt; board.getWidth(); x++) {</span>
+<span class="nc bnc" id="L1067" title="All 2 branches missed.">            for (int y = 0; y &lt; board.getHeight(); y++) {</span>
+<span class="nc" id="L1068">                Coords c = new Coords(x, y);</span>
+<span class="nc" id="L1069">                IHex hex = board.getHex(c);</span>
+
+                //moderate rain - mud in clear hexes, depth 0 water, and dirt roads (not implemented yet)
+<span class="nc bnc" id="L1072" title="All 2 branches missed.">                if(weatherCond == PlanetaryConditions.WE_MOD_RAIN) {</span>
+<span class="nc bnc" id="L1073" title="All 6 branches missed.">                    if((hex.terrainsPresent() == 0) || (hex.containsTerrain(Terrains.WATER) &amp;&amp; (hex.depth() == 0))) {</span>
+<span class="nc" id="L1074">                        hex.addTerrain(tf.createTerrain(Terrains.MUD, 1));</span>
+<span class="nc bnc" id="L1075" title="All 2 branches missed.">                        if(hex.containsTerrain(Terrains.WATER)) {</span>
+<span class="nc" id="L1076">                            hex.removeTerrain(Terrains.WATER);</span>
+                        }
+                    }
+                }
+
+                //heavy rain - mud in all hexes except buildings, depth 1+ water, and non-dirt roads
+                //rapids in all depth 1+ water
+<span class="nc bnc" id="L1083" title="All 4 branches missed.">                if ((weatherCond == PlanetaryConditions.WE_HEAVY_RAIN)</span>
+                        || (weatherCond == PlanetaryConditions.WE_GUSTING_RAIN)) {
+<span class="nc bnc" id="L1085" title="All 6 branches missed.">                    if(hex.containsTerrain(Terrains.WATER) &amp;&amp; !hex.containsTerrain(Terrains.RAPIDS) &amp;&amp; (hex.depth() &gt; 0)) {</span>
+<span class="nc" id="L1086">                        hex.addTerrain(tf.createTerrain(Terrains.RAPIDS, 1));</span>
+                    }
+<span class="nc bnc" id="L1088" title="All 2 branches missed.">                    else if(!hex.containsTerrain(Terrains.BUILDING)</span>
+<span class="nc bnc" id="L1089" title="All 2 branches missed.">                            &amp;&amp; !hex.containsTerrain(Terrains.PAVEMENT)</span>
+<span class="nc bnc" id="L1090" title="All 2 branches missed.">                            &amp;&amp; !hex.containsTerrain(Terrains.ROAD)) {</span>
+<span class="nc" id="L1091">                        hex.addTerrain(tf.createTerrain(Terrains.MUD, 1));</span>
+<span class="nc bnc" id="L1092" title="All 2 branches missed.">                        if(hex.containsTerrain(Terrains.WATER)) {</span>
+<span class="nc" id="L1093">                            hex.removeTerrain(Terrains.WATER);</span>
+                        }
+                    }
+                }
+
+                //torrential downpour - mud in all hexes except buildings, depth 1+ water, and non-dirt roads
+                //torrent in all depth 1+ water, swamps in all depth 0 water hexes
+<span class="nc bnc" id="L1100" title="All 2 branches missed.">                if(weatherCond == PlanetaryConditions.WE_DOWNPOUR) {</span>
+<span class="nc bnc" id="L1101" title="All 6 branches missed.">                    if(hex.containsTerrain(Terrains.WATER) &amp;&amp; !(hex.terrainLevel(Terrains.RAPIDS) &gt; 1) &amp;&amp; (hex.depth() &gt; 0)) {</span>
+<span class="nc" id="L1102">                        hex.addTerrain(tf.createTerrain(Terrains.RAPIDS, 2));</span>
+                    }
+<span class="nc bnc" id="L1104" title="All 2 branches missed.">                    else if(hex.containsTerrain(Terrains.WATER)) {</span>
+<span class="nc" id="L1105">                        hex.addTerrain(tf.createTerrain(Terrains.SWAMP, 1));</span>
+<span class="nc" id="L1106">                        hex.removeTerrain(Terrains.WATER);</span>
+                    }
+<span class="nc bnc" id="L1108" title="All 2 branches missed.">                    else if(!hex.containsTerrain(Terrains.BUILDING)</span>
+<span class="nc bnc" id="L1109" title="All 2 branches missed.">                            &amp;&amp; !hex.containsTerrain(Terrains.PAVEMENT)</span>
+<span class="nc bnc" id="L1110" title="All 2 branches missed.">                            &amp;&amp; !hex.containsTerrain(Terrains.ROAD)) {</span>
+<span class="nc" id="L1111">                        hex.addTerrain(tf.createTerrain(Terrains.MUD, 1));</span>
+                    }
+                }
+
+                //check for rapids/torrents created by wind
+<span class="nc bnc" id="L1116" title="All 2 branches missed.">                if((windCond &gt; PlanetaryConditions.WI_MOD_GALE)</span>
+<span class="nc bnc" id="L1117" title="All 4 branches missed.">                        &amp;&amp; hex.containsTerrain(Terrains.WATER) &amp;&amp; (hex.depth() &gt; 0)) {</span>
+
+<span class="nc bnc" id="L1119" title="All 2 branches missed.">                    if(windCond &gt; PlanetaryConditions.WI_STORM) {</span>
+<span class="nc bnc" id="L1120" title="All 2 branches missed.">                        if(!(hex.terrainLevel(Terrains.RAPIDS) &gt; 1)) {</span>
+<span class="nc" id="L1121">                            hex.addTerrain(tf.createTerrain(Terrains.RAPIDS, 2));</span>
+                        }
+                    } else {
+<span class="nc bnc" id="L1124" title="All 2 branches missed.">                        if(!hex.containsTerrain(Terrains.RAPIDS)) {</span>
+<span class="nc" id="L1125">                            hex.addTerrain(tf.createTerrain(Terrains.RAPIDS, 1));</span>
+                        }
+                    }
+                }
+            }
+        }
+<span class="nc" id="L1131">    }</span>
+
+    /**
+     * Generates the elevations
+     *
+     * @param hilliness The Hilliness
+     * @param width The Width of the map.
+     * @param height The Height of the map.
+     * @param range Max difference betweenn highest and lowest level.
+     * @param invertProb Probability for the invertion of the map (0..100)
+     * @param invertNegative If 1, invert negative hexes, else do nothing
+     * @param elevationMap here is the result stored
+     */
+    public static void generateElevation(int hilliness, int width, int height,
+            int range, int invertProb, int invertNegative,
+            int elevationMap[][], int algorithm) {
+<span class="nc" id="L1147">        int minLevel = 0;</span>
+<span class="nc" id="L1148">        int maxLevel = range;</span>
+<span class="nc bnc" id="L1149" title="All 2 branches missed.">        boolean invert = (Compute.randomInt(100) &lt; invertProb);</span>
+
+        /* init elevation map with 0 */
+<span class="nc bnc" id="L1152" title="All 2 branches missed.">        for (int w = 0; w &lt; width; w++) {</span>
+<span class="nc bnc" id="L1153" title="All 2 branches missed.">            for (int h = 0; h &lt; height; h++) {</span>
+<span class="nc" id="L1154">                elevationMap[w][h] = 0;</span>
+            }
+        }
+        /* generate landscape */
+<span class="nc bnc" id="L1158" title="All 4 branches missed.">        switch (algorithm) {</span>
+            case 0:
+<span class="nc" id="L1160">                cutSteps(hilliness, width, height, elevationMap);</span>
+<span class="nc" id="L1161">                break;</span>
+            case 1:
+<span class="nc" id="L1163">                midPoint(hilliness, width, height, elevationMap);</span>
+<span class="nc" id="L1164">                break;</span>
+            case 2:
+<span class="nc" id="L1166">                cutSteps(hilliness, width, height, elevationMap);</span>
+<span class="nc" id="L1167">                midPoint(hilliness, width, height, elevationMap);</span>
+<span class="nc" id="L1168">                break;</span>
+            default:
+                // Non-hardcoded generators, if we have any
+<span class="nc bnc" id="L1171" title="All 4 branches missed.">                if((algorithm &gt; 2) &amp;&amp; (algorithm - 3 &lt; elevationGenerators.size())) {</span>
+<span class="nc" id="L1172">                    elevationGenerators.get(algorithm - 3).generate(hilliness, width, height, elevationMap);</span>
+                }
+        }
+
+        /* and now normalize it */
+<span class="nc" id="L1177">        int min = elevationMap[0][0];</span>
+<span class="nc" id="L1178">        int max = elevationMap[0][0];</span>
+<span class="nc bnc" id="L1179" title="All 2 branches missed.">        for (int w = 0; w &lt; width; w++) {</span>
+<span class="nc bnc" id="L1180" title="All 2 branches missed.">            for (int h = 0; h &lt; height; h++) {</span>
+<span class="nc bnc" id="L1181" title="All 2 branches missed.">                if (elevationMap[w][h] &gt; max) {</span>
+<span class="nc" id="L1182">                    max = elevationMap[w][h];</span>
+                }
+<span class="nc bnc" id="L1184" title="All 2 branches missed.">                if (elevationMap[w][h] &lt; min) {</span>
+<span class="nc" id="L1185">                    min = elevationMap[w][h];</span>
+                }
+            }
+        }
+
+<span class="nc" id="L1190">        double scale = (double) (maxLevel - minLevel) / (double) (max - min);</span>
+<span class="nc" id="L1191">        int inc = (int) (-scale * min + minLevel);</span>
+<span class="nc" id="L1192">        int[] elevationCount = new int[maxLevel + 1];</span>
+<span class="nc bnc" id="L1193" title="All 2 branches missed.">        for (int w = 0; w &lt; width; w++) {</span>
+<span class="nc bnc" id="L1194" title="All 2 branches missed.">            for (int h = 0; h &lt; height; h++) {</span>
+<span class="nc" id="L1195">                elevationMap[w][h] *= scale;</span>
+<span class="nc" id="L1196">                elevationMap[w][h] += inc;</span>
+<span class="nc" id="L1197">                elevationCount[elevationMap[w][h]]++;</span>
+            }
+        }
+<span class="nc" id="L1200">        int mostElevation = 0;</span>
+<span class="nc bnc" id="L1201" title="All 2 branches missed.">        for (int lvl = 1; lvl &lt;= range; lvl++) {</span>
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">            if (elevationCount[lvl] &gt; elevationCount[mostElevation]) {</span>
+<span class="nc" id="L1203">                mostElevation = lvl;</span>
+            }
+        }
+<span class="nc bnc" id="L1206" title="All 2 branches missed.">        for (int w = 0; w &lt; width; w++) {</span>
+<span class="nc bnc" id="L1207" title="All 2 branches missed.">            for (int h = 0; h &lt; height; h++) {</span>
+<span class="nc" id="L1208">                elevationMap[w][h] -= mostElevation;</span>
+<span class="nc bnc" id="L1209" title="All 2 branches missed.">                if (invert) {</span>
+<span class="nc" id="L1210">                    elevationMap[w][h] *= -1;</span>
+                }
+            }
+        }
+        // invert negative terrain?
+<span class="nc bnc" id="L1215" title="All 2 branches missed.">        if (invertNegative == 1) {</span>
+<span class="nc bnc" id="L1216" title="All 2 branches missed.">            for (int w = 0; w &lt; width; w++) {</span>
+<span class="nc bnc" id="L1217" title="All 2 branches missed.">                for (int h = 0; h &lt; height; h++) {</span>
+<span class="nc bnc" id="L1218" title="All 2 branches missed.">                    if (elevationMap[w][h] &lt; 0) {</span>
+<span class="nc" id="L1219">                        elevationMap[w][h] *= -1;</span>
+                    }
+                }
+            }
+        }
+<span class="nc" id="L1224">    }</span>
+
+    public static void generateMountain(IBoard board, int width, Coords centre,
+            int height, int capStyle) {
+<span class="nc" id="L1228">        final int mapW = board.getWidth();</span>
+<span class="nc" id="L1229">        final int mapH = board.getHeight();</span>
+
+<span class="nc" id="L1231">        ITerrainFactory tf = Terrains.getTerrainFactory();</span>
+
+<span class="nc bnc" id="L1233" title="All 2 branches missed.">        for (int x = 0; x &lt; mapW; x++) {</span>
+<span class="nc bnc" id="L1234" title="All 2 branches missed.">            for (int y = 0; y &lt; mapH; y++) {</span>
+<span class="nc" id="L1235">                Coords c = new Coords(x, y);</span>
+<span class="nc" id="L1236">                int distance = c.distance(centre);</span>
+<span class="nc" id="L1237">                int elev = (100 * height * (width - distance)) / width;</span>
+<span class="nc" id="L1238">                elev = (elev / 100)</span>
+<span class="nc bnc" id="L1239" title="All 2 branches missed.">                        + (Compute.randomInt(100) &lt; (elev % 100) ? 1 : 0);</span>
+
+<span class="nc" id="L1241">                IHex hex = board.getHex(c);</span>
+
+<span class="nc bnc" id="L1243" title="All 2 branches missed.">                if (elev &gt;= height - 2) {</span>
+<span class="nc bnc" id="L1244" title="All 4 branches missed.">                    switch (capStyle) {</span>
+                        case MapSettings.MOUNTAIN_SNOWCAPPED:
+<span class="nc" id="L1246">                            hex.setTheme(&quot;snow&quot;);</span>
+<span class="nc" id="L1247">                            break;</span>
+                        case MapSettings.MOUNTAIN_VOLCANO_ACTIVE:
+                        case MapSettings.MOUNTAIN_VOLCANO_DORMANT:
+<span class="nc" id="L1250">                            hex.setTheme(&quot;lunar&quot;);</span>
+<span class="nc" id="L1251">                            break;</span>
+                        case MapSettings.MOUNTAIN_LAKE:
+<span class="nc" id="L1253">                            int lake = (width / 4);</span>
+<span class="nc" id="L1254">                            int depth = ((lake - distance) + 1);</span>
+<span class="nc bnc" id="L1255" title="All 2 branches missed.">                            if (depth &lt; 1) { // eliminates depth 0 water</span>
+<span class="nc" id="L1256">                                depth = 1;</span>
+                            }
+<span class="nc" id="L1258">                            hex.addTerrain(tf.createTerrain(Terrains.WATER,</span>
+                                    (depth)));
+<span class="nc" id="L1260">                            elev -= (Math.abs(lake - elev) - 1);</span>
+                            break;
+                    }
+                }
+<span class="nc bnc" id="L1264" title="All 2 branches missed.">                if (elev == height) {</span>
+                    // for volcanoes, invert the peak
+<span class="nc bnc" id="L1266" title="All 4 branches missed.">                    switch (capStyle) {</span>
+                        case MapSettings.MOUNTAIN_VOLCANO_ACTIVE:
+<span class="nc" id="L1268">                            hex.removeAllTerrains();</span>
+<span class="nc" id="L1269">                            hex.addTerrain(tf.createTerrain(Terrains.MAGMA, 2));</span>
+<span class="nc" id="L1270">                            elev -= 2;</span>
+<span class="nc" id="L1271">                            break;</span>
+                        case MapSettings.MOUNTAIN_VOLCANO_DORMANT:
+<span class="nc" id="L1273">                            hex.removeAllTerrains();</span>
+<span class="nc" id="L1274">                            hex.addTerrain(tf.createTerrain(Terrains.MAGMA, 1));</span>
+<span class="nc" id="L1275">                            elev -= 2;</span>
+<span class="nc" id="L1276">                            break;</span>
+                        case MapSettings.MOUNTAIN_VOLCANO_EXTINCT:
+<span class="nc" id="L1278">                            hex.setTheme(&quot;lunar&quot;);</span>
+<span class="nc" id="L1279">                            elev -= 2;</span>
+                            break;
+                    }
+                }
+
+<span class="nc bnc" id="L1284" title="All 2 branches missed.">                if (hex.getLevel() &lt; elev) {</span>
+<span class="nc" id="L1285">                    hex.setLevel(elev);</span>
+                }
+            }
+        }
+
+<span class="nc" id="L1290">    }</span>
+
+    /**
+     * Flips the board around the vertical axis (North-for-South) and/or the
+     * horizontal axis (East-for-West). The dimensions of the board will remain
+     * the same, but the terrain of the hexes will be swiched.
+     *
+     * @param horiz - a &lt;code&gt;boolean&lt;/code&gt; value that, if &lt;code&gt;true&lt;/code&gt;,
+     *            indicates that the board is being flipped North-for-South.
+     * @param vert - a &lt;code&gt;boolean&lt;/code&gt; value that, if &lt;code&gt;true&lt;/code&gt;,
+     *            indicates that the board is being flipped East-for-West.
+     */
+    public static void flip(IBoard board, boolean horiz, boolean vert) {
+        // If we're not flipping around *some* axis, do nothing.
+<span class="nc bnc" id="L1304" title="All 4 branches missed.">        if (!vert &amp;&amp; !horiz) {</span>
+<span class="nc" id="L1305">            return;</span>
+        }
+
+        // We only walk through half the board, but *which* half?
+        int stopX;
+        int stopY;
+<span class="nc" id="L1311">        int width = board.getWidth();</span>
+<span class="nc" id="L1312">        int height = board.getHeight();</span>
+
+<span class="nc bnc" id="L1314" title="All 2 branches missed.">        if (horiz) {</span>
+            // West half of board.
+<span class="nc" id="L1316">            stopX = width / 2;</span>
+<span class="nc" id="L1317">            stopY = height;</span>
+        } else {
+            // North half of board.
+<span class="nc" id="L1320">            stopX = width;</span>
+<span class="nc" id="L1321">            stopY = height / 2;</span>
+        }
+
+        // Walk through the current data array and build a new one.
+        int newX;
+        int newY;
+        IHex tempHex;
+        ITerrain terr;
+<span class="nc bnc" id="L1329" title="All 2 branches missed.">        for (int oldX = 0; oldX &lt; stopX; oldX++) {</span>
+            // Calculate the new X position of the flipped hex.
+<span class="nc bnc" id="L1331" title="All 2 branches missed.">            if (horiz) {</span>
+<span class="nc" id="L1332">                newX = width - oldX - 1;</span>
+            } else {
+<span class="nc" id="L1334">                newX = oldX;</span>
+            }
+<span class="nc bnc" id="L1336" title="All 2 branches missed.">            for (int oldY = 0; oldY &lt; stopY; oldY++) {</span>
+                // Calculate the new Y position of the flipped hex.
+<span class="nc bnc" id="L1338" title="All 2 branches missed.">                if (vert) {</span>
+<span class="nc" id="L1339">                    newY = height - oldY - 1;</span>
+                } else {
+<span class="nc" id="L1341">                    newY = oldY;</span>
+                }
+
+                // Swap the old hex for the new hex.
+<span class="nc" id="L1345">                tempHex = board.getHex(oldX, oldY);</span>
+<span class="nc" id="L1346">                board.setHex(oldX, oldY, board.getHex(newX, newY));</span>
+<span class="nc" id="L1347">                board.setHex(newX, newY, tempHex);</span>
+
+<span class="nc" id="L1349">                IHex newHex = board.getHex(newX, newY);</span>
+<span class="nc" id="L1350">                IHex oldHex = board.getHex(oldX, oldY);</span>
+
+                // Update the road exits in the swapped hexes.
+<span class="nc" id="L1353">                terr = newHex.getTerrain(Terrains.ROAD);</span>
+<span class="nc bnc" id="L1354" title="All 2 branches missed.">                if (null != terr) {</span>
+<span class="nc" id="L1355">                    terr.flipExits(horiz, vert);</span>
+                }
+<span class="nc" id="L1357">                terr = oldHex.getTerrain(Terrains.ROAD);</span>
+<span class="nc bnc" id="L1358" title="All 2 branches missed.">                if (null != terr) {</span>
+<span class="nc" id="L1359">                    terr.flipExits(horiz, vert);</span>
+                }
+
+                // Update the building exits in the swapped hexes.
+<span class="nc" id="L1363">                terr = newHex.getTerrain(Terrains.BUILDING);</span>
+<span class="nc bnc" id="L1364" title="All 2 branches missed.">                if (null != terr) {</span>
+<span class="nc" id="L1365">                    terr.flipExits(horiz, vert);</span>
+                }
+<span class="nc" id="L1367">                terr = oldHex.getTerrain(Terrains.BUILDING);</span>
+<span class="nc bnc" id="L1368" title="All 2 branches missed.">                if (null != terr) {</span>
+<span class="nc" id="L1369">                    terr.flipExits(horiz, vert);</span>
+                }
+
+                // Update the fuel tank exits in the swapped hexes.
+<span class="nc" id="L1373">                terr = newHex.getTerrain(Terrains.FUEL_TANK);</span>
+<span class="nc bnc" id="L1374" title="All 2 branches missed.">                if (null != terr) {</span>
+<span class="nc" id="L1375">                    terr.flipExits(horiz, vert);</span>
+                }
+<span class="nc" id="L1377">                terr = oldHex.getTerrain(Terrains.FUEL_TANK);</span>
+<span class="nc bnc" id="L1378" title="All 2 branches missed.">                if (null != terr) {</span>
+<span class="nc" id="L1379">                    terr.flipExits(horiz, vert);</span>
+                }
+
+                // Update the bridge exits in the swapped hexes.
+<span class="nc" id="L1383">                terr = newHex.getTerrain(Terrains.BRIDGE);</span>
+<span class="nc bnc" id="L1384" title="All 2 branches missed.">                if (null != terr) {</span>
+<span class="nc" id="L1385">                    terr.flipExits(horiz, vert);</span>
+                }
+<span class="nc" id="L1387">                terr = oldHex.getTerrain(Terrains.BRIDGE);</span>
+<span class="nc bnc" id="L1388" title="All 2 branches missed.">                if (null != terr) {</span>
+<span class="nc" id="L1389">                    terr.flipExits(horiz, vert);</span>
+                }
+            }
+        }
+<span class="nc" id="L1393">    }</span>
+
+    /**
+     * one of the landscape generation algorithms
+     */
+    protected static void cutSteps(int hilliness, int width, int height,
+            int elevationMap[][]) {
+        Point p1, p2;
+        int sideA, sideB;
+        int type;
+
+<span class="nc" id="L1404">        p1 = new Point(0, 0);</span>
+<span class="nc" id="L1405">        p2 = new Point(0, 0);</span>
+<span class="nc bnc" id="L1406" title="All 2 branches missed.">        for (int step = 0; step &lt; hilliness * 20; step++) {</span>
+            /*
+             * select which side should be decremented, and which increemented
+             */
+<span class="nc bnc" id="L1410" title="All 2 branches missed.">            sideA = (Compute.randomInt(2) == 0) ? -1 : 1;</span>
+<span class="nc" id="L1411">            sideB = -sideA;</span>
+<span class="nc" id="L1412">            type = Compute.randomInt(6);</span>
+            /*
+             * 6 different lines in rectangular area from border to border
+             * possible
+             */
+<span class="nc bnc" id="L1417" title="All 7 branches missed.">            switch (type) {</span>
+                case 0: /* left to upper border */
+<span class="nc" id="L1419">                    p1.setLocation(0, Compute.randomInt(height));</span>
+<span class="nc" id="L1420">                    p2.setLocation(Compute.randomInt(width), height - 1);</span>
+<span class="nc" id="L1421">                    markSides(p1, p2, sideB, sideA, elevationMap, height);</span>
+<span class="nc" id="L1422">                    markRect(p2.x, width, sideA, elevationMap, height);</span>
+<span class="nc" id="L1423">                    break;</span>
+                case 1: /* upper to lower border */
+<span class="nc" id="L1425">                    p1.setLocation(Compute.randomInt(width), 0);</span>
+<span class="nc" id="L1426">                    p2.setLocation(Compute.randomInt(width), height - 1);</span>
+<span class="nc bnc" id="L1427" title="All 2 branches missed.">                    if (p1.x &lt; p2.x) {</span>
+<span class="nc" id="L1428">                        markSides(p1, p2, sideA, sideB, elevationMap, height);</span>
+                    } else {
+<span class="nc" id="L1430">                        markSides(p2, p1, sideB, sideA, elevationMap, height);</span>
+                    }
+<span class="nc" id="L1432">                    markRect(0, p1.x, sideA, elevationMap, height);</span>
+<span class="nc" id="L1433">                    markRect(p2.x, width, sideB, elevationMap, height);</span>
+<span class="nc" id="L1434">                    break;</span>
+                case 2: /* upper to right border */
+<span class="nc" id="L1436">                    p1.setLocation(Compute.randomInt(width), height - 1);</span>
+<span class="nc" id="L1437">                    p2.setLocation(width, Compute.randomInt(height));</span>
+<span class="nc" id="L1438">                    markSides(p1, p2, sideB, sideA, elevationMap, height);</span>
+<span class="nc" id="L1439">                    markRect(0, p1.x, sideA, elevationMap, height);</span>
+<span class="nc" id="L1440">                    break;</span>
+                case 3: /* left to right border */
+<span class="nc" id="L1442">                    p1.setLocation(0, Compute.randomInt(height));</span>
+<span class="nc" id="L1443">                    p2.setLocation(width, Compute.randomInt(height));</span>
+<span class="nc" id="L1444">                    markSides(p1, p2, sideA, sideB, elevationMap, height);</span>
+<span class="nc" id="L1445">                    break;</span>
+                case 4: /* left to lower border */
+<span class="nc" id="L1447">                    p1.setLocation(0, Compute.randomInt(height));</span>
+<span class="nc" id="L1448">                    p2.setLocation(Compute.randomInt(width), 0);</span>
+<span class="nc" id="L1449">                    markSides(p1, p2, sideB, sideA, elevationMap, height);</span>
+<span class="nc" id="L1450">                    markRect(p2.x, width, sideB, elevationMap, height);</span>
+<span class="nc" id="L1451">                    break;</span>
+                case 5: /* lower to right border */
+<span class="nc" id="L1453">                    p1.setLocation(Compute.randomInt(width), 0);</span>
+<span class="nc" id="L1454">                    p2.setLocation(width, Compute.randomInt(height));</span>
+<span class="nc" id="L1455">                    markSides(p1, p2, sideB, sideA, elevationMap, height);</span>
+<span class="nc" id="L1456">                    markRect(0, p1.x, sideB, elevationMap, height);</span>
+                    break;
+            }
+
+        }
+<span class="nc" id="L1461">    }</span>
+
+    /**
+     * Helper function for the map generator increased a heightmap my a given
+     * value
+     */
+    protected static void markRect(int x1, int x2, int inc,
+            int elevationMap[][], int height) {
+<span class="nc bnc" id="L1469" title="All 2 branches missed.">        for (int x = x1; x &lt; x2; x++) {</span>
+<span class="nc bnc" id="L1470" title="All 2 branches missed.">            for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc" id="L1471">                elevationMap[x][y] += inc;</span>
+            }
+        }
+<span class="nc" id="L1474">    }</span>
+
+    /**
+     * Helper function for map generator inreases all of one side and decreased
+     * on other side
+     */
+    protected static void markSides(Point p1, Point p2, int upperInc,
+            int lowerInc, int elevationMap[][], int height) {
+<span class="nc bnc" id="L1482" title="All 2 branches missed.">        for (int x = p1.x; x &lt; p2.x; x++) {</span>
+<span class="nc bnc" id="L1483" title="All 2 branches missed.">            for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc" id="L1484">                int point = (p2.y - p1.y) / (p2.x - p1.x) * (x - p1.x) + p1.y;</span>
+<span class="nc bnc" id="L1485" title="All 2 branches missed.">                if (y &gt; point) {</span>
+<span class="nc" id="L1486">                    elevationMap[x][y] += upperInc;</span>
+<span class="nc bnc" id="L1487" title="All 2 branches missed.">                } else if (y &lt; point) {</span>
+<span class="nc" id="L1488">                    elevationMap[x][y] += lowerInc;</span>
+                }
+            }
+        }
+<span class="nc" id="L1492">    }</span>
+
+    /**
+     * midpoint algorithm for landscape generartion
+     */
+    protected static void midPoint(int hilliness, int width, int height,
+            int elevationMap[][]) {
+        int size;
+<span class="nc" id="L1500">        int steps = 1;</span>
+        int tmpElevation[][];
+
+<span class="nc bnc" id="L1503" title="All 2 branches missed.">        size = (width &gt; height) ? width : height;</span>
+<span class="nc bnc" id="L1504" title="All 2 branches missed.">        while (size &gt; 0) {</span>
+<span class="nc" id="L1505">            steps++;</span>
+<span class="nc" id="L1506">            size /= 2;</span>
+        }
+<span class="nc" id="L1508">        size = (1 &lt;&lt; steps) + 1;</span>
+<span class="nc" id="L1509">        tmpElevation = new int[size + 1][size + 1];</span>
+        /* init elevation map with 0 */
+<span class="nc bnc" id="L1511" title="All 2 branches missed.">        for (int w = 0; w &lt; size; w++) {</span>
+<span class="nc bnc" id="L1512" title="All 2 branches missed.">            for (int h = 0; h &lt; size; h++) {</span>
+<span class="nc bnc" id="L1513" title="All 4 branches missed.">                if ((w &lt; width) &amp;&amp; (h &lt; height)) {</span>
+<span class="nc" id="L1514">                    tmpElevation[w][h] = elevationMap[w][h];</span>
+                } else {
+<span class="nc" id="L1516">                    tmpElevation[w][h] = 0;</span>
+                }
+            }
+        }
+<span class="nc bnc" id="L1520" title="All 2 branches missed.">        for (int i = steps; i &gt; 0; i--) {</span>
+<span class="nc" id="L1521">            midPointStep((double) hilliness / 100, size, 100, tmpElevation, i,</span>
+                    true);
+        }
+<span class="nc bnc" id="L1524" title="All 2 branches missed.">        for (int w = 0; w &lt; width; w++) {</span>
+<span class="nc bnc" id="L1525" title="All 2 branches missed.">            for (int h = 0; h &lt; height; h++) {</span>
+<span class="nc" id="L1526">                elevationMap[w][h] = tmpElevation[w][h];</span>
+            }
+        }
+<span class="nc" id="L1529">    }</span>
+
+    /**
+     * Helper function for landscape generation
+     */
+    protected static void midPointStep(double fracdim, int size, int delta,
+            int elevationMap[][], int step, boolean newBorder) {
+        int d1, d2;
+        int delta5;
+        int x, y;
+
+<span class="nc" id="L1540">        d1 = size &gt;&gt; (step - 1);</span>
+<span class="nc" id="L1541">        d2 = d1 / 2;</span>
+<span class="nc" id="L1542">        fracdim = (1.0 - fracdim) / 2.0;</span>
+<span class="nc" id="L1543">        delta = (int) (delta * Math.exp(-0.6931 * fracdim * (2.0 * step - 1)));</span>
+<span class="nc" id="L1544">        delta5 = delta &lt;&lt; 5;</span>
+<span class="nc" id="L1545">        x = d2;</span>
+        do {
+<span class="nc" id="L1547">            y = d2;</span>
+            do {
+<span class="nc" id="L1549">                elevationMap[x][y] = middleValue(elevationMap[x + d2][y + d2],</span>
+                        elevationMap[x + d2][y - d2], elevationMap[x - d2][y
+                                + d2], elevationMap[x - d2][y - d2], delta5);
+<span class="nc" id="L1552">                y += d1;</span>
+<span class="nc bnc" id="L1553" title="All 2 branches missed.">            } while (y &lt; size - d2);</span>
+<span class="nc" id="L1554">            x += d1;</span>
+<span class="nc bnc" id="L1555" title="All 2 branches missed.">        } while (x &lt; size - d2);</span>
+
+<span class="nc" id="L1557">        delta = (int) (delta * Math.exp(-0.6931 * fracdim));</span>
+<span class="nc" id="L1558">        delta5 = delta &lt;&lt; 5;</span>
+<span class="nc bnc" id="L1559" title="All 2 branches missed.">        if (newBorder) {</span>
+<span class="nc" id="L1560">            x = d2;</span>
+            do {
+<span class="nc" id="L1562">                y = x;</span>
+<span class="nc" id="L1563">                elevationMap[0][x] = middleValue(elevationMap[0][x + d2],</span>
+                        elevationMap[0][x - d2], elevationMap[d2][x], delta5);
+<span class="nc" id="L1565">                elevationMap[size][x] = middleValue(elevationMap[size - 1][x</span>
+                        + d2], elevationMap[size - 1][x - d2],
+                        elevationMap[size - d2 - 1][x], delta5);
+<span class="nc" id="L1568">                y = 0;</span>
+<span class="nc" id="L1569">                elevationMap[x][0] = middleValue(elevationMap[x + d2][0],</span>
+                        elevationMap[x - d2][0], elevationMap[x][d2], delta5);
+<span class="nc" id="L1571">                elevationMap[x][size] = middleValue(</span>
+                        elevationMap[x + d2][size - 1],
+                        elevationMap[x - d2][size - 1], elevationMap[x][size
+                                - d2 - 1], delta5);
+<span class="nc" id="L1575">                x += d1;</span>
+<span class="nc bnc" id="L1576" title="All 2 branches missed.">            } while (x &lt; size - d2);</span>
+        }
+<span class="nc" id="L1578">        diagMid(new Point(d2, d1), d1, d2, delta5, size, elevationMap);</span>
+<span class="nc" id="L1579">        diagMid(new Point(d1, d2), d1, d2, delta5, size, elevationMap);</span>
+<span class="nc" id="L1580">    }</span>
+
+    /**
+     * calculates the diagonal middlepoints with new values
+     *
+     * @param p Starting point.
+     */
+    protected static void diagMid(Point p, int d1, int d2, int delta, int size,
+            int elevationMap[][]) {
+<span class="nc" id="L1589">        int x = p.x;</span>
+        int y;
+<span class="nc" id="L1591">        int hx = x + d2;</span>
+        int hy;
+
+<span class="nc bnc" id="L1594" title="All 4 branches missed.">        while ((x &lt; size - d2) &amp;&amp; (hx &lt; size)) {</span>
+<span class="nc" id="L1595">            y = p.y;</span>
+<span class="nc" id="L1596">            hy = y + d2;</span>
+<span class="nc bnc" id="L1597" title="All 4 branches missed.">            while ((y &lt; size - d2) &amp;&amp; (hy &lt; size)) {</span>
+<span class="nc" id="L1598">                elevationMap[x][y] = middleValue(elevationMap[x][hy],</span>
+                        elevationMap[x][y - d2], elevationMap[hx][y],
+                        elevationMap[x - d2][y], delta);
+<span class="nc" id="L1601">                y += d1;</span>
+<span class="nc" id="L1602">                hy = y + d2;</span>
+            }
+<span class="nc" id="L1604">            x += d1;</span>
+<span class="nc" id="L1605">            hx = x + d2;</span>
+        }
+<span class="nc" id="L1607">    }</span>
+
+    /**
+     * calculates the arithmetic medium of 3 values and add random value in
+     * range of delta.
+     */
+    protected static int middleValue(int a, int b, int c, int delta) {
+<span class="nc" id="L1614">        int result = (((a + b + c) / 3) + normRNG(delta));</span>
+<span class="nc" id="L1615">        return result;</span>
+    }
+
+    /**
+     * calculates the arithmetic medium of 4 values and add random value in
+     * range of delta.
+     */
+    protected static int middleValue(int a, int b, int c, int d, int delta) {
+<span class="nc" id="L1623">        int result = (((a + b + c + d) / 4) + normRNG(delta));</span>
+<span class="nc" id="L1624">        return result;</span>
+    }
+
+    /**
+     * Gives a normal distributed Randomvalue, with mediumvalue from 0 and a
+     * Varianz of factor.
+     *
+     * @param factor varianz of of the distribution.
+     * @return Random number, most times in the range -factor .. +factor, at
+     *         most in the range of -3*factor .. +3*factor.
+     */
+    private static int normRNG(int factor) {
+<span class="nc" id="L1636">        factor++;</span>
+<span class="nc" id="L1637">        return (2 * (Compute.randomInt(factor) + Compute.randomInt(factor) + Compute</span>
+<span class="nc" id="L1638">                .randomInt(factor)) - 3 * (factor - 1)) / 32;</span>
+    }
+
+    /**
+     * Figures out the &quot;closest&quot; edge for the given entity on the entity's game board
+     * @param entity Entity to evaluate
+     * @return the Board.START_ constant representing the &quot;closest&quot; edge
+     */
+    public static CardinalEdge getClosestEdge(Entity entity) {
+<span class="nc" id="L1647">        int distanceToWest = entity.getPosition().getX();</span>
+<span class="nc" id="L1648">        int distanceToEast = entity.getGame().getBoard().getWidth() - entity.getPosition().getX();</span>
+<span class="nc" id="L1649">        int distanceToNorth = entity.getPosition().getY();</span>
+<span class="nc" id="L1650">        int distanceToSouth = entity.getGame().getBoard().getHeight() - entity.getPosition().getY();</span>
+
+<span class="nc bnc" id="L1652" title="All 2 branches missed.">        boolean closerWestThanEast = distanceToWest &lt; distanceToEast;</span>
+<span class="nc bnc" id="L1653" title="All 2 branches missed.">        boolean closerNorthThanSouth = distanceToNorth &lt; distanceToSouth;</span>
+
+<span class="nc" id="L1655">        int horizontalDistance = Math.min(distanceToWest, distanceToEast);</span>
+<span class="nc" id="L1656">        int verticalDistance = Math.min(distanceToNorth, distanceToSouth);</span>
+
+<span class="nc bnc" id="L1658" title="All 2 branches missed.">        if(horizontalDistance &lt; verticalDistance) {</span>
+<span class="nc bnc" id="L1659" title="All 2 branches missed.">            return closerWestThanEast ? CardinalEdge.WEST : CardinalEdge.EAST;</span>
+        } else {
+<span class="nc bnc" id="L1661" title="All 2 branches missed.">            return closerNorthThanSouth ? CardinalEdge.NORTH : CardinalEdge.SOUTH;</span>
+        }
+    }
+    
+    /**
+     * Figures out the &quot;opposite&quot; edge for the given entity.
+     * @param entity Entity to evaluate
+     * @return the Board.START_ constant representing the &quot;opposite&quot; edge
+     */
+    public static CardinalEdge determineOppositeEdge(Entity entity) {
+<span class="nc" id="L1671">        IBoard board = entity.getGame().getBoard();</span>
+
+        // the easiest part is if the entity is supposed to start on a particular edge. Just return the opposite edge.
+<span class="nc" id="L1674">        int oppositeEdge = board.getOppositeEdge(entity.getStartingPos());</span>
+<span class="nc bnc" id="L1675" title="All 2 branches missed.">        if (oppositeEdge != Board.START_NONE) {</span>
+<span class="nc" id="L1676">            return CardinalEdge.getCardinalEdge(OffBoardDirection.translateBoardStart(oppositeEdge));</span>
+        }
+
+        // otherwise, we determine which edge of the board is closest to current position and return the opposite edge
+        // in case of tie, vertical distance wins over horizontal distance
+<span class="nc" id="L1681">        CardinalEdge closestEdge = getClosestEdge(entity);</span>
+<span class="nc" id="L1682">        return CardinalEdge.getOppositeEdge(closestEdge);</span>
+    }
+
+    protected static class Point {
+
+        public int x;
+        public int y;
+
+<span class="nc" id="L1690">        public Point(int x, int y) {</span>
+<span class="nc" id="L1691">            this.x = x;</span>
+<span class="nc" id="L1692">            this.y = y;</span>
+<span class="nc" id="L1693">        }</span>
+
+<span class="nc" id="L1695">        public Point(Point other) {</span>
+<span class="nc" id="L1696">            x = other.x;</span>
+<span class="nc" id="L1697">            y = other.y;</span>
+<span class="nc" id="L1698">        }</span>
+
+        /**
+         * Set the location
+         *
+         * @param x x coordinate
+         * @param y y coordinate
+         */
+        public void setLocation(int x, int y) {
+<span class="nc" id="L1707">            this.x = x;</span>
+<span class="nc" id="L1708">            this.y = y;</span>
+<span class="nc" id="L1709">        }</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

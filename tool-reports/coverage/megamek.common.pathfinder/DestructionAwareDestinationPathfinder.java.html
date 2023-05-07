@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DestructionAwareDestinationPathfinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">DestructionAwareDestinationPathfinder.java</span></div><h1>DestructionAwareDestinationPathfinder.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2020 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.pathfinder;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+
+import megamek.client.bot.princess.AeroPathUtil;
+import megamek.common.Building;
+import megamek.common.BulldozerMovePath;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.EntityMovementMode;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.PlanetaryConditions;
+import megamek.common.Terrains;
+
+/**
+ * Handles the generation of ground-based move paths that contain information relating to the destruction 
+ * of terrain necessary to accomplish that path.
+ */
+<span class="nc" id="L43">public class DestructionAwareDestinationPathfinder extends BoardEdgePathFinder {</span>
+
+    private Comparator&lt;BulldozerMovePath&gt; movePathComparator;
+<span class="nc" id="L46">    private int maximumCost = Integer.MAX_VALUE;</span>
+<span class="nc" id="L47">    private Map&lt;Coords, Boolean&gt; friendlyFireCheckResults = new HashMap&lt;&gt;();</span>
+    
+    /**
+     * Uses an A* search to find the &quot;optimal&quot; path to the destination coordinates.
+     * Ignores move cost and makes note of hexes that need to be cleared for the path to
+     * be viable.
+     */
+    public BulldozerMovePath findPathToCoords(Entity entity, Set&lt;Coords&gt; destinationCoords, BoardClusterTracker clusterTracker) {
+<span class="nc" id="L55">        return findPathToCoords(entity, destinationCoords, false, clusterTracker);</span>
+    }
+    
+    /**
+     * Uses an A* search to find the &quot;optimal&quot; path to the destination coordinates.
+     * Ignores move cost and makes note of hexes that need to be cleared for the path to
+     * be viable.
+     */
+    public BulldozerMovePath findPathToCoords(Entity entity, Set&lt;Coords&gt; destinationCoords, boolean jump, BoardClusterTracker clusterTracker) {
+<span class="nc" id="L64">        BulldozerMovePath startPath = new BulldozerMovePath(entity.getGame(), entity);</span>
+        
+        // if we're calculating a jump path and the entity has jump mp and can jump, start off with a jump
+        // if we're trying to calc a jump path and the entity does not have jump mp, we're done
+<span class="nc bnc" id="L68" title="All 4 branches missed.">        if (jump &amp;&amp; (startPath.getCachedEntityState().getJumpMPWithTerrain() &gt; 0) &amp;&amp;</span>
+<span class="nc bnc" id="L69" title="All 4 branches missed.">                !entity.isProne() &amp;&amp; !entity.isHullDown() &amp;&amp; </span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">                (entity.getGame().getPlanetaryConditions().getWindStrength() != PlanetaryConditions.WI_TORNADO_F4)) {</span>
+<span class="nc" id="L71">            startPath.addStep(MoveStepType.START_JUMP);</span>
+        // if we specified a jump path, but can't actually jump
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        } else if (jump) {</span>
+<span class="nc" id="L74">            return null;</span>
+        // can't &quot;climb into&quot; anything while jumping
+        } else { 
+<span class="nc bnc" id="L77" title="All 2 branches missed.">            if(entity.hasETypeFlag(Entity.ETYPE_INFANTRY)) {</span>
+<span class="nc" id="L78">                startPath.addStep(MoveStepType.CLIMB_MODE_OFF);</span>
+            } else {
+<span class="nc" id="L80">                startPath.addStep(MoveStepType.CLIMB_MODE_ON);</span>
+            }
+        }
+        
+        // if we're on the ground, let's try to get up first before moving 
+<span class="nc bnc" id="L85" title="All 4 branches missed.">        if(entity.isProne() || entity.isHullDown()) {</span>
+<span class="nc" id="L86">            startPath.addStep(MoveStepType.GET_UP);</span>
+            
+            // if we can't even get up, no need to do anything else
+<span class="nc bnc" id="L89" title="All 2 branches missed.">            if(!startPath.isMoveLegal()) {</span>
+<span class="nc" id="L90">                return null;</span>
+            }
+        }
+
+<span class="nc" id="L94">        Coords closest = getClosestCoords(destinationCoords, entity);</span>
+        // if we can't at all get to the coordinates with this entity, don't bother with the rest 
+<span class="nc bnc" id="L96" title="All 2 branches missed.">        if (closest == null) {</span>
+<span class="nc" id="L97">            return null;</span>
+        }
+        
+<span class="nc" id="L100">        movePathComparator = new AStarComparator(closest);</span>
+<span class="nc" id="L101">        maximumCost = Integer.MAX_VALUE;</span>
+        
+<span class="nc" id="L103">        TreeSet&lt;BulldozerMovePath&gt; candidates = new TreeSet&lt;&gt;(movePathComparator);</span>
+<span class="nc" id="L104">        candidates.add(startPath);</span>
+
+        // a collection of coordinates we've already visited, so we don't loop back.
+<span class="nc" id="L107">        Map&lt;Coords, BulldozerMovePath&gt; shortestPathsToCoords = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L108">        shortestPathsToCoords.put(startPath.getFinalCoords(), startPath);</span>
+<span class="nc" id="L109">        BulldozerMovePath bestPath = null;</span>
+
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        while(!candidates.isEmpty()) {</span>
+<span class="nc" id="L112">            BulldozerMovePath currentPath = candidates.pollFirst();</span>
+            
+<span class="nc" id="L114">            candidates.addAll(generateChildNodes(currentPath, shortestPathsToCoords, clusterTracker, closest));      </span>
+            
+<span class="nc bnc" id="L116" title="All 4 branches missed.">            if(destinationCoords.contains(currentPath.getFinalCoords()) &amp;&amp;</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">                    ((bestPath == null) || (movePathComparator.compare(bestPath, currentPath) &gt; 0))) {</span>
+<span class="nc" id="L118">                bestPath = currentPath;</span>
+<span class="nc" id="L119">                maximumCost = bestPath.getMpUsed() + bestPath.getLevelingCost();</span>
+            }
+<span class="nc" id="L121">        }</span>
+  
+<span class="nc" id="L123">        return bestPath;</span>
+    }
+    
+    /**
+     * Calculates the closest coordinates to the given entity
+     * Coordinates which you have to blow up to get into are considered to be further
+     */
+    public static Coords getClosestCoords(Set&lt;Coords&gt; destinationRegion, Entity entity) {
+<span class="nc" id="L131">        Coords bestCoords = null;</span>
+<span class="nc" id="L132">        int bestDistance = Integer.MAX_VALUE;</span>
+        
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        for(Coords coords : destinationRegion) {</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">            if(!entity.getGame().getBoard().contains(coords)) {</span>
+<span class="nc" id="L136">                continue;</span>
+            }
+            
+<span class="nc" id="L139">            int levelingCost = BulldozerMovePath.calculateLevelingCost(coords, entity);</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">            boolean canLevel = levelingCost &gt; BulldozerMovePath.CANNOT_LEVEL;</span>
+            
+<span class="nc bnc" id="L142" title="All 4 branches missed.">            if(!entity.isLocationProhibited(coords) || canLevel) {</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">                int distance = coords.distance(entity.getPosition()) + (canLevel ? levelingCost : 0);</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">                if(distance &lt; bestDistance) {</span>
+<span class="nc" id="L145">                    bestDistance = distance;</span>
+<span class="nc" id="L146">                    bestCoords = coords;</span>
+                }
+            }
+<span class="nc" id="L149">        }</span>
+        
+<span class="nc" id="L151">        return bestCoords;</span>
+    }
+    
+    /**
+     * Function that generates all possible &quot;legal&quot; moves resulting from the given path
+     * and updates the set of visited coordinates so we don't visit them again.
+     * @param parentPath The path for which to generate child nodes
+     * @param visitedCoords Set of visited coordinates so we don't loop around
+     * @return List of valid children. Between 0 and 3 inclusive.
+     */
+    protected List&lt;BulldozerMovePath&gt; generateChildNodes(BulldozerMovePath parentPath, Map&lt;Coords, BulldozerMovePath&gt; shortestPathsToCoords,
+            BoardClusterTracker clusterTracker, Coords destinationCoords) {
+<span class="nc" id="L163">        List&lt;BulldozerMovePath&gt; children = new ArrayList&lt;&gt;();</span>
+
+        // there are six possible children of a move path, defined in AeroPathUtil.TURNS
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        for(List&lt;MoveStepType&gt; turns : AeroPathUtil.TURNS) {</span>
+<span class="nc" id="L167">            BulldozerMovePath childPath = (BulldozerMovePath) parentPath.clone();</span>
+            
+            // apply the list of turn steps
+<span class="nc bnc" id="L170" title="All 2 branches missed.">            for(MoveStepType stepType : turns) {</span>
+<span class="nc" id="L171">                childPath.addStep(stepType);</span>
+<span class="nc" id="L172">            }</span>
+            
+            // potentially apply UP so we can hop over unwanted terrain
+<span class="nc" id="L175">            PathDecorator.AdjustElevationForForwardMovement(childPath);</span>
+            
+            // move forward and process the generated child path
+<span class="nc" id="L178">            childPath.addStep(MoveStepType.FORWARDS);</span>
+<span class="nc" id="L179">            processChild(childPath, children, shortestPathsToCoords, clusterTracker, destinationCoords);</span>
+<span class="nc" id="L180">        }</span>
+
+<span class="nc" id="L182">        return children;</span>
+    }
+    
+    /**
+     * Helper function that handles logic related to potentially adding a generated child path
+     * to the list of child paths.
+     */
+    protected void processChild(BulldozerMovePath child, List&lt;BulldozerMovePath&gt; children, 
+            Map&lt;Coords, BulldozerMovePath&gt; shortestPathsToCoords, BoardClusterTracker clusterTracker, Coords destinationCoords) {
+        // (if we haven't visited these coordinates before
+        // or we have, and this is a shorter path)
+        // and (it is a legal move
+        // or it needs some &quot;terrain adjustment&quot; to become a legal move)
+        // and we haven't already found a path to the destination that's cheaper than what we're considering
+        // and we're not going off board 
+<span class="nc" id="L197">        MoveLegalityIndicator mli = isLegalMove((MovePath) child);</span>
+        
+        // if this path goes through terrain that can be leveled
+        // but has other problems with it (e.g. elevation change, or the &quot;reduced&quot; terrain still won't let you through)
+        // it still can't be leveled
+<span class="nc bnc" id="L202" title="All 16 branches missed.">        boolean canLevel = child.needsLeveling() &amp;&amp;</span>
+                !mli.outOfBounds &amp;&amp;
+                !mli.destinationImpassable &amp;&amp;
+                !mli.goingDownTooLow &amp;&amp;
+                !mli.goingUpTooHigh &amp;&amp;
+                !mli.wheeledTankRestriction &amp;&amp;
+                !mli.destinationHasWeakBridge &amp;&amp;
+                !mli.groundTankIntoWater;
+        
+        // legal jump moves are simpler:
+        // can't go out of bounds, can't jump too high (unless we can destroy the obstacle)
+<span class="nc bnc" id="L213" title="All 6 branches missed.">        boolean legalJumpMove = child.isJumping() &amp;&amp;</span>
+                !mli.outOfBounds &amp;&amp;
+<span class="nc bnc" id="L215" title="All 2 branches missed.">                (!mli.goingUpTooHigh || child.needsLeveling());</span>
+        
+        // this is true if we're jumping down further down than our max jump MP
+        // or jumping down lower than our max elevation change
+<span class="nc" id="L219">        boolean irreversibleJumpDown = </span>
+<span class="nc bnc" id="L220" title="All 4 branches missed.">                (child.isJumping() &amp;&amp; (Math.abs(mli.elevationChange) &gt; child.getCachedEntityState().getJumpMP())) ||</span>
+<span class="nc bnc" id="L221" title="All 4 branches missed.">                (child.getEntity().getMaxElevationDown() == Entity.UNLIMITED_JUMP_DOWN) &amp;&amp; (Math.abs(mli.elevationChange) &gt; child.getEntity().getMaxElevationChange());</span>
+        
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        boolean destinationUseBridge = child.getGame().getBoard().getHex(destinationCoords).getTerrain(Terrains.BRIDGE) != null;</span>
+<span class="nc" id="L224">        int destHexElevation = calculateUnitElevationInHex(child.getGame().getBoard().getHex(destinationCoords), </span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">                child.getEntity(), child.getEntity().getMovementMode() == EntityMovementMode.HOVER, child.getCachedEntityState().isAmphibious(),</span>
+                destinationUseBridge);
+        
+        // if we jumped into a hole and this results into us moving into a different cluster than the destination,
+        // that's not great and we should not consider the possibility for long range path finding.
+<span class="nc bnc" id="L230" title="All 2 branches missed.">        if (irreversibleJumpDown &amp;&amp; </span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">                !clusterTracker.coordinatesShareCluster(child.getEntity(), child.getFinalCoords(), destinationCoords,</span>
+                        mli.destHexElevation, destHexElevation)) {
+<span class="nc" id="L233">            return;</span>
+        }
+        
+        // let's avoid pathing through buildings containing our immobile units - 
+        // they're not going to get out of the way and we can probably do better than killing our own guys
+<span class="nc bnc" id="L238" title="All 4 branches missed.">        if (!child.isJumping() &amp;&amp; friendlyFireCheck(child.getEntity(), child.getGame(), child.getFinalCoords(), false)) {</span>
+<span class="nc" id="L239">            return;</span>
+        }
+        
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        if ((!shortestPathsToCoords.containsKey(child.getFinalCoords()) ||</span>
+                // shorter path to these coordinates
+<span class="nc bnc" id="L244" title="All 2 branches missed.">                (movePathComparator.compare(shortestPathsToCoords.get(child.getFinalCoords()), child) &gt; 0)) &amp;&amp;</span>
+                // legal or needs leveling or jumping and not off-board
+<span class="nc bnc" id="L246" title="All 6 branches missed.">                (mli.isLegal() || canLevel || legalJumpMove) &amp;&amp;</span>
+                // better than existing path to ultimate destination
+<span class="nc bnc" id="L248" title="All 2 branches missed.">                (child.getMpUsed() + child.getLevelingCost() &lt; maximumCost)) {</span>
+<span class="nc" id="L249">            shortestPathsToCoords.put(child.getFinalCoords(), child);</span>
+<span class="nc" id="L250">            children.add(child);</span>
+        }
+<span class="nc" id="L252">    }</span>
+    
+    /**
+     * Utility function that returns true if an attack on the building in the given coordinates
+     * will result in damage to friendly units. Computation is cached as it is somewhat expensive to perform for each possible path node.
+     */
+    private boolean friendlyFireCheck(Entity shooter, IGame game, Coords position, boolean includeMobileUnits) {
+<span class="nc bnc" id="L259" title="All 2 branches missed.">        if (friendlyFireCheckResults.containsKey(position)) {</span>
+<span class="nc" id="L260">            return friendlyFireCheckResults.get(position);</span>
+        }
+        
+<span class="nc" id="L263">        Building building = game.getBoard().getBuildingAt(position);</span>
+        
+        // no building, no problem
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        if (building == null) {</span>
+<span class="nc" id="L267">            friendlyFireCheckResults.put(position, false);</span>
+<span class="nc" id="L268">            return false;</span>
+        }
+        
+        // check if there are any entities in the building that meet the following criteria:
+        // - is friendly
+        // - if we care only about mobile units, has no MP 
+<span class="nc bnc" id="L274" title="All 2 branches missed.">        for (Entity entity : game.getEntitiesVector(position, true)) {</span>
+<span class="nc bnc" id="L275" title="All 6 branches missed.">            if (!entity.isEnemyOf(shooter) &amp;&amp; (includeMobileUnits || (entity.getWalkMP(true, false) == 0))) {</span>
+<span class="nc" id="L276">                friendlyFireCheckResults.put(position, true);</span>
+<span class="nc" id="L277">                return true;</span>
+            }
+<span class="nc" id="L279">        }</span>
+        
+<span class="nc" id="L281">        friendlyFireCheckResults.put(position, false);</span>
+<span class="nc" id="L282">        return false;</span>
+    }
+    
+    /**
+     * Comparator implementation useful in comparing how much closer a given path is to the internal
+     * &quot;destination edge&quot; than the other.
+     * @author NickAragua
+     */
+    private class AStarComparator implements Comparator&lt;BulldozerMovePath&gt; {
+        private Coords destination;
+
+        /**
+         * Constructor - initializes the destination edge.
+         * @param targetRegion Destination edge
+         */
+<span class="nc" id="L297">        public AStarComparator(Coords destination) {</span>
+<span class="nc" id="L298">            this.destination = destination;</span>
+<span class="nc" id="L299">        }</span>
+        
+        /**
+         * compare the first move path to the second
+         * Favors paths that move closer to the destination edge first.
+         * in case of tie, favors paths that cost less MP
+         */
+        @Override
+        public int compare(BulldozerMovePath first, BulldozerMovePath second) {
+<span class="nc" id="L308">            IBoard board = first.getGame().getBoard();</span>
+<span class="nc" id="L309">            boolean backwards = false;</span>
+<span class="nc" id="L310">            int h1 = first.getFinalCoords().distance(destination)</span>
+<span class="nc" id="L311">                    + ShortestPathFinder.getLevelDiff(first, destination, board, false)</span>
+<span class="nc" id="L312">                    + ShortestPathFinder.getElevationDiff(first, destination, board, first.getEntity());</span>
+<span class="nc" id="L313">            int h2 = second.getFinalCoords().distance(destination)</span>
+<span class="nc" id="L314">                    + ShortestPathFinder.getLevelDiff(second, destination, board, false)</span>
+<span class="nc" id="L315">                    + ShortestPathFinder.getElevationDiff(second, destination, board, second.getEntity());</span>
+    
+<span class="nc" id="L317">            int dd = (first.getMpUsed() + first.getLevelingCost() + first.getAdditionalCost() + h1) </span>
+<span class="nc" id="L318">                    - (second.getMpUsed() + second.getLevelingCost() + second.getAdditionalCost() + h2);</span>
+            
+            // getFacingDiff returns a number between 0 and 3 inclusive. 
+            // if the value diff is larger than 3, then it won't make a difference and we skip calculating it
+<span class="nc bnc" id="L322" title="All 2 branches missed.">            if (Math.abs(dd) &lt; 4) {</span>
+<span class="nc" id="L323">                dd *= 10; // facing diff doesn't matter as much as the other stuff, only use it as a tie-breaker</span>
+<span class="nc" id="L324">                dd += ShortestPathFinder.getFacingDiff(first, destination, backwards);</span>
+<span class="nc" id="L325">                dd -= ShortestPathFinder.getFacingDiff(second, destination, backwards);</span>
+            }
+    
+            // dd != 0 implies that the two paths are not identical
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            if (dd != 0) {</span>
+<span class="nc" id="L330">                return dd;</span>
+            } else {
+<span class="nc" id="L332">                int tieBreakerDiff = first.getHexesMoved() - second.getHexesMoved();</span>
+<span class="nc bnc" id="L333" title="All 2 branches missed.">                if (tieBreakerDiff == 0) {</span>
+<span class="nc" id="L334">                    tieBreakerDiff = first.getMpUsed() - second.getMpUsed();</span>
+                }
+                
+<span class="nc" id="L337">                return tieBreakerDiff;</span>
+            }
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

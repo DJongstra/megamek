@@ -1,0 +1,831 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FactionRecord.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ratgenerator</a> &gt; <span class="el_source">FactionRecord.java</span></div><h1>FactionRecord.java</h1><pre class="source lang-java linenums">/*
+ *  MegaMek - Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.ratgenerator;
+
+import java.io.PrintWriter;
+import java.text.ParseException;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import org.w3c.dom.Node;
+import org.apache.commons.text.StringEscapeUtils;
+
+import megamek.MegaMek;
+import megamek.common.UnitType;
+
+/**
+ * Stores data about factions used for building RATs, including
+ * parent factions, factions to salvage from, and percentages of
+ * Omni/SL/Clan tech. Keys are compatible with those used by MekHQ,
+ * with various subcommands indicated by a period and an additional
+ * key (e.g. DC.SL for Draconis Combine/Sword of Light).
+ *
+ * @author Neoancient
+ */
+public class FactionRecord {
+    /**
+     * Proportions of omni/Clan/upgraded tech are given for each faction
+     * by the field manual series.
+     */
+<span class="nc" id="L41">    public enum TechCategory {</span>
+<span class="nc" id="L42">        OMNI, CLAN, IS_ADVANCED, // Used for Meks, and also used for ASFs or vees if no other value is present.</span>
+<span class="nc" id="L43">        OMNI_AERO, CLAN_AERO, IS_ADVANCED_AERO,</span>
+<span class="nc" id="L44">        CLAN_VEE, IS_ADVANCED_VEE;</span>
+        /* omni vees do not see the widespread use of Meks and ASFs and do not get
+         * a separate percentage value
+         */
+
+        /**
+         * If no value is provided for ASFs or Vees, use the base value.
+         * @return The base category if the desired one has no value, or null if this is the base.
+         */
+        TechCategory fallthrough() {
+<span class="nc bnc" id="L54" title="All 4 branches missed.">            switch (this) {</span>
+            case OMNI_AERO:
+<span class="nc" id="L56">                return OMNI;</span>
+            case CLAN_AERO:
+            case CLAN_VEE:
+<span class="nc" id="L59">                return CLAN;</span>
+            case IS_ADVANCED_AERO:
+            case IS_ADVANCED_VEE:
+<span class="nc" id="L62">                return IS_ADVANCED;</span>
+            default:
+<span class="nc" id="L64">                return null;</span>
+            }
+        }
+    }
+
+    private String key;
+    private boolean minor;
+    private boolean clan;
+    private boolean periphery;
+    private String name;
+    private TreeMap&lt;Integer, String&gt; altNames;
+    private ArrayList&lt;DateRange&gt; yearsActive;
+    private ArrayList&lt;String&gt; ratingLevels;
+    private HashMap&lt;Integer, Integer&gt; pctSalvage;
+    private HashMap&lt;TechCategory, HashMap&lt;Integer, ArrayList&lt;Integer&gt;&gt;&gt; pctTech;
+    private HashMap&lt;Integer, HashMap&lt;String, Integer&gt;&gt; salvage;
+    /*
+     * FM:Updates gives percentage values for omni, Clan, and SL tech. Later manuals are
+     * less precise, giving omni percentages for Clans and (in FM:3085) upgrade percentage
+     * for IS and Periphery factions. In order to use the values that are available without
+     * either forcing conformity to guesses for later eras or suddenly removing constraints,
+     * we extrapolate some values but provide a margin of conformity that grows as we
+     * get farther from known values. upgradeMargin applies the percentage of units that
+     * are late-SW IS tech. techMargin applies to both Clan and advanced (SL and post-Clan) tech.
+     */
+    private HashMap&lt;Integer, Integer&gt; omniMargin;
+    private HashMap&lt;Integer, Integer&gt; techMargin;
+    private HashMap&lt;Integer, Integer&gt; upgradeMargin;
+
+    private HashMap&lt;Integer, HashMap&lt;Integer,ArrayList&lt;Integer&gt;&gt;&gt; weightDistribution;
+    private ArrayList&lt;String&gt; parentFactions;
+
+    public FactionRecord() {
+<span class="nc" id="L97">        this(&quot;Periphery&quot;, &quot;Periphery&quot;);</span>
+<span class="nc" id="L98">    }</span>
+
+    public FactionRecord(String key) {
+<span class="nc" id="L101">        this(key, key);</span>
+<span class="nc" id="L102">    }</span>
+
+<span class="nc" id="L104">    public FactionRecord(String key, String name) {</span>
+<span class="nc" id="L105">        this.key = key;</span>
+<span class="nc" id="L106">        this.name = name;</span>
+<span class="nc" id="L107">        minor = clan = periphery = false;</span>
+<span class="nc" id="L108">        ratingLevels = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L109">        altNames = new TreeMap&lt;&gt;();</span>
+<span class="nc" id="L110">        yearsActive = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L111">        pctSalvage = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L112">        pctTech = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L113">        omniMargin = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L114">        upgradeMargin = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L115">        techMargin = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L116">        salvage = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L117">        weightDistribution = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L118">        parentFactions = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L119">    }</span>
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L123">        return key.hashCode();</span>
+    }
+
+    @Override
+    public boolean equals(Object other) {
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        return other instanceof FactionRecord</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">                &amp;&amp; ((FactionRecord)other).getKey().equals(getKey());</span>
+    }
+
+    public String getKey() {
+<span class="nc" id="L133">        return key;</span>
+    }
+
+    public boolean isMinor() {
+<span class="nc" id="L137">        return minor;</span>
+    }
+
+    public void setMinor(boolean minor) {
+<span class="nc" id="L141">        this.minor = minor;</span>
+<span class="nc" id="L142">    }</span>
+
+    public boolean isClan() {
+<span class="nc" id="L145">        return clan;</span>
+    }
+
+    public void setClan(boolean clan) {
+<span class="nc" id="L149">        this.clan = clan;</span>
+<span class="nc" id="L150">    }</span>
+
+    public boolean isPeriphery() {
+<span class="nc" id="L153">        return periphery;</span>
+    }
+
+    public void setPeriphery(boolean periphery) {
+<span class="nc" id="L157">        this.periphery = periphery;</span>
+<span class="nc" id="L158">    }</span>
+
+    /**
+     *
+     * @return value of ratingLevels
+     */
+    public ArrayList&lt;String&gt; getRatingLevels() {
+<span class="nc" id="L165">        return ratingLevels;</span>
+    }
+
+    /**
+     * Checks the faction parent hierarchy as necessary to find a set of ratings with at
+     * least two values. If ratingLevels is empty, this faction inherits the parent's system.
+     * If ratingLevels has one member, it indicates a set value for this faction within
+     * the parent faction's system.
+     *
+     * @return The list of available equipment ratings for the faction.
+     */
+
+    public ArrayList&lt;String&gt; getRatingLevelSystem() {
+<span class="nc bnc" id="L178" title="All 2 branches missed.">        if (ratingLevels.size() &lt; 2) {</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">            for (String parent : parentFactions) {</span>
+<span class="nc" id="L180">                FactionRecord fr = RATGenerator.getInstance().getFaction(parent);</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">                if (fr != null) {</span>
+<span class="nc" id="L182">                    ArrayList&lt;String&gt; retVal = fr.getRatingLevelSystem();</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">                    if (retVal.size() &gt; 1 &amp;&amp;</span>
+<span class="nc bnc" id="L184" title="All 4 branches missed.">                            (ratingLevels.isEmpty() || retVal.contains(ratingLevels.get(0)))) {</span>
+<span class="nc" id="L185">                        return retVal;</span>
+                    }
+                }
+<span class="nc" id="L188">            }</span>
+        }
+<span class="nc" id="L190">        return ratingLevels;</span>
+    }
+
+    public String getName() {
+<span class="nc" id="L194">        return name;</span>
+    }
+
+    public String getName(int year) {
+<span class="nc" id="L198">        String retVal = name;</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">        for (Integer y : altNames.keySet()) {</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">            if (y &lt;= year) {</span>
+<span class="nc" id="L201">                retVal = altNames.get(y);</span>
+            } else {
+                break;
+            }
+<span class="nc" id="L205">        }</span>
+<span class="nc" id="L206">        return retVal;</span>
+    }
+
+    public void setName(String name) {
+<span class="nc" id="L210">        this.name = name;</span>
+<span class="nc" id="L211">    }</span>
+
+    public void setName(int era, String name) {
+<span class="nc" id="L214">        altNames.put(era, name);</span>
+<span class="nc" id="L215">    }</span>
+
+    public void setNames(String names) {
+<span class="nc" id="L218">        String[] fields = names.split(&quot;,&quot;);</span>
+<span class="nc" id="L219">        name = fields[0];</span>
+<span class="nc" id="L220">        altNames.clear();</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        for (int i = 1; i &lt; fields.length; i++) {</span>
+<span class="nc" id="L222">            String[] entry = fields[i].split(&quot;:&quot;);</span>
+<span class="nc" id="L223">            altNames.put(Integer.parseInt(entry[0]), entry[1]);</span>
+        }
+<span class="nc" id="L225">    }</span>
+
+    /**
+     * Check for whether the faction is active in a given year
+     *
+     * @param year The year to check
+     * @return     Whether the faction is active
+     * @see #isInEra(int)
+     */
+    public boolean isActiveInYear(int year) {
+<span class="nc bnc" id="L235" title="All 2 branches missed.">        for (DateRange dr : yearsActive) {</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">            if (dr.isInRange(year)) {</span>
+<span class="nc" id="L237">                return true;</span>
+            }
+<span class="nc" id="L239">        }</span>
+<span class="nc" id="L240">        return false;</span>
+    }
+
+    /**
+     * Sets one or more ranges of years the faction is active.
+     * @param str The range of years the faction is active. The format is YYYY-YYYY. Either the start
+     *            or end year (or both) can be omitted to make the range open at that end. Factions that
+     *            vanish and reappear can provide multiple ranges separated by a comma.
+     * @throws ParseException If the date range format is invalid
+     */
+    public void setYears(String str) throws ParseException {
+<span class="nc" id="L251">        yearsActive.clear();</span>
+<span class="nc" id="L252">        String[] ranges = str.split(&quot;,&quot;);</span>
+<span class="nc" id="L253">        int offset = 0;</span>
+        try {
+<span class="nc bnc" id="L255" title="All 2 branches missed.">            for (String range : ranges) {</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">                if (range.equals(&quot;-&quot;)) {</span>
+<span class="nc" id="L257">                    yearsActive.add(new DateRange(null, null));</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">                } else if (range.startsWith(&quot;-&quot;)) {</span>
+<span class="nc" id="L259">                    yearsActive.add(new DateRange(null, Integer.parseInt(range.substring(1))));</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                } else if (range.endsWith(&quot;-&quot;)) {</span>
+<span class="nc" id="L261">                    yearsActive.add(new DateRange(Integer.parseInt(range.substring(0, range.length() - 1)), null));</span>
+                } else {
+<span class="nc" id="L263">                    String[] termini = range.split(&quot;-&quot;);</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">                    if (termini.length == 2) {</span>
+<span class="nc" id="L265">                        yearsActive.add(new DateRange(Integer.parseInt(termini[0]),</span>
+<span class="nc" id="L266">                                Integer.parseInt(termini[1])));</span>
+                    }
+                }
+<span class="nc" id="L269">                offset += range.length();</span>
+            }
+<span class="nc" id="L271">        } catch (Exception ex) {</span>
+<span class="nc" id="L272">            throw new ParseException(&quot;Could not parse year ranges for faction &quot; + key, offset);</span>
+<span class="nc" id="L273">        }</span>
+<span class="nc" id="L274">    }</span>
+
+    public Integer getPctSalvage(int era) {
+<span class="nc" id="L277">        return pctSalvage.get(era);</span>
+    }
+
+    public void setPctSalvage(int era, Integer pct) {
+<span class="nc" id="L281">        pctSalvage.put(era, pct);</span>
+<span class="nc" id="L282">    }</span>
+
+    public HashMap&lt;String, Integer&gt; getSalvage(int era) {
+<span class="nc bnc" id="L285" title="All 4 branches missed.">        if (salvage.containsKey(era) &amp;&amp; salvage.get(era).size() &gt; 0) {</span>
+<span class="nc" id="L286">            return salvage.get(era);</span>
+        }
+<span class="nc" id="L288">        HashMap&lt;String,Integer&gt; retVal = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (parentFactions.size() &gt; 0) {</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">            for (String pKey : parentFactions) {</span>
+<span class="nc" id="L291">                FactionRecord fRec = RATGenerator.getInstance().getFaction(pKey);</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">                if (fRec != null) {</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">                    for (String fKey : fRec.getSalvage(era).keySet()) {</span>
+<span class="nc" id="L294">                        retVal.merge(fKey, fRec.getSalvage(era).get(fKey), Integer::sum);</span>
+<span class="nc" id="L295">                    }</span>
+                } else {
+<span class="nc" id="L297">                    MegaMek.getLogger().debug(&quot;RATGenerator: could not locate salvage faction &quot; + pKey</span>
+                            + &quot; for &quot; + key);
+                }
+<span class="nc" id="L300">            }</span>
+        }
+<span class="nc" id="L302">        salvage.put(era, retVal);</span>
+<span class="nc" id="L303">        return retVal;</span>
+    }
+
+    public void setSalvage(int era, String faction, Integer wt) {
+<span class="nc" id="L307">        salvage.get(era).put(faction, wt);</span>
+<span class="nc" id="L308">    }</span>
+
+    public void removeSalvage(int era, String faction) {
+<span class="nc" id="L311">        salvage.get(era).remove(faction);</span>
+<span class="nc" id="L312">    }</span>
+
+    public Integer getPctTech(TechCategory category, int era, int rating) {
+<span class="nc bnc" id="L315" title="All 4 branches missed.">        if (!pctTech.containsKey(category) || !pctTech.get(category).containsKey(era)</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                || pctTech.get(category).get(era).isEmpty()</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">                || pctTech.get(category).get(era).size() &lt;= rating) {</span>
+<span class="nc" id="L318">            return null;</span>
+        }
+<span class="nc" id="L320">        return pctTech.get(category).get(era).get(rating);</span>
+    }
+
+    public Integer findPctTech(TechCategory category, int era, int rating) {
+<span class="nc" id="L324">        Integer retVal = getPctTech(category, era, rating);</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">        if (retVal != null) {</span>
+<span class="nc" id="L326">            return retVal;</span>
+        }
+<span class="nc" id="L328">        retVal = getPctTech(category.fallthrough(), era, rating);</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        if (retVal != null) {</span>
+<span class="nc" id="L330">            return retVal;</span>
+        }
+<span class="nc" id="L332">        int total = 0;</span>
+<span class="nc" id="L333">        int count = 0;</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">        for (String parent : parentFactions) {</span>
+<span class="nc" id="L335">            FactionRecord pfr = RATGenerator.getInstance().getFaction(parent);</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">            if (pfr != null) {</span>
+<span class="nc" id="L337">                Integer pct = pfr.findPctTech(category, era, rating);</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">                if (pct != null) {</span>
+<span class="nc" id="L339">                    total += pct;</span>
+<span class="nc" id="L340">                    count++;</span>
+                }
+            }
+<span class="nc" id="L343">        }</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (count &gt; 0) {</span>
+<span class="nc" id="L345">            return (int)((total / count + 0.5));</span>
+        } else {
+<span class="nc" id="L347">            return null;</span>
+        }
+    }
+
+    public void setRatings(String str) {
+<span class="nc" id="L352">        ratingLevels.clear();</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">        if (str.length() &gt; 0) {</span>
+<span class="nc" id="L354">            String[] fields = str.split(&quot;,&quot;);</span>
+<span class="nc" id="L355">            Collections.addAll(ratingLevels, fields);</span>
+        }
+<span class="nc" id="L357">    }</span>
+
+    /**
+     * Sets the target percentage for a tech category.
+     * 
+     * @param category The category (omni, clan, SL/upgraded)
+     * @param era      The year for which to set the tech percentage
+     * @param str      A comma-separated list of percentages from the highest unit rating to the lowest.
+     */
+    public void setPctTech(TechCategory category, int era, String str) {
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        if (!pctTech.containsKey(category)) {</span>
+<span class="nc" id="L368">            pctTech.put(category, new HashMap&lt;&gt;());</span>
+        }
+<span class="nc" id="L370">        ArrayList&lt;Integer&gt; list = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L371" title="All 4 branches missed.">        if (str != null &amp;&amp; str.length() &gt; 0) {</span>
+<span class="nc bnc" id="L372" title="All 2 branches missed.">            for (String pct : str.split(&quot;,&quot;)) {</span>
+                try {
+<span class="nc" id="L374">                    list.add(Integer.parseInt(pct));</span>
+<span class="nc" id="L375">                } catch (NumberFormatException ex) {</span>
+<span class="nc" id="L376">                    MegaMek.getLogger().error(&quot;While loading faction data for &quot; + key);</span>
+<span class="nc" id="L377">                }</span>
+            }
+        }
+<span class="nc" id="L380">        pctTech.get(category).put(era, list);</span>
+<span class="nc" id="L381">    }</span>
+
+    /**
+     * Sets the target percentage for a tech category for a particular rating.
+     *
+     * @param category The category (omni, clan, SL/upgraded)
+     * @param era      The year for which to set the tech percentage
+     * @param rating   The unit rating for which to set the tech percentage
+     * @param pct      The percentage of the force that should match the given tech category
+     */
+    public void setPctTech(TechCategory category, int era, int rating, int pct) {
+<span class="nc" id="L392">        pctTech.putIfAbsent(category, new HashMap&lt;&gt;());</span>
+<span class="nc" id="L393">        pctTech.get(category).putIfAbsent(era, new ArrayList&lt;&gt;());</span>
+<span class="nc bnc" id="L394" title="All 2 branches missed.">        while (pctTech.get(category).get(era).size() &lt;= rating) {</span>
+<span class="nc" id="L395">            pctTech.get(category).get(era).add(0);</span>
+        }
+<span class="nc" id="L397">        pctTech.get(category).get(era).set(rating, pct);</span>
+
+<span class="nc" id="L399">    }</span>
+
+    public int getOmniMargin(int era) {
+<span class="nc bnc" id="L402" title="All 2 branches missed.">        if (omniMargin.containsKey(era)) {</span>
+<span class="nc" id="L403">            return omniMargin.get(era);</span>
+        }
+<span class="nc" id="L405">        return 0;</span>
+    }
+
+    public int getTechMargin(int era) {
+<span class="nc bnc" id="L409" title="All 2 branches missed.">        if (techMargin.containsKey(era)) {</span>
+<span class="nc" id="L410">            return techMargin.get(era);</span>
+        }
+<span class="nc" id="L412">        return 0;</span>
+    }
+
+    public int getUpgradeMargin(int era) {
+<span class="nc bnc" id="L416" title="All 2 branches missed.">        if (upgradeMargin.containsKey(era)) {</span>
+<span class="nc" id="L417">            return upgradeMargin.get(era);</span>
+        }
+<span class="nc" id="L419">        return 0;</span>
+    }
+
+    public ArrayList&lt;Integer&gt; getWeightDistribution(int era, int unitType) {
+<span class="nc bnc" id="L423" title="All 2 branches missed.">        if (weightDistribution.containsKey(era)</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">                &amp;&amp; weightDistribution.get(era).containsKey(unitType)) {</span>
+<span class="nc" id="L425">            return weightDistribution.get(era).get(unitType);</span>
+        }
+<span class="nc bnc" id="L427" title="All 2 branches missed.">        if (parentFactions.size() &gt; 0) {</span>
+<span class="nc" id="L428">            ArrayList&lt;Integer&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">            for (String fKey : parentFactions) {</span>
+<span class="nc" id="L430">                FactionRecord fRec = RATGenerator.getInstance().getFaction(fKey);</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">                if (fRec != null) {</span>
+<span class="nc" id="L432">                    ArrayList&lt;Integer&gt; wd = fRec.getWeightDistribution(era, unitType);</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">                    if (wd != null) {</span>
+<span class="nc bnc" id="L434" title="All 2 branches missed.">                        if (retVal.size() == 0) {</span>
+<span class="nc" id="L435">                            retVal.addAll(wd);</span>
+                        } else {
+<span class="nc bnc" id="L437" title="All 2 branches missed.">                            for (int i = 0; i &lt; retVal.size(); i++) {</span>
+<span class="nc" id="L438">                                retVal.set(i, retVal.get(i) + wd.get(i));</span>
+                            }
+                        }
+                    }
+                }
+<span class="nc" id="L443">            }</span>
+<span class="nc" id="L444">            return retVal;</span>
+        }
+<span class="nc" id="L446">        return null;</span>
+    }
+
+    public void setWeightDistribution(int era, int unitType, String dist) {
+        // If the distribution parameter is null, clear the record if it exists.
+<span class="nc bnc" id="L451" title="All 2 branches missed.">        if (dist == null) {</span>
+<span class="nc bnc" id="L452" title="All 2 branches missed.">            if (weightDistribution.containsKey(era)) {</span>
+<span class="nc" id="L453">                weightDistribution.get(era).remove(unitType);</span>
+            }
+<span class="nc" id="L455">            return;</span>
+        }
+<span class="nc" id="L457">        ArrayList&lt;Integer&gt; list = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">        for (String s : dist.split(&quot;,&quot;)) {</span>
+<span class="nc" id="L459">            list.add(Integer.valueOf(s));</span>
+        }
+<span class="nc bnc" id="L461" title="All 2 branches missed.">        if (!weightDistribution.containsKey(era)) {</span>
+<span class="nc" id="L462">            weightDistribution.put(era, new HashMap&lt;&gt;());</span>
+        }
+<span class="nc" id="L464">        weightDistribution.get(era).put(unitType, list);</span>
+<span class="nc" id="L465">    }</span>
+
+    public ArrayList&lt;String&gt; getParentFactions() {
+<span class="nc" id="L468">        return parentFactions;</span>
+    }
+
+    public void setParentFactions(String factions) {
+<span class="nc" id="L472">        parentFactions.clear();</span>
+<span class="nc" id="L473">        Collections.addAll(parentFactions, factions.split(&quot;,&quot;));</span>
+<span class="nc" id="L474">    }</span>
+
+    public static FactionRecord createFromXml(Node node) {
+<span class="nc" id="L477">        FactionRecord retVal = new FactionRecord();</span>
+<span class="nc" id="L478">        retVal.key = node.getAttributes().getNamedItem(&quot;key&quot;).getTextContent();</span>
+<span class="nc" id="L479">        retVal.name = node.getAttributes().getNamedItem(&quot;name&quot;).getTextContent();</span>
+<span class="nc bnc" id="L480" title="All 2 branches missed.">        if (node.getAttributes().getNamedItem(&quot;minor&quot;) != null) {</span>
+<span class="nc" id="L481">            retVal.minor = Boolean.parseBoolean(node.getAttributes().getNamedItem(&quot;minor&quot;).getTextContent());</span>
+        } else {
+<span class="nc" id="L483">            retVal.minor = false;</span>
+        }
+<span class="nc bnc" id="L485" title="All 2 branches missed.">        if (node.getAttributes().getNamedItem(&quot;clan&quot;) != null) {</span>
+<span class="nc" id="L486">            retVal.clan = Boolean.parseBoolean(node.getAttributes().getNamedItem(&quot;clan&quot;).getTextContent());</span>
+        } else {
+<span class="nc" id="L488">            retVal.clan = false;</span>
+        }
+<span class="nc bnc" id="L490" title="All 2 branches missed.">        if (node.getAttributes().getNamedItem(&quot;periphery&quot;) != null) {</span>
+<span class="nc" id="L491">            retVal.periphery = Boolean.parseBoolean(node.getAttributes().getNamedItem(&quot;periphery&quot;).getTextContent());</span>
+        } else {
+<span class="nc" id="L493">            retVal.periphery = false;</span>
+        }
+<span class="nc bnc" id="L495" title="All 2 branches missed.">        for (int i = 0; i &lt; node.getChildNodes().getLength(); i++) {</span>
+<span class="nc" id="L496">            Node wn = node.getChildNodes().item(i);</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">            if (wn.getNodeName().equalsIgnoreCase(&quot;nameChange&quot;)) {</span>
+<span class="nc" id="L498">                retVal.altNames.put(Integer.parseInt(wn.getAttributes().getNamedItem(&quot;year&quot;).getTextContent()),</span>
+<span class="nc" id="L499">                        wn.getTextContent());</span>
+<span class="nc bnc" id="L500" title="All 2 branches missed.">            } else if (wn.getNodeName().equalsIgnoreCase(&quot;years&quot;)) {</span>
+                try {
+<span class="nc" id="L502">                    retVal.setYears(wn.getTextContent());</span>
+<span class="nc" id="L503">                } catch (ParseException ex) {</span>
+<span class="nc" id="L504">                    MegaMek.getLogger().error(ex);</span>
+<span class="nc" id="L505">                }</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">            } else if (wn.getNodeName().equalsIgnoreCase(&quot;ratingLevels&quot;)) {</span>
+<span class="nc" id="L507">                retVal.setRatings(wn.getTextContent());</span>
+<span class="nc bnc" id="L508" title="All 2 branches missed.">            } else if (wn.getNodeName().equalsIgnoreCase(&quot;parentFaction&quot;)) {</span>
+<span class="nc" id="L509">                retVal.setParentFactions(wn.getTextContent());</span>
+            }
+        }
+<span class="nc" id="L512">        return retVal;</span>
+    }
+
+    public void loadEra(Node node, int era) {
+<span class="nc bnc" id="L516" title="All 2 branches missed.">        for (int i = 0; i &lt; node.getChildNodes().getLength(); i++) {</span>
+<span class="nc" id="L517">            Node wn = node.getChildNodes().item(i);</span>
+<span class="nc bnc" id="L518" title="All 9 branches missed.">            switch(wn.getNodeName()) {</span>
+            case &quot;pctOmni&quot;:
+<span class="nc bnc" id="L520" title="All 2 branches missed.">                if (wn.getAttributes().getNamedItem(&quot;unitType&quot;) != null</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">                        &amp;&amp; wn.getAttributes().getNamedItem(&quot;unitType&quot;).getTextContent().equalsIgnoreCase(&quot;Aero&quot;)) {</span>
+<span class="nc" id="L522">                    setPctTech(TechCategory.OMNI_AERO, era, wn.getTextContent());</span>
+                } else {
+<span class="nc" id="L524">                    setPctTech(TechCategory.OMNI, era, wn.getTextContent());</span>
+                }
+<span class="nc" id="L526">                break;</span>
+            case &quot;pctClan&quot;:
+<span class="nc bnc" id="L528" title="All 2 branches missed.">                if (wn.getAttributes().getNamedItem(&quot;unitType&quot;) != null</span>
+<span class="nc bnc" id="L529" title="All 2 branches missed.">                        &amp;&amp; wn.getAttributes().getNamedItem(&quot;unitType&quot;).getTextContent().equalsIgnoreCase(&quot;Aero&quot;)) {</span>
+<span class="nc" id="L530">                    setPctTech(TechCategory.CLAN_AERO, era, wn.getTextContent());</span>
+<span class="nc bnc" id="L531" title="All 2 branches missed.">                } else if (wn.getAttributes().getNamedItem(&quot;unitType&quot;) != null</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">                            &amp;&amp; wn.getAttributes().getNamedItem(&quot;unitType&quot;).getTextContent().equalsIgnoreCase(&quot;Vehicle&quot;)) {</span>
+<span class="nc" id="L533">                    setPctTech(TechCategory.CLAN_VEE, era, wn.getTextContent());</span>
+                } else {
+<span class="nc" id="L535">                    setPctTech(TechCategory.CLAN, era, wn.getTextContent());</span>
+                }
+<span class="nc" id="L537">                break;</span>
+            case &quot;pctSL&quot;:
+<span class="nc bnc" id="L539" title="All 2 branches missed.">                if (wn.getAttributes().getNamedItem(&quot;unitType&quot;) != null</span>
+<span class="nc bnc" id="L540" title="All 2 branches missed.">                        &amp;&amp; wn.getAttributes().getNamedItem(&quot;unitType&quot;).getTextContent().equalsIgnoreCase(&quot;Aero&quot;)) {</span>
+<span class="nc" id="L541">                    setPctTech(TechCategory.IS_ADVANCED_AERO, era, wn.getTextContent());</span>
+<span class="nc bnc" id="L542" title="All 2 branches missed.">                } else if (wn.getAttributes().getNamedItem(&quot;unitType&quot;) != null</span>
+<span class="nc bnc" id="L543" title="All 2 branches missed.">                            &amp;&amp; wn.getAttributes().getNamedItem(&quot;unitType&quot;).getTextContent().equalsIgnoreCase(&quot;Vehicle&quot;)) {</span>
+<span class="nc" id="L544">                    setPctTech(TechCategory.IS_ADVANCED_VEE, era, wn.getTextContent());</span>
+                } else {
+<span class="nc" id="L546">                    setPctTech(TechCategory.IS_ADVANCED, era, wn.getTextContent());</span>
+                }
+<span class="nc" id="L548">                break;</span>
+            case &quot;omniMargin&quot;:
+<span class="nc" id="L550">                omniMargin.put(era, Integer.parseInt(wn.getTextContent()));</span>
+<span class="nc" id="L551">                break;</span>
+            case &quot;techMargin&quot;:
+<span class="nc" id="L553">                techMargin.put(era, Integer.parseInt(wn.getTextContent()));</span>
+<span class="nc" id="L554">                break;</span>
+            case &quot;upgradeMargin&quot;:
+<span class="nc" id="L556">                upgradeMargin.put(era, Integer.parseInt(wn.getTextContent()));</span>
+<span class="nc" id="L557">                break;</span>
+            case &quot;salvage&quot;:
+<span class="nc" id="L559">                pctSalvage.put(era,</span>
+<span class="nc" id="L560">                        Integer.parseInt(wn.getAttributes().getNamedItem(&quot;pct&quot;).getTextContent()));</span>
+<span class="nc" id="L561">                salvage.put(era, new HashMap&lt;&gt;());</span>
+<span class="nc" id="L562">                String [] fields = wn.getTextContent().trim().split(&quot;,&quot;);</span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                for (String field : fields) {</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">                    if (field.length() &gt; 0) {</span>
+<span class="nc" id="L565">                        String[] subfields = field.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L566" title="All 2 branches missed.">                        if (subfields.length == 2) {</span>
+<span class="nc" id="L567">                            salvage.get(era).put(subfields[0], Integer.parseInt(subfields[1]));</span>
+                        }
+                    }
+                }
+<span class="nc" id="L571">                break;</span>
+            case &quot;weightDistribution&quot;:
+                try {
+<span class="nc" id="L574">                    int unitType = ModelRecord.parseUnitType(wn.getAttributes().getNamedItem(&quot;unitType&quot;).getTextContent());</span>
+<span class="nc" id="L575">                    setWeightDistribution(era, unitType, wn.getTextContent());</span>
+<span class="nc" id="L576">                } catch (Exception ex) {</span>
+<span class="nc" id="L577">                    MegaMek.getLogger().error(&quot;RATGenerator: error parsing weight distributions for &quot; + key</span>
+                            + &quot;, &quot; + era);
+<span class="nc" id="L579">                }</span>
+                break;
+            }
+        }
+<span class="nc" id="L583">    }</span>
+
+    public void writeToXml(PrintWriter pw) {
+<span class="nc" id="L586">        pw.println(&quot;\t&lt;faction key='&quot; + key + &quot;' name='&quot;</span>
+<span class="nc" id="L587">                + StringEscapeUtils.escapeXml10(name) + &quot;' minor='&quot; + minor</span>
+                + &quot;' clan='&quot; + clan
+                + &quot;' periphery='&quot; + periphery + &quot;'&gt;&quot;);
+<span class="nc bnc" id="L590" title="All 2 branches missed.">        for (Integer year : altNames.keySet()) {</span>
+<span class="nc" id="L591">            pw.println(&quot;\t\t&lt;nameChange year='&quot; + year + &quot;'&gt;&quot;</span>
+<span class="nc" id="L592">                    + altNames.get(year) + &quot;&lt;/nameChange&gt;&quot;);</span>
+<span class="nc" id="L593">        }</span>
+<span class="nc" id="L594">        pw.print(&quot;\t\t&lt;years&gt;&quot;);</span>
+<span class="nc" id="L595">        pw.print(getYearsAsString());</span>
+<span class="nc" id="L596">        pw.println(&quot;&lt;/years&gt;&quot;);</span>
+<span class="nc bnc" id="L597" title="All 2 branches missed.">        if (ratingLevels.size() &gt; 0) {</span>
+<span class="nc" id="L598">            pw.println(&quot;\t\t&lt;ratingLevels&gt;&quot; + StringEscapeUtils.escapeXml10(String.join(&quot;,&quot;, ratingLevels)) + &quot;&lt;/ratingLevels&gt;&quot;);</span>
+        }
+<span class="nc bnc" id="L600" title="All 2 branches missed.">        if (parentFactions != null) {</span>
+<span class="nc" id="L601">            pw.println(&quot;\t\t&lt;parentFaction&gt;&quot; + StringEscapeUtils.escapeXml10(String.join(&quot;,&quot;, parentFactions)) + &quot;&lt;/parentFaction&gt;&quot;);</span>
+        }       
+<span class="nc" id="L603">        pw.println(&quot;\t&lt;/faction&gt;&quot;);</span>
+<span class="nc" id="L604">    }</span>
+
+    
+    public void writeToXml(PrintWriter pw, int era) {
+<span class="nc" id="L608">        StringBuilder factionRecordBuilder = new StringBuilder();</span>
+<span class="nc bnc" id="L609" title="All 2 branches missed.">        if (pctTech.containsKey(TechCategory.OMNI)</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">                &amp;&amp; pctTech.get(TechCategory.OMNI).containsKey(era)</span>
+<span class="nc bnc" id="L611" title="All 2 branches missed.">                &amp;&amp; (pctTech.get(TechCategory.OMNI).get(era).size() &gt; 0)) {</span>
+<span class="nc" id="L612">            factionRecordBuilder.append(</span>
+<span class="nc" id="L613">                    String.format(&quot;\t\t&lt;pctOmni&gt;%s&lt;/pctOmni&gt;\n&quot;, </span>
+<span class="nc" id="L614">                            pctTech.get(TechCategory.OMNI).get(era).stream().map(Object::toString)</span>
+<span class="nc" id="L615">                                .collect(Collectors.joining(&quot;,&quot;))));</span>
+        }
+<span class="nc bnc" id="L617" title="All 2 branches missed.">        if (pctTech.containsKey(TechCategory.CLAN)</span>
+<span class="nc bnc" id="L618" title="All 2 branches missed.">                &amp;&amp; pctTech.get(TechCategory.CLAN).containsKey(era)</span>
+<span class="nc bnc" id="L619" title="All 2 branches missed.">                &amp;&amp; (pctTech.get(TechCategory.CLAN).get(era).size() &gt; 0)) {</span>
+<span class="nc" id="L620">            factionRecordBuilder.append(</span>
+<span class="nc" id="L621">                    String.format(&quot;\t\t&lt;pctClan&gt;%s&lt;/pctClan&gt;\n&quot;, </span>
+<span class="nc" id="L622">                            pctTech.get(TechCategory.CLAN).get(era).stream().map(Object::toString)</span>
+<span class="nc" id="L623">                                .collect(Collectors.joining(&quot;,&quot;))));</span>
+        }
+<span class="nc bnc" id="L625" title="All 2 branches missed.">        if (pctTech.containsKey(TechCategory.IS_ADVANCED)</span>
+<span class="nc bnc" id="L626" title="All 2 branches missed.">                &amp;&amp; pctTech.get(TechCategory.IS_ADVANCED).containsKey(era)</span>
+<span class="nc bnc" id="L627" title="All 2 branches missed.">                &amp;&amp; (pctTech.get(TechCategory.IS_ADVANCED).get(era).size() &gt; 0)) {</span>
+<span class="nc" id="L628">            factionRecordBuilder.append(</span>
+<span class="nc" id="L629">                    String.format(&quot;\t\t&lt;pctSL&gt;%s&lt;/pctSL&gt;\n&quot;, </span>
+<span class="nc" id="L630">                            pctTech.get(TechCategory.IS_ADVANCED).get(era).stream().map(Object::toString)</span>
+<span class="nc" id="L631">                                .collect(Collectors.joining(&quot;,&quot;))));</span>
+        }
+<span class="nc bnc" id="L633" title="All 2 branches missed.">        if (pctTech.containsKey(TechCategory.OMNI_AERO)</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">                &amp;&amp; pctTech.get(TechCategory.OMNI_AERO).containsKey(era)</span>
+<span class="nc bnc" id="L635" title="All 2 branches missed.">                &amp;&amp; (pctTech.get(TechCategory.OMNI_AERO).get(era).size() &gt; 0)) {</span>
+<span class="nc" id="L636">            factionRecordBuilder.append(</span>
+<span class="nc" id="L637">                    String.format(&quot;\t\t&lt;pctOmni unitType='Aero'&gt;%s&lt;/pctOmni&gt;\n&quot;, </span>
+<span class="nc" id="L638">                            pctTech.get(TechCategory.OMNI_AERO).get(era).stream().map(Object::toString)</span>
+<span class="nc" id="L639">                                .collect(Collectors.joining(&quot;,&quot;))));</span>
+        }
+<span class="nc bnc" id="L641" title="All 2 branches missed.">        if (pctTech.containsKey(TechCategory.CLAN_AERO)</span>
+<span class="nc bnc" id="L642" title="All 2 branches missed.">                &amp;&amp; pctTech.get(TechCategory.CLAN_AERO).containsKey(era)</span>
+<span class="nc bnc" id="L643" title="All 2 branches missed.">                &amp;&amp; (pctTech.get(TechCategory.CLAN_AERO).get(era).size() &gt; 0)) {</span>
+<span class="nc" id="L644">            factionRecordBuilder.append(</span>
+<span class="nc" id="L645">                    String.format(&quot;\t\t&lt;pctClan unitType='Aero'&gt;%s&lt;/pctClan&gt;\n&quot;, </span>
+<span class="nc" id="L646">                            pctTech.get(TechCategory.CLAN_AERO).get(era).stream().map(Object::toString)</span>
+<span class="nc" id="L647">                                .collect(Collectors.joining(&quot;,&quot;))));</span>
+        }
+<span class="nc bnc" id="L649" title="All 2 branches missed.">        if (pctTech.containsKey(TechCategory.IS_ADVANCED_AERO)</span>
+<span class="nc bnc" id="L650" title="All 2 branches missed.">                &amp;&amp; pctTech.get(TechCategory.IS_ADVANCED_AERO).containsKey(era)</span>
+<span class="nc bnc" id="L651" title="All 2 branches missed.">                &amp;&amp; (pctTech.get(TechCategory.IS_ADVANCED_AERO).get(era).size() &gt; 0)) {</span>
+<span class="nc" id="L652">            factionRecordBuilder.append(</span>
+<span class="nc" id="L653">                    String.format(&quot;\t\t&lt;pctSL unitType='Aero'&gt;%s&lt;/pctSL&gt;\n&quot;, </span>
+<span class="nc" id="L654">                            pctTech.get(TechCategory.IS_ADVANCED_AERO).get(era).stream().map(Object::toString)</span>
+<span class="nc" id="L655">                                .collect(Collectors.joining(&quot;,&quot;))));</span>
+        }
+<span class="nc bnc" id="L657" title="All 2 branches missed.">        if (pctTech.containsKey(TechCategory.CLAN_VEE)</span>
+<span class="nc bnc" id="L658" title="All 2 branches missed.">                &amp;&amp; pctTech.get(TechCategory.CLAN_VEE).containsKey(era)</span>
+<span class="nc bnc" id="L659" title="All 2 branches missed.">                &amp;&amp; (pctTech.get(TechCategory.CLAN_VEE).get(era).size() &gt; 0)) {</span>
+<span class="nc" id="L660">            factionRecordBuilder.append(</span>
+<span class="nc" id="L661">                    String.format(&quot;\t\t&lt;pctClan unitType='Vehicle'&gt;%s&lt;/pctClan&gt;\n&quot;, </span>
+<span class="nc" id="L662">                            pctTech.get(TechCategory.CLAN_VEE).get(era).stream().map(Object::toString)</span>
+<span class="nc" id="L663">                                .collect(Collectors.joining(&quot;,&quot;))));</span>
+        }
+<span class="nc bnc" id="L665" title="All 2 branches missed.">        if (pctTech.containsKey(TechCategory.IS_ADVANCED_VEE)</span>
+<span class="nc bnc" id="L666" title="All 2 branches missed.">                &amp;&amp; pctTech.get(TechCategory.IS_ADVANCED_VEE).containsKey(era)</span>
+<span class="nc bnc" id="L667" title="All 2 branches missed.">                &amp;&amp; (pctTech.get(TechCategory.IS_ADVANCED_VEE).get(era).size() &gt; 0)) {</span>
+<span class="nc" id="L668">            factionRecordBuilder.append(</span>
+<span class="nc" id="L669">                    String.format(&quot;\t\t&lt;pctSL unitType='Vehicle'&gt;%s&lt;/pctSL&gt;\n&quot;, </span>
+<span class="nc" id="L670">                            pctTech.get(TechCategory.IS_ADVANCED_VEE).get(era).stream().map(Object::toString)</span>
+<span class="nc" id="L671">                                .collect(Collectors.joining(&quot;,&quot;))));</span>
+        }
+<span class="nc bnc" id="L673" title="All 2 branches missed.">        if (era &gt; 3067) {</span>
+<span class="nc bnc" id="L674" title="All 6 branches missed.">            if (!isClan() &amp;&amp; !key.equals(&quot;CGB.FRR&quot;) &amp;&amp; !key.equals(&quot;RA.OA&quot;)) {</span>
+<span class="nc" id="L675">                factionRecordBuilder.append(&quot;\t\t&lt;omniMargin&gt;&quot;);</span>
+<span class="nc" id="L676">                factionRecordBuilder.append((era - 3067) / 5);</span>
+<span class="nc" id="L677">                factionRecordBuilder.append(&quot;&lt;/omniMargin&gt;\n&quot;);</span>
+<span class="nc" id="L678">                factionRecordBuilder.append(&quot;\t\t&lt;techMargin&gt;&quot;);</span>
+<span class="nc" id="L679">                factionRecordBuilder.append((era - 3067) / 5);</span>
+<span class="nc" id="L680">                factionRecordBuilder.append(&quot;&lt;/techMargin&gt;\n&quot;);</span>
+<span class="nc bnc" id="L681" title="All 2 branches missed.">                if (era &gt; 3085) {</span>
+<span class="nc" id="L682">                    factionRecordBuilder.append(&quot;\t\t&lt;upgradeMargin&gt;&quot;);</span>
+<span class="nc" id="L683">                    factionRecordBuilder.append((era - 3085) / 5);</span>
+<span class="nc" id="L684">                    factionRecordBuilder.append(&quot;&lt;/upgradeMargin&gt;\n&quot;);</span>
+                }
+            } else {
+<span class="nc" id="L687">                factionRecordBuilder.append(&quot;\t\t&lt;techMargin&gt;&quot;);</span>
+<span class="nc" id="L688">                factionRecordBuilder.append((era - 3067) / 5);</span>
+<span class="nc" id="L689">                factionRecordBuilder.append(&quot;&lt;/techMargin&gt;\n&quot;);</span>
+            }
+        }
+
+<span class="nc" id="L693">        Integer pct = pctSalvage.get(era);</span>
+<span class="nc bnc" id="L694" title="All 2 branches missed.">        if (pct != null) {</span>
+<span class="nc" id="L695">            StringJoiner sj = new StringJoiner(&quot;,&quot;);</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">            for (String faction : salvage.get(era).keySet()) {</span>
+<span class="nc" id="L697">                FactionRecord fr = RATGenerator.getInstance().getFaction(faction);</span>
+<span class="nc bnc" id="L698" title="All 4 branches missed.">                if (fr == null || !fr.isInEra(era)) {</span>
+<span class="nc" id="L699">                    continue;</span>
+                }
+<span class="nc" id="L701">                sj.add(faction + &quot;:&quot; + salvage.get(era).get(faction));</span>
+<span class="nc" id="L702">            }</span>
+<span class="nc" id="L703">            factionRecordBuilder.append(&quot;\t\t&lt;salvage pct='&quot;).append(pct).append(&quot;'&gt;&quot;)</span>
+<span class="nc" id="L704">                .append(sj.toString()).append(&quot;&lt;/salvage&gt;\n&quot;);</span>
+        }
+<span class="nc" id="L706">        final int[] unitWeightKeys = { UnitType.MEK, UnitType.TANK, UnitType.AERO };</span>
+<span class="nc bnc" id="L707" title="All 2 branches missed.">        if (weightDistribution.containsKey(era)) {</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">            for (int unitType : unitWeightKeys) {</span>
+<span class="nc bnc" id="L709" title="All 2 branches missed.">                if (weightDistribution.get(era).containsKey(unitType)</span>
+<span class="nc bnc" id="L710" title="All 2 branches missed.">                        &amp;&amp; weightDistribution.get(era).get(unitType).size() &gt; 0) {</span>
+<span class="nc" id="L711">                    factionRecordBuilder.append(&quot;\t\t&lt;weightDistribution era='&quot;);</span>
+<span class="nc" id="L712">                    factionRecordBuilder.append(era);</span>
+<span class="nc" id="L713">                    factionRecordBuilder.append(&quot;' unitType='&quot;);</span>
+<span class="nc" id="L714">                    factionRecordBuilder.append(UnitType.getTypeName(unitType));</span>
+<span class="nc" id="L715">                    factionRecordBuilder.append(&quot;'&gt;&quot;);</span>
+<span class="nc" id="L716">                    factionRecordBuilder.append(getWeightDistributionAsString(era, unitType));</span>
+<span class="nc" id="L717">                    factionRecordBuilder.append(&quot;&lt;/weightDistribution&gt;\n&quot;);</span>
+                }
+            }
+        }
+        
+<span class="nc bnc" id="L722" title="All 2 branches missed.">        if(factionRecordBuilder.length() &gt; 0) {</span>
+<span class="nc" id="L723">            pw.println(&quot;\t&lt;faction key='&quot; + key + &quot;'&gt;&quot;);</span>
+<span class="nc" id="L724">            pw.println(factionRecordBuilder.toString().replaceFirst(&quot;\\n$&quot;, &quot;&quot;));</span>
+<span class="nc" id="L725">            pw.println(&quot;\t&lt;/faction&gt;&quot;);</span>
+        } else {
+<span class="nc" id="L727">            pw.println(&quot;\t&lt;faction key='&quot; + key + &quot;'/&gt;&quot;);</span>
+        }
+<span class="nc" id="L729">    }</span>
+
+    /**
+     * Checks whether the faction is active at any point from the given year to the next reference 
+     * @param era The era start year
+     * @return    Whether the faction is active
+     * @see #isActiveInYear(int)
+     */
+    public boolean isInEra(int era) {
+<span class="nc bnc" id="L738" title="All 2 branches missed.">        if (isActiveInYear(era)) {</span>
+<span class="nc" id="L739">            return true;</span>
+        }
+        /* May still be in era if start date comes before the next era */
+<span class="nc" id="L742">        TreeSet&lt;Integer&gt; eraSet = RATGenerator.getInstance().getEraSet();</span>
+<span class="nc" id="L743">        Integer next = eraSet.ceiling(era + 1);</span>
+<span class="nc bnc" id="L744" title="All 2 branches missed.">        if (next == null) {</span>
+<span class="nc" id="L745">            return false;</span>
+        }
+<span class="nc bnc" id="L747" title="All 2 branches missed.">        for (DateRange dr : yearsActive) {</span>
+<span class="nc bnc" id="L748" title="All 6 branches missed.">            if (dr.start != null &amp;&amp; dr.start &gt; era &amp;&amp; dr.start &lt; next) {</span>
+<span class="nc" id="L749">                return true;</span>
+            }
+<span class="nc" id="L751">        }</span>
+<span class="nc" id="L752">        return false;</span>
+    }
+    
+    /**
+     * @return CSV of all names of the faction, with the original name given first followed by name
+     *         changes in the format year:name
+     */
+    public Object getNamesAsString() {
+<span class="nc" id="L760">        StringBuilder retVal = new StringBuilder(name);</span>
+<span class="nc bnc" id="L761" title="All 2 branches missed.">        for (Integer y : altNames.keySet()) {</span>
+<span class="nc" id="L762">            retVal.append(&quot;,&quot;).append(y).append(&quot;:&quot;).append(altNames.get(y));</span>
+<span class="nc" id="L763">        }</span>
+<span class="nc" id="L764">        return retVal.toString();</span>
+    }
+
+    /**
+     * @return CSV String of all date ranges in which the faction is active.
+     */
+    public String getYearsAsString() {
+<span class="nc" id="L771">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L772" title="All 2 branches missed.">        for (Iterator&lt;DateRange&gt; iter = yearsActive.iterator(); iter.hasNext();) {</span>
+<span class="nc" id="L773">            DateRange dr = iter.next();</span>
+<span class="nc" id="L774">            sb.append(dr.toString());</span>
+<span class="nc bnc" id="L775" title="All 2 branches missed.">            if (iter.hasNext()) {</span>
+<span class="nc" id="L776">                sb.append(&quot;,&quot;);</span>
+            }
+<span class="nc" id="L778">        }</span>
+<span class="nc" id="L779">        return sb.toString();</span>
+    }
+    
+    /**
+     * Formats the weight distribution for a given unit type in an era as a String.
+     * 
+     * @param era        The game year
+     * @param unitType   The type of unit
+     * @return           A formatted String
+     */
+    public String getWeightDistributionAsString(int era, int unitType) {
+<span class="nc" id="L790">        StringJoiner sj = new StringJoiner(&quot;,&quot;);</span>
+<span class="nc bnc" id="L791" title="All 4 branches missed.">        if (weightDistribution.containsKey(era) &amp;&amp; weightDistribution.get(era).containsKey(unitType)) {</span>
+<span class="nc bnc" id="L792" title="All 2 branches missed.">            for (Integer i : weightDistribution.get(era).get(unitType)) {</span>
+<span class="nc" id="L793">                sj.add(String.valueOf(i));</span>
+<span class="nc" id="L794">            }</span>
+        }
+<span class="nc" id="L796">        return sj.toString();</span>
+    }
+
+    public String toString() {
+<span class="nc" id="L800">        return key;</span>
+    }
+
+    private static class DateRange {
+        public Integer start;
+        public Integer end;
+
+<span class="nc" id="L807">        public DateRange(Integer start, Integer end) {</span>
+<span class="nc" id="L808">            this.start = start;</span>
+<span class="nc" id="L809">            this.end = end;</span>
+<span class="nc" id="L810">        }</span>
+
+        public boolean isInRange(int year) {
+<span class="nc bnc" id="L813" title="All 6 branches missed.">            return (start == null || start &lt;= year)</span>
+<span class="nc bnc" id="L814" title="All 2 branches missed.">                    &amp;&amp; (end == null || end &gt;= year);</span>
+        }
+
+        @Override
+        public String toString() {
+<span class="nc" id="L819">            StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L820" title="All 2 branches missed.">            if (start != null) {</span>
+<span class="nc" id="L821">                sb.append(start);</span>
+            }
+<span class="nc" id="L823">            sb.append(&quot;-&quot;);</span>
+<span class="nc bnc" id="L824" title="All 2 branches missed.">            if (end != null) {</span>
+<span class="nc" id="L825">                sb.append(end);</span>
+            }
+<span class="nc" id="L827">            return sb.toString();</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

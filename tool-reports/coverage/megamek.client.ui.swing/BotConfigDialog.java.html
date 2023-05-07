@@ -1,0 +1,670 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BotConfigDialog.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing</a> &gt; <span class="el_source">BotConfigDialog.java</span></div><h1>BotConfigDialog.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.ui.swing;
+
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.io.File;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Hashtable;
+import java.util.Set;
+import java.util.Vector;
+
+import javax.swing.*;
+import javax.swing.border.LineBorder;
+import javax.swing.border.TitledBorder;
+
+import megamek.MegaMek;
+import megamek.client.bot.BotClient;
+import megamek.client.bot.TestBot;
+import megamek.client.bot.princess.BehaviorSettings;
+import megamek.client.bot.princess.BehaviorSettingsFactory;
+import megamek.client.bot.princess.CardinalEdge;
+import megamek.client.bot.princess.Princess;
+import megamek.client.bot.princess.PrincessException;
+import megamek.client.ui.Messages;
+import megamek.common.IPlayer;
+import megamek.common.logging.LogLevel;
+
+/**
+ * BotConfigDialog is a dialog box that configures bot properties
+ */
+public class BotConfigDialog extends JDialog implements ActionListener, KeyListener {
+
+    private static final String PRINCESS_PANEL = &quot;princess_config&quot;;
+    private static final String TESTBOT_PANEL = &quot;testbot_config&quot;;
+<span class="nc" id="L53">    private static final String UNIT_TARGET = Messages.getString(&quot;BotConfigDialog.targetUnit&quot;);</span>
+<span class="nc" id="L54">    private static final String BUILDING_TARGET = Messages.getString(&quot;BotConfigDialog.targetBuilding&quot;);</span>
+    private static final long serialVersionUID = -544663266637225925L;
+
+    private JRadioButton testBotRadiobutton;
+    private JRadioButton princessRadiobutton;
+<span class="nc" id="L59">    private ButtonGroup selectBotGroup = new ButtonGroup();</span>
+    private JList&lt;String&gt; playersToReplace;
+
+<span class="nc" id="L62">    private BehaviorSettingsFactory behaviorSettingsFactory = BehaviorSettingsFactory.getInstance();</span>
+    protected BehaviorSettings princessBehavior;
+
+    // Items for princess config here
+    protected JComboBox&lt;String&gt; verbosityCombo;
+    private JTextField targetId;
+    private JComboBox&lt;String&gt; targetTypeCombo;
+    private JButton addTargetButton;
+    private JButton removeTargetButton;
+    private JButton princessHelpButton;
+    private JList&lt;String&gt; targetsList;
+<span class="nc" id="L73">    private DefaultListModel&lt;String&gt; targetsListModel = new DefaultListModel&lt;&gt;();</span>
+    protected JCheckBox forcedWithdrawalCheck;
+    protected JCheckBox autoFleeCheck;
+    protected JComboBox&lt;String&gt; destinationEdgeCombo; // The board edge to to which the bot will attempt to move.
+    protected JComboBox&lt;String&gt; retreatEdgeCombo; // The board edge to be used in a forced withdrawal.
+    protected JSlider aggressionSlidebar;
+    protected JSlider fallShameSlidebar;
+    protected JSlider herdingSlidebar;
+    protected JSlider selfPreservationSlidebar;
+    protected JSlider braverySlidebar;
+    private JComboBox&lt;String&gt; princessBehaviorNames;
+
+    protected JTextField nameField;
+<span class="nc" id="L86">    private boolean customName = false; // did user not use default name?</span>
+<span class="nc" id="L87">    public boolean dialogAborted = true; // did user not click Ok button?</span>
+
+    // Are we replacing an existing player?
+<span class="nc" id="L90">    private final Set&lt;IPlayer&gt; ghostPlayers = new HashSet&lt;&gt;();</span>
+    private final boolean replacePlayer;
+
+<span class="nc" id="L93">    protected final JButton butOK = new JButton(Messages.getString(&quot;Okay&quot;)); //$NON-NLS-1$</span>
+
+    private final JPanel botSpecificCardsPanel;
+
+    public BotConfigDialog(JFrame parent) {
+<span class="nc" id="L98">        this(parent, new HashSet&lt;&gt;());</span>
+<span class="nc" id="L99">    }</span>
+    
+    public BotConfigDialog(JFrame parent, BotClient existingBot) {
+<span class="nc" id="L102">        this(parent, new HashSet&lt;&gt;());</span>
+        
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        if (existingBot instanceof Princess) {</span>
+<span class="nc" id="L105">            this.princessBehavior = ((Princess) existingBot).getBehaviorSettings();</span>
+<span class="nc" id="L106">            nameField.setText(existingBot.getName());</span>
+<span class="nc" id="L107">            setPrincessFields();</span>
+        }
+<span class="nc" id="L109">    }</span>
+
+    public BotConfigDialog(JFrame parent, Set&lt;IPlayer&gt; ghostPlayers) {
+<span class="nc" id="L112">        super(parent, &quot;Configure Bot&quot;, true);</span>
+
+<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (ghostPlayers != null) {</span>
+<span class="nc" id="L115">            this.ghostPlayers.addAll(ghostPlayers);</span>
+        }
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        this.replacePlayer = !this.ghostPlayers.isEmpty();</span>
+
+<span class="nc" id="L119">        setLayout(new BorderLayout());</span>
+<span class="nc" id="L120">        add(switchBotPanel(), BorderLayout.NORTH);</span>
+<span class="nc" id="L121">        botSpecificCardsPanel = new JPanel(new CardLayout());</span>
+<span class="nc" id="L122">        botSpecificCardsPanel.add(new JPanel(), TESTBOT_PANEL);</span>
+<span class="nc" id="L123">        JScrollPane princessScroll = new JScrollPane(princessPanel());</span>
+<span class="nc" id="L124">        botSpecificCardsPanel.add(princessScroll, PRINCESS_PANEL);</span>
+<span class="nc" id="L125">        CardLayout cardlayout = (CardLayout) (botSpecificCardsPanel.getLayout());</span>
+<span class="nc" id="L126">        cardlayout.show(botSpecificCardsPanel, PRINCESS_PANEL);</span>
+<span class="nc" id="L127">        add(botSpecificCardsPanel, BorderLayout.CENTER);</span>
+<span class="nc" id="L128">        butOK.addActionListener(this);</span>
+
+<span class="nc" id="L130">        add(okayPanel(), BorderLayout.SOUTH);</span>
+
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        if (replacePlayer) {</span>
+<span class="nc" id="L133">            add(selectPlayerToReplacePanel(), BorderLayout.WEST);</span>
+        }
+
+<span class="nc" id="L136">        validate();</span>
+<span class="nc" id="L137">        pack();</span>
+<span class="nc" id="L138">        setSize(new Dimension(600, 600));</span>
+<span class="nc" id="L139">        setLocationRelativeTo(parent);</span>
+<span class="nc" id="L140">    }</span>
+
+    private JPanel switchBotPanel() {
+<span class="nc" id="L143">        JPanel panel = new JPanel(new FlowLayout());</span>
+<span class="nc" id="L144">        testBotRadiobutton = new JRadioButton(Messages.getString(&quot;BotConfigDialog.testBotRadioButton&quot;));</span>
+<span class="nc" id="L145">        testBotRadiobutton.addActionListener(this);</span>
+<span class="nc" id="L146">        selectBotGroup.add(testBotRadiobutton);</span>
+<span class="nc" id="L147">        panel.add(testBotRadiobutton);</span>
+
+<span class="nc" id="L149">        princessRadiobutton = new JRadioButton(Messages.getString(&quot;BotConfigDialog.princessRadioButton&quot;));</span>
+<span class="nc" id="L150">        princessRadiobutton.addActionListener(this);</span>
+<span class="nc" id="L151">        selectBotGroup.add(princessRadiobutton);</span>
+<span class="nc" id="L152">        princessRadiobutton.setSelected(true);</span>
+<span class="nc" id="L153">        panel.add(princessRadiobutton);</span>
+
+<span class="nc" id="L155">        return panel;</span>
+    }
+
+    private JPanel selectPlayerToReplacePanel() {
+<span class="nc" id="L159">        JPanel panel = new JPanel();</span>
+<span class="nc" id="L160">        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));</span>
+
+<span class="nc" id="L162">        String title = Messages.getString(&quot;BotConfigDialog.replacePlayerLabel&quot;) + &quot;  &quot;;</span>
+<span class="nc" id="L163">        TitledBorder border = new TitledBorder(new LineBorder(Color.black, 1),</span>
+<span class="nc" id="L164">                                               Messages.getString(&quot;BotConfigDialog.replacePlayerLabel&quot;),</span>
+                                               TitledBorder.LEFT,
+                                               TitledBorder.DEFAULT_POSITION);
+<span class="nc" id="L167">        panel.setBorder(border);</span>
+<span class="nc" id="L168">        String longestEntry = title;</span>
+
+<span class="nc" id="L170">        Vector&lt;String&gt; playerList = new Vector&lt;&gt;(ghostPlayers.size());</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">        for (IPlayer p : ghostPlayers) {</span>
+<span class="nc" id="L172">            playerList.add(p.getName());</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            if (p.getName().length() &gt; longestEntry.length()) {</span>
+<span class="nc" id="L174">                longestEntry = p.getName() + &quot;  &quot;;</span>
+            }
+<span class="nc" id="L176">        }</span>
+<span class="nc" id="L177">        playersToReplace = new JList&lt;&gt;(playerList);</span>
+<span class="nc" id="L178">        int minWidth = (int) playersToReplace</span>
+<span class="nc" id="L179">                .getFontMetrics(playersToReplace.getFont())</span>
+<span class="nc" id="L180">                .getStringBounds(longestEntry, null).getWidth();</span>
+<span class="nc" id="L181">        playersToReplace.setSelectedIndex(0);</span>
+<span class="nc" id="L182">        playersToReplace.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);</span>
+<span class="nc" id="L183">        playersToReplace.setPreferredSize(new Dimension(minWidth, playersToReplace.getPreferredSize().height));</span>
+<span class="nc" id="L184">        panel.add(playersToReplace);</span>
+
+<span class="nc" id="L186">        panel.add(Box.createVerticalGlue());</span>
+
+<span class="nc" id="L188">        return panel;</span>
+    }
+
+    private boolean getPresetPrincessBehavior() {
+<span class="nc" id="L192">        princessBehavior = behaviorSettingsFactory.getBehavior((String) princessBehaviorNames.getSelectedItem());</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        if (princessBehavior == null) {</span>
+<span class="nc" id="L194">            princessBehavior = new BehaviorSettings();</span>
+<span class="nc" id="L195">            return false;</span>
+        }
+<span class="nc" id="L197">        return true;</span>
+    }
+    
+    public BehaviorSettings getBehaviorSettings() {
+<span class="nc" id="L201">        return princessBehavior;</span>
+    }
+
+    protected void setPrincessFields() {
+<span class="nc" id="L205">        verbosityCombo.setSelectedIndex(0);</span>
+<span class="nc" id="L206">        forcedWithdrawalCheck.setSelected(princessBehavior.isForcedWithdrawal());</span>
+<span class="nc" id="L207">        autoFleeCheck.setSelected(princessBehavior.shouldAutoFlee());</span>
+<span class="nc" id="L208">        selfPreservationSlidebar.setValue(princessBehavior.getSelfPreservationIndex());</span>
+<span class="nc" id="L209">        aggressionSlidebar.setValue(princessBehavior.getHyperAggressionIndex());</span>
+<span class="nc" id="L210">        fallShameSlidebar.setValue(princessBehavior.getFallShameIndex());</span>
+<span class="nc" id="L211">        destinationEdgeCombo.setSelectedIndex(princessBehavior.getDestinationEdge().getIndex());</span>
+<span class="nc" id="L212">        retreatEdgeCombo.setSelectedIndex(princessBehavior.getRetreatEdge().getIndex());</span>
+<span class="nc" id="L213">        herdingSlidebar.setValue(princessBehavior.getHerdMentalityIndex());</span>
+<span class="nc" id="L214">        braverySlidebar.setValue(princessBehavior.getBraveryIndex());</span>
+<span class="nc" id="L215">        targetsListModel.clear();</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">        for (String t : princessBehavior.getStrategicBuildingTargets()) {</span>
+            //noinspection unchecked
+<span class="nc" id="L218">            targetsListModel.addElement(BUILDING_TARGET + &quot;: &quot; + t);            </span>
+<span class="nc" id="L219">        }</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">        for (int id : princessBehavior.getPriorityUnitTargets()) {</span>
+<span class="nc" id="L221">            targetsListModel.addElement(UNIT_TARGET + &quot;: &quot; + id);</span>
+<span class="nc" id="L222">        }</span>
+<span class="nc" id="L223">        repaint();</span>
+<span class="nc" id="L224">    }</span>
+
+    private JLabel buildSliderLabel(String caption) {
+<span class="nc" id="L227">        Font slideFont = new Font(Font.SANS_SERIF, Font.PLAIN, 8);</span>
+<span class="nc" id="L228">        JLabel label = new JLabel(caption);</span>
+<span class="nc" id="L229">        label.setFont(slideFont);</span>
+<span class="nc" id="L230">        return label;</span>
+    }
+
+    private JSlider buildSlider(String minMsgProperty, String maxMsgProperty, String toolTip, String title) {
+<span class="nc" id="L234">        JSlider thisSlider = new JSlider(SwingConstants.HORIZONTAL, 0, 10, 5);</span>
+<span class="nc" id="L235">        Hashtable&lt;Integer, JLabel&gt; sliderLabels = new Hashtable&lt;Integer, JLabel&gt;(3);</span>
+<span class="nc" id="L236">        sliderLabels.put(0, buildSliderLabel(&quot;0 - &quot; + minMsgProperty));</span>
+<span class="nc" id="L237">        sliderLabels.put(10, buildSliderLabel(&quot;10 - &quot; + maxMsgProperty));</span>
+<span class="nc" id="L238">        sliderLabels.put(5, buildSliderLabel(&quot;5&quot;));</span>
+<span class="nc" id="L239">        thisSlider.setToolTipText(toolTip);</span>
+<span class="nc" id="L240">        thisSlider.setLabelTable(sliderLabels);</span>
+<span class="nc" id="L241">        thisSlider.setPaintLabels(true);</span>
+<span class="nc" id="L242">        thisSlider.setMinorTickSpacing(1);</span>
+<span class="nc" id="L243">        thisSlider.setMajorTickSpacing(2);</span>
+<span class="nc" id="L244">        thisSlider.setSnapToTicks(true);</span>
+<span class="nc" id="L245">        thisSlider.setBorder(new TitledBorder(new LineBorder(Color.black), title));</span>
+<span class="nc" id="L246">        thisSlider.setEnabled(true);</span>
+
+<span class="nc" id="L248">        return thisSlider;</span>
+    }
+
+    private JPanel okayPanel() {
+<span class="nc" id="L252">        JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 2));</span>
+
+<span class="nc bnc" id="L254" title="All 2 branches missed.">        if (!replacePlayer) {</span>
+<span class="nc" id="L255">            JPanel namepanel = new JPanel(new FlowLayout());</span>
+<span class="nc" id="L256">            namepanel.add(new JLabel(Messages.getString(&quot;BotConfigDialog.nameLabel&quot;)));</span>
+<span class="nc" id="L257">            nameField = new JTextField();</span>
+<span class="nc" id="L258">            nameField.setText(&quot;Princess&quot;);</span>
+<span class="nc" id="L259">            nameField.setColumns(12);</span>
+<span class="nc" id="L260">            nameField.setToolTipText(Messages.getString(&quot;BotConfigDialog.namefield.tooltip&quot;));</span>
+<span class="nc" id="L261">            nameField.addKeyListener(this);</span>
+<span class="nc" id="L262">            namepanel.add(nameField);</span>
+<span class="nc" id="L263">            panel.add(namepanel);</span>
+        }
+
+<span class="nc" id="L266">        butOK.addActionListener(this);</span>
+<span class="nc" id="L267">        panel.add(butOK);</span>
+
+<span class="nc" id="L269">        panel.validate();</span>
+<span class="nc" id="L270">        return panel;</span>
+    }
+
+    private JPanel buildSliderPanel() {
+<span class="nc" id="L274">        JPanel panel = new JPanel();</span>
+
+<span class="nc" id="L276">        GridBagConstraints constraints = new GridBagConstraints();</span>
+<span class="nc" id="L277">        GridBagLayout layout = new GridBagLayout();</span>
+<span class="nc" id="L278">        panel.setLayout(layout);</span>
+
+        //Initialize constraints.
+<span class="nc" id="L281">        constraints.gridheight = 1;</span>
+<span class="nc" id="L282">        constraints.gridwidth = 0;</span>
+<span class="nc" id="L283">        constraints.weightx = 1;</span>
+<span class="nc" id="L284">        constraints.weighty = 1;</span>
+<span class="nc" id="L285">        constraints.insets = new Insets(0, 0, 0, 0);</span>
+<span class="nc" id="L286">        constraints.anchor = GridBagConstraints.NORTHWEST;</span>
+<span class="nc" id="L287">        constraints.fill = GridBagConstraints.HORIZONTAL;</span>
+
+        //Row 1
+<span class="nc" id="L290">        constraints.gridy = 0;</span>
+<span class="nc" id="L291">        constraints.gridx = 0;</span>
+<span class="nc" id="L292">        braverySlidebar = buildSlider(Messages.getString(&quot;BotConfigDialog.braverySliderMin&quot;),</span>
+<span class="nc" id="L293">                                      Messages.getString(&quot;BotConfigDialog.braverySliderMax&quot;),</span>
+<span class="nc" id="L294">                                      Messages.getString(&quot;BotConfigDialog.braveryTooltip&quot;),</span>
+<span class="nc" id="L295">                                      Messages.getString(&quot;BotConfigDialog.braverySliderTitle&quot;));</span>
+<span class="nc" id="L296">        panel.add(braverySlidebar, constraints);</span>
+
+        //Row 2
+<span class="nc" id="L299">        constraints.gridy++;</span>
+<span class="nc" id="L300">        selfPreservationSlidebar = buildSlider(Messages.getString(&quot;BotConfigDialog.selfPreservationSliderMin&quot;),</span>
+<span class="nc" id="L301">                                               Messages.getString(&quot;BotConfigDialog.selfPreservationSliderMax&quot;),</span>
+<span class="nc" id="L302">                                               Messages.getString(&quot;BotConfigDialog.selfPreservationTooltip&quot;),</span>
+<span class="nc" id="L303">                                               Messages.getString(&quot;BotConfigDialog.selfPreservationSliderTitle&quot;));</span>
+<span class="nc" id="L304">        panel.add(selfPreservationSlidebar, constraints);</span>
+
+        //Row 3
+<span class="nc" id="L307">        constraints.gridy++;</span>
+<span class="nc" id="L308">        aggressionSlidebar = buildSlider(Messages.getString(&quot;BotConfigDialog.aggressionSliderMin&quot;),</span>
+<span class="nc" id="L309">                                         Messages.getString(&quot;BotConfigDialog.aggressionSliderMax&quot;),</span>
+<span class="nc" id="L310">                                         Messages.getString(&quot;BotConfigDialog.aggressionTooltip&quot;),</span>
+<span class="nc" id="L311">                                         Messages.getString(&quot;BotConfigDialog.aggressionSliderTitle&quot;));</span>
+<span class="nc" id="L312">        panel.add(aggressionSlidebar, constraints);</span>
+
+        //Row 4
+<span class="nc" id="L315">        constraints.gridy++;</span>
+<span class="nc" id="L316">        herdingSlidebar = buildSlider(Messages.getString(&quot;BotConfigDialog.herdingSliderMin&quot;),</span>
+<span class="nc" id="L317">                                      Messages.getString(&quot;BotConfigDialog.herdingSliderMax&quot;),</span>
+<span class="nc" id="L318">                                      Messages.getString(&quot;BotConfigDialog.herdingToolTip&quot;),</span>
+<span class="nc" id="L319">                                      Messages.getString(&quot;BotConfigDialog.herdingSliderTitle&quot;));</span>
+<span class="nc" id="L320">        panel.add(herdingSlidebar, constraints);</span>
+
+        //Row 5
+<span class="nc" id="L323">        constraints.gridy++;</span>
+<span class="nc" id="L324">        fallShameSlidebar = buildSlider(Messages.getString(&quot;BotConfigDialog.fallShameSliderMin&quot;),</span>
+<span class="nc" id="L325">                                        Messages.getString(&quot;BotConfigDialog.fallShameSliderMax&quot;),</span>
+<span class="nc" id="L326">                                        Messages.getString(&quot;BotConfigDialog.fallShameToolTip&quot;),</span>
+<span class="nc" id="L327">                                        Messages.getString(&quot;BotConfigDialog.fallShameSliderTitle&quot;));</span>
+<span class="nc" id="L328">        panel.add(fallShameSlidebar, constraints);</span>
+
+<span class="nc" id="L330">        panel.setBorder(new TitledBorder(new LineBorder(Color.black, 1), &quot;Behavior Settings&quot;));</span>
+
+<span class="nc" id="L332">        return panel;</span>
+    }
+
+    private JPanel princessPanel() {
+
+        //Setup layout.
+<span class="nc" id="L338">        JPanel panel = new JPanel();</span>
+<span class="nc" id="L339">        GridBagConstraints constraints = new GridBagConstraints();</span>
+<span class="nc" id="L340">        GridBagLayout layout = new GridBagLayout();</span>
+<span class="nc" id="L341">        panel.setLayout(layout);</span>
+
+        //Initialize constraints.
+<span class="nc" id="L344">        constraints.gridheight = 1;</span>
+<span class="nc" id="L345">        constraints.gridwidth = 1;</span>
+<span class="nc" id="L346">        constraints.insets = new Insets(2, 2, 2, 2);</span>
+<span class="nc" id="L347">        constraints.anchor = GridBagConstraints.NORTHWEST;</span>
+<span class="nc" id="L348">        constraints.fill = GridBagConstraints.HORIZONTAL;</span>
+
+        //Row 1 Column 1
+<span class="nc" id="L351">        constraints.gridy = 0;</span>
+<span class="nc" id="L352">        constraints.gridx = 0;</span>
+<span class="nc" id="L353">        JLabel behaviorNameLabel = new JLabel(Messages.getString(&quot;BotConfigDialog.behaviorNameLabel&quot;));</span>
+<span class="nc" id="L354">        panel.add(behaviorNameLabel, constraints);</span>
+
+        //Row 1 Column 2
+<span class="nc" id="L357">        constraints.gridx++;</span>
+<span class="nc" id="L358">        constraints.gridwidth = 2;</span>
+<span class="nc" id="L359">        princessBehaviorNames = new JComboBox&lt;&gt;(behaviorSettingsFactory.getBehaviorNames());</span>
+<span class="nc" id="L360">        princessBehaviorNames.setSelectedItem(BehaviorSettingsFactory.DEFAULT_BEHAVIOR_DESCRIPTION);</span>
+<span class="nc" id="L361">        princessBehaviorNames.setToolTipText(Messages.getString(&quot;BotConfigDialog.behaviorToolTip&quot;));</span>
+<span class="nc" id="L362">        princessBehaviorNames.addActionListener(this);</span>
+<span class="nc" id="L363">        princessBehaviorNames.setEditable(true);</span>
+<span class="nc" id="L364">        panel.add(princessBehaviorNames, constraints);</span>
+
+        //Row 2 Column 1
+<span class="nc" id="L367">        constraints.gridx = 0;</span>
+<span class="nc" id="L368">        constraints.gridwidth = 1;</span>
+<span class="nc" id="L369">        constraints.gridy++;</span>
+<span class="nc" id="L370">        JLabel verbosityLabel = new JLabel(Messages.getString(&quot;BotConfigDialog.verbosityLabel&quot;));</span>
+<span class="nc" id="L371">        panel.add(verbosityLabel, constraints);</span>
+
+        //Row 2 Column 2;
+<span class="nc" id="L374">        constraints.gridx++;</span>
+<span class="nc" id="L375">        constraints.gridwidth = 2;</span>
+<span class="nc" id="L376">        verbosityCombo = new JComboBox&lt;&gt;(LogLevel.getLogLevelNames());</span>
+<span class="nc" id="L377">        verbosityCombo.setToolTipText(Messages.getString(&quot;BotConfigDialog.verbosityToolTip&quot;));</span>
+<span class="nc" id="L378">        verbosityCombo.setSelectedIndex(0);</span>
+<span class="nc" id="L379">        panel.add(verbosityCombo, constraints);</span>
+
+        //Row 3 Column 1.
+<span class="nc" id="L382">        constraints.gridy++;</span>
+<span class="nc" id="L383">        constraints.gridx = 0;</span>
+<span class="nc" id="L384">        constraints.gridwidth = 1;</span>
+<span class="nc" id="L385">        forcedWithdrawalCheck = new JCheckBox(Messages.getString(&quot;BotConfigDialog.forcedWithdrawalCheck&quot;));</span>
+<span class="nc" id="L386">        forcedWithdrawalCheck.setToolTipText(Messages.getString(&quot;BotConfigDialog.forcedWithdrawalTooltip&quot;));</span>
+<span class="nc" id="L387">        panel.add(forcedWithdrawalCheck, constraints);</span>
+
+        //Row 3 Column 3.
+<span class="nc" id="L390">        constraints.gridx++;</span>
+<span class="nc" id="L391">        autoFleeCheck = new JCheckBox(Messages.getString(&quot;BotConfigDialog.autoFleeCheck&quot;));</span>
+<span class="nc" id="L392">        autoFleeCheck.setToolTipText(Messages.getString(&quot;BotConfigDialog.autoFleeTooltip&quot;));</span>
+<span class="nc" id="L393">        autoFleeCheck.addActionListener(this);</span>
+<span class="nc" id="L394">        autoFleeCheck.setEnabled(false);</span>
+<span class="nc" id="L395">        panel.add(autoFleeCheck, constraints);</span>
+
+        //Row 4 Column 1.
+<span class="nc" id="L398">        constraints.gridy++;</span>
+<span class="nc" id="L399">        constraints.gridx = 0;</span>
+<span class="nc" id="L400">        JLabel homeEdgeLabel = new JLabel(Messages.getString(&quot;BotConfigDialog.homeEdgeLabel&quot;));</span>
+<span class="nc" id="L401">        layout.setConstraints(homeEdgeLabel, constraints);</span>
+<span class="nc" id="L402">        panel.add(homeEdgeLabel);</span>
+
+        //Row 4 Column 2.
+<span class="nc" id="L405">        constraints.gridx++;</span>
+<span class="nc" id="L406">        destinationEdgeCombo = new JComboBox&lt;String&gt;(new String[]{Messages.getString(&quot;BotConfigDialog.northEdge&quot;),</span>
+<span class="nc" id="L407">                                                           Messages.getString(&quot;BotConfigDialog.southEdge&quot;),</span>
+<span class="nc" id="L408">                                                           Messages.getString(&quot;BotConfigDialog.westEdge&quot;),</span>
+<span class="nc" id="L409">                                                           Messages.getString(&quot;BotConfigDialog.eastEdge&quot;),</span>
+<span class="nc" id="L410">                                                           Messages.getString(&quot;BotConfigDialog.noEdge&quot;)});</span>
+<span class="nc" id="L411">        destinationEdgeCombo.setToolTipText(Messages.getString(&quot;BotConfigDialog.homeEdgeTooltip&quot;));</span>
+<span class="nc" id="L412">        destinationEdgeCombo.setSelectedIndex(0);</span>
+<span class="nc" id="L413">        destinationEdgeCombo.addActionListener(this);</span>
+<span class="nc" id="L414">        panel.add(destinationEdgeCombo, constraints);</span>
+        
+        //Row 4.1 Column 1.
+<span class="nc" id="L417">        constraints.gridy++;</span>
+<span class="nc" id="L418">        constraints.gridx = 0;</span>
+<span class="nc" id="L419">        JLabel retreatEdgeLabel = new JLabel(Messages.getString(&quot;BotConfigDialog.retreatEdgeLabel&quot;));</span>
+<span class="nc" id="L420">        layout.setConstraints(retreatEdgeLabel, constraints);</span>
+<span class="nc" id="L421">        panel.add(retreatEdgeLabel);</span>
+
+        //Row 4 Column 2.
+<span class="nc" id="L424">        constraints.gridx++;</span>
+<span class="nc" id="L425">        retreatEdgeCombo = new JComboBox&lt;String&gt;(new String[]{Messages.getString(&quot;BotConfigDialog.northEdge&quot;),</span>
+<span class="nc" id="L426">                                                           Messages.getString(&quot;BotConfigDialog.southEdge&quot;),</span>
+<span class="nc" id="L427">                                                           Messages.getString(&quot;BotConfigDialog.westEdge&quot;),</span>
+<span class="nc" id="L428">                                                           Messages.getString(&quot;BotConfigDialog.eastEdge&quot;),</span>
+<span class="nc" id="L429">                                                           Messages.getString(&quot;BotConfigDialog.nearestEdge&quot;)});</span>
+<span class="nc" id="L430">        retreatEdgeCombo.setToolTipText(Messages.getString(&quot;BotConfigDialog.retreatEdgeTooltip&quot;));</span>
+<span class="nc" id="L431">        retreatEdgeCombo.setSelectedIndex(0);</span>
+<span class="nc" id="L432">        panel.add(retreatEdgeCombo, constraints);</span>
+
+        //Row 5.
+<span class="nc" id="L435">        constraints.gridx = 0;</span>
+<span class="nc" id="L436">        constraints.gridy++;</span>
+<span class="nc" id="L437">        constraints.gridwidth = 3;</span>
+<span class="nc" id="L438">        JPanel sliderPanel = buildSliderPanel();</span>
+<span class="nc" id="L439">        layout.setConstraints(sliderPanel, constraints);</span>
+<span class="nc" id="L440">        panel.add(sliderPanel);</span>
+
+        //Row 6 Column 1.
+<span class="nc" id="L443">        constraints.gridy++;</span>
+<span class="nc" id="L444">        constraints.gridx = 0;</span>
+<span class="nc" id="L445">        constraints.gridwidth = 1;</span>
+<span class="nc" id="L446">        JLabel targetsLabel = new JLabel(Messages.getString(&quot;BotConfigDialog.targetsLabel&quot;));</span>
+<span class="nc" id="L447">        panel.add(targetsLabel, constraints);</span>
+
+        //Row 6 Column 2.
+<span class="nc" id="L450">        constraints.gridx++;</span>
+<span class="nc" id="L451">        targetTypeCombo = new JComboBox&lt;&gt;(new String[]{BUILDING_TARGET, UNIT_TARGET});</span>
+<span class="nc" id="L452">        targetTypeCombo.setToolTipText(Messages.getString(&quot;BotConfigDialog.targetTypeTooltip&quot;));</span>
+<span class="nc" id="L453">        targetTypeCombo.setSelectedIndex(0);</span>
+<span class="nc" id="L454">        panel.add(targetTypeCombo, constraints);</span>
+
+        // Row 6 Column 3.
+<span class="nc" id="L457">        constraints.gridx++;</span>
+<span class="nc" id="L458">        targetId = new JTextField();</span>
+<span class="nc" id="L459">        targetId.setToolTipText(Messages.getString(&quot;BotConfigDialog.princessTargetIdToolTip&quot;));</span>
+<span class="nc" id="L460">        targetId.setColumns(4);</span>
+<span class="nc" id="L461">        panel.add(targetId, constraints);</span>
+
+        //Row 7.
+<span class="nc" id="L464">        constraints.gridy++;</span>
+<span class="nc" id="L465">        constraints.gridx = 0;</span>
+<span class="nc" id="L466">        constraints.gridwidth = 3;</span>
+<span class="nc" id="L467">        panel.add(buildStrategicTargetsButtonPanel(), constraints);</span>
+
+        //Row 8
+<span class="nc" id="L470">        constraints.gridy++;</span>
+<span class="nc" id="L471">        constraints.gridx = 0;</span>
+<span class="nc" id="L472">        constraints.gridwidth = 3;</span>
+<span class="nc" id="L473">        targetsList = new JList&lt;&gt;(targetsListModel);</span>
+<span class="nc" id="L474">        targetsList.setToolTipText(Messages.getString(&quot;BotConfigDialog.princessStrategicTargetsToolTip&quot;));</span>
+<span class="nc" id="L475">        targetsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);</span>
+<span class="nc" id="L476">        targetsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);</span>
+<span class="nc" id="L477">        targetsList.setLayoutOrientation(JList.VERTICAL);</span>
+<span class="nc" id="L478">        JScrollPane targetScroller = new JScrollPane(targetsList);</span>
+<span class="nc" id="L479">        targetScroller.setAlignmentX(LEFT_ALIGNMENT);</span>
+<span class="nc" id="L480">        panel.add(targetScroller, constraints);</span>
+
+        //Row 9, Column 2
+<span class="nc" id="L483">        constraints.gridy++;</span>
+<span class="nc" id="L484">        constraints.gridx = 1;</span>
+<span class="nc" id="L485">        constraints.gridwidth = 1;</span>
+<span class="nc" id="L486">        princessHelpButton = new JButton(Messages.getString(&quot;BotConfigDialog.princessHelpButtonCaption&quot;));</span>
+<span class="nc" id="L487">        princessHelpButton.addActionListener(this);</span>
+<span class="nc" id="L488">        panel.add(princessHelpButton, constraints);</span>
+
+        // if we don't have a behavior already selected when initializing this panel
+        // then set a default one
+<span class="nc bnc" id="L492" title="All 2 branches missed.">        if(princessBehavior == null) {</span>
+<span class="nc" id="L493">            getPresetPrincessBehavior();</span>
+        }
+        
+<span class="nc" id="L496">        setPrincessFields();</span>
+<span class="nc" id="L497">        panel.validate();</span>
+<span class="nc" id="L498">        return panel;</span>
+    }
+
+    private JPanel buildStrategicTargetsButtonPanel() {
+<span class="nc" id="L502">        JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 1, 1));</span>
+<span class="nc" id="L503">        addTargetButton = new JButton(Messages.getString(&quot;BotConfigDialog.princessAddTargetButtonCaption&quot;));</span>
+<span class="nc" id="L504">        addTargetButton.setToolTipText(Messages.getString(&quot;BotConfigDialog.princessAddTargetButtonToolTip&quot;));</span>
+<span class="nc" id="L505">        addTargetButton.addActionListener(this);</span>
+<span class="nc" id="L506">        panel.add(addTargetButton);</span>
+
+<span class="nc" id="L508">        removeTargetButton = new JButton(Messages.getString(&quot;BotConfigDialog.princessRemoveTargetButtonCaption&quot;));</span>
+<span class="nc" id="L509">        removeTargetButton.setToolTipText(Messages.getString(&quot;BotConfigDialog.princessRemoveTargetButtonToolTip&quot;));</span>
+<span class="nc" id="L510">        removeTargetButton.addActionListener(this);</span>
+<span class="nc" id="L511">        panel.add(removeTargetButton);</span>
+
+<span class="nc" id="L513">        return panel;</span>
+    }
+
+    private void launchPrincessHelp() {
+        try {
+            // Get the correct help file.
+<span class="nc" id="L519">            StringBuilder helpPath = new StringBuilder(&quot;file:///&quot;);</span>
+<span class="nc" id="L520">            helpPath.append(System.getProperty(&quot;user.dir&quot;));</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">            if (!helpPath.toString().endsWith(File.separator)) {</span>
+<span class="nc" id="L522">                helpPath.append(File.separator);</span>
+            }
+<span class="nc" id="L524">            helpPath.append(Messages.getString(&quot;BotConfigDialog.princessHelpPath&quot;));</span>
+<span class="nc" id="L525">            URL helpUrl = new URL(helpPath.toString());</span>
+
+            // Launch the help dialog.
+<span class="nc" id="L528">            HelpDialog helpDialog = new HelpDialog(Messages.getString(&quot;BotConfigDialog.princessHelp.title&quot;), helpUrl);</span>
+<span class="nc" id="L529">            helpDialog.setVisible(true);</span>
+<span class="nc" id="L530">        } catch (MalformedURLException e) {</span>
+<span class="nc" id="L531">            handleError(e);</span>
+<span class="nc" id="L532">        }</span>
+<span class="nc" id="L533">    }</span>
+
+    public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L536">        CardLayout cardlayout = (CardLayout) (botSpecificCardsPanel.getLayout());</span>
+<span class="nc bnc" id="L537" title="All 2 branches missed.">        if (testBotRadiobutton.equals(e.getSource())) {</span>
+<span class="nc bnc" id="L538" title="All 4 branches missed.">            if (!customName &amp;&amp; !replacePlayer) {</span>
+<span class="nc" id="L539">                nameField.setText(&quot;TestBot&quot;);</span>
+            }
+<span class="nc" id="L541">            cardlayout.show(botSpecificCardsPanel, TESTBOT_PANEL);</span>
+
+<span class="nc bnc" id="L543" title="All 2 branches missed.">        } else if (princessRadiobutton.equals(e.getSource())) {</span>
+<span class="nc bnc" id="L544" title="All 2 branches missed.">            if (!customName) {</span>
+<span class="nc" id="L545">                nameField.setText(&quot;Princess&quot;);</span>
+            }
+<span class="nc" id="L547">            cardlayout.show(botSpecificCardsPanel, PRINCESS_PANEL);</span>
+
+<span class="nc bnc" id="L549" title="All 2 branches missed.">        } else if (butOK.equals(e.getSource())) {</span>
+<span class="nc" id="L550">            dialogAborted = false;</span>
+<span class="nc" id="L551">            savePrincessProperties();</span>
+<span class="nc" id="L552">            setVisible(false);</span>
+
+<span class="nc bnc" id="L554" title="All 2 branches missed.">        } else if (addTargetButton.equals(e.getSource())) {</span>
+<span class="nc" id="L555">            String data = targetTypeCombo.getSelectedItem() + &quot;: &quot; + targetId.getText();</span>
+<span class="nc" id="L556">            targetsListModel.addElement(data);</span>
+
+<span class="nc bnc" id="L558" title="All 2 branches missed.">        } else if (removeTargetButton.equals(e.getSource())) {</span>
+<span class="nc" id="L559">            targetsListModel.removeElementAt(targetsList.getSelectedIndex());</span>
+
+<span class="nc bnc" id="L561" title="All 2 branches missed.">        } else if (princessBehaviorNames.equals(e.getSource())) {</span>
+<span class="nc" id="L562">            getPresetPrincessBehavior();</span>
+<span class="nc" id="L563">            setPrincessFields();</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">        } else if (destinationEdgeCombo.equals(e.getSource())) {</span>
+<span class="nc bnc" id="L565" title="All 2 branches missed.">            if (CardinalEdge.getCardinalEdge(destinationEdgeCombo.getSelectedIndex()) == CardinalEdge.NEAREST_OR_NONE) {</span>
+<span class="nc" id="L566">                autoFleeCheck.setSelected(false);</span>
+<span class="nc" id="L567">                autoFleeCheck.setEnabled(false);</span>
+            } else {
+<span class="nc" id="L569">                autoFleeCheck.setEnabled(true);</span>
+<span class="nc" id="L570">                autoFleeCheck.setSelected(true);</span>
+            }
+<span class="nc bnc" id="L572" title="All 2 branches missed.">        } else if (princessHelpButton.equals(e.getSource())) {</span>
+<span class="nc" id="L573">            launchPrincessHelp();</span>
+        }
+<span class="nc" id="L575">    }</span>
+
+    private void handleError(Throwable t) {
+<span class="nc" id="L578">        JOptionPane.showMessageDialog(this, t.getMessage(), &quot;ERROR&quot;, JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L579">        MegaMek.getLogger().error(t);</span>
+<span class="nc" id="L580">    }</span>
+
+    private void savePrincessProperties() {
+<span class="nc" id="L583">        BehaviorSettings tempBehavior = new BehaviorSettings();</span>
+
+        try {
+<span class="nc" id="L586">            tempBehavior.setDescription((String) princessBehaviorNames.getSelectedItem());</span>
+<span class="nc" id="L587">        } catch (PrincessException e) {</span>
+<span class="nc" id="L588">            handleError(e);</span>
+<span class="nc" id="L589">        }</span>
+<span class="nc" id="L590">        tempBehavior.setFallShameIndex(fallShameSlidebar.getValue());</span>
+<span class="nc" id="L591">        tempBehavior.setForcedWithdrawal(forcedWithdrawalCheck.isSelected());</span>
+<span class="nc" id="L592">        tempBehavior.setAutoFlee(autoFleeCheck.isSelected());</span>
+<span class="nc" id="L593">        tempBehavior.setDestinationEdge(destinationEdgeCombo.getSelectedIndex());</span>
+<span class="nc" id="L594">        tempBehavior.setRetreatEdge(retreatEdgeCombo.getSelectedIndex());</span>
+<span class="nc" id="L595">        tempBehavior.setHyperAggressionIndex(aggressionSlidebar.getValue());</span>
+<span class="nc" id="L596">        tempBehavior.setSelfPreservationIndex(selfPreservationSlidebar.getValue());</span>
+<span class="nc" id="L597">        tempBehavior.setHerdMentalityIndex(herdingSlidebar.getValue());</span>
+<span class="nc" id="L598">        tempBehavior.setBraveryIndex(braverySlidebar.getValue());</span>
+<span class="nc" id="L599">        tempBehavior.setFallShameIndex(fallShameSlidebar.getValue());</span>
+<span class="nc bnc" id="L600" title="All 2 branches missed.">        for (int i = 0; i &lt; targetsListModel.getSize(); i++) {</span>
+<span class="nc" id="L601">            String[] target = targetsListModel.get(i).split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L602" title="All 2 branches missed.">            if (BUILDING_TARGET.equalsIgnoreCase(target[0].trim())) {</span>
+<span class="nc" id="L603">                tempBehavior.addStrategicTarget(target[1].trim());</span>
+            } else {
+<span class="nc" id="L605">                tempBehavior.addPriorityUnit(target[1].trim());</span>
+            }
+        }
+<span class="nc" id="L608">        boolean save = false;</span>
+<span class="nc" id="L609">        boolean saveTargets = false;</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">        if (!tempBehavior.equals(princessBehavior)) {</span>
+<span class="nc" id="L611">            SavePrincessDialog dialog = new SavePrincessDialog(this);</span>
+<span class="nc" id="L612">            dialog.setVisible(true);</span>
+<span class="nc" id="L613">            save = dialog.doSave();</span>
+<span class="nc" id="L614">            saveTargets = dialog.doSaveTargets();</span>
+<span class="nc" id="L615">            dialog.dispose();</span>
+        }
+<span class="nc" id="L617">        princessBehavior = tempBehavior;</span>
+
+<span class="nc bnc" id="L619" title="All 2 branches missed.">        if (save) {</span>
+<span class="nc" id="L620">            behaviorSettingsFactory.addBehavior(princessBehavior);</span>
+<span class="nc" id="L621">            behaviorSettingsFactory.saveBehaviorSettings(saveTargets);</span>
+        }
+<span class="nc" id="L623">    }</span>
+
+    public void keyTyped(KeyEvent e) {
+<span class="nc" id="L626">        customName = true;</span>
+<span class="nc" id="L627">    }</span>
+
+    public void keyReleased(KeyEvent e) {
+<span class="nc" id="L630">    }</span>
+
+    public void keyPressed(KeyEvent e) {
+<span class="nc" id="L633">    }</span>
+
+    /**
+     * gets the selected, configured bot from the dialog
+     *
+     * @param host The game server's host address.
+     * @param port The gme server's host port.
+     * @return A new bot-controlled client.
+     */
+    BotClient getSelectedBot(String host, int port) {
+<span class="nc bnc" id="L643" title="All 2 branches missed.">        if (testBotRadiobutton.isSelected()) {</span>
+<span class="nc" id="L644">            return new TestBot(getBotName(), host, port);</span>
+
+<span class="nc bnc" id="L646" title="All 2 branches missed.">        } else if (princessRadiobutton.isSelected()) {</span>
+<span class="nc" id="L647">            Princess toReturn = new Princess(getBotName(), host, port,</span>
+<span class="nc" id="L648">                                             LogLevel.getLogLevel((String) verbosityCombo.getSelectedItem()));</span>
+<span class="nc" id="L649">            toReturn.setBehaviorSettings(princessBehavior);</span>
+<span class="nc" id="L650">            toReturn.getLogger().debug(toReturn.getBehaviorSettings().toLog());</span>
+<span class="nc" id="L651">            return toReturn;</span>
+        }
+<span class="nc" id="L653">        return null; // shouldn't happen</span>
+    }
+
+    public String getBotName() {
+<span class="nc bnc" id="L657" title="All 2 branches missed.">        if (replacePlayer) {</span>
+<span class="nc" id="L658">            return playersToReplace.getSelectedValuesList().get(0);</span>
+        }
+<span class="nc" id="L660">        return nameField.getText();</span>
+    }
+
+    Collection&lt;String&gt; getPlayerToReplace() {
+<span class="nc bnc" id="L664" title="All 2 branches missed.">        if (!replacePlayer) {</span>
+<span class="nc" id="L665">            return new HashSet&lt;&gt;(0);</span>
+        }
+<span class="nc" id="L667">        return playersToReplace.getSelectedValuesList();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

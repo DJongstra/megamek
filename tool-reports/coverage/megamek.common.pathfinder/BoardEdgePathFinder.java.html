@@ -1,0 +1,781 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BoardEdgePathFinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">BoardEdgePathFinder.java</span></div><h1>BoardEdgePathFinder.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2017 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.pathfinder;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import megamek.common.Board;
+import megamek.common.Building;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.EntityMovementMode;
+import megamek.common.IBoard;
+import megamek.common.IHex;
+import megamek.common.Mech;
+import megamek.common.MiscType;
+import megamek.common.MovePath;
+import megamek.common.Terrains;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.annotations.Nullable;
+import megamek.common.MoveStep;
+
+/**
+ * This class is intended to be used to find a (potentially long) legal path
+ * given a movement type from a particular hex to the specified board edge
+ * 
+ * Note: This class is largely obsolete now, only used for its static methods
+ * @author NickAragua
+ *
+ */
+public class BoardEdgePathFinder {
+    // This is a map that will tell us if a particular coordinate has a move path to a particular edge
+    Map&lt;Integer, Map&lt;Coords, MovePath&gt;&gt; edgePathCache;
+
+    // This is a map that will tell us the longest non-repeating path available to a particular coordinate
+    // Useful in situations where a unit has no possible way to get from the deployment zone to the opposite edge
+    // It is accumulated over multiple calls to findPathToEdge()
+    // It will basically tell us the available &quot;surface area&quot; from a particular set of coordinates
+    Map&lt;Coords, MovePath&gt; longestNonEdgePathCache;
+
+    // This is a map that will tell us all the paths that connect to the path that's the key
+    // Useful in a) determining a full path to the edge and
+    // b) purging paths that would become invalid for whatever reason (building collapse or terrain destruction usually)
+    Map&lt;MovePath, List&lt;MovePath&gt;&gt; connectedPaths;
+
+    /**
+     * Constructor - initializes internal caches
+     */
+<span class="nc" id="L67">    public BoardEdgePathFinder() {</span>
+<span class="nc" id="L68">        edgePathCache = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L69">        longestNonEdgePathCache = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L70">        connectedPaths = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L71">    }</span>
+
+    /**
+     * Figures out the &quot;opposite&quot; edge for the given entity.
+     * @param entity Entity to evaluate
+     * @return the Board.START_ constant representing the &quot;opposite&quot; edge
+     */
+    private int determineOppositeEdge(Entity entity) {
+<span class="nc" id="L79">        IBoard board = entity.getGame().getBoard();</span>
+
+        // the easiest part is if the entity is supposed to start on a particular edge. Just return the opposite edge.
+<span class="nc" id="L82">        int oppositeEdge = board.getOppositeEdge(entity.getStartingPos());</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        if(oppositeEdge != Board.START_NONE) {</span>
+<span class="nc" id="L84">            return oppositeEdge;</span>
+        }
+
+        // otherwise, we determine which edge of the board is closest to current position (using math) and return the &quot;opposite&quot; edge.
+        // the lesser of entity position x or y determines the opposite.
+        // if they're even, pick one arbitrarily
+
+<span class="nc" id="L91">        int edge = Board.START_NONE;</span>
+        
+<span class="nc" id="L93">        double normalizedXPosition = (double) entity.getPosition().getX() / board.getWidth();</span>
+<span class="nc" id="L94">        double normalizedYPosition = (double) entity.getPosition().getY() / board.getHeight();</span>
+
+        // if x is closer to the west edge and less than the y coordinate, use east edge as opposite
+<span class="nc bnc" id="L97" title="All 4 branches missed.">        if((entity.getPosition().getX() &lt; (board.getWidth() / 2)) &amp;&amp;</span>
+                (normalizedXPosition &lt; normalizedYPosition)) {
+<span class="nc" id="L99">            edge = Board.START_W;</span>
+        }
+
+        // if x is closer to the east edge and greater than the y coordinate, use west edge as opposite
+<span class="nc bnc" id="L103" title="All 4 branches missed.">        else if((entity.getPosition().getX() &gt;= (board.getWidth() / 2)) &amp;&amp;</span>
+                (normalizedXPosition &gt; normalizedYPosition)) {
+<span class="nc" id="L105">            edge = Board.START_E;</span>
+        }
+
+        // if y is closer to the north edge and greater than the x coordinate, use south edge as opposite
+<span class="nc bnc" id="L109" title="All 4 branches missed.">        else if((entity.getPosition().getY() &lt; (board.getHeight() / 2)) &amp;&amp;</span>
+                (normalizedYPosition &lt; normalizedXPosition)) {
+<span class="nc" id="L111">            edge = Board.START_N;</span>
+        }
+        // if y is closer to the south edge and greater than the x coordinate, use the north edge as opposite
+<span class="nc bnc" id="L114" title="All 4 branches missed.">        else if((entity.getPosition().getY() &gt;= (board.getHeight() / 2)) &amp;&amp;</span>
+                (normalizedYPosition &gt; normalizedXPosition)) {
+<span class="nc" id="L116">            edge = Board.START_S;</span>
+        }
+
+<span class="nc" id="L119">        return board.getOppositeEdge(edge);</span>
+    }
+
+    /**
+     * Helper function to set the entity to an appropriate facing given the destination region
+     * Changes the actual entity's facing.
+     * @param entity The entity
+     * @param destinationRegion The region
+     */
+    private int getAppropriateFacing(Entity entity, int destinationRegion) {
+<span class="nc bnc" id="L129" title="All 5 branches missed.">        switch(destinationRegion) {</span>
+        case Board.START_N:
+<span class="nc" id="L131">            return 0;</span>
+        case Board.START_S:
+<span class="nc" id="L133">            return 3;</span>
+        case Board.START_E:
+<span class="nc bnc" id="L135" title="All 2 branches missed.">            if(entity.getPosition().getY() &lt; entity.getGame().getBoard().getHeight() / 2) {</span>
+<span class="nc" id="L136">                return 2;</span>
+            }
+            else {
+<span class="nc" id="L139">                return 1;</span>
+            }
+        case Board.START_W:
+<span class="nc bnc" id="L142" title="All 2 branches missed.">            if(entity.getPosition().getY() &lt; entity.getGame().getBoard().getHeight() / 2) {</span>
+<span class="nc" id="L143">                return 4;</span>
+            }
+            else {
+<span class="nc" id="L146">                return 5;</span>
+            }
+        }
+
+<span class="nc" id="L150">        return -1;</span>
+    }
+
+    /**
+     * Helper function to directly the entity to an appropriate facing given the destination region
+     * Changes the actual entity's facing.
+     * @param entity The entity
+     * @param destinationRegion The region
+     */
+    private void setAppropriateFacing(Entity entity, int destinationRegion) {
+<span class="nc" id="L160">        entity.setFacing(getAppropriateFacing(entity, destinationRegion));</span>
+<span class="nc" id="L161">    }</span>
+
+    /**
+     * Helper method that attempts to find a path that connects from the entity's current position
+     * to the path's desired edge. The reason being that a particular path may technically lead to an edge,
+     * but we cut the path generation short when it reaches another path that already goes to that edge.
+     * @param entity
+     * @return
+     */
+    public MovePath findCombinedPath(Entity entity) {
+<span class="nc" id="L171">        MovePath currentPath = null;</span>
+<span class="nc" id="L172">        MovePath connectedPath = new MovePath(entity.getGame(), entity);</span>
+
+<span class="nc" id="L174">        int destinationRegion = determineOppositeEdge(entity);</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        if(edgePathCache.containsKey(destinationRegion)) {</span>
+<span class="nc" id="L176">            currentPath = edgePathCache.get(destinationRegion).get(entity.getPosition());</span>
+        }
+
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        if(currentPath == null) {</span>
+<span class="nc" id="L180">            return this.findPathToEdge(entity);</span>
+        }
+
+<span class="nc bnc" id="L183" title="All 4 branches missed.">        while(!isOnBoardEdge(currentPath, destinationRegion) &amp;&amp; (connectedPath != null)) {</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">            if(edgePathCache.containsKey(destinationRegion)) {</span>
+<span class="nc" id="L185">                connectedPath = edgePathCache.get(destinationRegion).get(currentPath.getFinalCoords());</span>
+            } else {
+                // this indicates that the end point of the current path does not go on to the desired edge
+<span class="nc" id="L188">                connectedPath = null;</span>
+            }
+
+            //
+<span class="nc bnc" id="L192" title="All 2 branches missed.">            if(currentPath != null) {</span>
+<span class="nc" id="L193">                currentPath = joinPaths(entity, currentPath, connectedPath);</span>
+            }
+        }
+
+<span class="nc" id="L197">        return currentPath;</span>
+    }
+
+    /**
+     * Helper method that takes two paths and &quot;joins&quot; them together.
+     * The resulting path has all the steps of the starting path, a turn to get the unit to face in the direction of the second path,
+     * and the rest of the second path starting from the intersection.
+     * @param startingPath The beginning path
+     * @param endingPath The end path
+     * @return Combined path
+     */
+    private MovePath joinPaths(Entity entity, MovePath startingPath, MovePath endingPath) {
+
+        // step 1: check if we've already found a path to the edge from these coordinates
+        // this path may be &quot;incomplete&quot;, but it's a good starting point.
+        // the initial part of the path then is from the entity's current position
+        // then, we find any path that &quot;extends&quot; the initial path and follow that (repeat until we reach the end)
+
+<span class="nc" id="L215">        MovePath joinedPath = new MovePath(entity.getGame(), entity);</span>
+<span class="nc" id="L216">        boolean intersected = false;</span>
+
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        for(MoveStep step : startingPath.getStepVector()) {</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">            if(step.getPosition() == joinedPath.getFinalCoords()) {</span>
+<span class="nc" id="L220">                matchFacingToPath(joinedPath, step);</span>
+<span class="nc" id="L221">                intersected = true;</span>
+            }
+
+<span class="nc bnc" id="L224" title="All 2 branches missed.">            if(intersected) {</span>
+<span class="nc" id="L225">                joinedPath.addStep(step.getType());</span>
+            }
+<span class="nc" id="L227">        }</span>
+
+<span class="nc" id="L229">        intersected = false;</span>
+
+<span class="nc bnc" id="L231" title="All 2 branches missed.">        for(MoveStep step : endingPath.getStepVector()) {</span>
+            // this is the point where we intersect
+<span class="nc bnc" id="L233" title="All 2 branches missed.">            if(step.getPosition() == startingPath.getFinalCoords()) {</span>
+<span class="nc" id="L234">                matchFacingToPath(joinedPath, step);</span>
+<span class="nc" id="L235">                intersected = true;</span>
+            }
+
+<span class="nc bnc" id="L238" title="All 2 branches missed.">            if(intersected) {</span>
+<span class="nc" id="L239">                joinedPath.addStep(step.getType());</span>
+            }
+<span class="nc" id="L241">        }</span>
+
+<span class="nc" id="L243">        return joinedPath;</span>
+    }
+
+    /**
+     * Helper function that, given a unit facing and a move step, adds turns to the given path until the facing of the path matches
+     * the facing of the step.
+     * @param initialPath
+     * @param intersectionStep
+     */
+    private void matchFacingToPath(MovePath initialPath, MoveStep intersectionStep) {
+        // algorithm: from initial facing, two rotation paths: add and subtract one
+        // until we reach the desired facing with either.
+        // could probably be done with geometry instead, but I'm not *that* good with abstract math
+
+<span class="nc" id="L257">        int initialFacing = initialPath.getFinalFacing();</span>
+<span class="nc" id="L258">        int desiredFacing = intersectionStep.getFacing();</span>
+<span class="nc" id="L259">        int leftTurnFacing = initialFacing;</span>
+<span class="nc" id="L260">        int rightTurnFacing = initialFacing;</span>
+<span class="nc" id="L261">        int leftTurnCount = 0;</span>
+<span class="nc" id="L262">        int rightTurnCount = 0;</span>
+
+<span class="nc bnc" id="L264" title="All 4 branches missed.">        while((leftTurnFacing != desiredFacing) &amp;&amp; (rightTurnFacing != desiredFacing)) {</span>
+<span class="nc" id="L265">            leftTurnFacing--;</span>
+<span class="nc" id="L266">            rightTurnFacing++;</span>
+<span class="nc" id="L267">            leftTurnCount++;</span>
+<span class="nc" id="L268">            rightTurnCount++;</span>
+
+            // &quot;wrap around&quot; if we hit 0 from either edge
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            if(leftTurnFacing &lt; 0) {</span>
+<span class="nc" id="L272">                leftTurnFacing = 5;</span>
+            }
+
+<span class="nc bnc" id="L275" title="All 2 branches missed.">            if(rightTurnFacing &gt; 5) {</span>
+<span class="nc" id="L276">                rightTurnFacing = 0;</span>
+            }
+        }
+
+<span class="nc bnc" id="L280" title="All 2 branches missed.">        MoveStepType turnDirection = leftTurnCount &gt; rightTurnCount ? MoveStepType.TURN_RIGHT : MoveStepType.TURN_LEFT;</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        int turnCount = leftTurnCount &gt; rightTurnCount ? rightTurnCount : leftTurnCount;</span>
+
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        for(int count = 0; count &lt; turnCount; count++) {</span>
+<span class="nc" id="L284">            initialPath.addStep(turnDirection);</span>
+        }
+<span class="nc" id="L286">    }</span>
+
+    /**
+     * Invalidate all paths that go through this set of coordinates (because of a building or bridge collapse), or some other terrain change
+     * either directly or by connecting to a path that goes through this set of coordinates.
+     * @param coords
+     */
+    public void invalidatePaths(Coords coords) {
+        // identify if this set of coordinates has a path that leads to an edge
+        // loop through all paths in the path cache destined for the edge, and invalidate the ones that connect to the initial identified path
+        // invalidate the first path
+
+<span class="nc bnc" id="L298" title="All 2 branches missed.">        for(Map&lt;Coords, MovePath&gt; coordinatePaths : edgePathCache.values()) {</span>
+<span class="nc" id="L299">            MovePath directPath = coordinatePaths.get(coords);</span>
+
+<span class="nc bnc" id="L301" title="All 2 branches missed.">            if(directPath != null) {</span>
+                // first, clear out all cached coordinate-path entries for this path
+<span class="nc bnc" id="L303" title="All 2 branches missed.">                for(Coords pathCoords : directPath.getCoordsSet()) {</span>
+<span class="nc" id="L304">                    coordinatePaths.remove(pathCoords);</span>
+<span class="nc" id="L305">                }</span>
+
+                // for each path that connects to this path, invalidate it
+<span class="nc bnc" id="L308" title="All 2 branches missed.">                if(connectedPaths.containsKey(directPath)) {</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">                    for(MovePath connectedPath : connectedPaths.get(directPath)) {</span>
+<span class="nc" id="L310">                        invalidatePaths(connectedPath.getStartCoords());</span>
+<span class="nc" id="L311">                    }</span>
+                }
+            }
+<span class="nc" id="L314">        }</span>
+<span class="nc" id="L315">    }</span>
+
+    /**
+     * Finds a legal path for the given entity to the &quot;opposite&quot; board edge
+     * Completely ignores movement risk
+     * Mostly ignores movement cost
+     * &quot;opposite&quot; is defined as the cardinal edge furthest from the entity's current location
+     * @param entity The entity for which to calculate the path
+     * @return A legal move path from the entity's current location to the &quot;opposite&quot; edge (over several turns)
+     */
+    public MovePath findPathToEdge(Entity entity) {
+<span class="nc" id="L326">        int destinationRegion = determineOppositeEdge(entity);</span>
+
+        // back up and restore the entity's original facing, as it's not nice to have side effects
+<span class="nc" id="L329">        int originalFacing = entity.getFacing();</span>
+<span class="nc" id="L330">        setAppropriateFacing(entity, destinationRegion);</span>
+<span class="nc" id="L331">        MovePath pathToEdge = findPathToEdge(entity, destinationRegion);</span>
+<span class="nc" id="L332">        entity.setFacing(originalFacing);</span>
+
+<span class="nc" id="L334">        return pathToEdge;</span>
+    }
+
+    /**
+     * Finds a legal path for the given entity to the given board edge (please pass in a cardinal edge)
+     * Completely ignores movement risk
+     * Mostly ignores movement cost
+     * @param entity The entity for which to calculate the path
+     * @param destinationRegion The destination edge
+     * @return A legal move path from the entity's current location to the edge (over several turns)
+     */
+    public MovePath findPathToEdge(Entity entity, int destinationRegion) {
+<span class="nc" id="L346">        MovePath startPath = new MovePath(entity.getGame(), entity);</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        if(entity.hasETypeFlag(Entity.ETYPE_INFANTRY)) {</span>
+<span class="nc" id="L348">            startPath.addStep(MoveStepType.CLIMB_MODE_OFF);</span>
+        } else {
+<span class="nc" id="L350">            startPath.addStep(MoveStepType.CLIMB_MODE_ON);</span>
+        }
+
+<span class="nc" id="L353">        Comparator&lt;MovePath&gt; movePathComparator = new SortByDistanceToEdge(destinationRegion);</span>
+
+<span class="nc" id="L355">        List&lt;MovePath&gt; candidates = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L356">        candidates.add(startPath);</span>
+
+        // a collection of coordinates we've already visited, so we don't loop back.
+<span class="nc" id="L359">        Set&lt;Coords&gt; visitedCoords = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L360">        visitedCoords.add(startPath.getFinalCoords());</span>
+<span class="nc" id="L361">        longestNonEdgePathCache.put(entity.getPosition(), startPath);</span>
+
+<span class="nc bnc" id="L363" title="All 2 branches missed.">        while(!candidates.isEmpty()) {</span>
+<span class="nc" id="L364">            MovePath cachedPath = this.getCachedPathForCoordinates(candidates.get(0).getFinalCoords(), destinationRegion);</span>
+
+<span class="nc bnc" id="L366" title="All 4 branches missed.">            if(cachedPath != null || isOnBoardEdge(candidates.get(0), destinationRegion)) {</span>
+                // if we've found a cached path and the length of the current candidate is 1
+                // (it's always at least 1 due to adding the climb mode switch explicitly),
+                // then we should return the cached path instead
+<span class="nc bnc" id="L370" title="All 4 branches missed.">                MovePath returnPath = ((candidates.get(0).length() == 1) &amp;&amp; (cachedPath != null)) ? cachedPath : candidates.get(0);</span>
+
+<span class="nc" id="L372">                cacheGoodPath(returnPath, destinationRegion);</span>
+<span class="nc" id="L373">                return returnPath;</span>
+            }
+
+<span class="nc" id="L376">            candidates.addAll(generateChildNodes(candidates.get(0), visitedCoords));</span>
+
+            // if this path moved around more than the current 'longest path', store it, just in case
+<span class="nc bnc" id="L379" title="All 2 branches missed.">            if(candidates.get(0).getHexesMoved() &gt; longestNonEdgePathCache.get(entity.getPosition()).getHexesMoved()) {</span>
+<span class="nc" id="L380">                longestNonEdgePathCache.put(entity.getPosition(), candidates.get(0));</span>
+            }
+
+<span class="nc" id="L383">            candidates.remove(0);</span>
+<span class="nc" id="L384">            candidates.sort(movePathComparator);</span>
+<span class="nc" id="L385">        }</span>
+
+<span class="nc" id="L387">        return null;</span>
+    }
+
+    /**
+     * Gets the currently stored longest non-edge path from the given entity's current position
+     * @param coords The coordinates to check
+     * @return A move path or null if these coordinates haven't been evaluated.
+     */
+    public @Nullable MovePath getLongestNonEdgePath(Coords coords) {
+<span class="nc" id="L396">        return longestNonEdgePathCache.get(coords);</span>
+    }
+
+    /**
+     * Helper function that gets us a cached path for the given set of coordinates if they have a path cached
+     * @param coords Coordinates to check
+     * @param destinationRegion Where we're going
+     * @return True or false
+     */
+    protected MovePath getCachedPathForCoordinates(Coords coords, int destinationRegion) {
+<span class="nc bnc" id="L406" title="All 2 branches missed.">        return edgePathCache.containsKey(destinationRegion) ? edgePathCache.get(destinationRegion).get(coords) : null;</span>
+    }
+
+    /**
+     * Helper function that tells us if the given set of coordinates have a path cached already
+     * @param coords Coordinates to check
+     * @param destinationRegion Where we're going
+     * @return True or false
+     */
+    @SuppressWarnings(&quot;unused&quot;)
+    private boolean coordinatesHaveCachedPath(Coords coords, int destinationRegion) {
+<span class="nc bnc" id="L417" title="All 4 branches missed.">        return edgePathCache.containsKey(destinationRegion) &amp;&amp; edgePathCache.get(destinationRegion).containsKey(coords);</span>
+    }
+
+    /**
+     * Worker function that caches a path that gets to the destination region
+     * @param path The path to cache
+     * @param destinationRegion The region of the board to which the path moves
+     */
+    protected void cacheGoodPath(MovePath path, int destinationRegion) {
+        // don't bother with all this stuff if we're not moving
+<span class="nc bnc" id="L427" title="All 2 branches missed.">        if(path.length() == 0) {</span>
+<span class="nc" id="L428">            return;</span>
+        }
+
+        // first, attempt to connect this tributary to the trunk
+        // a tributary is a smaller river that connects to a larger body of water (that's the trunk)
+<span class="nc" id="L433">        MovePath trunk = getCachedPathForCoordinates(path.getFinalCoords(), destinationRegion);</span>
+<span class="nc bnc" id="L434" title="All 2 branches missed.">        if(trunk != null) {</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">            if(!connectedPaths.containsKey(trunk)) {</span>
+<span class="nc" id="L436">                connectedPaths.put(trunk, new ArrayList&lt;&gt;());</span>
+            }
+
+            //System.out.println(&quot;Next path connects to &quot; + trunk.toString() + &quot; at coordinates &quot; + path.getFinalCoords().toString());
+<span class="nc" id="L440">            connectedPaths.get(trunk).add(path);</span>
+        }
+
+        // cache the path for the set of coordinates if one doesn't yet exist
+        Map&lt;Coords, MovePath&gt; coordinatePathMap;
+
+<span class="nc bnc" id="L446" title="All 2 branches missed.">        if(!edgePathCache.containsKey(destinationRegion)) {</span>
+<span class="nc" id="L447">            coordinatePathMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L448">            edgePathCache.put(destinationRegion, coordinatePathMap);</span>
+        }
+        else {
+<span class="nc" id="L451">            coordinatePathMap = edgePathCache.get(destinationRegion);</span>
+        }
+
+        // cache the path for the set of coordinates if one doesn't yet exist
+        // or if the current path is better than the cached one
+<span class="nc bnc" id="L456" title="All 2 branches missed.">        for(Coords coords : path.getCoordsSet()) {</span>
+<span class="nc bnc" id="L457" title="All 2 branches missed.">            if(!coordinatePathMap.containsKey(coords) ||</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">                    coordinatePathMap.get(coords).getMpUsed() &gt; path.getMpUsed()) {</span>
+<span class="nc" id="L459">                coordinatePathMap.put(coords, path);</span>
+
+            }
+<span class="nc" id="L462">        }</span>
+<span class="nc" id="L463">    }</span>
+
+    /**
+     * Function that generates all possible &quot;legal&quot; moves resulting from the given path
+     * and updates the set of visited coordinates so we don't visit them again.
+     * @param parentPath The path for which to generate child nodes
+     * @param visitedCoords Set of visited coordinates so we don't loop around
+     * @return List of valid children. Between 0 and 3 inclusive.
+     */
+    protected List&lt;MovePath&gt; generateChildNodes(MovePath parentPath, Set&lt;Coords&gt; visitedCoords) {
+<span class="nc" id="L473">        List&lt;MovePath&gt; children = new ArrayList&lt;&gt;();</span>
+
+        // the children of a move path are:
+        //      turn left and step forward one
+        //      step forward one
+        //      turn right and step forward one
+<span class="nc" id="L479">        MovePath leftChild = parentPath.clone();</span>
+<span class="nc" id="L480">        leftChild.addStep(MoveStepType.TURN_LEFT);</span>
+<span class="nc" id="L481">        leftChild.addStep(MoveStepType.FORWARDS);</span>
+<span class="nc" id="L482">        processChild(leftChild, children, visitedCoords);</span>
+
+<span class="nc" id="L484">        MovePath centerChild = parentPath.clone();</span>
+<span class="nc" id="L485">        centerChild.addStep(MoveStepType.FORWARDS);</span>
+<span class="nc" id="L486">        processChild(centerChild, children, visitedCoords);</span>
+
+<span class="nc" id="L488">        MovePath rightChild = parentPath.clone();</span>
+<span class="nc" id="L489">        rightChild.addStep(MoveStepType.TURN_RIGHT);</span>
+<span class="nc" id="L490">        rightChild.addStep(MoveStepType.FORWARDS);</span>
+<span class="nc" id="L491">        processChild(rightChild, children, visitedCoords);</span>
+
+<span class="nc" id="L493">        return children;</span>
+    }
+
+    /**
+     * Helper function that handles logic related to potentially adding a generated child path
+     * to the list of child paths.
+     */
+    protected void processChild(MovePath child, List&lt;MovePath&gt; children, Set&lt;Coords&gt; visitedCoords) {
+<span class="nc bnc" id="L501" title="All 4 branches missed.">        if(!visitedCoords.contains(child.getFinalCoords()) &amp;&amp; isLegalMove(child).isLegal()) {</span>
+<span class="nc" id="L502">            visitedCoords.add(child.getFinalCoords());</span>
+<span class="nc" id="L503">            children.add(child);</span>
+        }
+<span class="nc" id="L505">    }</span>
+    
+    /**
+     * A &quot;light-weight&quot; version of the logic found in &quot;isMovementPossible&quot; in MoveStep.java
+     *
+     * @param movePath The move path to process
+     * @return Whether or not the given move path is &quot;legal&quot; in the context of this pathfinder.
+     */
+    protected MoveLegalityIndicator isLegalMove(MovePath movePath) {
+<span class="nc" id="L514">        Coords dest = movePath.getFinalCoords();</span>
+<span class="nc" id="L515">        IBoard board = movePath.getGame().getBoard();</span>
+<span class="nc" id="L516">        IHex destHex = board.getHex(dest);</span>
+<span class="nc" id="L517">        Building destinationBuilding = board.getBuildingAt(dest);</span>
+        
+<span class="nc" id="L519">        return isLegalMove(movePath, destHex, destinationBuilding);</span>
+    }
+
+    /**
+     * A &quot;light-weight&quot; version of the logic found in &quot;isMovementPossible&quot; in MoveStep.java
+     * 
+     *
+     * @param movePath The move path to process
+     * @param destHex the hex at the end of the path
+     * @param destinationBuilding the building at the end of the path, can be null
+     * @return Whether or not the given move path is &quot;legal&quot; in the context of this pathfinder.
+     */
+    private MoveLegalityIndicator isLegalMove(MovePath movePath, IHex destHex, Building destinationBuilding) {        
+<span class="nc" id="L532">        Coords dest = movePath.getFinalCoords();</span>
+<span class="nc" id="L533">        IBoard board = movePath.getGame().getBoard();</span>
+<span class="nc" id="L534">        Coords src = movePath.getSecondLastStep().getPosition();</span>
+<span class="nc" id="L535">        IHex srcHex = board.getHex(src);</span>
+<span class="nc" id="L536">        Entity entity = movePath.getEntity();</span>
+
+<span class="nc" id="L538">        MoveLegalityIndicator mli = new MoveLegalityIndicator();</span>
+        
+<span class="nc" id="L540">        boolean destinationInBounds = board.contains(dest);</span>
+<span class="nc bnc" id="L541" title="All 2 branches missed.">        if(!destinationInBounds) {</span>
+<span class="nc" id="L542">            mli.outOfBounds = true;</span>
+<span class="nc" id="L543">            return mli;</span>
+        }
+
+        // we only need to be able to legally move into the hex from the previous hex.
+        // we don't care about stacking limits, remaining unit mp or other transient data
+        // quadvees are not considered &quot;tracked&quot; for the purposes of this exercise because they can transform
+<span class="nc bnc" id="L549" title="All 4 branches missed.">        boolean isTracked = entity.getMovementMode() == EntityMovementMode.TRACKED &amp;&amp; !entity.hasETypeFlag(Entity.ETYPE_QUADVEE);</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">        boolean isHovercraft = entity.getMovementMode() == EntityMovementMode.HOVER;</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">        boolean isWheeled = entity.getMovementMode() == EntityMovementMode.WHEELED;</span>
+<span class="nc bnc" id="L552" title="All 2 branches missed.">        boolean isAmphibious = movePath.getCachedEntityState().hasWorkingMisc(MiscType.F_AMPHIBIOUS) ||</span>
+<span class="nc bnc" id="L553" title="All 2 branches missed.">                            movePath.getCachedEntityState().hasWorkingMisc(MiscType.F_FULLY_AMPHIBIOUS) ||</span>
+<span class="nc bnc" id="L554" title="All 2 branches missed.">                            movePath.getCachedEntityState().hasWorkingMisc(MiscType.F_LIMITED_AMPHIBIOUS);</span>
+<span class="nc" id="L555">        boolean destHexHasRoad = destHex.containsTerrain(Terrains.ROAD);</span>
+        
+        // this indicates that we are stepping off a bridge
+<span class="nc bnc" id="L558" title="All 2 branches missed.">        boolean sourceIsBridge = srcHex.containsTerrain(Terrains.BRIDGE_CF) &amp;&amp;</span>
+<span class="nc bnc" id="L559" title="All 2 branches missed.">                movePath.getSecondLastStep().getElevation() == srcHex.maxTerrainFeatureElevation(false);</span>
+        
+        // this indicates that we are stepping onto a bridge
+<span class="nc bnc" id="L562" title="All 2 branches missed.">        boolean destinationIsBridge = destHex.containsTerrain(Terrains.BRIDGE_CF) &amp;&amp; </span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                movePath.getFinalElevation() == destHex.maxTerrainFeatureElevation(false);</span>
+        
+        // jumpers can clear higher objects than walkers and crawlers
+<span class="nc bnc" id="L566" title="All 2 branches missed.">        int maxUpwardElevationChange = movePath.isJumping() ? movePath.getCachedEntityState().getJumpMP() : entity.getMaxElevationChange();</span>
+        // jumpers can just hop down wherever they want
+<span class="nc bnc" id="L568" title="All 2 branches missed.">        int maxDownwardElevationChange = movePath.isJumping() ? Entity.UNLIMITED_JUMP_DOWN : entity.getMaxElevationDown();</span>
+<span class="nc" id="L569">        mli.destHexElevation = calculateUnitElevationInHex(destHex, entity, isHovercraft, isAmphibious, destinationIsBridge);</span>
+<span class="nc" id="L570">        mli.srcHexElevation = calculateUnitElevationInHex(srcHex, entity, isHovercraft, isAmphibious, sourceIsBridge);     </span>
+        
+<span class="nc" id="L572">        mli.elevationChange = mli.destHexElevation - mli.srcHexElevation;</span>
+<span class="nc" id="L573">        mli.steppingOntoBridge = destinationIsBridge;</span>
+        
+<span class="nc" id="L575">        mli.destinationImpassable = destHex.containsTerrain(Terrains.IMPASSABLE);</span>
+        
+<span class="nc bnc" id="L577" title="All 4 branches missed.">        boolean destinationHasBuilding = destHex.containsTerrain(Terrains.BLDG_CF) || destHex.containsTerrain(Terrains.FUEL_TANK_CF);</span>
+        
+        // if we're going to step onto a bridge that will collapse, let's not consider going there
+<span class="nc bnc" id="L580" title="All 4 branches missed.">        mli.destinationHasWeakBridge =  destinationIsBridge &amp;&amp; destinationBuilding.getCurrentCF(dest) &lt; entity.getWeight();</span>
+
+        // if we're going to step onto a building that will collapse, let's not consider going there
+<span class="nc bnc" id="L583" title="All 4 branches missed.">        mli.destinationHasWeakBuilding = destinationHasBuilding &amp;&amp; destinationBuilding.getCurrentCF(dest) &lt; entity.getWeight();</span>
+
+        // this condition indicates that that we are unable to go to the destination because it's too high compared to the source
+<span class="nc bnc" id="L586" title="All 2 branches missed.">        mli.goingUpTooHigh = mli.destHexElevation - mli.srcHexElevation &gt; maxUpwardElevationChange;</span>
+
+        // this condition indicates that we are unable to go to the destination because it's too low compared to the source
+<span class="nc bnc" id="L589" title="All 2 branches missed.">        mli.goingDownTooLow = mli.srcHexElevation - mli.destHexElevation &gt; maxDownwardElevationChange;</span>
+
+        // tanks cannot go into jungles or heavy woods unless there is a road
+<span class="nc bnc" id="L592" title="All 2 branches missed.">        mli.tankIntoHeavyWoods = isTracked &amp;&amp;</span>
+<span class="nc bnc" id="L593" title="All 6 branches missed.">                (destHex.terrainLevel(Terrains.JUNGLE) &gt; 0 || destHex.terrainLevel(Terrains.WOODS) &gt; 1) &amp;&amp; !destHexHasRoad;</span>
+
+        // hovercraft and wheeled units cannot go into jungles or woods unless there is a road
+<span class="nc bnc" id="L596" title="All 4 branches missed.">        mli.weakTankIntoWoods = (isHovercraft || isWheeled) &amp;&amp;</span>
+<span class="nc bnc" id="L597" title="All 6 branches missed.">                (destHex.terrainLevel(Terrains.JUNGLE) &gt; 0 || destHex.terrainLevel(Terrains.WOODS) &gt; 0) &amp;&amp; !destHexHasRoad;</span>
+
+        // wheeled tanks cannot go into rough terrain or rubble of any kind, or buildings for that matter
+        // even if you level them they still turn to rubble. Additionally, they cannot go into deep snow.
+<span class="nc bnc" id="L601" title="All 4 branches missed.">        mli.wheeledTankRestriction = isWheeled &amp;&amp; !destHexHasRoad &amp;&amp;</span>
+<span class="nc bnc" id="L602" title="All 6 branches missed.">                (destHex.containsTerrain(Terrains.ROUGH) || destHex.containsTerrain(Terrains.RUBBLE)</span>
+                || destinationHasBuilding
+<span class="nc bnc" id="L604" title="All 4 branches missed.">                || (destHex.containsTerrain(Terrains.SNOW) &amp;&amp; (destHex.terrainLevel(Terrains.SNOW) &gt; 1)));</span>
+
+        // tracked and wheeled tanks cannot go into water without a bridge, unless amphibious
+<span class="nc bnc" id="L607" title="All 4 branches missed.">        mli.groundTankIntoWater = (isTracked || isWheeled) &amp;&amp; </span>
+<span class="nc bnc" id="L608" title="All 6 branches missed.">                destHex.containsTerrain(Terrains.WATER) &amp;&amp; (destHex.depth() &gt; 0) &amp;&amp; </span>
+<span class="nc bnc" id="L609" title="All 2 branches missed.">                !isAmphibious &amp;&amp; !destHex.containsTerrain(Terrains.BRIDGE);</span>
+
+        // naval units cannot go out of water
+<span class="nc bnc" id="L612" title="All 2 branches missed.">        mli.shipOutofWater = entity.isNaval() &amp;&amp;</span>
+<span class="nc bnc" id="L613" title="All 4 branches missed.">                (!destHex.containsTerrain(Terrains.WATER) || destHex.depth() &lt; 1);</span>
+
+        // for future expansion of this functionality, we may consider the possibility that a building or bridge
+        // will be destroyed intentionally by the bot to make way for a unit to cross
+        // for now, vehicles simply will not consider going through buildings as an option
+<span class="nc bnc" id="L618" title="All 8 branches missed.">        mli.tankGoingThroughBuilding = (isWheeled || isTracked || isHovercraft) &amp;&amp; destinationHasBuilding;</span>
+
+<span class="nc" id="L620">        return mli;</span>
+    }
+
+    /**
+     * Helper function that calculates the effective elevation for a unit standing there.
+     * @param hex The hex to check
+     * @param entity The entity to check
+     * @return The effective elevation
+     */
+    public static int calculateUnitElevationInHex(IHex hex, Entity entity, boolean isHovercraft, boolean isAmphibious) {
+<span class="nc" id="L630">        return calculateUnitElevationInHex(hex, entity, isHovercraft, isAmphibious, false);</span>
+    }
+    
+    /**
+     * Helper function that calculates the effective elevation for a unit standing there.
+     * @param hex The hex to check
+     * @param entity The entity to check
+     * @param bridgeTop Whether we're going on top of a bridge or under it
+     * @return The effective elevation
+     */
+    public static int calculateUnitElevationInHex(IHex hex, Entity entity, boolean isHovercraft, boolean isAmphibious, boolean useBridgeTop) {
+        // we calculate the height of a hex as &quot;on the ground&quot; by default
+        // Special exceptions:
+        // We are a mech, which can hop on top of some buildings
+        // We are naval unit going under a bridge, in which case the height is the water level (naval units go on the surface, mostly)
+        // We are non-naval going into water but not onto a bridge, in which case the height is the floor (mechs sink to the bottom)
+        // if we are explicitly going to the top of a bridge, use that.
+        
+<span class="nc bnc" id="L648" title="All 6 branches missed.">        if(useBridgeTop &amp;&amp; !entity.isSurfaceNaval() &amp;&amp; hex.containsTerrain(Terrains.BRIDGE_CF)) {</span>
+<span class="nc" id="L649">            return hex.ceiling();</span>
+        }
+        
+<span class="nc" id="L652">        int hexElevation = hex.getLevel();</span>
+        
+<span class="nc bnc" id="L654" title="All 2 branches missed.">        if (entity.hasETypeFlag(Entity.ETYPE_MECH) &amp;&amp; </span>
+<span class="nc bnc" id="L655" title="All 4 branches missed.">                (hex.containsTerrain(Terrains.BLDG_CF) || hex.containsTerrain(Terrains.FUEL_TANK_CF))) {</span>
+<span class="nc" id="L656">            hexElevation = hex.ceiling();</span>
+<span class="nc bnc" id="L657" title="All 4 branches missed.">        } else if(entity.isNaval() &amp;&amp; hex.containsTerrain(Terrains.BRIDGE)) {</span>
+<span class="nc" id="L658">            hexElevation = hex.getLevel();</span>
+<span class="nc bnc" id="L659" title="All 6 branches missed.">        } else if(!entity.isSurfaceNaval() &amp;&amp; !isHovercraft &amp;&amp; !isAmphibious &amp;&amp;</span>
+<span class="nc bnc" id="L660" title="All 4 branches missed.">                hex.containsTerrain(Terrains.WATER) &amp;&amp; !hex.containsTerrain(Terrains.BRIDGE)) {</span>
+<span class="nc" id="L661">            hexElevation = hex.floor();</span>
+        }
+
+<span class="nc" id="L664">        return hexElevation;</span>
+    }
+
+    /**
+     * Determines if the given move path ends on the given board edge
+     * @param movePath The move path to check.
+     * @param destinationRegion The edge to check for.
+     * @return True or false.
+     */
+    protected boolean isOnBoardEdge(MovePath movePath, int destinationRegion) {
+<span class="nc" id="L674">        Coords coords = movePath.getFinalCoords();</span>
+
+<span class="nc bnc" id="L676" title="All 5 branches missed.">        switch(destinationRegion) {</span>
+        case Board.START_N:
+<span class="nc bnc" id="L678" title="All 2 branches missed.">            return coords.getY() == 0;</span>
+        case Board.START_S:
+<span class="nc bnc" id="L680" title="All 2 branches missed.">            return coords.getY() == movePath.getGame().getBoard().getHeight() - 1;</span>
+        case Board.START_E:
+<span class="nc bnc" id="L682" title="All 2 branches missed.">            return coords.getX() == movePath.getGame().getBoard().getWidth() - 1;</span>
+        case Board.START_W:
+<span class="nc bnc" id="L684" title="All 2 branches missed.">            return coords.getX() == 0;</span>
+        default:
+<span class="nc" id="L686">            return false;</span>
+        }
+    }
+
+    /**
+     * Comparator implementation useful in comparing how much closer a given path is to the internal
+     * &quot;destination edge&quot; than the other.
+     * @author NickAragua
+     *
+     */
+    private class SortByDistanceToEdge implements Comparator&lt;MovePath&gt; {
+        private int targetRegion;
+
+        /**
+         * Constructor - initializes the destination edge.
+         * @param targetRegion Destination edge
+         */
+<span class="nc" id="L703">        public SortByDistanceToEdge(int targetRegion) {</span>
+<span class="nc" id="L704">            this.targetRegion = targetRegion;</span>
+<span class="nc" id="L705">        }</span>
+
+        /**
+         * compare the first move path to the second
+         * Favors paths that move closer to the destination edge first.
+         * in case of tie, favors paths that cost less MP
+         */
+        public int compare(MovePath first, MovePath second) {
+            // normalize MP cost difference over max MP cost
+<span class="nc" id="L714">            int costDifference = first.getMpUsed() - second.getMpUsed();</span>
+            int distanceDifference;
+
+<span class="nc bnc" id="L717" title="All 5 branches missed.">            switch(targetRegion) {</span>
+            // if we're heading south, the one with the bigger y coordinate is further along
+            case Board.START_S:
+<span class="nc" id="L720">                distanceDifference = second.getFinalCoords().getY() - first.getFinalCoords().getY();</span>
+<span class="nc" id="L721">                break;</span>
+            // if we're heading north, the one with the smaller y coordinate is further along
+            case Board.START_N:
+<span class="nc" id="L724">                distanceDifference = first.getFinalCoords().getY() - second.getFinalCoords().getY();</span>
+<span class="nc" id="L725">                break;</span>
+            // if we're heading east, the one with the bigger x coordinate is further along
+            case Board.START_E:
+<span class="nc" id="L728">                distanceDifference = second.getFinalCoords().getX() - first.getFinalCoords().getX();</span>
+<span class="nc" id="L729">                break;</span>
+            // if we're heading west, the one with the smaller x coordinate is further along
+            case Board.START_W:
+<span class="nc" id="L732">                distanceDifference = first.getFinalCoords().getX() - second.getFinalCoords().getX();</span>
+<span class="nc" id="L733">                break;</span>
+            default:
+<span class="nc" id="L735">                distanceDifference = 0;</span>
+                break;
+            }
+
+<span class="nc bnc" id="L739" title="All 2 branches missed.">            return distanceDifference != 0 ? distanceDifference : costDifference;</span>
+        }
+    }
+    
+<span class="nc" id="L743">    public static class MoveLegalityIndicator {</span>
+        public boolean destinationImpassable;
+        public boolean destinationHasWeakBridge;
+        public boolean destinationHasWeakBuilding;
+        public boolean goingUpTooHigh;
+        public boolean goingDownTooLow;
+        public boolean tankIntoHeavyWoods;
+        public boolean weakTankIntoWoods;
+        public boolean wheeledTankRestriction;
+        public boolean groundTankIntoWater;
+        public boolean shipOutofWater;
+        public boolean tankGoingThroughBuilding;
+        public boolean outOfBounds;
+        
+        // these are not strictly legality indicators, but they are useful to keep track of
+        // so we store them here to avoid re-computing them later
+        public int elevationChange;
+        public boolean steppingOntoBridge;
+        public int srcHexElevation;
+        public int destHexElevation;
+        
+        public boolean isLegal() {
+<span class="nc bnc" id="L765" title="All 24 branches missed.">            return</span>
+                    !outOfBounds &amp;&amp;
+                    !destinationImpassable &amp;&amp;
+                    !destinationHasWeakBridge &amp;&amp;
+                    !destinationHasWeakBuilding &amp;&amp;
+                    !goingUpTooHigh &amp;&amp;
+                    !goingDownTooLow &amp;&amp;
+                    !tankIntoHeavyWoods &amp;&amp;
+                    !weakTankIntoWoods &amp;&amp;
+                    !wheeledTankRestriction &amp;&amp;
+                    !groundTankIntoWater &amp;&amp;
+                    !shipOutofWater &amp;&amp;
+                    !tankGoingThroughBuilding;
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

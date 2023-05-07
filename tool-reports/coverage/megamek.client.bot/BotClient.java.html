@@ -1,0 +1,1310 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BotClient.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot</a> &gt; <span class="el_source">BotClient.java</span></div><h1>BotClient.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ */
+package megamek.client.bot;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+
+import javax.swing.JFrame;
+import javax.swing.JOptionPane;
+import javax.swing.JScrollPane;
+import javax.swing.JTextPane;
+import javax.swing.ScrollPaneConstants;
+
+import megamek.MegaMek;
+import megamek.client.Client;
+import megamek.client.bot.princess.CardinalEdge;
+import megamek.client.ui.swing.ClientGUI;
+import megamek.client.ui.swing.ReportDisplay;
+import megamek.common.AmmoType;
+import megamek.common.Building;
+import megamek.common.Compute;
+import megamek.common.ComputeECM;
+import megamek.common.Coords;
+import megamek.common.ECMInfo;
+import megamek.common.Entity;
+import megamek.common.EntityListFile;
+import megamek.common.EntityMovementMode;
+import megamek.common.EquipmentType;
+import megamek.common.GameTurn;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.IPlayer;
+import megamek.common.Infantry;
+import megamek.common.Mech;
+import megamek.common.Minefield;
+import megamek.common.MiscType;
+import megamek.common.Mounted;
+import megamek.common.MovePath;
+import megamek.common.Protomech;
+import megamek.common.TargetRoll;
+import megamek.common.Terrains;
+import megamek.common.ToHitData;
+import megamek.common.VTOL;
+import megamek.common.WeaponType;
+import megamek.common.actions.EntityAction;
+import megamek.common.actions.WeaponAttackAction;
+import megamek.common.annotations.Nullable;
+import megamek.common.event.GameCFREvent;
+import megamek.common.event.GameListenerAdapter;
+import megamek.common.event.GamePhaseChangeEvent;
+import megamek.common.event.GamePlayerChatEvent;
+import megamek.common.event.GameReportEvent;
+import megamek.common.event.GameTurnChangeEvent;
+import megamek.common.net.Packet;
+import megamek.common.options.OptionsConstants;
+import megamek.common.pathfinder.BoardClusterTracker;
+import megamek.common.preference.PreferenceManager;
+import megamek.common.util.BoardUtilities;
+import megamek.common.util.StringUtil;
+
+public abstract class BotClient extends Client {
+	public static final int BOT_TURN_RETRY_COUNT = 3;
+	
+    private List&lt;Entity&gt; currentTurnEnemyEntities;
+    private List&lt;Entity&gt; currentTurnFriendlyEntities;
+    
+    // a frame, to show stuff in
+    public JFrame frame;
+    
+    /**
+     * Keeps track of whether this client has started to calculate a turn this phase.
+     */
+<span class="nc" id="L97">    boolean calculatedTurnThisPhase = false;</span>
+<span class="nc" id="L98">    int calculatedTurnsThisPhase = 0;</span>
+
+    /**
+     * Store a reference to the ClientGUI for the client who created this bot.
+     * This is used to ensure keep the ClientGUI synchronized with changes to
+     * this BotClient (particularly the bot's name).
+     */
+<span class="nc" id="L105">    private ClientGUI clientgui = null;</span>
+
+<span class="nc" id="L107">    public class CalculateBotTurn implements Runnable {</span>
+        public void run() {
+<span class="nc" id="L109">            calculateMyTurn();</span>
+<span class="nc" id="L110">            flushConn();</span>
+<span class="nc" id="L111">        }</span>
+    }
+
+    public BotClient(String playerName, String host, int port) {
+<span class="nc" id="L115">        super(playerName, host, port);</span>
+        
+<span class="nc" id="L117">        boardClusterTracker = new BoardClusterTracker();</span>
+        
+<span class="nc" id="L119">        game.addGameListener(new GameListenerAdapter() {</span>
+
+            @Override
+            public void gamePlayerChat(GamePlayerChatEvent e) {
+<span class="nc" id="L123">                processChat(e);</span>
+<span class="nc" id="L124">                flushConn();</span>
+<span class="nc" id="L125">            }</span>
+
+            @Override
+            public void gameTurnChange(GameTurnChangeEvent e) {
+                // On simultaneous phases, each player ending their turn will generate a turn change
+                // We want to ignore turns from other players and only listen to events we generated
+<span class="nc bnc" id="L131" title="All 6 branches missed.">                boolean ignoreSimTurn = game.isPhaseSimultaneous() &amp;&amp; (e.getPreviousPlayerId() != localPlayerNumber)</span>
+                        &amp;&amp; calculatedTurnThisPhase;
+
+                
+<span class="nc bnc" id="L135" title="All 4 branches missed.">                if (isMyTurn() &amp;&amp; !ignoreSimTurn) {</span>
+<span class="nc" id="L136">                    calculatedTurnThisPhase = true;</span>
+                    // Run bot's turn processing in a separate thread.
+                    // So calling thread is free to process the other actions.
+<span class="nc" id="L139">                    Thread worker = new Thread(new CalculateBotTurn(),</span>
+<span class="nc" id="L140">                            getName() + &quot; Turn &quot; + game.getTurnIndex() + &quot; Calc Thread&quot;</span>
+                    );
+<span class="nc" id="L142">                    worker.start();</span>
+<span class="nc" id="L143">                    calculatedTurnsThisPhase++;</span>
+                }
+
+                // unloading &quot;stranded&quot; units happens as part of a game turn change, so that's where we do it.
+<span class="nc bnc" id="L147" title="All 2 branches missed.">                if(canUnloadStranded()) {</span>
+<span class="nc" id="L148">                    sendUnloadStranded(getStrandedEntities());</span>
+                }
+<span class="nc" id="L150">            }</span>
+
+            @Override
+            public void gamePhaseChange(GamePhaseChangeEvent e) {
+<span class="nc" id="L154">                calculatedTurnThisPhase = false;</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">                if (e.getOldPhase().isPhaseSimultaneous(game)) {</span>
+<span class="nc" id="L156">                    int numOwnedEntities = game.getEntitiesOwnedBy(getLocalPlayer());</span>
+<span class="nc" id="L157">                    System.out.println(&quot;BotClient calculated turns, &quot; + getName() + &quot; phase &quot; + e.getOldPhase()</span>
+                            + &quot; &quot; + calculatedTurnsThisPhase + &quot;/&quot; + numOwnedEntities);
+                }
+<span class="nc" id="L160">                calculatedTurnsThisPhase = 0;</span>
+<span class="nc" id="L161">            }</span>
+
+            @Override
+            public void gameReport(GameReportEvent e) {
+<span class="nc bnc" id="L165" title="All 2 branches missed.">                if (game.getPhase() == IGame.Phase.PHASE_INITIATIVE_REPORT) {</span>
+                    // Opponent has used tactical genius, must press
+                    // &quot;Done&quot; again to advance past initiative report.
+<span class="nc" id="L168">                    sendDone(true);</span>
+<span class="nc" id="L169">                    flushConn();</span>
+                }
+<span class="nc" id="L171">            }</span>
+
+            @Override
+            public void gameClientFeedbackRequest(GameCFREvent evt) {
+<span class="nc bnc" id="L175" title="All 6 branches missed.">                switch (evt.getCFRType()) {</span>
+                    case Packet.COMMAND_CFR_DOMINO_EFFECT:
+                        // This will always send a &quot;no action&quot; response.
+                        // In effect, it works the way it did before.  However..
+                        // TODO: Bots should figure out how to step out of a
+                        //   domino effect
+<span class="nc" id="L181">                        sendDominoCFRResponse(null);</span>
+<span class="nc" id="L182">                        break;</span>
+                    case Packet.COMMAND_CFR_AMS_ASSIGN:
+                        // Picks the WAA with the highest expected damage,
+                        //  essentially same as if the auto_ams option was on
+<span class="nc" id="L186">                        WeaponAttackAction waa =</span>
+<span class="nc" id="L187">                            Compute.getHighestExpectedDamage(game,</span>
+<span class="nc" id="L188">                                    evt.getWAAs(), true);</span>
+<span class="nc" id="L189">                        sendAMSAssignCFRResponse(evt.getWAAs().indexOf(waa));</span>
+<span class="nc" id="L190">                        break;</span>
+                    case Packet.COMMAND_CFR_APDS_ASSIGN:
+                        // Picks the WAA with the highest expected damage,
+                        //  essentially same as if the auto_ams option was on
+<span class="nc" id="L194">                        waa =</span>
+<span class="nc" id="L195">                            Compute.getHighestExpectedDamage(game,</span>
+<span class="nc" id="L196">                                    evt.getWAAs(), true);</span>
+<span class="nc" id="L197">                        sendAPDSAssignCFRResponse(evt.getWAAs().indexOf(waa));</span>
+<span class="nc" id="L198">                        break;</span>
+                    case Packet.COMMAND_CFR_HIDDEN_PBS:
+                        try {
+<span class="nc" id="L201">                            Vector&lt;EntityAction&gt; pointBlankShots = calculatePointBlankShot(evt.getEntityId(), evt.getTargetId());</span>
+                            
+<span class="nc bnc" id="L203" title="All 2 branches missed.">                            if(pointBlankShots == null) {</span>
+<span class="nc" id="L204">                                sendHiddenPBSCFRResponse(null);</span>
+                            } else {
+                                // we send two packets because the server will ignore the first one
+<span class="nc" id="L207">                                sendHiddenPBSCFRResponse(new Vector&lt;EntityAction&gt;());</span>
+<span class="nc" id="L208">                                sendHiddenPBSCFRResponse(pointBlankShots);</span>
+                            }
+<span class="nc" id="L210">                        } catch(Exception e) {</span>
+                            // if we screw up, don't keep everyone else waiting
+<span class="nc" id="L212">                            sendHiddenPBSCFRResponse(null);</span>
+<span class="nc" id="L213">                            throw e;</span>
+<span class="nc" id="L214">                        }</span>
+
+                        break;
+                    case Packet.COMMAND_CFR_TAG_TARGET:
+<span class="nc" id="L218">                        sendTAGTargetCFRResponse(pickTagTarget(evt));</span>
+                        break;
+                }
+<span class="nc" id="L221">            }</span>
+
+        });
+<span class="nc" id="L224">    }</span>
+
+<span class="nc" id="L226">    BotConfiguration config = new BotConfiguration();</span>
+
+    protected BoardClusterTracker boardClusterTracker;
+
+    public abstract void initialize();
+
+    protected abstract void processChat(GamePlayerChatEvent ge);
+
+    protected abstract void initMovement();
+
+    protected abstract void initFiring();
+
+    /**
+     * Determines which entity should be moved next and then calls to {@link #continueMovementFor(Entity)} with
+     * that entity.
+     *
+     * @return The calculated move path.
+     * @throws NullPointerException if no entity can be found to move.
+     */
+    protected abstract MovePath calculateMoveTurn();
+
+    protected abstract void calculateFiringTurn();
+
+    protected abstract void calculateDeployment();
+
+<span class="nc" id="L251">    protected void initTargeting() { }</span>
+    
+    /**
+     * Calculates the targeting/offboard turn
+     * This includes firing TAG and non-direct-fire artillery
+     * Does nothing in this implementation.
+     */
+    protected void calculateTargetingOffBoardTurn() {
+<span class="nc" id="L259">        sendAttackData(game.getFirstEntityNum(getMyTurn()),</span>
+                new Vector&lt;&gt;(0));
+<span class="nc" id="L261">        sendDone(true);</span>
+<span class="nc" id="L262">    }</span>
+    
+    @Nullable
+    protected abstract PhysicalOption calculatePhysicalTurn();
+    
+    protected Vector&lt;EntityAction&gt; calculatePointBlankShot(int firingEntityID, int targetID) { 
+<span class="nc" id="L268">        return null;</span>
+    }
+    
+    protected int pickTagTarget(GameCFREvent evt) {
+<span class="nc" id="L272">        return 0;</span>
+    }
+
+    /**
+     * Calculates the full {@link MovePath} for the given {@link Entity}.
+     *
+     * @param entity The entity who is to move.
+     * @return The calculated move path.
+     * @throws NullPointerException if entity is NULL.
+     */
+    protected abstract MovePath continueMovementFor(Entity entity);
+
+    protected abstract Vector&lt;Minefield&gt; calculateMinefieldDeployment();
+
+    protected abstract Vector&lt;Coords&gt; calculateArtyAutoHitHexes();
+
+    protected abstract void checkMoral();
+
+    @Override
+    protected boolean keepGameLog() {
+<span class="nc" id="L292">        return false;</span>
+    }
+
+    /**
+     * Helper function that determines which of this bot's entities are stranded inside immobilized transports. 
+     * @return Array of entity IDs.
+     */
+    public int[] getStrandedEntities() {
+<span class="nc" id="L300">        List&lt;Integer&gt; entitiesToUnload = new ArrayList&lt;&gt;();</span>
+        
+        // Basically, we loop through all entities owned by the current player
+        // And if the entity happens to be in a disabled transport, then we unload it
+        // unless doing so would kill it or be illegal due to stacking violation
+<span class="nc bnc" id="L305" title="All 2 branches missed.">        for(Entity currentEntity : getGame().getPlayerEntities(getLocalPlayer(), true)) {</span>
+<span class="nc bnc" id="L306" title="All 2 branches missed.">            Entity transport = currentEntity.getTransportId() != Entity.NONE ? getGame().getEntity(currentEntity.getTransportId()) : null;</span>
+            
+<span class="nc bnc" id="L308" title="All 4 branches missed.">            if(transport != null &amp;&amp; transport.isPermanentlyImmobilized(true)) {</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">                boolean stackingViolation = null != Compute.stackingViolation(game, currentEntity.getId(), transport.getPosition());</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">                boolean unloadFatal = currentEntity.isBoardProhibited(getGame().getBoard().getType()) ||</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">                        currentEntity.isLocationProhibited(transport.getPosition());</span>
+                        
+<span class="nc bnc" id="L313" title="All 4 branches missed.">                if(!stackingViolation &amp;&amp; !unloadFatal) {</span>
+<span class="nc" id="L314">                    entitiesToUnload.add(currentEntity.getId());</span>
+                }
+            }
+<span class="nc" id="L317">        }</span>
+        
+<span class="nc" id="L319">        int[] entityIDs = new int[entitiesToUnload.size()];</span>
+<span class="nc bnc" id="L320" title="All 2 branches missed.">        for(int x = 0; x &lt; entitiesToUnload.size(); x++) {</span>
+<span class="nc" id="L321">            entityIDs[x] = entitiesToUnload.get(x);</span>
+        }
+        
+<span class="nc" id="L324">        return entityIDs;</span>
+    }
+    
+    public List&lt;Entity&gt; getEntitiesOwned() {
+<span class="nc" id="L328">        ArrayList&lt;Entity&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        for (Entity entity : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L330" title="All 2 branches missed.">            if (entity.getOwner().equals(getLocalPlayer())</span>
+<span class="nc bnc" id="L331" title="All 4 branches missed.">                &amp;&amp; (entity.getPosition() != null) &amp;&amp; !entity.isOffBoard()) {</span>
+<span class="nc" id="L332">                result.add(entity);</span>
+            }
+<span class="nc" id="L334">        }</span>
+<span class="nc" id="L335">        return result;</span>
+    }
+    
+    protected Entity getArbitraryEntity() {
+<span class="nc bnc" id="L339" title="All 2 branches missed.">        for (Entity entity : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">            if (entity.getOwner().equals(getLocalPlayer())) {</span>
+<span class="nc" id="L341">                return entity;</span>
+            }
+<span class="nc" id="L343">        }</span>
+        
+<span class="nc" id="L345">        return null;</span>
+    }
+
+    /**
+     * Lazy-loaded list of enemy entities that we should consider firing at.
+     * Only good for the current entity turn calculation, as this list can change between individual entity turns. 
+     */
+    public List&lt;Entity&gt; getEnemyEntities() {
+<span class="nc bnc" id="L353" title="All 2 branches missed.">        if(currentTurnEnemyEntities == null) {</span>
+<span class="nc" id="L354">            currentTurnEnemyEntities = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">            for (Entity entity : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">                if (entity.getOwner().isEnemyOf(getLocalPlayer())</span>
+<span class="nc bnc" id="L357" title="All 4 branches missed.">                    &amp;&amp; (entity.getPosition() != null) &amp;&amp; !entity.isOffBoard()</span>
+<span class="nc bnc" id="L358" title="All 4 branches missed.">                    &amp;&amp; (entity.getCrew() != null) &amp;&amp; !entity.getCrew().isDead()) {</span>
+    
+<span class="nc" id="L360">                    currentTurnEnemyEntities.add(entity);</span>
+                }
+<span class="nc" id="L362">            }</span>
+        }
+        
+<span class="nc" id="L365">        return currentTurnEnemyEntities;</span>
+    }
+
+    /**
+     * Lazy-loaded list of friendly entities.
+     * Only good for the current entity turn calculation, as this list can change between individual entity turns. 
+     */
+    public List&lt;Entity&gt; getFriendEntities() {
+<span class="nc bnc" id="L373" title="All 2 branches missed.">        if(currentTurnFriendlyEntities == null) {</span>
+<span class="nc" id="L374">            currentTurnFriendlyEntities = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">            for (Entity entity : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L376" title="All 4 branches missed.">                if (!entity.getOwner().isEnemyOf(getLocalPlayer()) &amp;&amp; (entity.getPosition() != null)</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">                    &amp;&amp; !entity.isOffBoard()) {</span>
+<span class="nc" id="L378">                    currentTurnFriendlyEntities.add(entity);</span>
+                }
+<span class="nc" id="L380">            }</span>
+        }
+        
+<span class="nc" id="L383">        return currentTurnFriendlyEntities;</span>
+    }
+
+    // TODO: move initMovement to be called on phase end
+    @Override
+    public void changePhase(IGame.Phase phase) {
+<span class="nc" id="L389">        super.changePhase(phase);</span>
+
+        try {
+<span class="nc bnc" id="L392" title="All 10 branches missed.">            switch (phase) {</span>
+                case PHASE_LOUNGE:
+<span class="nc" id="L394">                    sendChat(Messages.getString(&quot;BotClient.Hi&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L395">                    break;</span>
+                case PHASE_DEPLOYMENT:
+<span class="nc" id="L397">                    initialize();</span>
+<span class="nc" id="L398">                    break;</span>
+                case PHASE_MOVEMENT:
+                    /* Do not uncomment this. It is so that bots stick around till end of game
+                     * for proper salvage. If the bot dies out here, the salvage for all but the
+                     * last bot disappears for some reason
+                    if (game.getEntitiesOwnedBy(getLocalPlayer()) == 0) {
+                        sendChat(Messages.getString(&quot;BotClient.HowAbout&quot;)); //$NON-NLS-1$
+                        die();
+                    }
+                     */
+                    // if the game is not double blind and I can't see anyone
+                    // else on the board I should kill myself.
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                    if (!(game.getOptions().booleanOption(OptionsConstants.ADVANCED_DOUBLE_BLIND)) //$NON-NLS-1$</span>
+<span class="nc" id="L411">                        &amp;&amp; ((game.getEntitiesOwnedBy(getLocalPlayer())</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">                             - game.getNoOfEntities()) == 0)) {</span>
+<span class="nc" id="L413">                        die();</span>
+                    }
+
+<span class="nc bnc" id="L416" title="All 2 branches missed.">                    if (Compute.randomInt(4) == 1) {</span>
+<span class="nc" id="L417">                        String message = getRandomBotMessage();</span>
+<span class="nc bnc" id="L418" title="All 2 branches missed.">                        if (message != null) {</span>
+<span class="nc" id="L419">                            sendChat(message);</span>
+                        }
+                    }
+<span class="nc" id="L422">                    initMovement();</span>
+<span class="nc" id="L423">                    break;</span>
+                case PHASE_FIRING:
+<span class="nc" id="L425">                    initFiring();</span>
+<span class="nc" id="L426">                    break;</span>
+                case PHASE_PHYSICAL:
+<span class="nc" id="L428">                    break;</span>
+                case PHASE_TARGETING:
+<span class="nc" id="L430">                    initTargeting();</span>
+<span class="nc" id="L431">                    break;</span>
+                case PHASE_END_REPORT:
+                    // Check if stealth armor should be switched on/off
+                    // Kinda cheap leaving this until the end phase, players
+                    // can't do this
+<span class="nc" id="L436">                    toggleStealth();</span>
+<span class="nc" id="L437">                    endOfTurnProcessing();</span>
+                    // intentional fallthrough: all reports must click &quot;done&quot;, otherwise the game never moves on.
+                case PHASE_TARGETING_REPORT:
+                case PHASE_INITIATIVE_REPORT:
+                case PHASE_MOVEMENT_REPORT:
+                case PHASE_OFFBOARD_REPORT:
+                case PHASE_FIRING_REPORT:
+                case PHASE_PHYSICAL_REPORT:
+<span class="nc" id="L445">                    sendDone(true);</span>
+<span class="nc" id="L446">                    break;</span>
+                case PHASE_VICTORY:
+<span class="nc" id="L448">                    runEndGame();</span>
+<span class="nc" id="L449">                    sendChat(Messages.getString(&quot;BotClient.Bye&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L450">                    die();</span>
+<span class="nc" id="L451">                    break;</span>
+                default:
+                    break;
+            }
+<span class="nc" id="L455">        } catch (Throwable t) {</span>
+<span class="nc" id="L456">            t.printStackTrace();</span>
+<span class="nc" id="L457">        }</span>
+<span class="nc" id="L458">    }</span>
+
+    private void runEndGame() {
+        // Make a list of the player's living units.
+<span class="nc" id="L462">        ArrayList&lt;Entity&gt; living = game.getPlayerEntities(getLocalPlayer(), false);</span>
+
+        // Be sure to include all units that have retreated.
+<span class="nc bnc" id="L465" title="All 2 branches missed.">        for (Enumeration&lt;Entity&gt; iter = game.getRetreatedEntities(); iter.hasMoreElements(); ) {</span>
+<span class="nc" id="L466">            Entity ent = iter.nextElement();</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">            if (ent.getOwnerId() == getLocalPlayer().getId()) {</span>
+<span class="nc" id="L468">                living.add(ent);</span>
+            }
+<span class="nc" id="L470">        }</span>
+
+<span class="nc bnc" id="L472" title="All 2 branches missed.">        if (living.isEmpty()) {</span>
+<span class="nc" id="L473">            return;</span>
+        }
+
+<span class="nc" id="L476">        String sLogDir = PreferenceManager.getClientPreferences().getLogDirectory();</span>
+<span class="nc" id="L477">        File logDir = new File(sLogDir);</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">        if (!logDir.exists()) {</span>
+            //noinspection ResultOfMethodCallIgnored
+<span class="nc" id="L480">            logDir.mkdir();</span>
+        }
+<span class="nc" id="L482">        String fileName = &quot;Bot_&quot; + getLocalPlayer().getName() + &quot;.mul&quot;;</span>
+<span class="nc bnc" id="L483" title="All 2 branches missed.">        if (PreferenceManager.getClientPreferences().stampFilenames()) {</span>
+<span class="nc" id="L484">            fileName = StringUtil.addDateTimeStamp(fileName);</span>
+        }
+<span class="nc" id="L486">        File unitFile = new File(sLogDir + File.separator + fileName);</span>
+        try {
+            // Save the entities to the file.
+<span class="nc" id="L489">            EntityListFile.saveTo(unitFile, living);</span>
+<span class="nc" id="L490">        } catch (IOException excep) {</span>
+<span class="nc" id="L491">            excep.printStackTrace(System.err);</span>
+<span class="nc" id="L492">            doAlertDialog(Messages.getString(&quot;ClientGUI.errorSavingFile&quot;), excep.getMessage()); //$NON-NLS-1$</span>
+<span class="nc" id="L493">        }</span>
+<span class="nc" id="L494">    }</span>
+
+    private Entity getRandomUnmovedEntity() {
+<span class="nc" id="L497">        List&lt;Entity&gt; owned = getEntitiesOwned();</span>
+<span class="nc" id="L498">        List&lt;Entity&gt; unMoved = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L499" title="All 2 branches missed.">        for (Entity e : owned) {</span>
+<span class="nc bnc" id="L500" title="All 2 branches missed.">            if (e.isSelectableThisTurn()) {</span>
+<span class="nc" id="L501">                unMoved.add(e);</span>
+            }
+<span class="nc" id="L503">        }</span>
+<span class="nc" id="L504">        return unMoved.get(Compute.randomInt(unMoved.size()));</span>
+    }
+    
+    /**
+     * Calculate what to do on my turn.
+     * Has a retry mechanism for when the turn calculation fails due to concurrency issues
+     */
+    private synchronized void calculateMyTurn() {
+<span class="nc" id="L512">    	int retryCount = 0;</span>
+<span class="nc" id="L513">        boolean success = false;</span>
+        
+<span class="nc bnc" id="L515" title="All 4 branches missed.">        while((retryCount &lt; BOT_TURN_RETRY_COUNT) &amp;&amp; !success) {</span>
+<span class="nc" id="L516">        	success = calculateMyTurnWorker();</span>
+        	
+<span class="nc bnc" id="L518" title="All 2 branches missed.">        	if(!success) {</span>
+	        	// if we fail, take a nap for 500-1500 milliseconds, then try again
+	            // as it may be due to some kind of thread-related issue
+        		// limit number of retries so we're not endlessly spinning
+        		// if we can't recover from the error
+<span class="nc" id="L523">	            retryCount++;</span>
+	            try {
+<span class="nc" id="L525">					Thread.sleep(Compute.randomInt(1000) + 500);</span>
+<span class="nc" id="L526">				} catch (InterruptedException e) {</span>
+<span class="nc" id="L527">					MegaMek.getLogger().error(e.toString());</span>
+<span class="nc" id="L528">				}</span>
+	        }
+        }
+<span class="nc" id="L531">    }</span>
+
+    /**
+     * Worker function for a single attempt to calculate the bot's turn.
+     */
+    private synchronized boolean calculateMyTurnWorker() {
+        // clear out transient data
+<span class="nc" id="L538">        currentTurnEnemyEntities = null;</span>
+<span class="nc" id="L539">        currentTurnFriendlyEntities = null;</span>
+        
+        try {
+<span class="nc bnc" id="L542" title="All 2 branches missed.">            if (game.getPhase() == IGame.Phase.PHASE_MOVEMENT) {</span>
+                MovePath mp;
+<span class="nc bnc" id="L544" title="All 2 branches missed.">                if (game.getTurn() instanceof GameTurn.SpecificEntityTurn) {</span>
+<span class="nc" id="L545">                    GameTurn.SpecificEntityTurn turn = (GameTurn.SpecificEntityTurn) game</span>
+<span class="nc" id="L546">                            .getTurn();</span>
+<span class="nc" id="L547">                    Entity mustMove = game.getEntity(turn.getEntityNum());</span>
+<span class="nc" id="L548">                    mp = continueMovementFor(mustMove);</span>
+<span class="nc" id="L549">                } else {</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">                    if (config.isForcedIndividual()) {</span>
+<span class="nc" id="L551">                        Entity mustMove = getRandomUnmovedEntity();</span>
+<span class="nc" id="L552">                        mp = continueMovementFor(mustMove);</span>
+<span class="nc" id="L553">                    } else {</span>
+<span class="nc" id="L554">                        mp = calculateMoveTurn();</span>
+                    }
+                }
+<span class="nc" id="L557">                moveEntity(mp.getEntity().getId(), mp);</span>
+<span class="nc bnc" id="L558" title="All 2 branches missed.">            } else if (game.getPhase() == IGame.Phase.PHASE_FIRING) {</span>
+<span class="nc" id="L559">                calculateFiringTurn();</span>
+<span class="nc bnc" id="L560" title="All 2 branches missed.">            } else if (game.getPhase() == IGame.Phase.PHASE_PHYSICAL) {</span>
+<span class="nc" id="L561">                PhysicalOption po = calculatePhysicalTurn();</span>
+                // Bug #1072137: don't crash if the bot can't find a physical.
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                if (null != po) {</span>
+<span class="nc" id="L564">                    sendAttackData(po.attacker.getId(), po.getVector());</span>
+                } else {
+                    // Send a &quot;no attack&quot; to clear the game turn, if any.
+<span class="nc" id="L567">                    sendAttackData(game.getFirstEntityNum(getMyTurn()),</span>
+                                   new Vector&lt;&gt;(0));
+                }
+<span class="nc bnc" id="L570" title="All 2 branches missed.">            } else if (game.getPhase() == IGame.Phase.PHASE_DEPLOYMENT) {</span>
+<span class="nc" id="L571">                calculateDeployment();</span>
+<span class="nc bnc" id="L572" title="All 2 branches missed.">            } else if (game.getPhase() == IGame.Phase.PHASE_DEPLOY_MINEFIELDS) {</span>
+<span class="nc" id="L573">                Vector&lt;Minefield&gt; mines = calculateMinefieldDeployment();</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">                for (Minefield mine : mines) {</span>
+<span class="nc" id="L575">                    game.addMinefield(mine);</span>
+<span class="nc" id="L576">                }</span>
+<span class="nc" id="L577">                sendDeployMinefields(mines);</span>
+<span class="nc" id="L578">                sendPlayerInfo();</span>
+<span class="nc bnc" id="L579" title="All 2 branches missed.">            } else if (game.getPhase() == IGame.Phase.PHASE_SET_ARTYAUTOHITHEXES) {</span>
+                // For now, declare no autohit hexes.
+<span class="nc" id="L581">                Vector&lt;Coords&gt; autoHitHexes = calculateArtyAutoHitHexes();</span>
+<span class="nc" id="L582">                sendArtyAutoHitHexes(autoHitHexes);</span>
+<span class="nc bnc" id="L583" title="All 2 branches missed.">            } else if ((game.getPhase() == IGame.Phase.PHASE_TARGETING)</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">                       || (game.getPhase() == IGame.Phase.PHASE_OFFBOARD)) {</span>
+                // Princess implements arty targeting; no plans to do so for testbod
+<span class="nc" id="L586">                calculateTargetingOffBoardTurn();</span>
+            }
+            
+<span class="nc" id="L589">            return true;</span>
+<span class="nc" id="L590">        } catch (Throwable t) {</span>
+<span class="nc" id="L591">            MegaMek.getLogger().error(t);            </span>
+<span class="nc" id="L592">            return false;</span>
+        }
+    }
+
+    public double getMassOfAllInBuilding(final IGame game, final Coords coords) {
+<span class="nc" id="L597">        double mass = 0;</span>
+
+        // Add the mass of anyone else standing in/on this building.
+<span class="nc" id="L600">        final IHex hex = game.getBoard().getHex(coords);</span>
+<span class="nc" id="L601">        final int buildingElevation = hex.terrainLevel(Terrains.BLDG_ELEV);</span>
+<span class="nc" id="L602">        final int bridgeElevation = hex.terrainLevel(Terrains.BRIDGE_ELEV);</span>
+<span class="nc" id="L603">        Iterator&lt;Entity&gt; crowd = game.getEntities(coords);</span>
+<span class="nc bnc" id="L604" title="All 2 branches missed.">        while (crowd.hasNext()) {</span>
+<span class="nc" id="L605">            Entity e = crowd.next();</span>
+
+<span class="nc bnc" id="L607" title="All 4 branches missed.">            if (buildingElevation &gt;= e.getElevation() || bridgeElevation &gt;= e.getElevation()) {</span>
+<span class="nc" id="L608">                mass += e.getWeight();</span>
+            }
+<span class="nc" id="L610">        }</span>
+
+<span class="nc" id="L612">        return mass;</span>
+    }
+    
+    /**
+     * Gets valid &amp; empty starting coords around the specified point. This
+     * method iterates through the list of Coords and returns the first Coords
+     * that does not have a stacking violation.
+     */
+    protected Coords getFirstValidCoords(Entity deployedUnit, List&lt;Coords&gt; possibleDeployCoords) {
+        // Check all of the hexes in order.
+<span class="nc bnc" id="L622" title="All 2 branches missed.">        for (Coords dest : possibleDeployCoords) {</span>
+<span class="nc" id="L623">            Entity violation = Compute.stackingViolation(game, deployedUnit,</span>
+<span class="nc" id="L624">                    dest, deployedUnit.getElevation(), dest, null);</span>
+            // Ignore coords that could cause a stacking violation
+<span class="nc bnc" id="L626" title="All 2 branches missed.">            if (violation != null) {</span>
+<span class="nc" id="L627">                continue;</span>
+            }
+
+            // Make sure we don't overload any buildings in this hex.
+<span class="nc" id="L631">            Building building = game.getBoard().getBuildingAt(dest);</span>
+<span class="nc bnc" id="L632" title="All 2 branches missed.">            if (null != building) {</span>
+<span class="nc" id="L633">                double mass = getMassOfAllInBuilding(game, dest) + deployedUnit.getWeight();</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">                if (mass &gt; building.getCurrentCF(dest)) {</span>
+<span class="nc" id="L635">                    continue;</span>
+                }
+            }
+
+<span class="nc" id="L639">            return dest;</span>
+        }
+
+<span class="nc" id="L642">        System.out.println(&quot;Returning no deployment position; THIS IS BAD!&quot;);</span>
+        // If NONE of them are acceptable, then just return null.
+<span class="nc" id="L644">        return null;</span>
+    }
+
+    protected List&lt;Coords&gt; getStartingCoordsArray(Entity deployed_ent) {
+        int highest_elev, lowest_elev, weapon_count;
+        double av_range, ideal_elev;
+        double adjusted_damage, max_damage, total_damage;
+<span class="nc" id="L651">        IBoard board = game.getBoard();</span>
+        Coords highestHex;
+<span class="nc" id="L653">        List&lt;RankedCoords&gt; validCoords = new LinkedList&lt;&gt;();</span>
+        Vector&lt;Entity&gt; valid_attackers;
+        WeaponAttackAction test_attack;
+<span class="nc" id="L656">        List&lt;ECMInfo&gt; allECMInfo = ComputeECM.computeAllEntitiesECMInfo(game</span>
+<span class="nc" id="L657">                .getEntitiesVector());</span>
+
+        // Create array of hexes in the deployment zone that can be deployed to
+        // Check for prohibited terrain, stacking limits
+<span class="nc bnc" id="L661" title="All 2 branches missed.">        for (int x = 0; x &lt;= board.getWidth(); x++) {</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">            for (int y = 0; y &lt;= board.getHeight(); y++) {</span>
+<span class="nc" id="L663">                Coords c = new Coords(x, y);</span>
+<span class="nc bnc" id="L664" title="All 2 branches missed.">                if (board.isLegalDeployment(c, deployed_ent.getStartingPos())</span>
+<span class="nc bnc" id="L665" title="All 2 branches missed.">                    &amp;&amp; !deployed_ent.isLocationProhibited(c)) {</span>
+<span class="nc" id="L666">                    validCoords.add(new RankedCoords(c, 0));</span>
+                }
+            }
+        }
+
+        // Randomize hexes to prevent clumping at the upper-left corner on
+        // very flat maps
+<span class="nc" id="L673">        Collections.shuffle(validCoords);</span>
+
+        // Now get minimum and maximum elevation levels for these hexes
+<span class="nc" id="L676">        highest_elev = Integer.MIN_VALUE;</span>
+
+<span class="nc" id="L678">        lowest_elev = Integer.MAX_VALUE;</span>
+<span class="nc bnc" id="L679" title="All 2 branches missed.">        for (RankedCoords c : validCoords) {</span>
+<span class="nc" id="L680">            int elev = board.getHex(c.getX(), c.getY()).getLevel();</span>
+<span class="nc bnc" id="L681" title="All 2 branches missed.">            if (elev &gt; highest_elev) {</span>
+<span class="nc" id="L682">                highest_elev = board.getHex(c.getX(), c.getY()).getLevel();</span>
+            }
+<span class="nc bnc" id="L684" title="All 2 branches missed.">            if (elev &lt; lowest_elev) {</span>
+<span class="nc" id="L685">                lowest_elev = board.getHex(c.getX(), c.getY()).getLevel();</span>
+            }
+<span class="nc" id="L687">        }</span>
+
+        // Calculate average range of all weapons
+        // Do not include ATMs, but DO include each bin of ATM ammo
+        // Increase average range if the unit has an active c3 link
+<span class="nc" id="L692">        av_range = 0.0;</span>
+<span class="nc" id="L693">        weapon_count = 0;</span>
+<span class="nc bnc" id="L694" title="All 2 branches missed.">        for (Mounted mounted : deployed_ent.getWeaponList()) {</span>
+<span class="nc" id="L695">            WeaponType wtype = (WeaponType) mounted.getType();</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">            if ((!wtype.getName().equals(&quot;ATM 3&quot;))</span>
+<span class="nc bnc" id="L697" title="All 2 branches missed.">                &amp;&amp; (!wtype.getName().equals(&quot;ATM 6&quot;))</span>
+<span class="nc bnc" id="L698" title="All 2 branches missed.">                &amp;&amp; (!wtype.getName().equals(&quot;ATM 9&quot;))</span>
+<span class="nc bnc" id="L699" title="All 2 branches missed.">                &amp;&amp; (!wtype.getName().equals(&quot;ATM 12&quot;))) {</span>
+<span class="nc bnc" id="L700" title="All 2 branches missed.">                if (deployed_ent.getC3Master() != null) {</span>
+<span class="nc" id="L701">                    av_range += wtype.getLongRange() * 1.25;</span>
+                } else {
+<span class="nc" id="L703">                    av_range += wtype.getLongRange();</span>
+                }
+<span class="nc" id="L705">                weapon_count++;</span>
+            }
+<span class="nc" id="L707">        }</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">        for (Mounted mounted : deployed_ent.getAmmo()) {</span>
+<span class="nc" id="L709">            AmmoType atype = (AmmoType) mounted.getType();</span>
+<span class="nc bnc" id="L710" title="All 2 branches missed.">            if (atype.getAmmoType() == AmmoType.T_ATM) {</span>
+<span class="nc" id="L711">                weapon_count++;</span>
+<span class="nc" id="L712">                av_range += 15.0;</span>
+<span class="nc bnc" id="L713" title="All 2 branches missed.">                if (atype.getMunitionType() == AmmoType.M_HIGH_EXPLOSIVE) {</span>
+<span class="nc" id="L714">                    av_range -= 6;</span>
+                }
+<span class="nc bnc" id="L716" title="All 2 branches missed.">                if (atype.getMunitionType() == AmmoType.M_EXTENDED_RANGE) {</span>
+<span class="nc" id="L717">                    av_range += 12.0;</span>
+                }
+<span class="nc bnc" id="L719" title="All 2 branches missed.">            } else if (atype.getAmmoType() == AmmoType.T_MML) {</span>
+<span class="nc" id="L720">                weapon_count++;</span>
+<span class="nc bnc" id="L721" title="All 2 branches missed.">                if (atype.hasFlag(AmmoType.F_MML_LRM)) {</span>
+<span class="nc" id="L722">                    av_range = 9.0;</span>
+                } else {
+<span class="nc" id="L724">                    av_range = 21.0;</span>
+                }
+            }
+<span class="nc" id="L727">        }</span>
+<span class="nc" id="L728">        av_range = av_range / weapon_count;</span>
+
+        // Calculate ideal elevation as a factor of average range of 18 being
+        // highest elevation.  Fast, non-jumping units should deploy towards
+        // the middle elevations to avoid getting stuck up a cliff.
+<span class="nc bnc" id="L733" title="All 2 branches missed.">        if ((deployed_ent.getJumpMP() == 0) &amp;&amp;</span>
+<span class="nc bnc" id="L734" title="All 2 branches missed.">            (deployed_ent.getWalkMP() &gt; 5)) {</span>
+<span class="nc" id="L735">            ideal_elev = lowest_elev + ((highest_elev - lowest_elev) / 3.0);</span>
+        } else {
+<span class="nc" id="L737">            ideal_elev = lowest_elev</span>
+                         + ((av_range / 18) * (highest_elev - lowest_elev));
+        }
+<span class="nc bnc" id="L740" title="All 2 branches missed.">        if (ideal_elev &gt; highest_elev) {</span>
+<span class="nc" id="L741">            ideal_elev = highest_elev;</span>
+        }
+
+<span class="nc" id="L744">        double highestFitness = -5000;</span>
+        
+<span class="nc bnc" id="L746" title="All 2 branches missed.">        for (RankedCoords coord : validCoords) {</span>
+
+            // Calculate the fitness factor for each hex and save it to the array
+            // -&gt; Absolute difference between hex elevation and ideal elevation decreases fitness
+<span class="nc" id="L750">            coord.setFitness(-1 * (Math.abs(ideal_elev - board.getHex(coord.getX(), coord.getY()).getLevel())));</span>
+
+<span class="nc" id="L752">            total_damage = 0.0;</span>
+<span class="nc" id="L753">            deployed_ent.setPosition(coord.getCoords());</span>
+
+            // Create a list of potential attackers/targets for this location
+<span class="nc" id="L756">            List&lt;Entity&gt; potentialAttackers =</span>
+<span class="nc" id="L757">                    game.getValidTargets(deployed_ent);</span>
+<span class="nc" id="L758">            valid_attackers = new Vector&lt;&gt;(potentialAttackers.size());</span>
+<span class="nc bnc" id="L759" title="All 2 branches missed.">            for (Entity e : potentialAttackers) {</span>
+
+                // Unit must be deployed and not off board, with valid position
+<span class="nc bnc" id="L762" title="All 4 branches missed.">                if ((e.isDeployed()) &amp;&amp; !e.isOffBoard()</span>
+<span class="nc bnc" id="L763" title="All 2 branches missed.">                    &amp;&amp; e.getPosition() != null) {</span>
+<span class="nc" id="L764">                    int dist = deployed_ent.getPosition().distance(</span>
+<span class="nc" id="L765">                            e.getPosition());</span>
+                    // Approximation of effective range, we could use av_range,
+                    //  however that could bad if deploy_ent is short ranged
+                    //  and a potential  target is long range
+<span class="nc bnc" id="L769" title="All 2 branches missed.">                    if (dist &lt; 18) {</span>
+<span class="nc" id="L770">                        valid_attackers.add(e);</span>
+                    }
+                }
+<span class="nc" id="L773">            }</span>
+
+            // -&gt; Approximate total damage taken in the current position; this
+            // keeps units from deploying into x-fires
+<span class="nc bnc" id="L777" title="All 2 branches missed.">            for (Entity test_ent : valid_attackers) {</span>
+<span class="nc bnc" id="L778" title="All 2 branches missed.">                for (Mounted mounted : test_ent.getWeaponList()) {</span>
+<span class="nc" id="L779">                    test_attack = new WeaponAttackAction(test_ent.getId(),</span>
+<span class="nc" id="L780">                                                         deployed_ent.getId(),</span>
+<span class="nc" id="L781">                                                         test_ent.getEquipmentNum(mounted));</span>
+<span class="nc" id="L782">                    adjusted_damage = BotClient.getDeployDamage(game,</span>
+                                                                test_attack, allECMInfo);
+<span class="nc" id="L784">                    total_damage += adjusted_damage;</span>
+<span class="nc" id="L785">                }</span>
+<span class="nc" id="L786">            }</span>
+<span class="nc" id="L787">            coord.fitness -= (total_damage / 10);</span>
+
+            // -&gt; Find the best target for each weapon and approximate the
+            // damage; maybe we can kill stuff without moving!
+            // -&gt; Conventional infantry ALWAYS come out on the short end of the
+            // stick in damage given/taken... solutions?
+<span class="nc" id="L793">            total_damage = 0.0;</span>
+<span class="nc bnc" id="L794" title="All 2 branches missed.">            for (Mounted mounted : deployed_ent.getWeaponList()) {</span>
+<span class="nc" id="L795">                max_damage = 0.0;</span>
+<span class="nc bnc" id="L796" title="All 2 branches missed.">                for (Entity test_ent : valid_attackers) {</span>
+<span class="nc" id="L797">                    test_attack = new WeaponAttackAction(deployed_ent.getId(),</span>
+<span class="nc" id="L798">                                                         test_ent.getId(),</span>
+<span class="nc" id="L799">                                                         deployed_ent.getEquipmentNum(mounted));</span>
+<span class="nc" id="L800">                    adjusted_damage = BotClient.getDeployDamage(game,</span>
+                                                                test_attack, allECMInfo);
+<span class="nc bnc" id="L802" title="All 2 branches missed.">                    if (adjusted_damage &gt; max_damage) {</span>
+<span class="nc" id="L803">                        max_damage = adjusted_damage;</span>
+                    }
+<span class="nc" id="L805">                }</span>
+<span class="nc" id="L806">                total_damage += max_damage;</span>
+<span class="nc" id="L807">            }</span>
+<span class="nc" id="L808">            coord.fitness += (total_damage / 10);</span>
+
+            // Mech
+<span class="nc bnc" id="L811" title="All 2 branches missed.">            if (deployed_ent.hasETypeFlag(Entity.ETYPE_MECH)) {</span>
+                // -&gt; Trees are good, when they're tall enough
+                // -&gt; Water isn't that great below depth 1 -&gt; this saves actual
+                // ground space for infantry/vehicles (minor)
+<span class="nc" id="L815">                int x = coord.getX();</span>
+<span class="nc" id="L816">                int y = coord.getY();</span>
+<span class="nc bnc" id="L817" title="All 2 branches missed.">                if (board.getHex(x, y).containsTerrain(Terrains.WOODS)</span>
+<span class="nc bnc" id="L818" title="All 2 branches missed.">                        &amp;&amp; board.getHex(x, y).terrainLevel(Terrains.FOLIAGE_ELEV) &gt; 1) {</span>
+<span class="nc" id="L819">                    coord.fitness += 1;</span>
+                }
+<span class="nc bnc" id="L821" title="All 2 branches missed.">                if (board.getHex(x, y).containsTerrain(Terrains.WATER)) {</span>
+<span class="nc bnc" id="L822" title="All 2 branches missed.">                    if (board.getHex(x, y).depth() &gt; 1) {</span>
+<span class="nc" id="L823">                        coord.fitness -= board.getHex(x, y).depth();</span>
+                    }
+                }
+                //If building, make sure not too heavy to safely move out of
+<span class="nc" id="L827">                coord.fitness -= potentialBuildingDamage(coord.getX(), coord.getY(),</span>
+                                                         deployed_ent);
+            }
+
+            // Infantry
+
+<span class="nc bnc" id="L833" title="All 2 branches missed.">            if (deployed_ent.hasETypeFlag(Entity.ETYPE_INFANTRY)) {</span>
+                // -&gt; Trees and buildings make good cover, esp for conventional
+                // infantry
+                // rough is nice, too
+                // -&gt; Massed infantry is more effective, so try to cluster them
+<span class="nc bnc" id="L838" title="All 2 branches missed.">                if (board.getHex(coord.getX(), coord.getY()).containsTerrain(</span>
+                        Terrains.ROUGH)) {
+<span class="nc" id="L840">                    coord.fitness += 1.5;</span>
+                }
+<span class="nc bnc" id="L842" title="All 2 branches missed.">                if (board.getHex(coord.getX(), coord.getY()).containsTerrain(</span>
+                        Terrains.WOODS)) {
+<span class="nc" id="L844">                    coord.fitness += 2;</span>
+                }
+<span class="nc bnc" id="L846" title="All 2 branches missed.">                if (board.getHex(coord.getX(), coord.getY()).containsTerrain(</span>
+                        Terrains.BUILDING)) {
+<span class="nc" id="L848">                    coord.fitness += 4;</span>
+                }
+<span class="nc" id="L850">                highestHex = coord.getCoords();</span>
+<span class="nc bnc" id="L851" title="All 2 branches missed.">                for (Entity test_ent : game.getEntitiesVector(highestHex)) {</span>
+<span class="nc bnc" id="L852" title="All 2 branches missed.">                    if ((deployed_ent.getOwner().equals(test_ent.getOwner()))</span>
+<span class="nc bnc" id="L853" title="All 2 branches missed.">                        &amp;&amp; !deployed_ent.equals(test_ent)) {</span>
+<span class="nc bnc" id="L854" title="All 2 branches missed.">                        if (test_ent instanceof Infantry) {</span>
+<span class="nc" id="L855">                            coord.fitness += 2;</span>
+<span class="nc" id="L856">                            break;</span>
+                        }
+                    }
+<span class="nc" id="L859">                }</span>
+<span class="nc" id="L860">                boolean foundAdj = false;</span>
+<span class="nc" id="L861">                IPlayer owner = deployed_ent.getOwner();</span>
+<span class="nc bnc" id="L862" title="All 4 branches missed.">                for (int x = 0; x &lt; 6 &amp;&amp; !foundAdj; x++) {</span>
+<span class="nc" id="L863">                    highestHex = coord.getCoords().translated(x);</span>
+<span class="nc bnc" id="L864" title="All 2 branches missed.">                    for (Entity test_ent : game.getEntitiesVector(highestHex)) {</span>
+<span class="nc bnc" id="L865" title="All 2 branches missed.">                        if ((owner.equals(test_ent.getOwner()))</span>
+<span class="nc bnc" id="L866" title="All 4 branches missed.">                            &amp;&amp; !deployed_ent.equals(test_ent)</span>
+                            &amp;&amp; (test_ent instanceof Infantry)) {
+
+<span class="nc" id="L869">                            coord.fitness += 1;</span>
+<span class="nc" id="L870">                            foundAdj = true;</span>
+
+                        }
+<span class="nc" id="L873">                    }</span>
+                }
+
+                // Not sure why bot tries to deploy infantry in water, it SHOULD
+                // be caught by the isHexProhibited method when
+                // selecting hexes, but sometimes it has a mind of its own so...
+<span class="nc bnc" id="L879" title="All 2 branches missed.">                if (board.getHex(coord.getX(), coord.getY()).containsTerrain(</span>
+                        Terrains.WATER)) {
+<span class="nc" id="L881">                    coord.fitness -= 10;</span>
+                }
+            }
+
+            // some criteria for deploying non-vtol tanks
+<span class="nc bnc" id="L886" title="All 2 branches missed.">            if (deployed_ent.hasETypeFlag(Entity.ETYPE_TANK) &amp;&amp;</span>
+<span class="nc bnc" id="L887" title="All 2 branches missed.">                    !deployed_ent.hasETypeFlag(Entity.ETYPE_VTOL)) {</span>
+                // Tracked vehicle
+                // -&gt; Trees increase fitness
+<span class="nc bnc" id="L890" title="All 2 branches missed.">                if (deployed_ent.getMovementMode() == EntityMovementMode.TRACKED) {</span>
+<span class="nc bnc" id="L891" title="All 2 branches missed.">                    if (board.getHex(coord.getX(), coord.getY()).containsTerrain(Terrains.WOODS)) {</span>
+<span class="nc" id="L892">                        coord.fitness += 2;</span>
+                    }
+                }
+
+                // Wheeled vehicle
+                // -&gt; Not sure what any benefits wheeled vehicles can get; for
+                // now, just elevation and damage taken/given
+                // Hover vehicle
+                // -&gt; Water in hex increases fitness, hover vehicles have an
+                // advantage in water areas
+<span class="nc bnc" id="L902" title="All 2 branches missed.">                if (deployed_ent.getMovementMode() == EntityMovementMode.HOVER) {</span>
+<span class="nc bnc" id="L903" title="All 2 branches missed.">                    if (board.getHex(coord.getX(), coord.getY()).containsTerrain(</span>
+                            Terrains.WATER)) {
+<span class="nc" id="L905">                        coord.fitness += 2;</span>
+                    }
+                }
+                // If building, make sure not too heavy to safely move out of.
+<span class="nc" id="L909">                coord.fitness -= potentialBuildingDamage(coord.getX(), coord.getY(),</span>
+                                                         deployed_ent);
+            }
+            
+            // ProtoMech
+            // -&gt;
+            // -&gt; Trees increase fitness by +2 (minor)
+<span class="nc bnc" id="L916" title="All 2 branches missed.">            if (deployed_ent instanceof Protomech) {</span>
+<span class="nc bnc" id="L917" title="All 2 branches missed.">                if (board.getHex(coord.getX(), coord.getY()).containsTerrain(</span>
+                        Terrains.WOODS)) {
+<span class="nc" id="L919">                    coord.fitness += 2;</span>
+                }
+            }
+
+            // Make sure I'm not stuck in a dead-end.
+<span class="nc" id="L924">            coord.fitness += calculateEdgeAccessFitness(deployed_ent, board);</span>
+            
+<span class="nc bnc" id="L926" title="All 2 branches missed.">            if(coord.fitness &gt; highestFitness) {</span>
+<span class="nc" id="L927">                highestFitness = coord.fitness;</span>
+            }
+<span class="nc" id="L929">        }</span>
+
+        // now, we double check: did we get a bunch of coordinates with a value way below 0?
+        // This indicates that we do not have a way of getting to the opposite board edge,
+        // even when considering terrain destruction
+        // attempt to deploy in the biggest area this unit can access instead
+<span class="nc bnc" id="L935" title="All 2 branches missed.">        if(highestFitness &lt; -10) {</span>
+<span class="nc bnc" id="L936" title="All 2 branches missed.">            for(RankedCoords rc : validCoords) {</span>
+<span class="nc" id="L937">                rc.fitness += getClusterTracker().getBoardClusterSize(deployed_ent, rc.coords, false);</span>
+<span class="nc" id="L938">            }</span>
+        }
+        
+        // Now sort the valid array.
+<span class="nc" id="L942">        Collections.sort(validCoords);</span>
+
+<span class="nc" id="L944">        List&lt;Coords&gt; result = new ArrayList&lt;&gt;(validCoords.size());</span>
+<span class="nc bnc" id="L945" title="All 2 branches missed.">        for (RankedCoords rc : validCoords) {</span>
+<span class="nc" id="L946">            result.add(rc.getCoords());</span>
+<span class="nc" id="L947">        }</span>
+
+<span class="nc" id="L949">        return result;</span>
+    }
+
+    /**
+     * Determines if the given entity has reasonable access to the &quot;opposite&quot; edge of the board from its
+     * current position. Returns 0 if this can be accomplished without destroying any terrain, 
+     * -50 if this can be accomplished but terrain must be destroyed,
+     * -100 if this cannot be accomplished at all
+     */
+    private int calculateEdgeAccessFitness(Entity entity, IBoard board) {
+        // Flying units can always get anywhere
+<span class="nc bnc" id="L960" title="All 4 branches missed.">        if (entity.isAirborne() || entity instanceof VTOL) {</span>
+<span class="nc" id="L961">            return 0;</span>
+        }
+        
+<span class="nc" id="L964">        CardinalEdge destinationEdge = BoardUtilities.determineOppositeEdge(entity);</span>
+        
+<span class="nc" id="L966">        int noReductionZoneSize = getClusterTracker().getDestinationCoords(entity, destinationEdge, false).size();</span>
+<span class="nc" id="L967">        int reductionZoneSize = getClusterTracker().getDestinationCoords(entity, destinationEdge, true).size();</span>
+        
+<span class="nc bnc" id="L969" title="All 2 branches missed.">        if (noReductionZoneSize &gt; 0) {</span>
+<span class="nc" id="L970">            return 0;</span>
+<span class="nc bnc" id="L971" title="All 2 branches missed.">        } else if (reductionZoneSize &gt; 0) {</span>
+<span class="nc" id="L972">            return -50;</span>
+        } else {
+<span class="nc" id="L974">            return -100;</span>
+        }
+    }
+
+    private double potentialBuildingDamage(int x, int y, Entity entity) {
+<span class="nc" id="L979">        Coords coords = new Coords(x, y);</span>
+<span class="nc" id="L980">        Building building = game.getBoard().getBuildingAt(coords);</span>
+<span class="nc bnc" id="L981" title="All 2 branches missed.">        if (building == null) {</span>
+<span class="nc" id="L982">            return 0;</span>
+        }
+<span class="nc" id="L984">        int potentialDmg = (int) Math.ceil((double) building.getCurrentCF(coords) / 10);</span>
+<span class="nc" id="L985">        boolean aptGunnery = entity.hasAbility(OptionsConstants.PILOT_APTITUDE_GUNNERY);</span>
+<span class="nc" id="L986">        double oddsTakeDmg = 1 - (Compute.oddsAbove(entity.getCrew().getPiloting(), aptGunnery) / 100);</span>
+<span class="nc" id="L987">        return potentialDmg * oddsTakeDmg;</span>
+    }
+
+    // Missile hits table
+    // Some of these are interpolated for odd weapons sizes found in Protos and
+    // new BAs
+<span class="nc" id="L993">    private static float[] expectedHitsByRackSize = {0.0f, 1.0f, 1.58f, 2.0f,</span>
+                                                     2.63f, 3.17f, 4.0f, 4.49f, 4.98f, 5.47f, 6.31f, 7.23f, 8.14f,
+                                                     8.59f, 9.04f, 9.5f, 0.0f, 0.0f, 0.0f, 0.0f, 12.7f};
+
+    /**
+     * Determines the expected damage of a weapon attack, based on to-hit, salvo
+     * sizes, etc. This has been copied almost wholesale from
+     * Compute.getExpectedDamage; the logfile print commands were removed due to
+     * excessive data generated
+     */
+    private static float getDeployDamage(IGame g, WeaponAttackAction waa, List&lt;ECMInfo&gt; allECMInfo) {
+<span class="nc" id="L1004">        Entity attacker = g.getEntity(waa.getEntityId());</span>
+<span class="nc" id="L1005">        boolean naturalAptGunnery = attacker.hasAbility(OptionsConstants.PILOT_APTITUDE_GUNNERY);</span>
+<span class="nc" id="L1006">        Mounted weapon = attacker.getEquipment(waa.getWeaponId());</span>
+<span class="nc" id="L1007">        ToHitData hitData = waa.toHit(g, allECMInfo);</span>
+<span class="nc bnc" id="L1008" title="All 2 branches missed.">        if (hitData.getValue() &gt; 12) {</span>
+<span class="nc" id="L1009">            return 0.0f;</span>
+        }
+
+        float fChance;
+<span class="nc bnc" id="L1013" title="All 2 branches missed.">        if (hitData.getValue() == TargetRoll.AUTOMATIC_SUCCESS) {</span>
+<span class="nc" id="L1014">            fChance = 1.0f;</span>
+        } else {
+<span class="nc" id="L1016">            fChance = (float) Compute.oddsAbove(hitData.getValue(), naturalAptGunnery) / 100.0f;</span>
+        }
+
+        // TODO : update for BattleArmor.
+
+        float fDamage;
+<span class="nc" id="L1022">        WeaponType wt = (WeaponType) weapon.getType();</span>
+<span class="nc bnc" id="L1023" title="All 2 branches missed.">        if (wt.getDamage() == WeaponType.DAMAGE_BY_CLUSTERTABLE) {</span>
+<span class="nc bnc" id="L1024" title="All 2 branches missed.">            if (weapon.getLinked() == null) {</span>
+<span class="nc" id="L1025">                return 0.0f;</span>
+            }
+<span class="nc" id="L1027">            AmmoType at = (AmmoType) weapon.getLinked().getType();</span>
+
+            float fHits;
+<span class="nc bnc" id="L1030" title="All 2 branches missed.">            if ((wt.getAmmoType() == AmmoType.T_SRM_STREAK)</span>
+<span class="nc bnc" id="L1031" title="All 2 branches missed.">                || (wt.getAmmoType() == AmmoType.T_MRM_STREAK)</span>
+<span class="nc bnc" id="L1032" title="All 2 branches missed.">                || (wt.getAmmoType() == AmmoType.T_LRM_STREAK)) {</span>
+<span class="nc" id="L1033">                fHits = wt.getRackSize();</span>
+<span class="nc bnc" id="L1034" title="All 4 branches missed.">            } else if ((wt.getRackSize() == 40) || (wt.getRackSize() == 30)) {</span>
+<span class="nc" id="L1035">                fHits = 2.0f * expectedHitsByRackSize[wt.getRackSize() / 2];</span>
+            } else {
+<span class="nc" id="L1037">                fHits = expectedHitsByRackSize[wt.getRackSize()];</span>
+            }
+            // adjust for previous AMS
+<span class="nc" id="L1040">            ArrayList&lt;Mounted&gt; vCounters = waa.getCounterEquipment();</span>
+<span class="nc bnc" id="L1041" title="All 4 branches missed.">            if (wt.hasFlag(WeaponType.F_MISSILE) &amp;&amp; vCounters != null) {</span>
+<span class="nc bnc" id="L1042" title="All 2 branches missed.">                for (Mounted vCounter : vCounters) {</span>
+<span class="nc" id="L1043">                    EquipmentType type = vCounter.getType();</span>
+<span class="nc bnc" id="L1044" title="All 2 branches missed.">                    if ((type instanceof WeaponType)</span>
+<span class="nc bnc" id="L1045" title="All 2 branches missed.">                        &amp;&amp; type.hasFlag(WeaponType.F_AMS)) {</span>
+<span class="nc" id="L1046">                        float fAMS = 3.5f * ((WeaponType) type).getDamage();</span>
+<span class="nc" id="L1047">                        fHits = Math.max(0.0f, fHits - fAMS);</span>
+                    }
+<span class="nc" id="L1049">                }</span>
+            }
+            // damage is expected missiles * damage per missile
+<span class="nc" id="L1052">            fDamage = fHits * at.getDamagePerShot();</span>
+<span class="nc" id="L1053">        } else {</span>
+<span class="nc" id="L1054">            fDamage = wt.getDamage();</span>
+        }
+
+<span class="nc" id="L1057">        fDamage *= fChance;</span>
+<span class="nc" id="L1058">        return fDamage;</span>
+    }
+
+    /**
+     * If the unit has stealth armor, turning it off is probably a good idea if
+     * most of the enemy force is at 'short' range or if in danger of
+     * overheating
+     */
+
+    private void toggleStealth() {
+
+<span class="nc" id="L1069">        initialize();</span>
+
+        int total_bv, known_bv, known_range, known_count, trigger_range;
+        int new_stealth;
+
+<span class="nc bnc" id="L1074" title="All 2 branches missed.">        for (Entity check_ent : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L1075" title="All 4 branches missed.">            if ((check_ent.getOwnerId() == localPlayerNumber)</span>
+                &amp;&amp; (check_ent instanceof Mech)) {
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">                if (check_ent.hasStealth()</span>
+<span class="nc bnc" id="L1078" title="All 2 branches missed.">                        &amp;&amp; (check_ent.getPosition() != null)) {</span>
+<span class="nc bnc" id="L1079" title="All 2 branches missed.">                    for (Mounted mEquip : check_ent.getMisc()) {</span>
+<span class="nc" id="L1080">                        MiscType mtype = (MiscType) mEquip.getType();</span>
+<span class="nc bnc" id="L1081" title="All 2 branches missed.">                        if (mtype.hasFlag(MiscType.F_STEALTH)) {</span>
+
+                            // If the Mech is in danger of shutting down (14+
+                            // heat), consider shutting
+                            // off the armor
+
+<span class="nc" id="L1087">                            trigger_range = 13 + Compute.randomInt(7);</span>
+<span class="nc bnc" id="L1088" title="All 2 branches missed.">                            if (check_ent.heat &gt; trigger_range) {</span>
+<span class="nc" id="L1089">                                new_stealth = 0;</span>
+                            } else {
+
+                                // Mech is not in danger of shutting down soon;
+                                // if most of the
+                                // enemy is right next to the Mech deactivate
+                                // armor to free up
+                                // heatsinks for weapons fire
+
+<span class="nc" id="L1098">                                total_bv = 0;</span>
+<span class="nc" id="L1099">                                known_bv = 0;</span>
+<span class="nc" id="L1100">                                known_range = 0;</span>
+<span class="nc" id="L1101">                                known_count = 0;</span>
+
+<span class="nc bnc" id="L1103" title="All 2 branches missed.">                                for (Entity test_ent : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L1104" title="All 2 branches missed.">                                    if (check_ent.isEnemyOf(test_ent)) {</span>
+<span class="nc" id="L1105">                                        total_bv += test_ent</span>
+<span class="nc" id="L1106">                                                .calculateBattleValue();</span>
+<span class="nc bnc" id="L1107" title="All 2 branches missed.">                                        if (test_ent.isVisibleToEnemy()) {</span>
+<span class="nc" id="L1108">                                            known_count++;</span>
+<span class="nc" id="L1109">                                            known_bv += test_ent</span>
+<span class="nc" id="L1110">                                                    .calculateBattleValue();</span>
+<span class="nc" id="L1111">                                            known_range += Compute</span>
+<span class="nc" id="L1112">                                                    .effectiveDistance(game,</span>
+                                                                       check_ent, test_ent);
+                                        }
+                                    }
+<span class="nc" id="L1116">                                }</span>
+
+                                // If no or few enemy units are visible, they're
+                                // hiding;
+                                // Default to stealth armor on in this case
+
+<span class="nc bnc" id="L1122" title="All 4 branches missed.">                                if ((known_count == 0)</span>
+                                    || (known_bv &lt; (total_bv / 2))) {
+<span class="nc" id="L1124">                                    new_stealth = 1;</span>
+                                } else {
+<span class="nc" id="L1126">                                    if ((known_range / known_count) &lt;= (5 + Compute</span>
+<span class="nc bnc" id="L1127" title="All 2 branches missed.">                                            .randomInt(5))) {</span>
+<span class="nc" id="L1128">                                        new_stealth = 0;</span>
+                                    } else {
+<span class="nc" id="L1130">                                        new_stealth = 1;</span>
+                                    }
+                                }
+                            }
+<span class="nc" id="L1134">                            mEquip.setMode(new_stealth);</span>
+<span class="nc" id="L1135">                            sendModeChange(check_ent.getId(), check_ent</span>
+<span class="nc" id="L1136">                                    .getEquipmentNum(mEquip), new_stealth);</span>
+<span class="nc" id="L1137">                            break;</span>
+                        }
+<span class="nc" id="L1139">                    }</span>
+                }
+            }
+<span class="nc" id="L1142">        }</span>
+<span class="nc" id="L1143">    }</span>
+
+    private String getRandomBotMessage() {
+<span class="nc" id="L1146">        String message = &quot;&quot;;</span>
+
+        try {
+<span class="nc" id="L1149">            String scrapFile = &quot;./mmconf/botmessages.txt&quot;;</span>
+<span class="nc" id="L1150">            FileInputStream fis = new FileInputStream(scrapFile);</span>
+<span class="nc" id="L1151">            BufferedReader dis = new BufferedReader(new InputStreamReader(fis));</span>
+<span class="nc bnc" id="L1152" title="All 2 branches missed.">            while (dis.ready()) {</span>
+<span class="nc" id="L1153">                message = dis.readLine();</span>
+<span class="nc bnc" id="L1154" title="All 2 branches missed.">                if (Compute.randomInt(10) == 1) {</span>
+<span class="nc" id="L1155">                    break;</span>
+                }
+            }
+<span class="nc" id="L1158">            dis.close();</span>
+<span class="nc" id="L1159">            fis.close();</span>
+        }// File not found don't do anything just return a null and allow the
+        // bot to remain silent
+<span class="nc" id="L1162">        catch (FileNotFoundException fnfe) {</span>
+            // no chat message found continue on.
+<span class="nc" id="L1164">            return null;</span>
+        }// CYA exception
+<span class="nc" id="L1166">        catch (Exception ex) {</span>
+<span class="nc" id="L1167">            System.err.println(&quot;Error while reading ./mmconf/botmessages.txt.&quot;);</span>
+<span class="nc" id="L1168">            ex.printStackTrace();</span>
+<span class="nc" id="L1169">            return null;</span>
+<span class="nc" id="L1170">        }</span>
+<span class="nc" id="L1171">        return message;</span>
+    }
+
+    /**
+     * Pops up a dialog box showing an alert
+     */
+    public void doAlertDialog(String title, String message) {
+<span class="nc" id="L1178">        JTextPane textArea = new JTextPane();</span>
+<span class="nc" id="L1179">        ReportDisplay.setupStylesheet(textArea);</span>
+
+<span class="nc" id="L1181">        textArea.setEditable(false);</span>
+<span class="nc" id="L1182">        JScrollPane scrollPane = new JScrollPane(textArea, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,</span>
+                                                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+<span class="nc" id="L1184">        textArea.setText(&quot;&lt;pre&gt;&quot; + message + &quot;&lt;/pre&gt;&quot;);</span>
+<span class="nc" id="L1185">        JOptionPane.showMessageDialog(frame, scrollPane, title, JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L1186">    }</span>
+
+    @Override
+    protected void correctName(Packet inP) {
+        // If we have a clientgui, it keeps track of a Name -&gt; Client map, and
+        //  we need to update that map with this name change.
+<span class="nc bnc" id="L1192" title="All 2 branches missed.">        if (getClientGUI() != null) {</span>
+<span class="nc" id="L1193">            Map&lt;String, Client&gt; bots = getClientGUI().getBots();</span>
+<span class="nc" id="L1194">            String oldName = getName();</span>
+<span class="nc" id="L1195">            String newName = (String) (inP.getObject(0));</span>
+<span class="nc bnc" id="L1196" title="All 2 branches missed.">            assert (equals(bots.get(oldName)));</span>
+<span class="nc" id="L1197">            bots.remove(oldName);</span>
+<span class="nc" id="L1198">            bots.put(newName, this);</span>
+        }
+<span class="nc" id="L1200">        setName((String) (inP.getObject(0)));</span>
+<span class="nc" id="L1201">    }</span>
+
+    private ClientGUI getClientGUI() {
+<span class="nc" id="L1204">        return clientgui;</span>
+    }
+
+    public void setClientGUI(ClientGUI clientgui) {
+<span class="nc" id="L1208">        this.clientgui = clientgui;</span>
+<span class="nc" id="L1209">    }</span>
+
+    public void endOfTurnProcessing() {
+        // Do nothing;
+<span class="nc" id="L1213">    }</span>
+    
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveBuildingCollapse(Packet packet) {
+<span class="nc" id="L1217">        game.getBoard().collapseBuilding((Vector&lt;Coords&gt;) packet.getObject(0));</span>
+<span class="nc" id="L1218">    }</span>
+
+    public BoardClusterTracker getClusterTracker() {
+<span class="nc" id="L1221">        return boardClusterTracker;</span>
+    }
+
+    private class RankedCoords implements Comparable&lt;RankedCoords&gt; {
+        private Coords coords;
+        private double fitness;
+
+<span class="nc" id="L1228">        RankedCoords(Coords coords, double fitness) {</span>
+<span class="nc bnc" id="L1229" title="All 2 branches missed.">            if (coords == null) {</span>
+<span class="nc" id="L1230">                throw new IllegalArgumentException(&quot;Coords cannot be null.&quot;);</span>
+            }
+<span class="nc" id="L1232">            this.coords = coords;</span>
+<span class="nc" id="L1233">            this.fitness = fitness;</span>
+<span class="nc" id="L1234">        }</span>
+
+        public Coords getCoords() {
+<span class="nc" id="L1237">            return coords;</span>
+        }
+
+        @SuppressWarnings(&quot;unused&quot;)
+        public void setCoords(Coords coords) {
+<span class="nc bnc" id="L1242" title="All 2 branches missed.">            if (coords == null) {</span>
+<span class="nc" id="L1243">                throw new IllegalArgumentException(&quot;Coords cannot be null.&quot;);</span>
+            }
+<span class="nc" id="L1245">            this.coords = coords;</span>
+<span class="nc" id="L1246">        }</span>
+
+        public double getFitness() {
+<span class="nc" id="L1249">            return fitness;</span>
+        }
+
+        public void setFitness(double fitness) {
+<span class="nc" id="L1253">            this.fitness = fitness;</span>
+<span class="nc" id="L1254">        }</span>
+
+        @Override
+        public boolean equals(Object o) {
+<span class="nc bnc" id="L1258" title="All 2 branches missed.">            if (this == o) {</span>
+<span class="nc" id="L1259">                return true;</span>
+            }
+<span class="nc bnc" id="L1261" title="All 2 branches missed.">            if (!(o instanceof RankedCoords)) {</span>
+<span class="nc" id="L1262">                return false;</span>
+            }
+
+<span class="nc" id="L1265">            RankedCoords coords1 = (RankedCoords) o;</span>
+
+<span class="nc bnc" id="L1267" title="All 2 branches missed.">            if (Double.compare(coords1.fitness, fitness) != 0) {</span>
+<span class="nc" id="L1268">                return false;</span>
+            }
+            //noinspection RedundantIfStatement
+<span class="nc bnc" id="L1271" title="All 2 branches missed.">            if (!coords.equals(coords1.coords)) {</span>
+<span class="nc" id="L1272">                return false;</span>
+            }
+
+<span class="nc" id="L1275">            return true;</span>
+        }
+
+        @Override
+        public int hashCode() {
+            int result;
+            long temp;
+<span class="nc" id="L1282">            result = coords.hashCode();</span>
+<span class="nc" id="L1283">            temp = Double.doubleToLongBits(fitness);</span>
+<span class="nc" id="L1284">            result = 31 * result + (int) (temp ^ (temp &gt;&gt;&gt; 32));</span>
+<span class="nc" id="L1285">            return result;</span>
+        }
+
+        @Override
+        public String toString() {
+<span class="nc" id="L1290">            return &quot;RankedCoords{&quot; +</span>
+                   &quot;coords=&quot; + coords +
+                   &quot;, fitness=&quot; + fitness +
+                   '}';
+        }
+
+        int getX() {
+<span class="nc" id="L1297">            return coords.getX();</span>
+        }
+
+        int getY() {
+<span class="nc" id="L1301">            return coords.getY();</span>
+        }
+
+        @Override
+        public int compareTo(RankedCoords o) {
+<span class="nc" id="L1306">            return -Double.compare(getFitness(), o.getFitness());</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

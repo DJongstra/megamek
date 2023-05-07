@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RamAttackAction.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.actions</a> &gt; <span class="el_source">RamAttackAction.java</span></div><h1>RamAttackAction.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000,2001,2002,2003,2004 Ben Mazur (bmazur@sev.org)
+ * 
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ * 
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ */
+
+/*
+ * RamAttackAction.java
+ * 
+ * Created on May 28, 2008
+ */
+
+package megamek.common.actions;
+
+import java.util.Enumeration;
+
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Dropship;
+import megamek.common.Entity;
+import megamek.common.EntityMovementType;
+import megamek.common.FighterSquadron;
+import megamek.common.IAero;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.IPlayer;
+import megamek.common.Jumpship;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.MoveStep;
+import megamek.common.SpaceStation;
+import megamek.common.TargetRoll;
+import megamek.common.Targetable;
+import megamek.common.ToHitData;
+import megamek.common.Warship;
+import megamek.common.options.OptionsConstants;
+
+/**
+ * Represents one unit charging another. Stores information about where the
+ * target is supposed to be for the charge to be successful, as well as normal
+ * attack info.
+ * 
+ * @author Ben Mazur
+ */
+public class RamAttackAction extends AbstractAttackAction {
+
+    /**
+     * 
+     */
+    private static final long serialVersionUID = -3549351664290057785L;
+
+    public RamAttackAction(Entity attacker, Targetable target) {
+<span class="nc" id="L61">        this(attacker.getId(), target.getTargetType(), target.getTargetId(),</span>
+<span class="nc" id="L62">                target.getPosition());</span>
+<span class="nc" id="L63">    }</span>
+
+    public RamAttackAction(int entityId, int targetType, int targetId,
+            Coords targetPos) {
+<span class="nc" id="L67">        super(entityId, targetType, targetId);</span>
+<span class="nc" id="L68">    }</span>
+
+    /**
+     * To-hit number for a ram, assuming that movement has been handled
+     */
+    public ToHitData toHit(IGame game) {
+<span class="nc" id="L74">        final Entity entity = game.getEntity(getEntityId());</span>
+<span class="nc" id="L75">        return toHit(game, game.getTarget(getTargetType(), getTargetId()),</span>
+<span class="nc" id="L76">                     entity.getPosition(), entity.getElevation(), </span>
+<span class="nc" id="L77">                     entity.getPriorPosition(), entity.moved);</span>
+    }
+    
+    /**
+     * To-hit number for a ram, assuming that movement has been handled
+     */
+    public ToHitData toHit(IGame game, Targetable target, Coords src,
+            int elevation, Coords priorSrc, EntityMovementType movement) {
+<span class="nc" id="L85">        final Entity ae = getEntity(game);</span>
+
+        // arguments legal?
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if (ae == null) {</span>
+<span class="nc" id="L89">            throw new IllegalStateException(&quot;Attacker is null&quot;);</span>
+        }
+
+        // Do to pretreatment of physical attacks, the target may be null.
+<span class="nc bnc" id="L93" title="All 2 branches missed.">        if (target == null) {</span>
+<span class="nc" id="L94">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Target is null&quot;);</span>
+        }
+        
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if(!ae.isAero()) {</span>
+<span class="nc" id="L98">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Attacker is not Aero&quot;);</span>
+        }
+        
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        if(!target.isAero()) {</span>
+<span class="nc" id="L102">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Target is not Aero&quot;);</span>
+        }   
+        
+<span class="nc bnc" id="L105" title="All 4 branches missed.">        if(ae instanceof FighterSquadron || target instanceof FighterSquadron) {</span>
+<span class="nc" id="L106">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;fighter squadrons may not ram nor be the target of a ramming attc&quot;);</span>
+        }
+
+<span class="nc" id="L109">        Entity te = null;</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (target.getTargetType() == Targetable.TYPE_ENTITY) {</span>
+<span class="nc" id="L111">            te = (Entity) target;</span>
+        } else {
+<span class="nc" id="L113">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Invalid Target&quot;);</span>
+        }
+        
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        if (!game.getOptions().booleanOption(OptionsConstants.BASE_FRIENDLY_FIRE)) {</span>
+            // a friendly unit can never be the target of a direct attack.
+<span class="nc bnc" id="L118" title="All 2 branches missed.">            if (target.getTargetType() == Targetable.TYPE_ENTITY</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">                    &amp;&amp; (((Entity)target).getOwnerId() == ae.getOwnerId()</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">                            || (((Entity)target).getOwner().getTeam() != IPlayer.TEAM_NONE</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">                                    &amp;&amp; ae.getOwner().getTeam() != IPlayer.TEAM_NONE</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">                                    &amp;&amp; ae.getOwner().getTeam() == ((Entity)target).getOwner().getTeam())))</span>
+<span class="nc" id="L123">                return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;A friendly unit can never be the target of a direct attack.&quot;);</span>
+        }
+<span class="nc" id="L125">        IHex attHex = game.getBoard().getHex(src);</span>
+<span class="nc" id="L126">        IHex targHex = game.getBoard().getHex(target.getPosition());</span>
+<span class="nc" id="L127">        final int attackerElevation = elevation + attHex.getLevel();</span>
+<span class="nc" id="L128">        final int targetElevation = target.getElevation()</span>
+<span class="nc" id="L129">                + targHex.getLevel();</span>
+<span class="nc" id="L130">        ToHitData toHit = null;</span>
+ 
+        // can't target yourself
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        if (ae.equals(te)) {</span>
+<span class="nc" id="L134">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;You can't target yourself&quot;);
+        }
+
+        // Can't target a transported entity.
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (Entity.NONE != te.getTransportId()) {</span>
+<span class="nc" id="L140">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;Target is a passenger.&quot;);
+        }
+
+        // check range
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        if (src.distance(target.getPosition()) &gt; 0) {</span>
+<span class="nc" id="L146">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Target not in range&quot;);</span>
+        }
+
+        // target must be at same elevation level
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (attackerElevation != targetElevation) {</span>
+<span class="nc" id="L151">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;Target must be at the same elevation level&quot;);
+        }
+
+        // can't attack Aero making a different ramming attack
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        if (te.isRamming()) {</span>
+<span class="nc" id="L157">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;Target is already making a ramming attack&quot;);
+        }
+
+        //attacker 
+        
+        // target must have moved already
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (!te.isDone()) {</span>
+<span class="nc" id="L165">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;Target must be done with movement&quot;);
+        }
+        
+        //Set the base BTH       
+<span class="nc" id="L170">        int base = 6 + te.getCrew().getPiloting() - ae.getCrew().getPiloting(); </span>
+        
+<span class="nc" id="L172">        toHit = new ToHitData(base, &quot;base&quot;);</span>
+
+<span class="nc" id="L174">        IAero a = (IAero)ae;</span>
+        
+        //target type
+<span class="nc bnc" id="L177" title="All 2 branches missed.">        if(target instanceof SpaceStation) {</span>
+<span class="nc" id="L178">            toHit.addModifier(-1,&quot;target is a space station&quot;);</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        } else if(target instanceof Warship) {</span>
+<span class="nc" id="L180">            toHit.addModifier(+1,&quot;target is a warship&quot;);</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        } else if(target instanceof Jumpship) {</span>
+<span class="nc" id="L182">            toHit.addModifier(+0,&quot;target is a jumpship&quot;);</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        } else if(target instanceof Dropship) {</span>
+<span class="nc" id="L184">            toHit.addModifier(+2,&quot;target is a dropship&quot;);</span>
+        } else {
+<span class="nc" id="L186">            toHit.addModifier(+4,&quot;target is a fighter/small craft&quot;);</span>
+        }
+        
+        //attacker type
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        if(a instanceof SpaceStation) {</span>
+<span class="nc" id="L191">            toHit.addModifier(+0,&quot;attacker is a space station&quot;);</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">        } else if(a instanceof Warship) {</span>
+<span class="nc" id="L193">            toHit.addModifier(+1,&quot;attacker is a warship&quot;);</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        } else if(a instanceof Jumpship) {</span>
+<span class="nc" id="L195">            toHit.addModifier(+0,&quot;attacker is a jumpship&quot;);</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">        } else if(a instanceof Dropship) {</span>
+<span class="nc" id="L197">            toHit.addModifier(-1,&quot;attacker is a dropship&quot;);</span>
+        } else {
+<span class="nc" id="L199">            toHit.addModifier(-2,&quot;attacker is a fighter/small craft&quot;);</span>
+        }
+        
+        //can the target unit move
+<span class="nc bnc" id="L203" title="All 4 branches missed.">        if(target.isImmobile() || te.getWalkMP() == 0)</span>
+<span class="nc" id="L204">            toHit.addModifier(-2,&quot;target cannot spend thrust&quot;);</span>
+            
+        //sensor damage
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        if(a.getSensorHits() &gt; 0) </span>
+<span class="nc" id="L208">            toHit.addModifier(+1, &quot;sensor damage&quot;);</span>
+            
+        //avionics damage
+<span class="nc" id="L211">        int avionics = a.getAvionicsHits();</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        if(avionics &gt; 3) </span>
+<span class="nc" id="L213">            avionics = 3;</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        if(avionics &gt; 0)</span>
+<span class="nc" id="L215">            toHit.addModifier(avionics, &quot;avionics damage&quot;);</span>
+        
+        //evading bonuses
+<span class="nc bnc" id="L218" title="All 4 branches missed.">        if (target.getTargetType() == Targetable.TYPE_ENTITY &amp;&amp; te.isEvading()) {</span>
+<span class="nc" id="L219">            toHit.addModifier(te.getEvasionBonus(), &quot;target is evading&quot;);</span>
+        }
+        
+        //determine hit direction
+<span class="nc" id="L223">        toHit.setSideTable(te.sideTable(priorSrc));</span>
+        
+<span class="nc" id="L225">        toHit.setHitTable(ToHitData.HIT_NORMAL);</span>
+
+        // done!
+<span class="nc" id="L228">        return toHit;</span>
+    }
+
+    /**
+     * Checks if a ram can hit the target, taking account of movement
+     */
+    public ToHitData toHit(IGame game, MovePath md) {
+<span class="nc" id="L235">        final Entity ae = game.getEntity(getEntityId());</span>
+<span class="nc" id="L236">        final Targetable target = getTarget(game);</span>
+<span class="nc" id="L237">        Coords ramSrc = ae.getPosition();</span>
+<span class="nc" id="L238">        int ramEl = ae.getElevation();</span>
+<span class="nc" id="L239">        Coords priorSrc = md.getSecondFinalPosition(ae.getPosition());</span>
+<span class="nc" id="L240">        MoveStep ramStep = null;</span>
+
+        // let's just check this
+<span class="nc bnc" id="L243" title="All 2 branches missed.">        if (!md.contains(MoveStepType.RAM)) {</span>
+<span class="nc" id="L244">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;Ram action not found in movement path&quot;);
+        }
+
+        // determine last valid step
+<span class="nc" id="L249">        md.compile(game, ae);</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        for (final Enumeration&lt;MoveStep&gt; i = md.getSteps(); i.hasMoreElements();) {</span>
+<span class="nc" id="L251">            final MoveStep step = i.nextElement();</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">            if (step.getMovementType(md.isEndStep(step)) == EntityMovementType.MOVE_ILLEGAL) {</span>
+<span class="nc" id="L253">                break;</span>
+            }
+<span class="nc bnc" id="L255" title="All 2 branches missed.">            if (step.getType() == MoveStepType.RAM) {</span>
+<span class="nc" id="L256">                ramStep = step;</span>
+<span class="nc" id="L257">                ramSrc = step.getPosition();</span>
+<span class="nc" id="L258">                ramEl = step.getElevation();</span>
+            } 
+<span class="nc" id="L260">        }</span>
+
+        // need to reach target
+<span class="nc bnc" id="L263" title="All 2 branches missed.">        if (ramStep == null</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">                || !target.getPosition().equals(ramStep.getPosition())) {</span>
+<span class="nc" id="L265">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;Could not reach target with movement&quot;);
+        }
+        
+<span class="nc" id="L269">        return toHit(game, target, ramSrc, ramEl, priorSrc, ramStep.getMovementType(true));</span>
+    }
+
+    /**
+     * Damage that an Aero does on a successful ramming attack
+     * 
+     */
+   public static int getDamageFor(IAero attacker, Entity target) {
+<span class="nc" id="L277">       int avel = attacker.getCurrentVelocity();</span>
+<span class="nc" id="L278">       int tvel = 0;</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">       if(target.isAero()) {</span>
+<span class="nc" id="L280">           tvel = ((IAero)target).getCurrentVelocity();</span>
+       }
+<span class="nc" id="L282">       return getDamageFor(attacker, target, ((Entity)attacker).getPriorPosition(), avel, tvel);</span>
+   }
+   
+   public static int getDamageFor(IAero attacker, Entity target, Coords atthex, int avel, int tvel) {
+<span class="nc" id="L286">       int netv = Compute.getNetVelocity(atthex, target, avel, tvel);</span>
+<span class="nc" id="L287">       return (int) Math.ceil(</span>
+<span class="nc" id="L288">               (((Entity)attacker).getWeight() / 10.0) * netv);</span>
+   }
+     
+   /**
+    * Damage that an Aero suffers after a successful charge.
+    */
+   public static int getDamageTakenBy(IAero attacker, Entity target) {
+<span class="nc" id="L295">       int avel = attacker.getCurrentVelocity();</span>
+<span class="nc" id="L296">       int tvel = 0;</span>
+<span class="nc bnc" id="L297" title="All 2 branches missed.">       if(target.isAero()) {</span>
+<span class="nc" id="L298">           tvel = ((IAero)target).getCurrentVelocity();</span>
+       }
+<span class="nc" id="L300">       return getDamageTakenBy(attacker, target, ((Entity)attacker).getPriorPosition(), avel, tvel);</span>
+   }
+   
+   public static int getDamageTakenBy(IAero attacker, Entity target, Coords atthex, int avel, int tvel) {
+<span class="nc" id="L304">       int netv = Compute.getNetVelocity(atthex, target, avel, tvel);</span>
+<span class="nc" id="L305">       return (int) Math.ceil(</span>
+<span class="nc" id="L306">               (target.getWeight() / 10.0) * netv);</span>
+   }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

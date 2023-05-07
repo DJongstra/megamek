@@ -1,0 +1,680 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WeaponFireInfo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">WeaponFireInfo.java</span></div><h1>WeaponFireInfo.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.bot.princess;
+
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.List;
+
+import megamek.common.BombType;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IGame;
+import megamek.common.Mech;
+import megamek.common.Mounted;
+import megamek.common.MovePath;
+import megamek.common.Targetable;
+import megamek.common.TechAdvancement;
+import megamek.common.ToHitData;
+import megamek.common.WeaponType;
+import megamek.common.actions.ArtilleryAttackAction;
+import megamek.common.actions.WeaponAttackAction;
+import megamek.common.annotations.Nullable;
+import megamek.common.options.OptionsConstants;
+import megamek.common.weapons.capitalweapons.CapitalMissileWeapon;
+
+/**
+ * WeaponFireInfo is a wrapper around a WeaponAttackAction that includes
+ * probability to hit and expected damage
+ *
+ * @version $Id$
+ * @lastEditBy Deric &quot;Netzilla&quot; Page (deric dot page at usa dot net)
+ * @since: 11/24/14 2:50 PM
+ */
+public class WeaponFireInfo {
+<span class="nc" id="L48">    private static final NumberFormat LOG_PER = NumberFormat.getPercentInstance();</span>
+<span class="nc" id="L49">    private static final NumberFormat LOG_DEC = DecimalFormat.getInstance();</span>
+
+    private WeaponAttackAction action;
+    private Entity shooter;
+    private Targetable target;
+    private Mounted weapon;
+    private double probabilityToHit;
+    private int heat;
+    private double maxDamage;
+    private double expectedDamageOnHit;
+<span class="nc" id="L59">    private int damageDirection = -1; // direction damage is coming from relative to target</span>
+<span class="nc" id="L60">    private ToHitData toHit = null;</span>
+    private double expectedCriticals;
+    private double killProbability; // probability to destroy CT or HEAD (ignores criticals)
+    private IGame game;
+<span class="nc" id="L64">    private EntityState shooterState = null;</span>
+<span class="nc" id="L65">    private EntityState targetState = null;</span>
+<span class="nc" id="L66">    private Integer updatedFiringMode = null;</span>
+    private final Princess owner;
+
+    /**
+     * For unit testing.
+     */
+<span class="nc" id="L72">    protected WeaponFireInfo(final Princess owner) {</span>
+<span class="nc" id="L73">        this.owner = owner;</span>
+<span class="nc" id="L74">    }</span>
+
+    /**
+     * Basic constructor.
+     *
+     * @param shooter The {@link megamek.common.Entity} doing the attacking.
+     * @param target  The {@link megamek.common.Targetable} of the attack.
+     * @param weapon  The {@link megamek.common.Mounted} weapon used for the attack.
+     * @param game    The {@link megamek.common.IGame} in progress.
+     * @param guess   Set TRUE to estimate the chance to hit rather than doing the full calculation.
+     */
+    WeaponFireInfo(final Entity shooter,
+                   final Targetable target,
+                   final Mounted weapon,
+                   final IGame game,
+                   final boolean guess,
+                   final Princess owner) {
+<span class="nc" id="L91">        this(shooter, null, null, target, null, weapon, game, false, guess, owner, new int[0]);</span>
+<span class="nc" id="L92">    }</span>
+
+    /**
+     * Constructor including the shooter and target's state information.
+     *
+     * @param shooter      The {@link megamek.common.Entity} doing the attacking.
+     * @param shooterState The current {@link megamek.client.bot.princess.EntityState} of the attacker.
+     * @param target       The {@link megamek.common.Targetable} of the attack.
+     * @param targetState  The current {@link megamek.client.bot.princess.EntityState} of the target.
+     * @param weapon       The {@link megamek.common.Mounted} weapon used for the attack.
+     * @param game         The {@link megamek.common.IGame} in progress.
+     * @param guess        Set TRUE to estimate the chance to hit rather than doing the full calculation.
+     */
+    WeaponFireInfo(final Entity shooter,
+                   final EntityState shooterState,
+                   final Targetable target,
+                   final EntityState targetState,
+                   final Mounted weapon,
+                   final IGame game,
+                   final boolean guess,
+                   final Princess owner) {
+<span class="nc" id="L113">        this(shooter, shooterState, null, target, targetState, weapon, game, false, guess, owner, new int[0]);</span>
+<span class="nc" id="L114">    }</span>
+
+    /**
+     * Constructor for aerospace units performing Strike attacks.
+     *
+     * @param shooter               The {@link megamek.common.Entity} doing the attacking.
+     * @param shooterPath           The {@link megamek.common.MovePath} of the attacker.
+     * @param target                The {@link megamek.common.Targetable} of the attack.
+     * @param targetState           The current {@link megamek.client.bot.princess.EntityState} of the target.
+     * @param weapon                The {@link megamek.common.Mounted} weapon used for the attack.
+     * @param game                  The {@link megamek.common.IGame} in progress.
+     * @param assumeUnderFlightPath Set TRUE for aerial units performing air-to-ground attacks.
+     * @param guess                 Set TRUE to estimate the chance to hit rather than doing the full calculation.
+     * @param owner                 Instance of the princess owner
+     * @param bombPayload           The bomb payload, as described in WeaponAttackAction.setBombPayload
+     */
+    WeaponFireInfo(final Entity shooter,
+                   final MovePath shooterPath,
+                   final Targetable target,
+                   final EntityState targetState,
+                   final Mounted weapon,
+                   final IGame game,
+                   final boolean assumeUnderFlightPath,
+                   final boolean guess,
+                   final Princess owner,
+                   final int[] bombPayload) {
+<span class="nc" id="L140">        this(shooter, null, shooterPath, target, targetState, weapon, game, assumeUnderFlightPath, guess, owner, bombPayload);</span>
+<span class="nc" id="L141">    }</span>
+
+    /**
+     * This constructs a WeaponFireInfo using the best guess of how likely an aerospace unit using a strike attack will
+     * hit, without actually constructing the {@link WeaponAttackAction}
+     *
+     * @param shooter               The {@link megamek.common.Entity} doing the attacking.
+     * @param shooterState          The current {@link megamek.client.bot.princess.EntityState} of the attacker.
+     * @param shooterPath           The {@link megamek.common.MovePath} of the attacker.
+     * @param target                The {@link megamek.common.Targetable} of the attack.
+     * @param targetState           The current {@link megamek.client.bot.princess.EntityState} of the target.
+     * @param weapon                The {@link megamek.common.Mounted} weapon used for the attack.
+     * @param game                  The {@link megamek.common.IGame} in progress.
+     * @param assumeUnderFlightPath Set TRUE for aerial units performing air-to-ground attacks.
+     * @param guess                 Set TRUE to estimate the chance to hit rather than going through the full
+     *                              calculation.
+     * @param owner                 Instance of the princess owner
+     * @param bombPayload           The bomb payload, as described in WeaponAttackAction.setBombPayload
+     */
+    private WeaponFireInfo(final Entity shooter,
+                           final EntityState shooterState,
+                           final MovePath shooterPath,
+                           final Targetable target,
+                           final EntityState targetState,
+                           final Mounted weapon,
+                           final IGame game,
+                           final boolean assumeUnderFlightPath,
+                           final boolean guess,
+                           final Princess owner,
+<span class="nc" id="L170">                           final int[] bombPayload) {</span>
+<span class="nc" id="L171">        this.owner = owner;</span>
+
+<span class="nc" id="L173">        setShooter(shooter);</span>
+<span class="nc" id="L174">        setShooterState(shooterState);</span>
+<span class="nc" id="L175">        setTarget(target);</span>
+<span class="nc" id="L176">        setTargetState(targetState);</span>
+<span class="nc" id="L177">        setWeapon(weapon);</span>
+<span class="nc" id="L178">        setGame(game);</span>
+<span class="nc" id="L179">        initDamage(shooterPath, assumeUnderFlightPath, guess, bombPayload);</span>
+<span class="nc" id="L180">    }</span>
+
+    protected WeaponAttackAction getAction() {
+<span class="nc" id="L183">        return action;</span>
+    }
+
+    protected void setAction(final WeaponAttackAction action) {
+<span class="nc" id="L187">        this.action = action;</span>
+<span class="nc" id="L188">    }</span>
+
+    private int getDamageDirection() {
+<span class="nc bnc" id="L191" title="All 2 branches missed.">        if (-1 == damageDirection) {</span>
+<span class="nc" id="L192">            damageDirection = calcDamageDirection();</span>
+        }
+<span class="nc" id="L194">        return damageDirection;</span>
+    }
+
+    private int calcDamageDirection() {
+<span class="nc" id="L198">        return ((calcAttackDirection() - getTargetState().getFacing()) + 6) % 6;</span>
+    }
+
+    private int calcAttackDirection() {
+<span class="nc" id="L202">        return getTargetState().getPosition().direction(getShooterState().getPosition());</span>
+    }
+
+    double getExpectedCriticals() {
+<span class="nc" id="L206">        return expectedCriticals;</span>
+    }
+
+    private void setExpectedCriticals(final double expectedCriticals) {
+<span class="nc" id="L210">        this.expectedCriticals = expectedCriticals;</span>
+<span class="nc" id="L211">    }</span>
+
+    double getExpectedDamageOnHit() {
+<span class="nc" id="L214">        return expectedDamageOnHit;</span>
+    }
+
+    private void setExpectedDamageOnHit(final double expectedDamageOnHit) {
+<span class="nc" id="L218">        this.expectedDamageOnHit = expectedDamageOnHit;</span>
+<span class="nc" id="L219">    }</span>
+
+    double getKillProbability() {
+<span class="nc" id="L222">        return killProbability;</span>
+    }
+
+    private void setKillProbability(final double killProbability) {
+<span class="nc" id="L226">        this.killProbability = killProbability;</span>
+<span class="nc" id="L227">    }</span>
+
+    double getMaxDamage() {
+<span class="nc" id="L230">        return maxDamage;</span>
+    }
+
+    private void setMaxDamage(final double maxDamage) {
+<span class="nc" id="L234">        this.maxDamage = maxDamage;</span>
+<span class="nc" id="L235">    }</span>
+
+    double getProbabilityToHit() {
+<span class="nc" id="L238">        return probabilityToHit;</span>
+    }
+
+    private void setProbabilityToHit(final double probabilityToHit) {
+<span class="nc" id="L242">        this.probabilityToHit = probabilityToHit;</span>
+<span class="nc" id="L243">    }</span>
+
+    Entity getShooter() {
+<span class="nc" id="L246">        return shooter;</span>
+    }
+
+    void setShooter(final Entity shooter) {
+<span class="nc" id="L250">        this.shooter = shooter;</span>
+<span class="nc" id="L251">    }</span>
+
+    public Targetable getTarget() {
+<span class="nc" id="L254">        return target;</span>
+    }
+
+    protected void setTarget(final Targetable target) {
+<span class="nc" id="L258">        this.target = target;</span>
+<span class="nc" id="L259">    }</span>
+
+    public ToHitData getToHit() {
+<span class="nc bnc" id="L262" title="All 2 branches missed.">        if (null == toHit) {</span>
+<span class="nc" id="L263">            setToHit(calcToHit());</span>
+        }
+<span class="nc" id="L265">        return toHit;</span>
+    }
+
+    protected void setToHit(final ToHitData toHit) {
+<span class="nc" id="L269">        this.toHit = toHit;</span>
+<span class="nc" id="L270">    }</span>
+
+    ToHitData calcToHit() {
+<span class="nc" id="L273">        return owner.getFireControl(getShooter()).guessToHitModifierForWeapon(getShooter(), getShooterState(), getTarget(),</span>
+<span class="nc" id="L274">                                                                  getTargetState(),</span>
+<span class="nc" id="L275">                                                                  getWeapon(), getGame());</span>
+    }
+
+    private ToHitData calcToHit(final MovePath shooterPath,
+                                final boolean assumeUnderFlightPath) {
+<span class="nc" id="L280">        return owner.getFireControl(getShooter()).guessAirToGroundStrikeToHitModifier(getShooter(), null, getTarget(),</span>
+<span class="nc" id="L281">                                                                          getTargetState(),</span>
+<span class="nc" id="L282">                                                                          shooterPath, getWeapon(), getGame(),</span>
+                                                                          assumeUnderFlightPath);
+    }
+
+    private ToHitData calcRealToHit(final WeaponAttackAction weaponAttackAction) {
+<span class="nc" id="L287">        return weaponAttackAction.toHit(getGame(), </span>
+<span class="nc" id="L288">                owner.getPrecognition().getECMInfo());</span>
+    }
+
+    public IGame getGame() {
+<span class="nc" id="L292">        return game;</span>
+    }
+
+    protected void setGame(final IGame game) {
+<span class="nc" id="L296">        this.game = game;</span>
+<span class="nc" id="L297">    }</span>
+
+    private EntityState getShooterState() {
+<span class="nc bnc" id="L300" title="All 2 branches missed.">        if (null == shooterState) {</span>
+<span class="nc" id="L301">            shooterState = new EntityState(getShooter());</span>
+        }
+<span class="nc" id="L303">        return shooterState;</span>
+    }
+
+    void setShooterState(final EntityState shooterState) {
+<span class="nc" id="L307">        this.shooterState = shooterState;</span>
+<span class="nc" id="L308">    }</span>
+
+    private EntityState getTargetState() {
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        if (null == targetState) {</span>
+<span class="nc" id="L312">            targetState = new EntityState(target);</span>
+        }
+<span class="nc" id="L314">        return targetState;</span>
+    }
+
+    void setTargetState(final EntityState targetState) {
+<span class="nc" id="L318">        this.targetState = targetState;</span>
+<span class="nc" id="L319">    }</span>
+
+    protected void setWeapon(final Mounted weapon) {
+<span class="nc" id="L322">        this.weapon = weapon;</span>
+<span class="nc" id="L323">    }</span>
+
+    protected void setHeat(final int heat) {
+<span class="nc" id="L326">        this.heat = heat;</span>
+<span class="nc" id="L327">    }</span>
+
+    public int getHeat() {
+<span class="nc" id="L330">        return heat;</span>
+    }
+
+    public Mounted getWeapon() {
+<span class="nc" id="L334">        return weapon;</span>
+    }
+
+    public double getExpectedDamage() {
+<span class="nc" id="L338">        return getProbabilityToHit() * getExpectedDamageOnHit();</span>
+    }
+
+    WeaponAttackAction buildWeaponAttackAction() {
+<span class="nc bnc" id="L342" title="All 2 branches missed.">        if (!(getWeapon().getType().hasFlag(WeaponType.F_ARTILLERY) </span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">                || (getWeapon().getType() instanceof CapitalMissileWeapon</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">                        &amp;&amp; Compute.isGroundToGround(shooter, target)))) {</span>
+<span class="nc" id="L345">            return new WeaponAttackAction(getShooter().getId(), getTarget().getTargetType(), getTarget().getTargetId(),</span>
+<span class="nc" id="L346">                                          getShooter().getEquipmentNum(getWeapon()));</span>
+        } else {
+<span class="nc" id="L348">            return new ArtilleryAttackAction(getShooter().getId(), getTarget().getTargetType(), getTarget().getTargetId(),</span>
+<span class="nc" id="L349">                    getShooter().getEquipmentNum(getWeapon()), getGame());</span>
+        }
+    }
+
+    private WeaponAttackAction buildBombAttackAction(final int[] bombPayload) {
+<span class="nc" id="L354">        final WeaponAttackAction diveBomb = new WeaponAttackAction(getShooter().getId(),</span>
+<span class="nc" id="L355">                                                                   getTarget().getTargetType(),</span>
+<span class="nc" id="L356">                                                                   getTarget().getTargetId(),</span>
+<span class="nc" id="L357">                                                                   getShooter().getEquipmentNum(getWeapon()));</span>
+        
+<span class="nc" id="L359">        diveBomb.setBombPayload(bombPayload);</span>
+        
+<span class="nc" id="L361">        return diveBomb;</span>
+    }
+
+    double computeExpectedDamage() {
+        // bombs require some special consideration
+<span class="nc bnc" id="L366" title="All 2 branches missed.">        if(weapon.isGroundBomb()) {</span>
+<span class="nc" id="L367">            return computeExpectedBombDamage(getShooter(), weapon, getTarget().getPosition());</span>
+        }
+        
+        // bay weapons require special consideration, by looping through all weapons and adding up the damage
+        // A bay's weapons may have different ranges, most noticeable in laser bays, where the damage potential
+        // varies with distance to target.
+<span class="nc bnc" id="L373" title="All 4 branches missed.">        if((null != weapon.getBayWeapons()) &amp;&amp; (weapon.getBayWeapons().size() &gt; 0)) {</span>
+<span class="nc" id="L374">            int bayDamage = 0;</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">            for(int weaponID : weapon.getBayWeapons()) {</span>
+<span class="nc" id="L376">                Mounted bayWeapon = weapon.getEntity().getEquipment(weaponID);</span>
+<span class="nc" id="L377">                WeaponType weaponType = (WeaponType) bayWeapon.getType();</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">                int maxRange = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_RANGE) ?</span>
+<span class="nc" id="L379">                        weaponType.getExtremeRange() : weaponType.getLongRange(); </span>
+<span class="nc" id="L380">                int targetDistance = getShooter().getPosition().distance(getTarget().getPosition());</span>
+                
+                // if the particular weapon is within range or we're an aircraft strafing a ground unit
+                // then we can count it. Otherwise, it's not going to contribute to damage, and we want 
+                // to avoid grossly overestimating damage.
+<span class="nc bnc" id="L385" title="All 6 branches missed.">                if(targetDistance &lt;= maxRange || shooter.isAirborne() &amp;&amp; !target.isAirborne()) {</span>
+<span class="nc" id="L386">                    bayDamage += weaponType.getDamage();</span>
+                }
+<span class="nc" id="L388">            }</span>
+            
+<span class="nc" id="L390">            return bayDamage;</span>
+        }
+        
+        // For clan plasma cannon, assume 7 &quot;damage&quot;.
+<span class="nc" id="L394">        final WeaponType weaponType = (WeaponType) weapon.getType();</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">        if (weaponType.hasFlag(WeaponType.F_PLASMA) &amp;&amp;</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">            TechAdvancement.TECH_BASE_CLAN == weaponType.getTechBase()) {</span>
+<span class="nc" id="L397">            return 7D;</span>
+        }
+
+        // artillery and cluster table use the rack size as the base damage amount
+        // a little inaccurate, but better than ignoring those weapons entirely       
+<span class="nc bnc" id="L402" title="All 2 branches missed.">        if((weaponType.getDamage() == WeaponType.DAMAGE_BY_CLUSTERTABLE) ||</span>
+<span class="nc bnc" id="L403" title="All 2 branches missed.">           (weaponType.getDamage() == WeaponType.DAMAGE_ARTILLERY)) {</span>
+<span class="nc" id="L404">            return weaponType.getRackSize();</span>
+        }
+        
+<span class="nc bnc" id="L407" title="All 2 branches missed.">        if (getTarget() instanceof Entity) {</span>
+<span class="nc" id="L408">            double dmg = Compute.getExpectedDamage(getGame(), getAction(),</span>
+<span class="nc" id="L409">                    true, owner.getPrecognition().getECMInfo());</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">            if (weaponType.hasFlag(WeaponType.F_PLASMA)) {</span>
+<span class="nc" id="L411">                dmg += 3; // Account for potential plasma heat.</span>
+            }
+<span class="nc" id="L413">            return dmg;</span>
+        }
+                
+<span class="nc" id="L416">        return weaponType.getDamage();</span>
+    }
+    
+    /**
+     * Compute the heat output by firing a given weapon.
+     * Contains special logic for bay weapons when using individual bay heat.
+     * TODO: Make some kind of assumption about variable-heat weapons?
+     * @param weapon The weapon to check.
+     * @return Generated heat.
+     */
+    int computeHeat(Mounted weapon) {
+     // bay weapons require special consideration, by looping through all weapons and adding up the damage
+        // A bay's weapons may have different ranges, most noticeable in laser bays, where the damage potential
+        // varies with distance to target.
+<span class="nc bnc" id="L430" title="All 4 branches missed.">        if((null != weapon.getBayWeapons()) &amp;&amp; (weapon.getBayWeapons().size() &gt; 0)) {</span>
+<span class="nc" id="L431">            int bayHeat = 0;</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">            for(int weaponID : weapon.getBayWeapons()) {</span>
+<span class="nc" id="L433">                Mounted bayWeapon = weapon.getEntity().getEquipment(weaponID);</span>
+<span class="nc" id="L434">                WeaponType weaponType = (WeaponType) bayWeapon.getType();</span>
+<span class="nc" id="L435">                bayHeat += weaponType.getHeat();</span>
+<span class="nc" id="L436">            }</span>
+            
+<span class="nc" id="L438">            return bayHeat;</span>
+        } else {
+<span class="nc" id="L440">            return ((WeaponType) weapon.getType()).getHeat();</span>
+        }
+    }
+    
+    /**
+     * Worker function to compute expected bomb damage given the shooter
+     * @param shooter The unit making the attack.
+     * @param weapon The weapon being used in the attack.
+     * @param bombedHex The target hex.
+     * @return The expected damage of the attack.
+     */
+    private double computeExpectedBombDamage(final Entity shooter,
+                                             final Mounted weapon,
+                                             final Coords bombedHex) {
+<span class="nc" id="L454">        double damage = 0D; //lol double damage I wish</span>
+        
+        // for dive attacks, we can pretty much assume that we're going to drop everything we've got on the poor scrubs in this hex
+<span class="nc bnc" id="L457" title="All 2 branches missed.">        if(weapon.getType().hasFlag(WeaponType.F_DIVE_BOMB)) {</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">            for (final Mounted bomb : shooter.getBombs(BombType.F_GROUND_BOMB)) {</span>
+<span class="nc" id="L459">                final int damagePerShot = ((BombType) bomb.getType()).getDamagePerShot();</span>
+        
+                // some bombs affect a blast radius, so we take that into account
+<span class="nc" id="L462">                final List&lt;Coords&gt; affectedHexes = new ArrayList&lt;&gt;();</span>
+                
+<span class="nc" id="L464">                int blastRadius = BombType.getBombBlastRadius(bomb.getType().getInternalName()); </span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">                for (int radius = 0; radius &lt;= blastRadius; radius++) {</span>
+<span class="nc" id="L466">                    affectedHexes.addAll(bombedHex.allAtDistance(radius));</span>
+                }
+                
+                // now we go through all affected hexes and add up the damage done
+<span class="nc bnc" id="L470" title="All 2 branches missed.">                for (final Coords coords : affectedHexes) {</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">                    for (final Entity currentVictim : game.getEntitiesVector(coords)) {                        </span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">                        if(currentVictim.getOwner().getTeam() != shooter.getOwner().getTeam()) {</span>
+<span class="nc" id="L473">                            damage += damagePerShot;</span>
+                        } else { // we prefer not to blow up friendlies if we can help it
+<span class="nc" id="L475">                            damage -= damagePerShot;</span>
+                        }                    
+<span class="nc" id="L477">                    }</span>
+<span class="nc" id="L478">                }</span>
+<span class="nc" id="L479">            }</span>
+        }
+        
+<span class="nc" id="L482">        damage = damage * getProbabilityToHit();</span>
+        
+<span class="nc" id="L484">        return damage;</span>
+    }
+
+    /*
+     * Helper function that calculates expected damage
+     *
+     * @param shooterPath The path the attacker has moved.
+     * @param assumeUnderFlightPath If TRUE, aero units will not check to make sure the target is under their flight
+     *                              path.
+     * @param guess Set TRUE to estimate the chance to hit rather than doing the full calculation.
+     */
+    void initDamage(@Nullable final MovePath shooterPath,
+                    final boolean assumeUnderFlightPath,
+                    final boolean guess,
+                    final int[] bombPayload) {
+<span class="nc" id="L499">        boolean debugging = false;</span>
+        
+        final StringBuilder msg =
+<span class="nc bnc" id="L502" title="All 2 branches missed.">                debugging ?</span>
+<span class="nc" id="L503">                        new StringBuilder(&quot;Initializing Damage for &quot;).append(getShooter().getDisplayName())</span>
+<span class="nc" id="L504">                                                             .append(&quot; firing &quot;).append(getWeapon().getDesc())</span>
+<span class="nc" id="L505">                                                             .append(&quot; at &quot;).append(getTarget().getDisplayName())</span>
+<span class="nc" id="L506">                                                             .append(&quot;:&quot;) :</span>
+<span class="nc" id="L507">                        null;</span>
+
+        // Set up the attack action and calculate the chance to hit.
+<span class="nc bnc" id="L510" title="All 4 branches missed.">        if ((null == bombPayload) || (0 == bombPayload.length)) {</span>
+<span class="nc" id="L511">            setAction(buildWeaponAttackAction());</span>
+        }
+        else {
+<span class="nc" id="L514">            setAction(buildBombAttackAction(bombPayload));</span>
+        }
+        
+<span class="nc bnc" id="L517" title="All 2 branches missed.">        if (!guess) {</span>
+<span class="nc" id="L518">            setToHit(calcRealToHit(getWeaponAttackAction()));</span>
+<span class="nc bnc" id="L519" title="All 2 branches missed.">        } else if (null != shooterPath) {</span>
+<span class="nc" id="L520">            setToHit(calcToHit(shooterPath, assumeUnderFlightPath));</span>
+        } else {
+<span class="nc" id="L522">            setToHit(calcToHit());</span>
+        }
+        // If we can't hit, set everything zero and return..
+<span class="nc bnc" id="L525" title="All 2 branches missed.">        if (12 &lt; getToHit().getValue()) {</span>
+<span class="nc bnc" id="L526" title="All 2 branches missed.">            if(debugging) {</span>
+<span class="nc" id="L527">                owner.getLogger().debug(msg.append(&quot;\n\tImpossible toHit: &quot;).append(getToHit().getValue()).toString());</span>
+            }
+<span class="nc" id="L529">            setProbabilityToHit(0);</span>
+<span class="nc" id="L530">            setMaxDamage(0);</span>
+<span class="nc" id="L531">            setHeat(0);</span>
+<span class="nc" id="L532">            setExpectedCriticals(0);</span>
+<span class="nc" id="L533">            setKillProbability(0);</span>
+<span class="nc" id="L534">            setExpectedDamageOnHit(0);</span>
+<span class="nc" id="L535">            return;</span>
+        }
+        
+<span class="nc bnc" id="L538" title="All 4 branches missed.">        if (debugging &amp;&amp; getShooterState().hasNaturalAptGun()) {</span>
+<span class="nc" id="L539">            msg.append(&quot;\n\tAttacker has Natural Aptitude Gunnery&quot;);</span>
+        }
+        
+<span class="nc" id="L542">        setProbabilityToHit(Compute.oddsAbove(getToHit().getValue(), getShooterState().hasNaturalAptGun()) / 100);</span>
+        
+<span class="nc bnc" id="L544" title="All 2 branches missed.">        if (debugging) {</span>
+<span class="nc" id="L545">            msg.append(&quot;\n\tHit Chance: &quot;).append(LOG_PER.format(getProbabilityToHit()));</span>
+        }
+
+        // now that we've calculated hit odds, if we're shooting
+        // a weapon capable of rapid fire, it's time to decide whether we're going to spin it up
+<span class="nc" id="L550">        String currentFireMode = getWeapon().curMode().getName();</span>
+<span class="nc" id="L551">        int spinMode = Compute.spinUpCannon(getGame(), getAction(), owner.getSpinupThreshold());</span>
+<span class="nc bnc" id="L552" title="All 2 branches missed.">        if(!currentFireMode.equals(getWeapon().curMode().getName())) {</span>
+<span class="nc" id="L553">        	setUpdatedFiringMode(spinMode);</span>
+        }
+        
+<span class="nc" id="L556">        setHeat(computeHeat(weapon));</span>
+        
+<span class="nc bnc" id="L558" title="All 2 branches missed.">        if(debugging) {</span>
+<span class="nc" id="L559">            msg.append(&quot;\n\tHeat: &quot;).append(getHeat());</span>
+        }
+
+<span class="nc" id="L562">        setExpectedDamageOnHit(computeExpectedDamage());</span>
+<span class="nc" id="L563">        setMaxDamage(getExpectedDamageOnHit());</span>
+        
+<span class="nc bnc" id="L565" title="All 2 branches missed.">        if (debugging) {</span>
+<span class="nc" id="L566">            msg.append(&quot;\n\tMax Damage: &quot;).append(LOG_DEC.format(maxDamage));</span>
+        }
+
+<span class="nc" id="L569">        final double expectedCriticalHitCount = ProbabilityCalculator.getExpectedCriticalHitCount();</span>
+
+        // there's always the chance of rolling a '2'
+<span class="nc" id="L572">        final double ROLL_TWO = 0.028;</span>
+<span class="nc" id="L573">        setExpectedCriticals(ROLL_TWO * expectedCriticalHitCount * getProbabilityToHit());</span>
+
+<span class="nc" id="L575">        setKillProbability(0);</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">        if (!(getTarget() instanceof Mech)) {</span>
+<span class="nc" id="L577">            return;</span>
+        }
+
+        // now guess how many critical hits will be done
+<span class="nc" id="L581">        final Mech targetMech = (Mech) getTarget();</span>
+
+        // A mech with a torso-mounted cockpit can survive losing its head.
+<span class="nc" id="L584">        double headlessOdds = 0.0;</span>
+
+        // Loop through hit locations.
+        // todo Targeting tripods.
+<span class="nc bnc" id="L588" title="All 2 branches missed.">        for (int i = 0; 7 &gt;= i; i++) {</span>
+<span class="nc" id="L589">            int hitLocation = i;</span>
+
+<span class="nc bnc" id="L591" title="All 4 branches missed.">            while (targetMech.isLocationBad(hitLocation) &amp;&amp;</span>
+                   (Mech.LOC_CT != hitLocation)) {
+
+                // Head shots don't travel inward if the head is removed.  Instead, a new roll gets made.
+<span class="nc bnc" id="L595" title="All 2 branches missed.">                if (Mech.LOC_HEAD == hitLocation) {</span>
+<span class="nc" id="L596">                    headlessOdds = ProbabilityCalculator.getHitProbability(getDamageDirection(), Mech.LOC_HEAD);</span>
+<span class="nc" id="L597">                    break;</span>
+                }
+
+                // Get the next most inward location.
+<span class="nc" id="L601">                hitLocation = Mech.getInnerLocation(hitLocation);</span>
+            }
+<span class="nc" id="L603">            double hitLocationProbability =</span>
+<span class="nc" id="L604">                    ProbabilityCalculator.getHitProbability(getDamageDirection(), hitLocation);</span>
+
+            // Account for the possibility of re-rolling a head hit on a headless mech.
+<span class="nc" id="L607">            hitLocationProbability += (hitLocationProbability * headlessOdds);</span>
+
+            // Get the armor and internals for this location.
+<span class="nc bnc" id="L610" title="All 2 branches missed.">            final int targetArmor = Math.max(0, targetMech.getArmor(hitLocation, (3 == getDamageDirection())));</span>
+<span class="nc" id="L611">            final int targetInternals = Math.max(0, targetMech.getInternal(hitLocation));</span>
+
+            // If the location could be destroyed outright...
+<span class="nc bnc" id="L614" title="All 2 branches missed.">            if (getExpectedDamageOnHit() &gt; ((targetArmor + targetInternals))) {</span>
+<span class="nc" id="L615">                setExpectedCriticals(getExpectedCriticals() + (hitLocationProbability * getProbabilityToHit()));</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">                if (Mech.LOC_CT == hitLocation) {</span>
+<span class="nc" id="L617">                    setKillProbability(getKillProbability() + (hitLocationProbability * getProbabilityToHit()));</span>
+<span class="nc bnc" id="L618" title="All 2 branches missed.">                } else if ((Mech.LOC_HEAD == hitLocation) &amp;&amp;</span>
+<span class="nc bnc" id="L619" title="All 2 branches missed.">                           (Mech.COCKPIT_TORSO_MOUNTED != targetMech.getCockpitType())) {</span>
+<span class="nc" id="L620">                    setKillProbability(getKillProbability() + (hitLocationProbability * getProbabilityToHit()));</span>
+                }
+
+                // If the armor can be breached, but the location not destroyed...
+<span class="nc bnc" id="L624" title="All 2 branches missed.">            } else if (getExpectedDamageOnHit() &gt; (targetArmor)) {</span>
+<span class="nc" id="L625">                setExpectedCriticals(getExpectedCriticals() +</span>
+<span class="nc" id="L626">                                             (hitLocationProbability * getProbabilityToHit() *</span>
+                                                     expectedCriticalHitCount));
+            }
+        }
+
+<span class="nc bnc" id="L631" title="All 2 branches missed.">        if(debugging) {</span>
+<span class="nc" id="L632">            owner.getLogger().debug(msg.toString());</span>
+        }
+<span class="nc" id="L634">    }</span>
+    
+    WeaponAttackAction getWeaponAttackAction() {
+<span class="nc bnc" id="L637" title="All 2 branches missed.">        if (null != getAction()) {</span>
+<span class="nc" id="L638">            return getAction();</span>
+        }
+<span class="nc bnc" id="L640" title="All 2 branches missed.">        if (!(getWeapon().getType().hasFlag(WeaponType.F_ARTILLERY)</span>
+<span class="nc bnc" id="L641" title="All 2 branches missed.">                || (getWeapon().getType() instanceof CapitalMissileWeapon</span>
+<span class="nc bnc" id="L642" title="All 2 branches missed.">                        &amp;&amp; Compute.isGroundToGround(shooter, target)))) {</span>
+<span class="nc" id="L643">            setAction(new WeaponAttackAction(getShooter().getId(), getTarget().getTargetId(),</span>
+<span class="nc" id="L644">                    getShooter().getEquipmentNum(getWeapon())));</span>
+        } else {
+<span class="nc" id="L646">            setAction(new ArtilleryAttackAction(getShooter().getId(), getTarget().getTargetType(),</span>
+<span class="nc" id="L647">                    getTarget().getTargetId(), getShooter().getEquipmentNum(getWeapon()),</span>
+<span class="nc" id="L648">                    getGame()));</span>
+        }
+<span class="nc bnc" id="L650" title="All 2 branches missed.">        if (getAction() == null) {</span>
+<span class="nc" id="L651">            setProbabilityToHit(0);</span>
+<span class="nc" id="L652">            return null;</span>
+        }
+<span class="nc" id="L654">        setProbabilityToHit(Compute.oddsAbove(getAction().toHit(getGame()).getValue(),</span>
+<span class="nc" id="L655">                                              getShooterState().hasNaturalAptGun()) / 100.0);</span>
+<span class="nc" id="L656">        return getAction();</span>
+    }
+
+    String getDebugDescription() {
+<span class="nc" id="L660">        return getWeapon().getName() + &quot; P. Hit: &quot; + LOG_PER.format(getProbabilityToHit())</span>
+<span class="nc" id="L661">                + &quot;, Max Dam: &quot; + LOG_DEC.format(getMaxDamage())</span>
+<span class="nc" id="L662">                + &quot;, Exp. Dam: &quot; + LOG_DEC.format(getExpectedDamageOnHit())</span>
+<span class="nc" id="L663">                + &quot;, Num Crits: &quot; + LOG_DEC.format(getExpectedCriticals())</span>
+<span class="nc" id="L664">                + &quot;, Kill Prob: &quot; + LOG_PER.format(getKillProbability());</span>
+
+    }
+
+    /**
+     * The updated firing mode, if any of the weapon involved in this attack.
+     * Null if no update required.
+     */
+    public Integer getUpdatedFiringMode() {
+<span class="nc" id="L673">    	return updatedFiringMode;</span>
+    }
+    
+    public void setUpdatedFiringMode(int mode) {
+<span class="nc" id="L677">    	updatedFiringMode = mode;</span>
+<span class="nc" id="L678">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

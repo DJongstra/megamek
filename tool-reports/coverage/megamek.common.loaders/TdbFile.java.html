@@ -1,0 +1,843 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TdbFile.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.loaders</a> &gt; <span class="el_source">TdbFile.java</span></div><h1>TdbFile.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2004 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.common.loaders;
+
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBException;
+import javax.xml.bind.Unmarshaller;
+import javax.xml.bind.annotation.XmlAccessType;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlAttribute;
+import javax.xml.bind.annotation.XmlElement;
+import javax.xml.bind.annotation.XmlRootElement;
+import javax.xml.bind.annotation.XmlType;
+import javax.xml.bind.annotation.XmlValue;
+import javax.xml.bind.annotation.adapters.XmlAdapter;
+import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import javax.xml.parsers.ParserConfigurationException;
+
+import org.xml.sax.SAXException;
+
+import megamek.common.BipedMech;
+import megamek.common.Entity;
+import megamek.common.EquipmentType;
+import megamek.common.LocationFullException;
+import megamek.common.Mech;
+import megamek.common.MiscType;
+import megamek.common.Mounted;
+import megamek.common.QuadMech;
+import megamek.common.TechConstants;
+import megamek.common.WeaponType;
+import megamek.utils.MegaMekXmlUtil;
+
+/**
+ * TdbFile.java
+ *  -based on MtfFile.java, modifications by Ryan McConnell
+ * Created on April 1, 2003, 2:48 PM
+ */
+@XmlRootElement(name = &quot;mech&quot;)
+@XmlAccessorType(XmlAccessType.NONE)
+public class TdbFile implements IMechLoader {
+
+    private static final String DOUBLE = &quot;Double&quot;;
+
+    private static final int TECHYEAR = 3068; // TDB doesn't have era
+
+    @XmlElement
+    private Creator creator;
+    
+    @XmlElement(name = &quot;basics&quot;)
+    private BasicInformation basics;
+    
+    @XmlElement(name = &quot;mounteditems&quot;)
+    MountedItems mounted;
+    
+    @XmlElement(name = &quot;critdefs&quot;)
+    private CriticalDefinitions critdefs;
+    
+<span class="nc" id="L77">    private Map&lt;EquipmentType, Mounted&gt; hSharedEquip = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L78">    private List&lt;Mounted&gt; vSplitWeapons = new ArrayList&lt;&gt;();</span>
+
+    /**
+     * Creates new TdbFile.
+     * 
+     * @param is an input stream that contains a &quot;The Drawing Board&quot; generated XML file.
+     * @return an instance of a parsed file
+     * @throws megamek.common.loaders.EntityLoadingException
+     */
+    public static TdbFile getInstance(final InputStream is) throws EntityLoadingException {
+        try {
+<span class="nc" id="L89">            JAXBContext jc = JAXBContext.newInstance(TdbFile.class);</span>
+            
+<span class="nc" id="L91">            Unmarshaller um = jc.createUnmarshaller();</span>
+<span class="nc" id="L92">            TdbFile tdbFile = (TdbFile) um.unmarshal(MegaMekXmlUtil.createSafeXmlSource(is));</span>
+            
+<span class="nc" id="L94">            return tdbFile;</span>
+<span class="nc" id="L95">        } catch (Exception e) {</span>
+<span class="nc" id="L96">            throw new EntityLoadingException(&quot;   Failure to parse XML (&quot;</span>
+<span class="nc" id="L97">                    + e.getLocalizedMessage() + &quot;)&quot;, e);</span>
+        }
+    }
+    
+    /**
+     * JAXB required constructor.
+     */
+<span class="nc" id="L104">    private TdbFile() {</span>
+<span class="nc" id="L105">    }</span>
+
+    @Override
+    public Entity getEntity() throws EntityLoadingException {
+        try {
+            Mech mech;
+
+<span class="nc bnc" id="L112" title="All 2 branches missed.">            if ((&quot;Unknown&quot;.equals(creator.creatorName))</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">                    || !&quot;The Drawing Board&quot;.equals(creator.creatorName)</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">                    || (Integer.parseInt(creator.creatorVersion) != 2)) {</span>
+                // MegaMek no longer supports older versions of The
+                // Drawing Board (pre 2.0.23) due to incomplete xml
+                // file information in those versions.
+<span class="nc" id="L118">                throw new EntityLoadingException(</span>
+                        &quot;This xml file is not a valid Drawing Board mech.  Make sure you are using version 2.0.23 or later of The Drawing Board.&quot;);
+            }
+
+<span class="nc" id="L122">            String gyroType = basics.structure.gyroType;</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">            if (&quot;Extra-Light&quot;.equals(gyroType)) {</span>
+<span class="nc" id="L124">                gyroType = &quot;XL&quot;;</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">            } else if (&quot;Heavy-Duty&quot;.equals(gyroType)) {</span>
+<span class="nc" id="L126">                gyroType = &quot;Heavy Duty&quot;;</span>
+            }
+
+<span class="nc" id="L129">            String cockpitType = basics.structure.cockpitType;</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">            if (&quot;Torso-Mounted&quot;.equals(cockpitType)) {</span>
+<span class="nc" id="L131">                cockpitType = &quot;Torso Mounted&quot;;</span>
+            }
+            
+<span class="nc bnc" id="L134" title="All 2 branches missed.">            if (&quot;Quad&quot;.equals(basics.chassisConfig)) {</span>
+<span class="nc" id="L135">                mech = new QuadMech(gyroType, cockpitType);</span>
+            } else {
+<span class="nc" id="L137">                mech = new BipedMech(gyroType, cockpitType);</span>
+            }
+
+            // aarg! those stupid sub-names in parenthesis screw everything up
+            // we may do something different in the future, but for now, I'm
+            // going to strip them out
+<span class="nc" id="L143">            int pindex = basics.name.indexOf('(');</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">            if (pindex == -1) {</span>
+<span class="nc" id="L145">                mech.setChassis(basics.name);</span>
+            } else {
+<span class="nc" id="L147">                mech.setChassis(basics.name.substring(0, pindex - 1));</span>
+            }
+
+<span class="nc bnc" id="L150" title="All 2 branches missed.">            if (basics.variant != null) {</span>
+<span class="nc" id="L151">                mech.setModel(basics.variant);</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">            } else if (basics.model != null) {</span>
+<span class="nc" id="L153">                mech.setModel(basics.model);</span>
+            } else {
+                // Do mechs need a model?
+<span class="nc" id="L156">                mech.setModel(&quot;&quot;);</span>
+            }
+<span class="nc" id="L158">            mech.setYear(TECHYEAR);</span>
+<span class="nc" id="L159">            mech.setOmni(basics.omni);</span>
+
+<span class="nc bnc" id="L161" title="All 5 branches missed.">            switch (basics.technology.techBase) {</span>
+                case &quot;Inner Sphere&quot;:
+<span class="nc bnc" id="L163" title="All 4 branches missed.">                    switch (basics.technology.rulesLevel) {</span>
+                        case 1:
+<span class="nc" id="L165">                            mech.setTechLevel(TechConstants.T_INTRO_BOXSET);</span>
+<span class="nc" id="L166">                            break;</span>
+                        case 2:
+<span class="nc" id="L168">                            mech.setTechLevel(TechConstants.T_IS_TW_NON_BOX);</span>
+<span class="nc" id="L169">                            break;</span>
+                        case 3:
+<span class="nc" id="L171">                            mech.setTechLevel(TechConstants.T_IS_ADVANCED);</span>
+<span class="nc" id="L172">                            break;</span>
+                        default:
+<span class="nc" id="L174">                            throw new EntityLoadingException(</span>
+                                    &quot;Unsupported tech level: &quot; + basics.technology.rulesLevel);
+                    }
+                    break;
+                case &quot;Clan&quot;:
+<span class="nc bnc" id="L179" title="All 3 branches missed.">                    switch (basics.technology.rulesLevel) {</span>
+                        case 2:
+<span class="nc" id="L181">                            mech.setTechLevel(TechConstants.T_CLAN_TW);</span>
+<span class="nc" id="L182">                            break;</span>
+                        case 3:
+<span class="nc" id="L184">                            mech.setTechLevel(TechConstants.T_CLAN_ADVANCED);</span>
+<span class="nc" id="L185">                            break;</span>
+                        default:
+<span class="nc" id="L187">                            throw new EntityLoadingException(</span>
+                                    &quot;Unsupported tech level: &quot; + basics.technology.rulesLevel);
+                    }
+                    break;
+                case &quot;Mixed (IS Chassis)&quot;:
+                case &quot;Inner Sphere 'C'&quot;:
+<span class="nc" id="L193">                    mech.setTechLevel(TechConstants.T_IS_ADVANCED);</span>
+<span class="nc" id="L194">                    mech.setMixedTech(true);</span>
+<span class="nc" id="L195">                    break;</span>
+                case &quot;Mixed (Clan Chassis)&quot;:
+<span class="nc" id="L197">                    mech.setTechLevel(TechConstants.T_CLAN_ADVANCED);</span>
+<span class="nc" id="L198">                    mech.setMixedTech(true);</span>
+<span class="nc" id="L199">                    break;</span>
+                default:
+<span class="nc" id="L201">                    throw new EntityLoadingException(&quot;Unsupported tech base: &quot;</span>
+                            + basics.technology.techBase);
+            }
+            
+<span class="nc bnc" id="L205" title="All 2 branches missed.">            if (basics.structure.structureType.substring(0, 3).equals(&quot;(C)&quot;)) {</span>
+<span class="nc" id="L206">                basics.structure.structureType = basics.structure.structureType.substring(4);</span>
+            }
+<span class="nc" id="L208">            mech.setStructureType(basics.structure.structureType);</span>
+
+<span class="nc bnc" id="L210" title="All 2 branches missed.">            if (basics.structure.armorType.substring(0, 3).equals(&quot;(C)&quot;)) {</span>
+<span class="nc" id="L211">                basics.structure.armorType = basics.structure.armorType.substring(4);</span>
+            }
+<span class="nc" id="L213">            mech.setArmorType(basics.structure.armorType);</span>
+
+<span class="nc" id="L215">            mech.setWeight(basics.tonnage);</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">            if (basics.jumpMP != null) {</span>
+<span class="nc" id="L217">                mech.setOriginalJumpMP(basics.jumpMP);</span>
+            }
+
+<span class="nc" id="L220">            int engineFlags = 0;</span>
+<span class="nc bnc" id="L221" title="All 4 branches missed.">            if ((mech.isClan() &amp;&amp; !mech.isMixedTech())</span>
+<span class="nc bnc" id="L222" title="All 6 branches missed.">                    || (mech.isMixedTech() &amp;&amp; mech.isClan() &amp;&amp; !mech.itemOppositeTech(basics.structure.engine.engineType))) {</span>
+<span class="nc" id="L223">                engineFlags = megamek.common.Engine.CLAN_ENGINE;</span>
+            }
+<span class="nc" id="L225">            mech.setEngine(new megamek.common.Engine(basics.structure.engine.engineRating, </span>
+<span class="nc" id="L226">                    megamek.common.Engine.getEngineTypeByString(basics.structure.engine.engineType), engineFlags));</span>
+
+<span class="nc" id="L228">            mech.autoSetInternal();</span>
+
+<span class="nc" id="L230">            Collections.sort(critdefs.locations);</span>
+            
+<span class="nc bnc" id="L232" title="All 2 branches missed.">            for (Location loc : critdefs.locations) {</span>
+<span class="nc" id="L233">                mech.initializeArmor(loc.armor, loc.bodyPart);</span>
+                
+<span class="nc bnc" id="L235" title="All 6 branches missed.">                if (Mech.LOC_LT == loc.bodyPart || Mech.LOC_RT == loc.bodyPart || Mech.LOC_CT == loc.bodyPart) {</span>
+<span class="nc" id="L236">                    mech.initializeRearArmor(loc.rearArmor, loc.bodyPart);</span>
+                }
+                
+                // Don't sort the Head criticals, the empty slot (if there) needs to stay
+                // right where it is.
+<span class="nc bnc" id="L241" title="All 2 branches missed.">                if (Mech.LOC_HEAD != loc.bodyPart) {</span>
+<span class="nc" id="L242">                    Collections.sort(loc.criticalSlots);</span>
+                }
+<span class="nc" id="L244">            }</span>
+
+            // we do these in reverse order to get the outermost
+            // locations first, which is necessary for split crits to work
+<span class="nc bnc" id="L248" title="All 2 branches missed.">            for (int i = mech.locations() - 1; i &gt;= 0; i--) {</span>
+<span class="nc" id="L249">                parseCrits(mech, i);</span>
+            }
+
+<span class="nc bnc" id="L252" title="All 2 branches missed.">            if (mech.isClan()) {</span>
+<span class="nc" id="L253">                mech.addClanCase();</span>
+            }
+
+<span class="nc" id="L256">            mech.setArmorTonnage(mech.getArmorWeight());</span>
+
+            // add any heat sinks not allocated
+<span class="nc" id="L259">            mech.addEngineSinks(basics.structure.heatSink.count - mech.heatSinks(), </span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                    basics.structure.heatSink.isDouble() ? MiscType.F_DOUBLE_HEAT_SINK : MiscType.F_HEAT_SINK);</span>
+
+<span class="nc" id="L262">            return mech;</span>
+<span class="nc" id="L263">        } catch (NumberFormatException ex) {</span>
+<span class="nc" id="L264">            throw new EntityLoadingException(</span>
+                    &quot;NumberFormatException parsing file&quot;, ex);
+<span class="nc" id="L266">        } catch (NullPointerException ex) {</span>
+<span class="nc" id="L267">            throw new EntityLoadingException(</span>
+                    &quot;NullPointerException parsing file&quot;, ex);
+<span class="nc" id="L269">        } catch (StringIndexOutOfBoundsException ex) {</span>
+<span class="nc" id="L270">            throw new EntityLoadingException(</span>
+                    &quot;StringIndexOutOfBoundsException parsing file&quot;, ex);
+        }
+    }
+
+    private void parseCrits(Mech mech, int loc) throws EntityLoadingException {
+        // check for removed arm actuators
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        if (!(mech instanceof QuadMech)) {</span>
+<span class="nc bnc" id="L278" title="All 4 branches missed.">            if ((loc == Mech.LOC_LARM) || (loc == Mech.LOC_RARM)) {</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                for (Location l : critdefs.locations) {</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">                    if (l.bodyPart == loc) {</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">                        if (!&quot;Lower Arm Actuator&quot;.equals(l.criticalSlots.get(2).content)) {</span>
+<span class="nc" id="L282">                            mech.setCritical(loc, 2, null);</span>
+                        }
+                        
+<span class="nc bnc" id="L285" title="All 2 branches missed.">                        if (!&quot;Hand Actuator&quot;.equals(l.criticalSlots.get(3).content)) {</span>
+<span class="nc" id="L286">                            mech.setCritical(loc, 3, null);</span>
+                        }
+                    }
+<span class="nc" id="L289">                }</span>
+            }
+        }
+
+<span class="nc" id="L293">        Location location = findLocation(loc);</span>
+        
+        // go thru file, add weapons
+<span class="nc bnc" id="L296" title="All 2 branches missed.">        for (int i = 0; i &lt; mech.getNumberOfCriticals(loc); i++) {</span>
+
+            // if the slot's full already, skip it.
+<span class="nc bnc" id="L299" title="All 2 branches missed.">            if (mech.getCritical(loc, i) != null) {</span>
+<span class="nc" id="L300">                continue;</span>
+            }
+
+<span class="nc" id="L303">            CriticalSlot crit = location.criticalSlots.get(i);</span>
+            
+            // parse out and add the critical
+<span class="nc bnc" id="L306" title="All 4 branches missed.">            if (basics.structure.isClanTC() &amp;&amp; &quot;Targeting Computer&quot;.equals(crit.content)) {</span>
+<span class="nc" id="L307">                crit.content = &quot;(C) &quot; + crit.content;</span>
+            }
+
+<span class="nc" id="L310">            boolean rearMounted = false;</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">            for (MountedItem mi : mounted.items) {</span>
+<span class="nc bnc" id="L312" title="All 4 branches missed.">                if (Objects.equals(mi.location, location.bodyPart) &amp;&amp; Objects.equals(mi.itemIndex, crit.itemIndex)) {</span>
+<span class="nc" id="L313">                    rearMounted = mi.rearMounted;</span>
+                }
+<span class="nc" id="L315">            }</span>
+
+<span class="nc bnc" id="L317" title="All 2 branches missed.">            if (crit.content.contains(&quot;Engine&quot;)) {</span>
+<span class="nc" id="L318">                mech.setCritical(loc, i, new megamek.common.CriticalSlot(</span>
+                        megamek.common.CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_ENGINE));
+<span class="nc" id="L320">                continue;</span>
+            }
+<span class="nc bnc" id="L322" title="All 2 branches missed.">            if (crit.content.contains(&quot;Gyro&quot;)) {</span>
+<span class="nc" id="L323">                mech.setCritical(loc, i, new megamek.common.CriticalSlot(</span>
+                        megamek.common.CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_GYRO));
+<span class="nc" id="L325">                continue;</span>
+            }
+<span class="nc bnc" id="L327" title="All 2 branches missed.">            if (crit.content.contains(&quot;Life Support&quot;)) {</span>
+<span class="nc" id="L328">                mech.setCritical(loc, i, new megamek.common.CriticalSlot(</span>
+                        megamek.common.CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_LIFE_SUPPORT));
+<span class="nc" id="L330">                continue;</span>
+            }
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            if (crit.content.contains(&quot;Sensors&quot;)) {</span>
+<span class="nc" id="L333">                mech.setCritical(loc, i, new megamek.common.CriticalSlot(</span>
+                        megamek.common.CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_SENSORS));
+<span class="nc" id="L335">                continue;</span>
+            }
+<span class="nc bnc" id="L337" title="All 2 branches missed.">            if (crit.content.contains(&quot;Cockpit&quot;)) {</span>
+<span class="nc" id="L338">                mech.setCritical(loc, i, new megamek.common.CriticalSlot(</span>
+                        megamek.common.CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_COCKPIT));
+<span class="nc" id="L340">                continue;</span>
+            }
+<span class="nc bnc" id="L342" title="All 4 branches missed.">            if (crit.content.endsWith(&quot;[LRM]&quot;) || crit.content.endsWith(&quot;[SRM]&quot;)) {</span>
+                // This is a lame kludge for The Drawing Board, which
+                // identifies which type of missle weapon an
+                // Artemis IV system goes with.
+<span class="nc" id="L346">                crit.content = crit.content.substring(0, 14);</span>
+            }
+<span class="nc bnc" id="L348" title="All 2 branches missed.">            if (crit.content.endsWith(&quot;- Artemis IV&quot;)) {</span>
+                // Ugh, another lame kludge to allow for loading of
+                // The Drawing Board's specially marked Artemis IV
+                // missle ammo. The only real game difference is
+                // c-bill cost, which we don't care about anyway.
+<span class="nc" id="L353">                crit.content = crit.content.substring(0, crit.content.indexOf(&quot; - Artemis IV&quot;));</span>
+            }
+<span class="nc bnc" id="L355" title="All 2 branches missed.">            if (crit.content.endsWith(&quot;- Narc&quot;)) {</span>
+                // Yet another lame kludge to allow for loading of
+                // The Drawing Board's specially marked Narc
+                // missle ammo.
+<span class="nc" id="L359">                crit.content = crit.content.substring(0, crit.content.indexOf(&quot; - Narc&quot;));</span>
+            }
+            try {
+                String hashPrefix;
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                if (crit.content.startsWith(&quot;(C)&quot;)) {</span>
+                    // equipment specifically marked as clan
+<span class="nc" id="L365">                    hashPrefix = &quot;Clan &quot;;</span>
+<span class="nc" id="L366">                    crit.content = crit.content.substring(4);</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">                } else if (crit.content.startsWith(&quot;(IS)&quot;)) {</span>
+                    // equipment specifically marked as inner sphere
+<span class="nc" id="L369">                    hashPrefix = &quot;IS &quot;;</span>
+<span class="nc" id="L370">                    crit.content = crit.content.substring(5);</span>
+<span class="nc bnc" id="L371" title="All 2 branches missed.">                } else if (mech.isClan()) {</span>
+                    // assume equipment is clan because mech is clan
+<span class="nc" id="L373">                    hashPrefix = &quot;Clan &quot;;</span>
+                } else {
+                    // assume equipment is inner sphere
+<span class="nc" id="L376">                    hashPrefix = &quot;IS &quot;;</span>
+                }
+<span class="nc" id="L378">                EquipmentType etype = EquipmentType.get(hashPrefix + crit.content);</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">                if (etype == null) {</span>
+                    // try without prefix
+<span class="nc" id="L381">                    etype = EquipmentType.get(crit.content);</span>
+                }
+<span class="nc bnc" id="L383" title="All 2 branches missed.">                if (etype != null) {</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">                    if (etype.isSpreadable()) {</span>
+                        // do we already have one of these? Key on Type
+<span class="nc" id="L386">                        Mounted m = hSharedEquip.get(etype);</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">                        if (m != null) {</span>
+                            // use the existing one
+<span class="nc" id="L389">                            mech.addCritical(loc, new megamek.common.CriticalSlot(m));</span>
+<span class="nc" id="L390">                            continue;</span>
+                        }
+<span class="nc" id="L392">                        m = mech.addEquipment(etype, loc, rearMounted);</span>
+<span class="nc" id="L393">                        hSharedEquip.put(etype, m);</span>
+<span class="nc bnc" id="L394" title="All 6 branches missed.">                    } else if (((etype instanceof WeaponType) &amp;&amp; ((WeaponType)etype).isSplitable()) </span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">                            || ((etype instanceof MiscType) &amp;&amp; etype.hasFlag(MiscType.F_SPLITABLE))) {</span>
+                        // do we already have this one in this or an outer
+                        // location?
+<span class="nc" id="L398">                        Mounted m = null;</span>
+<span class="nc" id="L399">                        boolean bFound = false;</span>
+<span class="nc bnc" id="L400" title="All 2 branches missed.">                        for (int x = 0, n = vSplitWeapons.size(); x &lt; n; x++) {</span>
+<span class="nc" id="L401">                            m = vSplitWeapons.get(x);</span>
+<span class="nc" id="L402">                            int nLoc = m.getLocation();</span>
+<span class="nc bnc" id="L403" title="All 2 branches missed.">                            if (((nLoc == loc) || (loc == Mech</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">                                    .getInnerLocation(nLoc)))</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">                                    &amp;&amp; (m.getType() == etype)) {</span>
+<span class="nc" id="L406">                                bFound = true;</span>
+<span class="nc" id="L407">                                break;</span>
+                            }
+                        }
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                        if (bFound) {</span>
+<span class="nc" id="L411">                            m.setFoundCrits(m.getFoundCrits() + 1);</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">                            if (m.getFoundCrits() &gt;= m.getCriticals()) {</span>
+<span class="nc" id="L413">                                vSplitWeapons.remove(m);</span>
+                            }
+                            // if we're in a new location, set the
+                            // weapon as split
+<span class="nc bnc" id="L417" title="All 2 branches missed.">                            if (loc != m.getLocation()) {</span>
+<span class="nc" id="L418">                                m.setSplit(true);</span>
+                            }
+                            // give the most restrictive location for arcs
+<span class="nc" id="L421">                            int help = m.getLocation();</span>
+<span class="nc" id="L422">                            m.setLocation(Mech.mostRestrictiveLoc(loc, help));</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">                            if (loc != help) {</span>
+<span class="nc" id="L424">                                m.setSecondLocation(Mech.leastRestrictiveLoc(</span>
+                                        loc, help));
+                            }
+<span class="nc" id="L427">                        } else {</span>
+                            // make a new one
+<span class="nc" id="L429">                            m = new Mounted(mech, etype);</span>
+<span class="nc" id="L430">                            m.setFoundCrits(1);</span>
+<span class="nc" id="L431">                            vSplitWeapons.add(m);</span>
+                        }
+<span class="nc" id="L433">                        mech.addEquipment(m, loc, rearMounted);</span>
+<span class="nc" id="L434">                    } else {</span>
+<span class="nc" id="L435">                        mech.addEquipment(etype, loc, rearMounted);</span>
+                    }
+                } else {
+<span class="nc bnc" id="L438" title="All 2 branches missed.">                    if (!crit.content.equals(&quot;Empty&quot;)) {</span>
+                        // Can't load this piece of equipment!
+                        // Add it to the list so we can show the user.
+<span class="nc" id="L441">                        mech.addFailedEquipment(crit.content);</span>
+                        // Make the failed equipment an empty slot
+<span class="nc" id="L443">                        crit.content = &quot;Empty&quot;;</span>
+                        // Compact criticals again
+<span class="nc" id="L445">                        compactCriticals(location);</span>
+                        // Re-parse the same slot, since the compacting
+                        // could have moved new equipment to this slot
+<span class="nc" id="L448">                        i--;</span>
+                    }
+                }
+<span class="nc" id="L451">            } catch (LocationFullException ex) {</span>
+<span class="nc" id="L452">                throw new EntityLoadingException(ex.getMessage());</span>
+<span class="nc" id="L453">            }</span>
+        }
+<span class="nc" id="L455">    }</span>
+
+    private void compactCriticals(final Location loc) {
+<span class="nc bnc" id="L458" title="All 2 branches missed.">        if (loc.bodyPart == Mech.LOC_HEAD) {</span>
+            // This location has an empty slot inbetween systems crits
+            // which will mess up parsing if compacted.
+<span class="nc" id="L461">            return;</span>
+        }
+        
+<span class="nc" id="L464">        Collections.sort(loc.criticalSlots);</span>
+<span class="nc" id="L465">    }</span>
+    
+    private Location findLocation(final int loc) {
+<span class="nc bnc" id="L468" title="All 2 branches missed.">        for (Location l : critdefs.locations) {</span>
+<span class="nc bnc" id="L469" title="All 2 branches missed.">            if (l.bodyPart == loc) {</span>
+<span class="nc" id="L470">                return l;</span>
+            }
+<span class="nc" id="L472">        }</span>
+        
+<span class="nc" id="L474">        return null;</span>
+    }
+
+    /**
+     * JAXB helper class for the creator tag.
+     */
+    private static class Creator {
+
+<span class="nc" id="L482">        @XmlElement(name = &quot;name&quot;)</span>
+        String creatorName = &quot;Unknown&quot;;
+
+<span class="nc" id="L485">        @XmlElement(name = &quot;version&quot;)</span>
+        String creatorVersion = &quot;Unknown&quot;;
+
+        /**
+         * Required for JAXB.
+         */
+<span class="nc" id="L491">        private Creator() {</span>
+<span class="nc" id="L492">        }</span>
+    }
+
+    /**
+     * JAX helper class for the basics tag.
+     */
+    private static class BasicInformation {
+
+        @XmlElement
+        String name;
+
+        @XmlElement
+        String model;
+
+<span class="nc" id="L506">        @XmlElement(name = &quot;isomni&quot;)</span>
+        Boolean omni = Boolean.FALSE;
+
+        @XmlElement
+        String variant;
+
+        @XmlElement
+        Technology technology;
+
+        @XmlElement
+        Integer tonnage;
+
+        @XmlElement(name = &quot;type&quot;)
+        String chassisConfig;
+
+        @XmlElement(name = &quot;movemechmod&quot;)
+        MovementModifier moveMeKMod;
+
+        @XmlElement(name = &quot;jump&quot;)
+        Integer jumpMP;
+
+        @XmlElement(name = &quot;structural&quot;)
+        Structure structure;
+
+        /**
+         * Required for JAXB.
+         */
+<span class="nc" id="L533">        private BasicInformation() {</span>
+<span class="nc" id="L534">        }</span>
+
+    }
+    
+    /**
+     * JAXB helper class for the structural tag.
+     */
+    @XmlType
+    private static class Structure {
+
+        @XmlElement(name = &quot;engine&quot;)
+        Engine engine;
+
+<span class="nc" id="L547">        @XmlElement(name = &quot;gyro&quot;)</span>
+        String gyroType = &quot;Standard&quot;;
+
+<span class="nc" id="L550">        @XmlElement(name = &quot;cockpit&quot;)</span>
+        String cockpitType = &quot;Standard&quot;;
+
+        @XmlElement(name = &quot;targsys&quot;)
+        String targSysStr;
+
+        @XmlElement(name = &quot;heatsinks&quot;)
+        HeatSink heatSink;
+
+        @XmlElement(name = &quot;armor&quot;)
+        String armorType;
+
+        @XmlElement(name = &quot;internal&quot;)
+        String structureType;
+
+        /**
+         * Required for JAXB.
+         */
+<span class="nc" id="L568">        private Structure() {</span>
+<span class="nc" id="L569">        }</span>
+
+        boolean isClanTC() {
+<span class="nc bnc" id="L572" title="All 2 branches missed.">            return (targSysStr.length() &gt;= 3)</span>
+<span class="nc bnc" id="L573" title="All 2 branches missed.">                    &amp;&amp; (targSysStr.substring(0, 3).equals(&quot;(C)&quot;));</span>
+        }
+        
+    }
+
+    /**
+     * JAXB helper class for the technology tag.
+     */
+    @XmlType
+    private static class Technology {
+
+        @XmlValue
+        String techBase;
+
+        @XmlAttribute(name = &quot;level&quot;)
+        Integer rulesLevel;
+
+        /**
+         * Required for JAXB.
+         */
+        private Technology() {
+        }
+
+    }
+
+    /**
+     * JAXB helper class for the movemechmod tag.
+     */
+    @XmlType
+    private static class MovementModifier {
+
+        @XmlAttribute
+        String LAMTonnage;
+
+        /**
+         * Required for JAXB.
+         */
+        private MovementModifier() {
+        }
+    }
+
+    /**
+     * JAXB helper class for the heatsinks tag.
+     */
+    @XmlType
+    private static class HeatSink {
+
+        @XmlValue
+        private String dblSinks;
+
+        @XmlAttribute
+        Integer count;
+
+        /**
+         * Required for JAXB.
+         */
+        private HeatSink() {
+        }
+
+        public boolean isDouble() {
+<span class="nc" id="L633">            return DOUBLE.equals(dblSinks);</span>
+        }
+
+    }
+
+    /**
+     * JAXB helper for the engine tag.
+     */
+    @XmlType
+    private static class Engine {
+
+        @XmlValue
+        String engineType;
+
+        @XmlAttribute(name = &quot;rating&quot;)
+        Integer engineRating;
+
+        /**
+         * Required for JAXB.
+         */
+        private Engine() {
+        }
+
+    }
+    
+    /**
+     * JAXB helper class for the mounteditems tag.
+     */
+    @XmlType
+    static class MountedItems {
+    
+<span class="nc" id="L664">        @XmlElement(name = &quot;mounteditem&quot;)</span>
+        List&lt;MountedItem&gt; items = new ArrayList&lt;&gt;();
+
+<span class="nc" id="L667">        MountedItems() {</span>
+<span class="nc" id="L668">        }</span>
+    }
+
+    /**
+     * JAXB helper class for the mounteditem tag.
+     */
+    @XmlType
+    private static class MountedItem {
+
+        @XmlAttribute(name = &quot;itemindex&quot;)
+        Integer itemIndex;
+
+<span class="nc" id="L680">        @XmlAttribute(name = &quot;rearmounted&quot;)</span>
+        @XmlJavaTypeAdapter(BooleanAdapter.class)
+        Boolean rearMounted = Boolean.FALSE;
+
+        @XmlAttribute
+        @XmlJavaTypeAdapter(LocationAdapter.class)
+        Integer location;
+
+        /**
+         * Required for JAXB.
+         */
+<span class="nc" id="L691">        private MountedItem() {</span>
+<span class="nc" id="L692">        }</span>
+    }
+    
+    /**
+     * JAXB helper class for the critdefs tag.
+     */
+    @XmlType
+    private static class CriticalDefinitions {
+        
+<span class="nc" id="L701">        @XmlElement(name = &quot;location&quot;)</span>
+        List&lt;Location&gt; locations = new ArrayList&lt;&gt;();
+
+        /**
+         * Required for JAXB.
+         */
+<span class="nc" id="L707">        private CriticalDefinitions() {</span>
+<span class="nc" id="L708">        }</span>
+    }
+
+    /**
+     * JAXB helper class for the location tag.
+     */
+    @XmlType
+    static class Location implements Comparable&lt;Location&gt; {
+
+        @XmlAttribute
+        Integer armor;
+
+        @XmlAttribute(name = &quot;reararmor&quot;)
+        Integer rearArmor;
+
+        @XmlAttribute(name = &quot;name&quot;)
+        @XmlJavaTypeAdapter(LocationAdapter.class)
+        Integer bodyPart;
+        
+<span class="nc" id="L727">        @XmlElement(name = &quot;criticalslot&quot;)</span>
+        List&lt;CriticalSlot&gt; criticalSlots = new ArrayList&lt;&gt;();
+
+<span class="nc" id="L730">        Location(final Integer bodyPart, final Integer armor, final Integer rearArmor) {</span>
+<span class="nc" id="L731">            this.bodyPart = bodyPart;</span>
+<span class="nc" id="L732">            this.armor = armor;</span>
+<span class="nc" id="L733">            this.rearArmor = rearArmor;</span>
+<span class="nc" id="L734">        }</span>
+
+<span class="nc" id="L736">        Location() {</span>
+<span class="nc" id="L737">        }</span>
+
+        @Override
+        public int compareTo(final Location o) {
+<span class="nc" id="L741">            return bodyPart.compareTo(o.bodyPart);</span>
+        }
+    }
+    
+    /**
+     * JAXB helper class for the criticalslot tag.
+     */
+    @XmlType
+    static class CriticalSlot implements Comparable&lt;CriticalSlot&gt; {
+
+        private static final String EMPTY = &quot;Empty&quot;;
+        
+        @XmlAttribute(name = &quot;slotindex&quot;)
+        Integer itemIndex;
+
+        @XmlValue
+        String content;
+
+<span class="nc" id="L759">        CriticalSlot(final Integer itemIndex, final String content) {</span>
+<span class="nc" id="L760">            this.itemIndex = itemIndex;</span>
+<span class="nc" id="L761">            this.content = content;</span>
+<span class="nc" id="L762">        }</span>
+
+<span class="nc" id="L764">        CriticalSlot() {</span>
+<span class="nc" id="L765">        }</span>
+
+        @Override
+        public int compareTo(final CriticalSlot o) {
+            // Both empty slots, then compare the itemIndex
+<span class="nc bnc" id="L770" title="All 4 branches missed.">            if (EMPTY.equals(this.content) &amp;&amp; (EMPTY.equals(o.content))) {</span>
+<span class="nc" id="L771">                return this.itemIndex.compareTo(o.itemIndex);</span>
+            }
+
+            // This is empty, it's always &quot;less&quot; than something else
+<span class="nc bnc" id="L775" title="All 2 branches missed.">            if (EMPTY.equals(this.content)) {</span>
+<span class="nc" id="L776">                return 1;</span>
+            }
+            
+            // The other is empty, so this is always &quot;more&quot;
+<span class="nc bnc" id="L780" title="All 2 branches missed.">            if (EMPTY.equals(o.content)) {</span>
+<span class="nc" id="L781">                return -1;</span>
+            }
+
+            // Neither is empty, maintain the original sort
+<span class="nc" id="L785">            return this.itemIndex.compareTo(o.itemIndex);</span>
+        }
+    }
+
+    /**
+     * JAXB translator for the TDB location constants to Mech.LOC_* constants.
+     */
+    private static class LocationAdapter extends XmlAdapter&lt;String, Integer&gt; {
+
+        @Override
+        public String marshal(final Integer v) throws Exception {
+<span class="nc" id="L796">            throw new UnsupportedOperationException(&quot;Not supported yet.&quot;);</span>
+        }
+
+        @Override
+        public Integer unmarshal(final String v) throws Exception {
+<span class="nc bnc" id="L801" title="All 9 branches missed.">            switch (v) {</span>
+                case &quot;H&quot;:
+<span class="nc" id="L803">                    return Mech.LOC_HEAD;</span>
+                case &quot;CT&quot;:
+<span class="nc" id="L805">                    return Mech.LOC_CT;</span>
+                case &quot;RT&quot;:
+<span class="nc" id="L807">                    return Mech.LOC_RT;</span>
+                case &quot;LT&quot;:
+<span class="nc" id="L809">                    return Mech.LOC_LT;</span>
+                case &quot;RA&quot;:
+                case &quot;FRL&quot;:
+<span class="nc" id="L812">                    return Mech.LOC_RARM;</span>
+                case &quot;LA&quot;:
+                case &quot;FLL&quot;:
+<span class="nc" id="L815">                    return Mech.LOC_LARM;</span>
+                case &quot;RL&quot;:
+                case &quot;RRL&quot;:
+<span class="nc" id="L818">                    return Mech.LOC_RLEG;</span>
+                case &quot;LL&quot;:
+                case &quot;RLL&quot;:
+<span class="nc" id="L821">                    return Mech.LOC_LLEG;</span>
+                default:
+<span class="nc" id="L823">                    return Mech.LOC_NONE;</span>
+            }
+        }
+        
+    }
+    
+    private static class BooleanAdapter extends XmlAdapter&lt;String, Boolean&gt; {
+
+        @Override
+        public String marshal(final Boolean v) throws Exception {
+<span class="nc" id="L833">            throw new UnsupportedOperationException(&quot;Not supported yet.&quot;);</span>
+        }
+
+        @Override
+        public Boolean unmarshal(final String v) throws Exception {
+<span class="nc" id="L838">            return Boolean.getBoolean(v);</span>
+        }
+        
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

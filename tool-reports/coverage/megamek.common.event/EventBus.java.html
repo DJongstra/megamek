@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>EventBus.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.event</a> &gt; <span class="el_source">EventBus.java</span></div><h1>EventBus.java</h1><pre class="source lang-java linenums">/*
+ * EventBus.java - Simple event bus implementation
+ *
+ * Copyright (C) 2016 MegaMek Team
+ *
+ * This file is part of MegaMek
+ *
+ * Some rights reserved. See megamek/docs/license.txt
+ */
+
+package megamek.common.event;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class EventBus {
+<span class="nc" id="L23">    private static final Object INSTANCE_LOCK = new Object[0];</span>
+    
+    private static EventBus instance;
+<span class="nc" id="L26">    private static final EventSorter EVENT_SORTER = new EventSorter();</span>
+    
+<span class="nc" id="L28">    private final Object REGISTER_LOCK = new Object[0];</span>
+    
+<span class="nc" id="L30">    private ConcurrentHashMap&lt;Object, List&lt;EventListener&gt;&gt; handlerMap = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="nc" id="L31">    private ConcurrentHashMap&lt;Class&lt;? extends MMEvent&gt;, List&lt;EventListener&gt;&gt; eventMap = new ConcurrentHashMap&lt;&gt;();</span>
+    // There is no Java-supplied IdentityHashSet ...
+<span class="nc" id="L33">    private Map&lt;Object, Object&gt; unregisterQueue = new IdentityHashMap&lt;&gt;();</span>
+    
+    public static EventBus getInstance() {
+<span class="nc" id="L36">        synchronized(INSTANCE_LOCK) {</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">            if(null == instance) {</span>
+<span class="nc" id="L38">                instance = new EventBus();</span>
+            }
+<span class="nc" id="L40">        }</span>
+<span class="nc" id="L41">        return instance;</span>
+    }
+    
+    public static void registerHandler(Object handler) {
+<span class="nc" id="L45">        getInstance().register(handler);</span>
+<span class="nc" id="L46">    }</span>
+    
+    public static void unregisterHandler(Object handler) {
+<span class="nc" id="L49">        getInstance().unregister(handler);</span>
+<span class="nc" id="L50">    }</span>
+    
+    public static boolean triggerEvent(MMEvent event) {
+<span class="nc" id="L53">        return getInstance().trigger(event);</span>
+    }
+    
+<span class="nc" id="L56">    public EventBus() {}</span>
+    
+    private List&lt;Class&lt;?&gt;&gt; getClasses(Class&lt;?&gt; leaf) {
+<span class="nc" id="L59">        List&lt;Class&lt;?&gt;&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">        while(null != leaf) {</span>
+<span class="nc" id="L61">            result.add(leaf);</span>
+<span class="nc" id="L62">            leaf = leaf.getSuperclass();</span>
+        }
+<span class="nc" id="L64">        return result;</span>
+    }
+    
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public void register(Object handler) {
+<span class="nc bnc" id="L69" title="All 2 branches missed.">        if(handlerMap.containsKey(handler)) {</span>
+<span class="nc" id="L70">            return;</span>
+        }
+        
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        for(Method method : handler.getClass().getMethods()) {</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">            for(Class&lt;?&gt; cls : getClasses(handler.getClass())) {</span>
+                try {
+<span class="nc" id="L76">                    Method realMethod = cls.getDeclaredMethod(method.getName(), method.getParameterTypes());</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">                    if(realMethod.isAnnotationPresent(Subscribe.class)) {</span>
+<span class="nc" id="L78">                        Class&lt;?&gt;[] parameterTypes = method.getParameterTypes();</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">                        if(parameterTypes.length != 1) {</span>
+<span class="nc" id="L80">                            throw new IllegalArgumentException(</span>
+<span class="nc" id="L81">                                String.format(&quot;@Subscribe annotation requires single-argument method; %s has %d&quot;, //$NON-NLS-1$</span>
+<span class="nc" id="L82">                                    method, parameterTypes.length));</span>
+                        }
+<span class="nc" id="L84">                        Class&lt;?&gt; eventType = parameterTypes[0];</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">                        if(!MMEvent.class.isAssignableFrom(eventType)) {</span>
+<span class="nc" id="L86">                            throw new IllegalArgumentException(</span>
+<span class="nc" id="L87">                                String.format(&quot;@Subscribe annotation of %s requires the argument type to be some subtype of MMEvent, not %s&quot;, //$NON-NLS-1$</span>
+                                    method, eventType));
+                        }
+<span class="nc" id="L90">                        internalRegister(handler, realMethod, (Class&lt;? extends MMEvent&gt;) eventType);</span>
+                    }
+<span class="nc" id="L92">                } catch (NoSuchMethodException e) {</span>
+                    // ignore
+<span class="nc" id="L94">                }</span>
+<span class="nc" id="L95">            }</span>
+        }
+<span class="nc" id="L97">    }</span>
+
+    private void internalRegister(Object handler, Method method, Class&lt;? extends MMEvent&gt; eventType) {
+<span class="nc" id="L100">        synchronized(REGISTER_LOCK) {</span>
+<span class="nc" id="L101">            EventListener listener = new EventListener(handler, method, eventType);</span>
+<span class="nc" id="L102">            List&lt;EventListener&gt; handlerListeners = handlerMap.get(handler);</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">            if(null == handlerListeners) {</span>
+<span class="nc" id="L104">                handlerListeners = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L105">                handlerMap.put(handler, handlerListeners);</span>
+            }
+<span class="nc" id="L107">            handlerListeners.add(listener);</span>
+<span class="nc" id="L108">            List&lt;EventListener&gt; eventListeners = eventMap.get(eventType);</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">            if(null == eventListeners) {</span>
+<span class="nc" id="L110">                eventListeners = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L111">                eventMap.put(eventType, eventListeners);</span>
+            }
+<span class="nc" id="L113">            eventListeners.add(listener);</span>
+<span class="nc" id="L114">        }</span>
+<span class="nc" id="L115">    }</span>
+    
+    public void unregister(Object handler) {
+<span class="nc" id="L118">        synchronized(REGISTER_LOCK) {</span>
+<span class="nc" id="L119">            unregisterQueue.put(handler, handler);</span>
+<span class="nc" id="L120">        }</span>
+<span class="nc" id="L121">    }</span>
+    
+    private void internalUnregister() {
+<span class="nc" id="L124">        synchronized(REGISTER_LOCK) {</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">            for(Object handler : unregisterQueue.keySet()) {</span>
+<span class="nc" id="L126">                List&lt;EventListener&gt; listenerList = handlerMap.remove(handler);</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">                if(null != listenerList) {</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">                    for(EventListener listener : listenerList) {</span>
+<span class="nc" id="L129">                        List&lt;EventListener&gt; eventListeners = eventMap.get(listener.getEventType());</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">                        if(null != eventListeners) {</span>
+<span class="nc" id="L131">                            eventListeners.remove(listener);</span>
+                        }
+<span class="nc" id="L133">                    }</span>
+                }
+<span class="nc" id="L135">            }</span>
+<span class="nc" id="L136">            unregisterQueue.clear();</span>
+<span class="nc" id="L137">        }</span>
+<span class="nc" id="L138">    }</span>
+    
+    /** @return true if the event was cancelled along the way */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public boolean trigger(MMEvent event) {
+<span class="nc" id="L143">        internalUnregister(); // Clean up unregister queue</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        for(Class&lt;?&gt; cls : getClasses(event.getClass())) {</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">            if(MMEvent.class.isAssignableFrom(cls)) {</span>
+                // Run through the triggers for each superclass up to MMEvent itself
+<span class="nc" id="L147">                internalTrigger((Class&lt;? extends MMEvent&gt;) cls, event);</span>
+            }
+<span class="nc" id="L149">        }</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        return event.isCancellable() ? event.isCancelled() : false;</span>
+    }
+    
+    private void internalTrigger(Class&lt;? extends MMEvent&gt; eventClass, MMEvent event) {
+<span class="nc" id="L154">        List&lt;EventListener&gt; eventListeners = eventMap.get(eventClass);</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        if(null != eventListeners) {</span>
+<span class="nc" id="L156">            Collections.sort(eventListeners, EVENT_SORTER);</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">            for(EventListener listener : eventListeners) {</span>
+<span class="nc" id="L158">                listener.trigger(event);</span>
+<span class="nc" id="L159">            }</span>
+        }
+<span class="nc" id="L161">    }</span>
+    
+    private static class EventSorter implements Comparator&lt;EventListener&gt; {
+        @Override
+        public int compare(EventListener el1, EventListener el2) {
+            // Highest to lowest, by priority
+<span class="nc" id="L167">            return Integer.compare(el2.getPriority(), el1.getPriority());</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

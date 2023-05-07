@@ -1,0 +1,545 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PathEnumerator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">PathEnumerator.java</span></div><h1>PathEnumerator.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.bot.princess;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import megamek.MegaMek;
+import megamek.client.bot.BotClient;
+import megamek.client.bot.princess.BotGeometry.ConvexBoardArea;
+import megamek.client.bot.princess.BotGeometry.CoordFacingCombo;
+import megamek.common.Aero;
+import megamek.common.BulldozerMovePath;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IAero;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.Targetable;
+import megamek.common.Terrains;
+import megamek.common.pathfinder.AbstractPathFinder.Filter;
+import megamek.common.pathfinder.AeroGroundPathFinder;
+import megamek.common.pathfinder.AeroGroundPathFinder.AeroGroundOffBoardFilter;
+import megamek.common.util.BoardUtilities;
+import megamek.common.pathfinder.AeroLowAltitudePathFinder;
+import megamek.common.pathfinder.AeroSpacePathFinder;
+import megamek.common.pathfinder.DestructionAwareDestinationPathfinder;
+import megamek.common.pathfinder.InfantryPathFinder;
+import megamek.common.pathfinder.LongestPathFinder;
+import megamek.common.pathfinder.NewtonianAerospacePathFinder;
+import megamek.common.pathfinder.ShortestPathFinder;
+import megamek.common.pathfinder.SpheroidPathFinder;
+
+/**
+ * This class contains logic that calculates and stores 
+ * a) possible paths that units in play can take, and
+ * b) their possible locations
+ *
+ */
+public class PathEnumerator {
+
+    private final Princess owner;
+    private final IGame game;
+<span class="nc" id="L65">    private final Map&lt;Integer, List&lt;MovePath&gt;&gt; unitPaths = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="nc" id="L66">    private final Map&lt;Integer, List&lt;BulldozerMovePath&gt;&gt; longRangePaths = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="nc" id="L67">    private final Map&lt;Integer, ConvexBoardArea&gt; unitMovableAreas = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="nc" id="L68">    private final Map&lt;Integer, Set&lt;CoordFacingCombo&gt;&gt; unitPotentialLocations = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="nc" id="L69">    private final Map&lt;Integer, CoordFacingCombo&gt; lastKnownLocations = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="nc" id="L71">    private AtomicBoolean mapHasBridges = null;</span>
+<span class="nc" id="L72">    private final Object BRIDGE_LOCK = new Object();</span>
+
+<span class="nc" id="L74">    public PathEnumerator(Princess owningPrincess, IGame game) {</span>
+<span class="nc" id="L75">        owner = owningPrincess;</span>
+<span class="nc" id="L76">        this.game = game;</span>
+<span class="nc" id="L77">    }</span>
+
+    private Princess getOwner() {
+<span class="nc" id="L80">        return owner;</span>
+    }
+
+    void clear() {
+<span class="nc" id="L84">        getOwner().getLogger().methodBegin();</span>
+        try {
+<span class="nc" id="L86">            getUnitPaths().clear();</span>
+<span class="nc" id="L87">            getUnitPotentialLocations().clear();</span>
+<span class="nc" id="L88">            getLastKnownLocations().clear();</span>
+<span class="nc" id="L89">            getLongRangePaths().clear();</span>
+        } finally {
+<span class="nc" id="L91">            getOwner().getLogger().methodEnd();</span>
+        }
+<span class="nc" id="L93">    }</span>
+
+    Coords getLastKnownCoords(Integer entityId) {
+<span class="nc" id="L96">        CoordFacingCombo ccr = getLastKnownLocations().get(entityId);</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (ccr == null) {</span>
+<span class="nc" id="L98">            return null;</span>
+        }
+<span class="nc" id="L100">        return ccr.getCoords();</span>
+    }
+
+    /**
+     * Returns all {@link Entity} objects located at the given {@link Coords}.
+     *
+     * @param location   The {@link Coords} to be searched for units.
+     * @param groundOnly Set TRUE to ignore {@link Aero} units.
+     * @return A {@link Set} of {@link Entity} objects at the given {@link Coords}.
+     */
+    public Set&lt;Integer&gt; getEntitiesWithLocation(Coords location, boolean groundOnly) {
+<span class="nc" id="L111">        Set&lt;Integer&gt; returnSet = new TreeSet&lt;&gt;();</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">        if (location == null) {</span>
+<span class="nc" id="L113">            return returnSet;</span>
+        }
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        for (Integer id : getUnitPotentialLocations().keySet()) {</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">            if (groundOnly</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">                    &amp;&amp; getGame().getEntity(id) != null</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">                    &amp;&amp; getGame().getEntity(id).isAero()) {</span>
+<span class="nc" id="L119">                continue;</span>
+            }
+
+<span class="nc bnc" id="L122" title="All 2 branches missed.">            for (int facing = 0; facing &lt; 5; facing++) {</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">                if (getUnitPotentialLocations().get(id).contains(CoordFacingCombo.createCoordFacingCombo</span>
+<span class="nc" id="L124">                        (location, facing))) {</span>
+<span class="nc" id="L125">                    returnSet.add(id);</span>
+<span class="nc" id="L126">                    break;</span>
+                }
+            }
+<span class="nc" id="L129">        }</span>
+<span class="nc" id="L130">        return returnSet;</span>
+    }
+
+    /**
+     * From a list of potential moves, make a potential ending location chart
+     */
+    void updateUnitLocations(Entity entity, List&lt;MovePath&gt; paths) {
+        // clear previous locations for this entity
+<span class="nc" id="L138">        getUnitPotentialLocations().remove(entity.getId());</span>
+        //
+<span class="nc" id="L140">        Set&lt;CoordFacingCombo&gt; toAdd = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        for (MovePath path : paths) {</span>
+<span class="nc" id="L142">            toAdd.add(CoordFacingCombo.createCoordFacingCombo(path));</span>
+<span class="nc" id="L143">        }</span>
+<span class="nc" id="L144">        getUnitPotentialLocations().put(entity.getId(), toAdd);</span>
+<span class="nc" id="L145">    }</span>
+
+    /**
+     * Calculate what to do on my turn.
+     * Has a retry mechanism for when the turn calculation fails due to concurrency issues
+     */
+    public synchronized void recalculateMovesFor(final Entity mover) {
+<span class="nc" id="L152">        int retryCount = 0;</span>
+<span class="nc" id="L153">        boolean success = false;</span>
+        
+<span class="nc bnc" id="L155" title="All 4 branches missed.">        while((retryCount &lt; BotClient.BOT_TURN_RETRY_COUNT) &amp;&amp; !success) {</span>
+<span class="nc" id="L156">            success = recalculateMovesForWorker(mover);</span>
+            
+<span class="nc bnc" id="L158" title="All 2 branches missed.">            if(!success) {</span>
+                // if we fail, take a nap for 500-1500 milliseconds, then try again
+                // as it may be due to some kind of thread-related issue
+                // limit number of retries so we're not endlessly spinning
+                // if we can't recover from the error
+<span class="nc" id="L163">                retryCount++;</span>
+                try {
+<span class="nc" id="L165">                    Thread.sleep(Compute.randomInt(1000) + 500);</span>
+<span class="nc" id="L166">                } catch (InterruptedException e) {</span>
+<span class="nc" id="L167">                    MegaMek.getLogger().error(e.toString());</span>
+<span class="nc" id="L168">                }</span>
+            }
+        }
+<span class="nc" id="L171">    }</span>
+    
+    /**
+     * calculates all moves for a given unit, keeping the shortest (or longest, depending) path to each facing/pair
+     */
+    private boolean recalculateMovesForWorker(final Entity mover) {
+        try {
+    
+            // Record it's current position.
+<span class="nc" id="L180">            getLastKnownLocations().put(</span>
+<span class="nc" id="L181">                    mover.getId(),</span>
+<span class="nc" id="L182">                    CoordFacingCombo.createCoordFacingCombo(</span>
+<span class="nc" id="L183">                            mover.getPosition(), mover.getFacing()));</span>
+
+            // Clear out any already calculated paths.
+<span class="nc" id="L186">            getUnitPaths().remove(mover.getId());</span>
+<span class="nc" id="L187">            getLongRangePaths().remove(mover.getId());</span>
+            
+            // if the entity does not exist in the game for any reason, let's cut out safely
+            // otherwise, we'll run into problems calculating paths
+<span class="nc bnc" id="L191" title="All 2 branches missed.">            if (getGame().getEntity(mover.getId()) == null) {</span>
+                // clean up orphaned entries in local storage
+<span class="nc" id="L193">                getUnitMovableAreas().remove(mover.getId());</span>
+<span class="nc" id="L194">                getUnitPotentialLocations().remove(mover.getId());</span>
+<span class="nc" id="L195">                getLastKnownLocations().remove(mover.getId());</span>
+<span class="nc" id="L196">                return true;</span>
+            }
+
+            // Start constructing the new list of paths.
+<span class="nc" id="L200">            List&lt;MovePath&gt; paths = new ArrayList&lt;&gt;();</span>
+            
+            // Aero movement on atmospheric ground maps
+            // currently only applies to a) conventional aircraft, b) aerotech units, c) lams in air mode
+<span class="nc bnc" id="L204" title="All 4 branches missed.">            if(mover.isAirborneAeroOnGroundMap() &amp;&amp; !((IAero) mover).isSpheroid()) {</span>
+<span class="nc" id="L205">                AeroGroundPathFinder apf = AeroGroundPathFinder.getInstance(getGame());</span>
+<span class="nc" id="L206">                MovePath startPath = new MovePath(getGame(), mover);</span>
+<span class="nc" id="L207">                apf.run(startPath);</span>
+<span class="nc" id="L208">                paths.addAll(apf.getAllComputedPathsUncategorized());</span>
+                
+                // Remove illegal paths.
+<span class="nc" id="L211">                Filter&lt;MovePath&gt; filter = new Filter&lt;MovePath&gt;() {</span>
+                    @Override
+                    public boolean shouldStay(MovePath movePath) {
+<span class="nc" id="L214">                        return isLegalAeroMove(movePath);</span>
+                    }
+                };
+                
+<span class="nc" id="L218">                this.owner.getLogger().debug(&quot;Unfiltered paths: &quot; + paths.size());</span>
+<span class="nc" id="L219">                paths = new ArrayList&lt;&gt;(filter.doFilter(paths));</span>
+<span class="nc" id="L220">                this.owner.getLogger().debug(&quot;Filtered out illegal paths: &quot; + paths.size());</span>
+<span class="nc" id="L221">                AeroGroundOffBoardFilter offBoardFilter = new AeroGroundOffBoardFilter();</span>
+<span class="nc" id="L222">                paths = new ArrayList&lt;&gt;(offBoardFilter.doFilter(paths));</span>
+                
+<span class="nc" id="L224">                MovePath offBoardPath = offBoardFilter.getShortestPath();</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">                if(offBoardPath != null) {</span>
+<span class="nc" id="L226">                    paths.add(offBoardFilter.getShortestPath());</span>
+                }
+                
+<span class="nc" id="L229">                this.owner.getLogger().debug(&quot;Filtered out offboard paths: &quot; + paths.size());</span>
+                
+                // This is code useful for debugging, but puts out a lot of log entries, which slows things down. 
+                // disabled
+                // logAllPaths(paths);
+            // this handles the case of the mover being an aerospace unit and &quot;advances space flight&quot; rules being on
+<span class="nc bnc" id="L235" title="All 4 branches missed.">            } else if(mover.isAero() &amp;&amp; game.useVectorMove()) {</span>
+<span class="nc" id="L236">                NewtonianAerospacePathFinder npf = NewtonianAerospacePathFinder.getInstance(getGame());</span>
+<span class="nc" id="L237">                npf.run(new MovePath(game, mover));</span>
+<span class="nc" id="L238">                paths.addAll(npf.getAllComputedPathsUncategorized());</span>
+            // this handles the case of the mover being an aerospace unit on a space map
+<span class="nc bnc" id="L240" title="All 4 branches missed.">            } else if(mover.isAero() &amp;&amp; game.getBoard().inSpace()) {</span>
+<span class="nc" id="L241">                AeroSpacePathFinder apf = AeroSpacePathFinder.getInstance(getGame());</span>
+<span class="nc" id="L242">                apf.run(new MovePath(game, mover));</span>
+<span class="nc" id="L243">                paths.addAll(apf.getAllComputedPathsUncategorized());</span>
+            // this handles the case of the mover being a winged aerospace unit on a low-atmo map
+<span class="nc bnc" id="L245" title="All 6 branches missed.">            } else if(mover.isAero() &amp;&amp; game.getBoard().inAtmosphere() &amp;&amp; !Compute.useSpheroidAtmosphere(game, mover)) {</span>
+<span class="nc" id="L246">                AeroLowAltitudePathFinder apf = AeroLowAltitudePathFinder.getInstance(getGame());</span>
+<span class="nc" id="L247">                apf.run(new MovePath(game, mover));</span>
+<span class="nc" id="L248">                paths.addAll(apf.getAllComputedPathsUncategorized());</span>
+            // this handles the case of the mover acting like a spheroid aerospace unit in an atmosphere
+<span class="nc bnc" id="L250" title="All 2 branches missed.">            } else if(Compute.useSpheroidAtmosphere(game, mover)) {</span>
+<span class="nc" id="L251">                SpheroidPathFinder spf = SpheroidPathFinder.getInstance(game);</span>
+<span class="nc" id="L252">                spf.run(new MovePath(game, mover));</span>
+<span class="nc" id="L253">                paths.addAll(spf.getAllComputedPathsUncategorized());</span>
+            // this handles the case of the mover being an infantry unit of some kind, that's not airborne.
+<span class="nc bnc" id="L255" title="All 4 branches missed.">            } else if (mover.hasETypeFlag(Entity.ETYPE_INFANTRY) &amp;&amp; !mover.isAirborne()) {</span>
+<span class="nc" id="L256">                InfantryPathFinder ipf = InfantryPathFinder.getInstance(getGame());</span>
+<span class="nc" id="L257">                ipf.run(new MovePath(game, mover));</span>
+<span class="nc" id="L258">                paths.addAll(ipf.getAllComputedPathsUncategorized());</span>
+                
+                // generate long-range paths appropriate to the bot's current state
+<span class="nc" id="L261">                updateLongRangePaths(mover);</span>
+            // this handles situations where a unit is high up in the air, but is not an aircraft
+            // such as an ejected pilot or a unit hot dropping from a dropship, as these cannot move
+<span class="nc bnc" id="L264" title="All 4 branches missed.">            } else if (!mover.isAero() &amp;&amp; mover.isAirborne()) {</span>
+<span class="nc" id="L265">                paths.add(new MovePath(game, mover));</span>
+            } else { // Non-Aero movement
+                // TODO: Will this cause Princess to never use MASC?
+<span class="nc" id="L268">                LongestPathFinder lpf = LongestPathFinder</span>
+<span class="nc" id="L269">                        .newInstanceOfLongestPath(mover.getRunMPwithoutMASC(),</span>
+<span class="nc" id="L270">                                MoveStepType.FORWARDS, getGame());</span>
+<span class="nc" id="L271">                lpf.run(new MovePath(game, mover));</span>
+<span class="nc" id="L272">                paths.addAll(lpf.getLongestComputedPaths());</span>
+
+                //add walking moves
+<span class="nc" id="L275">                lpf = LongestPathFinder.newInstanceOfLongestPath(</span>
+<span class="nc" id="L276">                        mover.getWalkMP(), MoveStepType.BACKWARDS, getGame());</span>
+<span class="nc" id="L277">                lpf.run(new MovePath(getGame(), mover));</span>
+<span class="nc" id="L278">                paths.addAll(lpf.getLongestComputedPaths());</span>
+
+                //add jumping moves
+<span class="nc bnc" id="L281" title="All 2 branches missed.">                if (mover.getJumpMP() &gt; 0) {</span>
+<span class="nc" id="L282">                    ShortestPathFinder spf = ShortestPathFinder</span>
+<span class="nc" id="L283">                            .newInstanceOfOneToAll(mover.getJumpMP(),</span>
+<span class="nc" id="L284">                                    MoveStepType.FORWARDS, getGame());</span>
+<span class="nc" id="L285">                    spf.run((new MovePath(game, mover))</span>
+<span class="nc" id="L286">                            .addStep(MoveStepType.START_JUMP));</span>
+<span class="nc" id="L287">                    paths.addAll(spf.getAllComputedPathsUncategorized());</span>
+                }
+
+<span class="nc bnc" id="L290" title="All 2 branches missed.">                for(MovePath path : paths) {</span>
+<span class="nc" id="L291">                    this.owner.getLogger().debug(path.toString());</span>
+<span class="nc" id="L292">                }</span>
+                
+                // Try climbing over obstacles and onto bridges
+<span class="nc" id="L295">                adjustPathsForBridges(paths);</span>
+
+                //filter those paths that end in illegal state
+<span class="nc" id="L298">                Filter&lt;MovePath&gt; filter = new Filter&lt;MovePath&gt;() {</span>
+                    @Override
+                    public boolean shouldStay(MovePath movePath) {
+<span class="nc" id="L301">                        boolean isLegal = movePath.isMoveLegal();</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">                        return isLegal</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">                                &amp;&amp; (Compute.stackingViolation(getGame(),</span>
+<span class="nc" id="L304">                                        mover.getId(),</span>
+<span class="nc" id="L305">                                        movePath.getFinalCoords()) == null);</span>
+                    }
+                };
+<span class="nc" id="L308">                paths = new ArrayList&lt;&gt;(filter.doFilter(paths));</span>
+                
+                // generate long-range paths appropriate to the bot's current state
+<span class="nc" id="L311">                updateLongRangePaths(mover);</span>
+            }
+
+            // Update our locations and add the computed paths.
+<span class="nc" id="L315">            updateUnitLocations(mover, paths);</span>
+<span class="nc" id="L316">            getUnitPaths().put(mover.getId(), paths);</span>
+
+            // calculate bounding area for move
+<span class="nc" id="L319">            ConvexBoardArea myArea = new ConvexBoardArea();</span>
+<span class="nc" id="L320">            myArea.addCoordFacingCombos(getUnitPotentialLocations().get(</span>
+<span class="nc" id="L321">                    mover.getId()).iterator(), owner.getBoard());</span>
+<span class="nc" id="L322">            getUnitMovableAreas().put(mover.getId(), myArea);</span>
+
+<span class="nc" id="L324">            return true;</span>
+<span class="nc" id="L325">        } catch(Exception e) {</span>
+<span class="nc" id="L326">            MegaMek.getLogger().error(e.toString());</span>
+<span class="nc" id="L327">            return false;</span>
+        }
+    }
+    
+    /**
+     * Worker function that updates the long-range path collection for a particular entity
+     */
+    private void updateLongRangePaths(final Entity mover) {
+        // don't bother doing this if the entity can't move anyway
+        // or if it's not one of mine
+        // or if I've already moved it
+<span class="nc bnc" id="L338" title="All 2 branches missed.">        if((mover.getWalkMP() == 0) ||</span>
+<span class="nc bnc" id="L339" title="All 4 branches missed.">                ((getOwner().getLocalPlayer() != null) &amp;&amp; (mover.getOwnerId() != getOwner().getLocalPlayer().getId())) || </span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">                !mover.isSelectableThisTurn()) {</span>
+<span class="nc" id="L341">            return;</span>
+        }
+        
+<span class="nc" id="L344">        DestructionAwareDestinationPathfinder dpf = new DestructionAwareDestinationPathfinder();</span>
+        
+        // where are we going?
+<span class="nc" id="L347">        Set&lt;Coords&gt; destinations = new HashSet&lt;Coords&gt;();</span>
+        // if we're going to an edge or can't see anyone, generate long-range paths to the opposite edge
+<span class="nc bnc" id="L349" title="All 3 branches missed.">        switch(getOwner().getUnitBehaviorTracker().getBehaviorType(mover, getOwner())) {</span>
+            case ForcedWithdrawal:
+            case MoveToDestination:
+<span class="nc" id="L352">                destinations = getOwner().getClusterTracker().getDestinationCoords(mover, getOwner().getHomeEdge(mover), true);</span>
+<span class="nc" id="L353">                break;</span>
+            case MoveToContact:
+<span class="nc" id="L355">                CardinalEdge oppositeEdge = CardinalEdge.getOppositeEdge(BoardUtilities.determineOppositeEdge(mover));</span>
+<span class="nc" id="L356">                destinations = getOwner().getClusterTracker().getDestinationCoords(mover, oppositeEdge, true);</span>
+<span class="nc" id="L357">                break;</span>
+            default:
+<span class="nc bnc" id="L359" title="All 2 branches missed.">                for(Targetable target : FireControl.getAllTargetableEnemyEntities(getOwner().getLocalPlayer(), getGame(), getOwner().getFireControlState())) {</span>
+                    // don't consider crippled units as valid long-range pathfinding targets 
+<span class="nc bnc" id="L361" title="All 4 branches missed.">                    if((target.getTargetType() == Targetable.TYPE_ENTITY) &amp;&amp; ((Entity) target).isCrippled()) {</span>
+<span class="nc" id="L362">                        continue;</span>
+                    }
+                    
+<span class="nc" id="L365">                    destinations.add(target.getPosition());</span>
+                    // we can easily shoot at an entity from right next to it as well
+<span class="nc" id="L367">                    destinations.addAll(target.getPosition().allAdjacent());</span>
+<span class="nc" id="L368">                }</span>
+                break;
+        }
+        
+<span class="nc bnc" id="L372" title="All 2 branches missed.">        if(!getLongRangePaths().containsKey(mover.getId())) {</span>
+<span class="nc" id="L373">            getLongRangePaths().put(mover.getId(), new ArrayList&lt;&gt;());</span>
+        }
+        
+        // calculate a ground-bound long range path
+<span class="nc" id="L377">        BulldozerMovePath bmp = dpf.findPathToCoords(mover, destinations, owner.getClusterTracker());</span>
+        
+<span class="nc bnc" id="L379" title="All 2 branches missed.">        if(bmp != null) {</span>
+<span class="nc" id="L380">            getLongRangePaths().get(mover.getId()).add(bmp);</span>
+        }
+        
+        // calculate a jumping long range path
+<span class="nc" id="L384">        BulldozerMovePath jmp = dpf.findPathToCoords(mover, destinations, true, owner.getClusterTracker()); </span>
+<span class="nc bnc" id="L385" title="All 2 branches missed.">        if(jmp != null) {</span>
+<span class="nc" id="L386">            getLongRangePaths().get(mover.getId()).add(jmp);</span>
+        }
+<span class="nc" id="L388">    }</span>
+    
+    private void adjustPathsForBridges(List&lt;MovePath&gt; paths) {
+<span class="nc bnc" id="L391" title="All 2 branches missed.">        if (!worryAboutBridges()) {</span>
+<span class="nc" id="L392">            return;</span>
+        }
+
+<span class="nc bnc" id="L395" title="All 2 branches missed.">        for (MovePath path : paths) {</span>
+<span class="nc" id="L396">            adjustPathForBridge(path);</span>
+<span class="nc" id="L397">        }</span>
+<span class="nc" id="L398">    }</span>
+
+    private void adjustPathForBridge(MovePath path) {
+<span class="nc" id="L401">        boolean needsAdjust = false;</span>
+<span class="nc bnc" id="L402" title="All 2 branches missed.">        for (Coords c : path.getCoordsSet()) {</span>
+<span class="nc" id="L403">            IHex hex = getGame().getBoard().getHex(c);</span>
+<span class="nc bnc" id="L404" title="All 4 branches missed.">            if ((hex != null) &amp;&amp; hex.containsTerrain(Terrains.BRIDGE)) {</span>
+<span class="nc" id="L405">                if (getGame().getBoard().getBuildingAt(c).getCurrentCF(c) &gt;=</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">                    path.getEntity().getWeight()) {</span>
+<span class="nc" id="L407">                    needsAdjust = true;</span>
+<span class="nc" id="L408">                    break;</span>
+                } else {
+<span class="nc" id="L410">                    needsAdjust = false;</span>
+<span class="nc" id="L411">                    break;</span>
+                }
+            }
+<span class="nc" id="L414">        }</span>
+<span class="nc bnc" id="L415" title="All 2 branches missed.">        if (!needsAdjust) {</span>
+<span class="nc" id="L416">            return;</span>
+        }
+<span class="nc" id="L418">        MovePath adjusted = new MovePath(getGame(), path.getEntity());</span>
+<span class="nc" id="L419">        adjusted.addStep(MoveStepType.CLIMB_MODE_ON);</span>
+<span class="nc" id="L420">        adjusted.addSteps(path.getStepVector(), true);</span>
+<span class="nc" id="L421">        adjusted.addStep(MoveStepType.CLIMB_MODE_OFF);</span>
+<span class="nc" id="L422">        path.replaceSteps(adjusted.getStepVector());</span>
+<span class="nc" id="L423">    }</span>
+
+//    public void debugPrintContents() {
+//        final String METHOD_NAME = &quot;debugPrintContents()&quot;;
+//        getOwner().getLogger().methodBegin();
+//        try {
+//            for (Integer id : getUnitPaths().keySet()) {
+//                Entity entity = getGame().getEntity(id);
+//                List&lt;MovePath&gt; paths = getUnitPaths().get(id);
+//                int pathsSize = paths.size();
+//                String msg = &quot;Unit &quot; + entity.getDisplayName() + &quot; has &quot; + pathsSize + &quot; paths and &quot; +
+//                             getUnitPotentialLocations().get(id).size() + &quot; ending locations.&quot;;
+//                getOwner().log(getClass(), METHOD_NAME, msg);
+//            }
+//        } finally {
+//            getOwner().getLogger().methodEnd();
+//        }
+//    }
+
+    /**
+     * Returns whether a {@link MovePath} is legit for an {@link Aero} unit isMoveLegal() seems  to disagree with me
+     * on some aero moves, but I can't exactly figure out why, and who is right. So, I'm just going to put a list of
+     * exceptions here instead of possibly screwing up {@link MovePath#isMoveLegal()} for everyone.  I think it has
+     * to do with flyoff or return at the end of a move.  This also affects cliptopossible
+     *
+     * @param path The path to be examined.
+     * @return TRUE if the path is legal.
+     */
+    public boolean isLegalAeroMove(MovePath path) {
+        // no non-aeros allowed
+<span class="nc bnc" id="L453" title="All 2 branches missed.">        if (!path.getEntity().isAero()) {</span>
+<span class="nc" id="L454">            return true;</span>
+        }
+
+<span class="nc bnc" id="L457" title="All 2 branches missed.">        if (!path.isMoveLegal()) {</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">            if (path.getLastStep() == null) {</span>
+<span class="nc" id="L459">                LogAeroMoveLegalityEvaluation(&quot;illegal move with null last step&quot;, path);</span>
+<span class="nc" id="L460">                return false;</span>
+            }
+<span class="nc bnc" id="L462" title="All 2 branches missed.">            if ((path.getLastStep().getType() != MoveStepType.RETURN) &amp;&amp;</span>
+<span class="nc bnc" id="L463" title="All 2 branches missed.">                (path.getLastStep().getType() != MoveStepType.OFF)) {</span>
+<span class="nc" id="L464">                LogAeroMoveLegalityEvaluation(&quot;illegal move without return/off at the end&quot;, path);</span>
+<span class="nc" id="L465">                return false;</span>
+            }
+        }
+
+        // we have to have used all velocity by the last step
+<span class="nc bnc" id="L470" title="All 4 branches missed.">        if ((path.getLastStep() != null) &amp;&amp; (path.getLastStep().getVelocityLeft() != 0)) {</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">            if ((path.getLastStep().getType() != MoveStepType.RETURN) &amp;&amp;</span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">                (path.getLastStep().getType() != MoveStepType.OFF)) {</span>
+<span class="nc" id="L473">                LogAeroMoveLegalityEvaluation(&quot;not all velocity used without return/off at the end&quot;, path);</span>
+<span class="nc" id="L474">                return false;</span>
+            }
+        }
+<span class="nc" id="L477">        return true;</span>
+    }
+    
+    private void LogAeroMoveLegalityEvaluation(String whyNot, MovePath path) {
+<span class="nc" id="L481">        this.getOwner().getLogger().debug(path.length() + &quot;:&quot; + path.toString() + &quot;:&quot; + whyNot);</span>
+<span class="nc" id="L482">    }</span>
+
+    protected Map&lt;Integer, List&lt;BulldozerMovePath&gt;&gt; getLongRangePaths() {
+<span class="nc" id="L485">        return longRangePaths;</span>
+    }
+    
+    protected Map&lt;Integer, List&lt;MovePath&gt;&gt; getUnitPaths() {
+<span class="nc" id="L489">        return unitPaths;</span>
+    }
+
+    public Map&lt;Integer, ConvexBoardArea&gt; getUnitMovableAreas() {
+<span class="nc" id="L493">        return unitMovableAreas;</span>
+    }
+
+    protected Map&lt;Integer, Set&lt;CoordFacingCombo&gt;&gt; getUnitPotentialLocations() {
+<span class="nc" id="L497">        return unitPotentialLocations;</span>
+    }
+
+    protected Map&lt;Integer, CoordFacingCombo&gt; getLastKnownLocations() {
+<span class="nc" id="L501">        return lastKnownLocations;</span>
+    }
+
+    protected IGame getGame() {
+<span class="nc" id="L505">        return game;</span>
+    }
+
+    private boolean worryAboutBridges() {
+<span class="nc bnc" id="L509" title="All 2 branches missed.">        if (mapHasBridges != null) {</span>
+<span class="nc" id="L510">            return mapHasBridges.get();</span>
+        }
+
+<span class="nc" id="L513">        synchronized (BRIDGE_LOCK) {</span>
+<span class="nc bnc" id="L514" title="All 2 branches missed.">            if (mapHasBridges != null) {</span>
+<span class="nc" id="L515">                return mapHasBridges.get();</span>
+            }
+
+<span class="nc" id="L518">            mapHasBridges = new AtomicBoolean(getGame().getBoard()</span>
+<span class="nc" id="L519">                                                       .containsBridges());</span>
+<span class="nc" id="L520">        }</span>
+
+<span class="nc" id="L522">        return mapHasBridges.get();</span>
+    }
+    
+    /**
+     * Logs all the passed-in paths.
+     */
+    private void logAllPaths(List&lt;MovePath&gt; paths) {
+<span class="nc" id="L529">        HashMap&lt;Integer, Integer&gt; pathLengths = new HashMap&lt;Integer, Integer&gt;();</span>
+<span class="nc bnc" id="L530" title="All 2 branches missed.">        for(MovePath path : paths) {</span>
+<span class="nc bnc" id="L531" title="All 2 branches missed.">            if(!pathLengths.containsKey(path.length())) {</span>
+<span class="nc" id="L532">                pathLengths.put(path.length(), 0);</span>
+            }
+<span class="nc" id="L534">            Integer lengthCount = pathLengths.get(path.length());</span>
+<span class="nc" id="L535">            pathLengths.put(path.length(), lengthCount + 1);</span>
+            
+<span class="nc" id="L537">            this.owner.getLogger().debug(path.toString());</span>
+<span class="nc" id="L538">        }</span>
+        
+<span class="nc bnc" id="L540" title="All 2 branches missed.">        for(Integer length : pathLengths.keySet()) {</span>
+<span class="nc" id="L541">            this.owner.getLogger().debug(&quot;Paths of length &quot; + length + &quot;: &quot; + pathLengths.get(length));</span>
+<span class="nc" id="L542">        }</span>
+<span class="nc" id="L543">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

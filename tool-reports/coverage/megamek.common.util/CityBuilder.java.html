@@ -1,0 +1,528 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CityBuilder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.util</a> &gt; <span class="el_source">CityBuilder.java</span></div><h1>CityBuilder.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.common.util;
+
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.Vector;
+
+import megamek.common.Building;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.IBoard;
+import megamek.common.IHex;
+import megamek.common.ITerrain;
+import megamek.common.ITerrainFactory;
+import megamek.common.MapSettings;
+import megamek.common.Terrains;
+
+/**
+ * @author Torren + Coelocanth
+ */
+public class CityBuilder {
+
+    static final int N = 0;
+    static final int NE = 1;
+    static final int SE = 2;
+    static final int S = 3;
+    static final int SW = 4;
+    static final int NW = 5;
+    // Had to off set West and East as MM doesn't use them for hexes.
+    static final int W = 6;
+    static final int E = 7;
+
+    private MapSettings mapSettings;
+    private IBoard board;
+    private HashSet&lt;Coords&gt; cityPlan;
+
+    public CityBuilder(MapSettings mapSettings, IBoard board) {
+<span class="nc" id="L52">        super();</span>
+        // Auto-generated constructor stub
+
+<span class="nc" id="L55">        this.mapSettings = mapSettings;</span>
+<span class="nc" id="L56">        this.board = board;</span>
+<span class="nc" id="L57">    }</span>
+
+    /**
+     * This function will generate a city with a grid lay out. 4 rounds running
+     * North and South and 4 roads running east west
+     * 
+     * @author Torren (Jason Tighe)
+     * @return
+     */
+    public ArrayList&lt;BuildingTemplate&gt; generateCity(boolean genericRoad) {
+
+<span class="nc" id="L68">        int width = mapSettings.getBoardWidth();</span>
+<span class="nc" id="L69">        int height = mapSettings.getBoardHeight();</span>
+<span class="nc" id="L70">        int roads = mapSettings.getCityBlocks();</span>
+<span class="nc" id="L71">        roads = (roads * Math.min(width, height)) / 16; // scale for bigger maps</span>
+<span class="nc" id="L72">        String cityType = mapSettings.getCityType();</span>
+
+<span class="nc" id="L74">        cityPlan = new HashSet&lt;Coords&gt;();</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        if (genericRoad) {</span>
+<span class="nc" id="L76">            addGenericRoad();</span>
+        }
+
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (cityType.equalsIgnoreCase(&quot;HUB&quot;))</span>
+<span class="nc" id="L80">            buildHubCity(width, height, roads);</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        else if (cityType.equalsIgnoreCase(&quot;METRO&quot;))</span>
+<span class="nc" id="L82">            buildMetroCity(width, height);</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        else if (cityType.equalsIgnoreCase(&quot;GRID&quot;))</span>
+<span class="nc" id="L84">            buildGridCity(width, height, (roads + 5) / 6);</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        else if (cityType.equalsIgnoreCase(&quot;TOWN&quot;))</span>
+<span class="nc" id="L86">            return buildTown(width, height, roads, mapSettings.getTownSize());</span>
+        else
+<span class="nc" id="L88">            return new ArrayList&lt;BuildingTemplate&gt;();</span>
+
+<span class="nc" id="L90">        return placeBuildings(0);</span>
+    }
+
+    public ArrayList&lt;BuildingTemplate&gt; placeBuildings(int radius) {
+<span class="nc" id="L94">        int width = mapSettings.getBoardWidth();</span>
+<span class="nc" id="L95">        int height = mapSettings.getBoardHeight();</span>
+<span class="nc" id="L96">        ArrayList&lt;BuildingTemplate&gt; buildingList = new ArrayList&lt;BuildingTemplate&gt;();</span>
+<span class="nc" id="L97">        HashSet&lt;Coords&gt; buildingUsed = new HashSet&lt;Coords&gt;();</span>
+
+<span class="nc" id="L99">        ArrayList&lt;Coords&gt; coordList = new ArrayList&lt;Coords&gt;();</span>
+
+<span class="nc" id="L101">        Coords centre = new Coords(width / 2, height / 2);</span>
+<span class="nc" id="L102">        double falloff = (double) mapSettings.getCityDensity()</span>
+                / (double) (radius * radius);
+
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        for (int x = 0; x &lt; width; x++) {</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">            for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc" id="L107">                Coords coord = new Coords(x, y);</span>
+
+<span class="nc bnc" id="L109" title="All 4 branches missed.">                if (cityPlan.contains(coord) || buildingUsed.contains(coord)</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">                        || !board.contains(coord)</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">                        || !isHexBuildable(board.getHex(coord))) {</span>
+<span class="nc" id="L112">                    continue;</span>
+                }
+
+<span class="nc" id="L115">                int localdensity = mapSettings.getCityDensity();</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">                if (radius &gt; 0) {</span>
+<span class="nc" id="L117">                    int distance = coord.distance(centre);</span>
+<span class="nc" id="L118">                    localdensity = (int) (mapSettings.getCityDensity() - (falloff</span>
+                            * distance * distance));
+                }
+
+<span class="nc bnc" id="L122" title="All 2 branches missed.">                if (Compute.randomInt(100) &gt; localdensity) {</span>
+<span class="nc" id="L123">                    continue; // empty lot</span>
+                }
+<span class="nc" id="L125">                coordList = new ArrayList&lt;Coords&gt;();</span>
+<span class="nc" id="L126">                coordList.add(coord);</span>
+<span class="nc" id="L127">                buildingUsed.add(coord);</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">                while (Compute.randomInt(100) &lt; localdensity) {</span>
+                    // try to make a bigger building!
+<span class="nc" id="L130">                    int dir = Compute.randomInt(6);</span>
+<span class="nc" id="L131">                    Coords next = coord.translated(dir);</span>
+<span class="nc bnc" id="L132" title="All 4 branches missed.">                    if (cityPlan.contains(next) || buildingUsed.contains(next)</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">                            || !board.contains(next)</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">                            || !isHexBuildable(board.getHex(next))) {</span>
+<span class="nc" id="L135">                        break; // oh well, cant expand here</span>
+                    }
+<span class="nc" id="L137">                    coordList.add(next);</span>
+<span class="nc" id="L138">                    buildingUsed.add(next);</span>
+<span class="nc" id="L139">                }</span>
+
+<span class="nc" id="L141">                int floors = mapSettings.getCityMaxFloors()</span>
+<span class="nc" id="L142">                        - mapSettings.getCityMinFloors();</span>
+
+<span class="nc bnc" id="L144" title="All 2 branches missed.">                if (floors &lt;= 0)</span>
+<span class="nc" id="L145">                    floors = mapSettings.getCityMinFloors();</span>
+                else
+<span class="nc" id="L147">                    floors = Compute.randomInt(floors + 1)</span>
+<span class="nc" id="L148">                            + mapSettings.getCityMinFloors();</span>
+
+<span class="nc" id="L150">                int totalCF = mapSettings.getCityMaxCF()</span>
+<span class="nc" id="L151">                        - mapSettings.getCityMinCF();</span>
+
+<span class="nc bnc" id="L153" title="All 2 branches missed.">                if (totalCF &lt;= 0)</span>
+<span class="nc" id="L154">                    totalCF = mapSettings.getCityMinCF();</span>
+                else
+<span class="nc" id="L156">                    totalCF = Compute.randomInt(totalCF + 1)</span>
+<span class="nc" id="L157">                            + mapSettings.getCityMinCF();</span>
+
+<span class="nc" id="L159">                int type = getBuildingTypeByCF(totalCF);</span>
+
+<span class="nc" id="L161">                buildingList.add(new BuildingTemplate(type, coordList, totalCF,</span>
+                        floors, -1));
+            }
+        }
+
+<span class="nc" id="L166">        return buildingList;</span>
+    }
+
+    private void buildGridCity(int maxX, int maxY, int roads) {
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        for (int y = 0; y &lt; roads; y++) {</span>
+<span class="nc" id="L171">            int startY = Compute.randomInt(maxY / roads) + ((y * maxY) / roads);</span>
+            // int start = Compute.randomInt(2);
+<span class="nc" id="L173">            Coords coords = new Coords(-1, startY);</span>
+<span class="nc" id="L174">            int roadStyle = Compute.randomInt(2) + 1;</span>
+<span class="nc" id="L175">            int dir = Compute.randomInt(2) + NE;</span>
+<span class="nc" id="L176">            buildStraightRoad(coords, dir, roadStyle);</span>
+<span class="nc" id="L177">            startY = Compute.randomInt(maxY / roads) + ((y * maxY) / roads);</span>
+<span class="nc" id="L178">            coords = new Coords(maxX, startY);</span>
+<span class="nc" id="L179">            dir = Compute.randomInt(2) + SW;</span>
+<span class="nc" id="L180">            buildStraightRoad(coords, dir, roadStyle);</span>
+        }
+
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        for (int x = 0; x &lt; roads; x++) {</span>
+<span class="nc" id="L184">            int startX = Compute.randomInt(maxX / roads) + (x * (maxX / roads));</span>
+<span class="nc" id="L185">            Coords coords = new Coords(startX, -1);</span>
+<span class="nc" id="L186">            int roadStyle = Compute.randomInt(2) + 1;</span>
+<span class="nc" id="L187">            buildStraightRoad(coords, S, roadStyle);</span>
+        }
+<span class="nc" id="L189">    }</span>
+
+    private ArrayList&lt;BuildingTemplate&gt; buildTown(int maxX, int maxY,
+            int roads, int size) {
+<span class="nc" id="L193">        buildHubCity(maxX, maxY, roads * size / 100);</span>
+<span class="nc" id="L194">        return placeBuildings(Math.min(maxX, maxY) * size / 200);</span>
+    }
+
+    private void buildHubCity(int maxX, int maxY, int roads) {
+<span class="nc" id="L198">        int midX = maxX / 2;</span>
+<span class="nc" id="L199">        int midY = maxY / 2;</span>
+
+<span class="nc" id="L201">        Vector&lt;Integer&gt; directions = new Vector&lt;Integer&gt;(8);</span>
+
+<span class="nc" id="L203">        directions.add(N);</span>
+<span class="nc" id="L204">        directions.add(NE);</span>
+<span class="nc" id="L205">        directions.add(SE);</span>
+<span class="nc" id="L206">        directions.add(S);</span>
+<span class="nc" id="L207">        directions.add(SW);</span>
+<span class="nc" id="L208">        directions.add(NW);</span>
+<span class="nc" id="L209">        directions.add(E);</span>
+<span class="nc" id="L210">        directions.add(W);</span>
+
+<span class="nc" id="L212">        roads = Math.max(roads, 4);</span>
+<span class="nc" id="L213">        cityPlan.add(new Coords(midX, midY));</span>
+
+<span class="nc" id="L215">        int x = 0;</span>
+<span class="nc" id="L216">        int y = 0;</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        for (int dir = 0; dir &lt; roads; dir++) {</span>
+<span class="nc" id="L218">            int baseDirection = -1;</span>
+<span class="nc" id="L219">            int roadStyle = Compute.randomInt(2) + 1;</span>
+
+<span class="nc bnc" id="L221" title="All 2 branches missed.">            if (dir &lt; 8) {</span>
+<span class="nc" id="L222">                x = midX;</span>
+<span class="nc" id="L223">                y = midY;</span>
+<span class="nc" id="L224">                baseDirection = directions.remove(Compute.randomInt(directions</span>
+<span class="nc" id="L225">                        .size()));</span>
+            } else {
+<span class="nc bnc" id="L227" title="All 4 branches missed.">                switch (Compute.randomInt(4)) {</span>
+                    case 1:
+<span class="nc" id="L229">                        x = Compute.randomInt(maxX);</span>
+<span class="nc" id="L230">                        y = -1;</span>
+<span class="nc" id="L231">                        baseDirection = S;</span>
+<span class="nc" id="L232">                        break;</span>
+                    case 2:
+<span class="nc" id="L234">                        x = Compute.randomInt(maxX);</span>
+<span class="nc" id="L235">                        y = maxY;</span>
+<span class="nc" id="L236">                        baseDirection = N;</span>
+<span class="nc" id="L237">                        break;</span>
+                    case 3:
+<span class="nc" id="L239">                        x = -1;</span>
+<span class="nc" id="L240">                        y = Compute.randomInt(maxY);</span>
+<span class="nc" id="L241">                        baseDirection = NE + Compute.randomInt(2);</span>
+<span class="nc" id="L242">                        break;</span>
+                    default:
+<span class="nc" id="L244">                        x = maxX;</span>
+<span class="nc" id="L245">                        y = Compute.randomInt(maxY);</span>
+<span class="nc" id="L246">                        baseDirection = SW + Compute.randomInt(2);</span>
+                        break;
+                }
+            }
+<span class="nc" id="L250">            Coords coords = new Coords(x, y);</span>
+
+<span class="nc" id="L252">            int nextDirection = baseDirection;</span>
+<span class="nc bnc" id="L253" title="All 6 branches missed.">            while (coords.getX() &gt;= -1 &amp;&amp; coords.getX() &lt;= maxX &amp;&amp; coords.getY() &gt;= -1</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">                   &amp;&amp; coords.getY() &lt;= maxY) {</span>
+<span class="nc" id="L255">                int choice = Compute.randomInt(10);</span>
+
+<span class="nc bnc" id="L257" title="All 2 branches missed.">                if (board.contains(coords)) {</span>
+                    // don't change direction offboard
+<span class="nc bnc" id="L259" title="All 2 branches missed.">                    if (choice &lt; 4) {</span>
+                        // keep going
+<span class="nc bnc" id="L261" title="All 2 branches missed.">                    } else if (choice &lt; 6) {</span>
+                        // turn left
+<span class="nc" id="L263">                        nextDirection = (5 + nextDirection) % 6;</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">                    } else if (choice &lt; 8) {</span>
+                        // turn right
+<span class="nc" id="L266">                        nextDirection = (1 + nextDirection) % 6;</span>
+                    } else {
+                        // turn towards base direction
+<span class="nc" id="L269">                        nextDirection = baseDirection;</span>
+                    }
+                }
+
+<span class="nc" id="L273">                coords = extendRoad(coords, nextDirection, roadStyle);</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">                if (coords == null</span>
+<span class="nc bnc" id="L275" title="All 6 branches missed.">                        || (cityPlan.contains(coords) &amp;&amp; x != midX &amp;&amp; y != midY)) {</span>
+<span class="nc" id="L276">                    break;</span>
+                }
+<span class="nc" id="L278">                cityPlan.add(coords);</span>
+
+<span class="nc" id="L280">                x = coords.getX();</span>
+<span class="nc" id="L281">                y = coords.getY();</span>
+<span class="nc" id="L282">            }</span>
+
+        }
+<span class="nc" id="L285">    }</span>
+
+    private void buildMetroCity(int maxX, int maxY) {
+<span class="nc" id="L288">        int midX = maxX / 2;</span>
+<span class="nc" id="L289">        int midY = maxY / 2;</span>
+        // have the city hub be the mid point with all the hexes around it
+        // cleared out
+<span class="nc" id="L292">        Coords mid = new Coords(midX, midY);</span>
+<span class="nc" id="L293">        cityPlan.add(mid);</span>
+<span class="nc" id="L294">        cityPlan.addAll(mid.allAdjacent());</span>
+
+        // first east west road
+<span class="nc" id="L297">        Coords coords = new Coords(-1, midY / 2);</span>
+<span class="nc" id="L298">        buildStraightRoad(coords, E, 1);</span>
+
+        // second east west road
+<span class="nc" id="L301">        coords = new Coords(-1, midY + (midY / 2));</span>
+<span class="nc" id="L302">        buildStraightRoad(coords, E, 1);</span>
+
+        // First North South Road
+<span class="nc" id="L305">        coords = new Coords(midX / 2, -1);</span>
+<span class="nc" id="L306">        buildStraightRoad(coords, S, 1);</span>
+
+        // second North South Road
+<span class="nc" id="L309">        coords = new Coords(midX + (midX / 2), -1);</span>
+<span class="nc" id="L310">        buildStraightRoad(coords, S, 1);</span>
+
+<span class="nc bnc" id="L312" title="All 2 branches missed.">        for (int dir = 0; dir &lt; 8; dir++) {</span>
+<span class="nc" id="L313">            coords = new Coords(midX, midY);</span>
+<span class="nc" id="L314">            buildStraightRoad(coords, dir, 2);</span>
+
+        }
+<span class="nc" id="L317">    }</span>
+
+    private Coords selectNextGrid(int dir, Coords coords) {
+<span class="nc" id="L320">        int x = coords.xInDir(dir);</span>
+<span class="nc" id="L321">        int y = coords.yInDir(dir);</span>
+
+<span class="nc bnc" id="L323" title="All 2 branches missed.">        if (dir == E) {</span>
+<span class="nc" id="L324">            x++;</span>
+        }
+
+<span class="nc bnc" id="L327" title="All 2 branches missed.">        if (dir == W) {</span>
+<span class="nc" id="L328">            x--;</span>
+        }
+
+<span class="nc" id="L331">        return new Coords(x, y);</span>
+    }
+
+    /**
+     * @param hex
+     * @return true if it is reasonable to build on this hex
+     */
+    private boolean isHexBuildable(IHex hex) {
+<span class="nc bnc" id="L339" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.WATER)</span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">                || hex.containsTerrain(Terrains.IMPASSABLE)</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">                || hex.containsTerrain(Terrains.MAGMA)</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">                || hex.containsTerrain(Terrains.SWAMP)) {</span>
+<span class="nc" id="L343">            return false; // uneconomic to build here</span>
+        }
+<span class="nc bnc" id="L345" title="All 2 branches missed.">        if (hex.getLevel() &gt;= 4) {</span>
+<span class="nc" id="L346">            return false; // don't build on mountaintops (aesthetics)</span>
+        }
+<span class="nc" id="L348">        return true;</span>
+    }
+
+    /**
+     * @param hex
+     * @return true if the hex needs a bridge to cross
+     */
+    private boolean hexNeedsBridge(IHex hex) {
+<span class="nc bnc" id="L356" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.ROAD)</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">                || hex.containsTerrain(Terrains.BRIDGE))</span>
+<span class="nc" id="L358">            return false;</span>
+<span class="nc bnc" id="L359" title="All 2 branches missed.">        return (hex.containsTerrain(Terrains.WATER) || hex</span>
+<span class="nc bnc" id="L360" title="All 2 branches missed.">                .containsTerrain(Terrains.MAGMA));</span>
+    }
+
+    private void addRoad(IHex hex, int exitDirection, int type) {
+<span class="nc" id="L364">        ITerrainFactory tf = Terrains.getTerrainFactory();</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.WATER)) {</span>
+<span class="nc" id="L366">            hex.removeTerrain(Terrains.WATER);</span>
+<span class="nc" id="L367">            hex.addTerrain(tf.createTerrain(Terrains.WATER, 0));</span>
+<span class="nc" id="L368">            type = 1;</span>
+        }
+<span class="nc" id="L370">        hex.addTerrain(tf.createTerrain(Terrains.ROAD, type, true,</span>
+                (1 &lt;&lt; exitDirection) &amp; 63));
+<span class="nc" id="L372">    }</span>
+
+    private void addBridge(IHex hex, int exits, int altitude, int cf) {
+<span class="nc" id="L375">        ITerrainFactory tf = Terrains.getTerrainFactory();</span>
+<span class="nc" id="L376">        int bridgeElevation = altitude - hex.getLevel();</span>
+
+<span class="nc" id="L378">        hex.addTerrain(tf.createTerrain(Terrains.BRIDGE,</span>
+<span class="nc" id="L379">                getBuildingTypeByCF(cf), true, (exits &amp; 63)));</span>
+<span class="nc" id="L380">        hex.addTerrain(tf.createTerrain(Terrains.BRIDGE_ELEV, bridgeElevation));</span>
+<span class="nc" id="L381">        hex.addTerrain(tf.createTerrain(Terrains.BRIDGE_CF, cf));</span>
+<span class="nc" id="L382">    }</span>
+
+    private void connectHexes(Coords src, Coords dest, int roadStyle) {
+<span class="nc bnc" id="L385" title="All 2 branches missed.">        if (board.contains(src)) {</span>
+<span class="nc" id="L386">            IHex hex = board.getHex(src);</span>
+<span class="nc" id="L387">            ITerrain t = hex.getTerrain(Terrains.ROAD);</span>
+<span class="nc bnc" id="L388" title="All 2 branches missed.">            if (t == null) {</span>
+<span class="nc" id="L389">                t = hex.getTerrain(Terrains.BRIDGE);</span>
+            }
+<span class="nc bnc" id="L391" title="All 2 branches missed.">            if (t == null) {</span>
+<span class="nc" id="L392">                addRoad(hex, src.direction(dest), roadStyle);</span>
+            } else {
+<span class="nc" id="L394">                t.setExit(src.direction(dest), true);</span>
+            }
+        }
+<span class="nc" id="L397">    }</span>
+
+    /**
+     * Build a bridge across an obstacle
+     * 
+     * @todo: use a bridge not a road when bridges are working
+     * @param start
+     * @param direction
+     * @return coordinates to resume roadbuilding
+     */
+    private Coords tryToBuildBridge(Coords start, int direction) {
+<span class="nc bnc" id="L408" title="All 2 branches missed.">        if (!board.contains(start))</span>
+<span class="nc" id="L409">            return null;</span>
+<span class="nc" id="L410">        Vector&lt;Coords&gt; hexes = new Vector&lt;Coords&gt;(7);</span>
+<span class="nc" id="L411">        Coords end = null;</span>
+<span class="nc" id="L412">        Coords next = start.translated(direction);</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">        while (hexes.size() &lt; 6) {</span>
+<span class="nc bnc" id="L414" title="All 2 branches missed.">            if (!board.contains(next)) {</span>
+                // offboard, why bother?
+<span class="nc" id="L416">                break;</span>
+            }
+<span class="nc bnc" id="L418" title="All 2 branches missed.">            if (!hexNeedsBridge(board.getHex(next))) {</span>
+<span class="nc" id="L419">                end = next;</span>
+<span class="nc" id="L420">                break;</span>
+            }
+<span class="nc" id="L422">            hexes.add(next);</span>
+<span class="nc" id="L423">            next = next.translated(direction);</span>
+        }
+<span class="nc bnc" id="L425" title="All 2 branches missed.">        if (end != null) {</span>
+            // got start and end, can we make a bridge?
+<span class="nc bnc" id="L427" title="All 2 branches missed.">            if (hexes.size() == 0)</span>
+<span class="nc" id="L428">                return null;</span>
+<span class="nc" id="L429">            int elev1 = board.getHex(start).getLevel();</span>
+<span class="nc" id="L430">            int elev2 = board.getHex(end).getLevel();</span>
+<span class="nc" id="L431">            int elevBridge = board.getHex(end).terrainLevel(Terrains.BRIDGE);</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">            if (elevBridge &gt;= 0) {</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">                if (Math.abs(elev2 + elevBridge - elev1) &gt; 2)</span>
+<span class="nc" id="L434">                    return null;</span>
+<span class="nc" id="L435">                elev1 = elev2 + elevBridge;</span>
+            } else {
+<span class="nc bnc" id="L437" title="All 2 branches missed.">                if (Math.abs(elev1 - elev2) &gt; 4) {</span>
+                    // nobody could use the bridge, give up
+<span class="nc" id="L439">                    return null;</span>
+                }
+<span class="nc" id="L441">                elev1 = (elev1 + elev2) / 2;</span>
+            }
+            // build the bridge
+<span class="nc" id="L444">            int exits = (1 &lt;&lt; direction) | (1 &lt;&lt; ((direction + 3) % 6));</span>
+<span class="nc" id="L445">            int cf = mapSettings.getCityMinCF()</span>
+<span class="nc" id="L446">                    + Compute.randomInt(1 + mapSettings.getCityMaxCF()</span>
+<span class="nc" id="L447">                            - mapSettings.getCityMinCF());</span>
+
+<span class="nc bnc" id="L449" title="All 2 branches missed.">            for (Enumeration&lt;Coords&gt; e = hexes.elements(); e.hasMoreElements();) {</span>
+<span class="nc" id="L450">                Coords c = e.nextElement();</span>
+<span class="nc" id="L451">                addBridge(board.getHex(c), exits, elev1, cf);</span>
+<span class="nc" id="L452">            }</span>
+<span class="nc" id="L453">            connectHexes(start, hexes.firstElement(), 1);</span>
+<span class="nc" id="L454">            connectHexes(end, hexes.lastElement(), 1);</span>
+        }
+<span class="nc" id="L456">        return end;</span>
+    }
+
+    private Coords extendRoad(Coords coords, int nextDirection, int roadStyle) {
+<span class="nc" id="L460">        Coords next = selectNextGrid(nextDirection, coords);</span>
+<span class="nc bnc" id="L461" title="All 4 branches missed.">        if (board.contains(next) &amp;&amp; hexNeedsBridge(board.getHex(next))) {</span>
+<span class="nc bnc" id="L462" title="All 4 branches missed.">            if (nextDirection == E || nextDirection == W) {</span>
+<span class="nc" id="L463">                nextDirection = coords.direction(next);</span>
+            }
+<span class="nc" id="L465">            Coords end = tryToBuildBridge(coords, nextDirection);</span>
+<span class="nc" id="L466">            return end;</span>
+        }
+<span class="nc" id="L468">        connectHexes(coords, next, roadStyle);</span>
+<span class="nc" id="L469">        connectHexes(next, coords, roadStyle);</span>
+<span class="nc" id="L470">        return next;</span>
+    }
+
+    private Coords resumeAfterObstacle(Coords coords, int nextDirection) {
+<span class="nc" id="L474">        Coords next = selectNextGrid(nextDirection, coords);</span>
+<span class="nc bnc" id="L475" title="All 4 branches missed.">        while (board.contains(next) &amp;&amp; !isHexBuildable(board.getHex(next))) {</span>
+<span class="nc" id="L476">            next = selectNextGrid(nextDirection, next);</span>
+        }
+<span class="nc" id="L478">        return next;</span>
+    }
+
+    private void buildStraightRoad(Coords start, int direction, int roadStyle) {
+<span class="nc" id="L482">        Coords coords = start;</span>
+
+<span class="nc bnc" id="L484" title="All 6 branches missed.">        while (coords != null &amp;&amp; coords.getX() &lt;= board.getWidth() &amp;&amp; coords.getX() &gt;= -1</span>
+<span class="nc bnc" id="L485" title="All 4 branches missed.">               &amp;&amp; coords.getY() &lt;= board.getHeight() &amp;&amp; coords.getY() &gt;= -1) {</span>
+<span class="nc" id="L486">            cityPlan.add(coords);</span>
+<span class="nc" id="L487">            Coords next = extendRoad(coords, direction, roadStyle);</span>
+<span class="nc bnc" id="L488" title="All 2 branches missed.">            if (next == null) {</span>
+<span class="nc" id="L489">                coords = resumeAfterObstacle(coords, direction);</span>
+            } else
+<span class="nc" id="L491">                coords = next;</span>
+<span class="nc" id="L492">        }</span>
+
+<span class="nc" id="L494">    }</span>
+
+    /**
+     * Utility function for setting building type from CF table
+     * 
+     * @param cf
+     * @return building type
+     */
+    public static int getBuildingTypeByCF(int cf) {
+<span class="nc bnc" id="L503" title="All 2 branches missed.">        if (cf &lt;= 15)</span>
+<span class="nc" id="L504">            return Building.LIGHT;</span>
+<span class="nc bnc" id="L505" title="All 2 branches missed.">        if (cf &lt;= 40)</span>
+<span class="nc" id="L506">            return Building.MEDIUM;</span>
+<span class="nc bnc" id="L507" title="All 2 branches missed.">        if (cf &lt;= 90)</span>
+<span class="nc" id="L508">            return Building.HEAVY;</span>
+<span class="nc" id="L509">        return Building.HARDENED;</span>
+    }
+
+    /**
+     * Adds an Road to the map. Goes from one border to another, and has one
+     * turn in it. Map must be at least 3x3.
+     */
+    private void addGenericRoad() {
+<span class="nc" id="L517">        Coords c = new Coords(Compute.randomInt(board.getWidth()), Compute</span>
+<span class="nc" id="L518">                .randomInt(board.getHeight()));</span>
+<span class="nc" id="L519">        int side0 = Compute.randomInt(6);</span>
+<span class="nc" id="L520">        int side1 = Compute.randomInt(5);</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">        if (side1 &gt;= side0) {</span>
+<span class="nc" id="L522">            side1++;</span>
+        }
+<span class="nc" id="L524">        buildStraightRoad(c, side0, 1);</span>
+<span class="nc" id="L525">        buildStraightRoad(c, side1, 1);</span>
+<span class="nc" id="L526">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

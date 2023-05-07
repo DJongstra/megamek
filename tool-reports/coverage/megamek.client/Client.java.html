@@ -1,0 +1,1773 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Client.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client</a> &gt; <span class="el_source">Client.java</span></div><h1>Client.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek -
+ * Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.client;
+
+import java.awt.*;
+import java.awt.image.RenderedImage;
+import java.io.*;
+import java.util.*;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+
+
+import com.thoughtworks.xstream.XStream;
+
+import megamek.MegaMek;
+import megamek.client.commands.AddBotCommand;
+import megamek.client.commands.AssignNovaNetworkCommand;
+import megamek.client.commands.ClientCommand;
+import megamek.client.commands.DeployCommand;
+import megamek.client.commands.FireCommand;
+import megamek.client.commands.HelpCommand;
+import megamek.client.commands.MoveCommand;
+import megamek.client.commands.RulerCommand;
+import megamek.client.commands.ShowEntityCommand;
+import megamek.client.commands.ShowTileCommand;
+import megamek.client.commands.SitrepCommand;
+import megamek.client.generator.RandomSkillsGenerator;
+import megamek.client.generator.RandomUnitGenerator;
+import megamek.client.ui.IClientCommandHandler;
+import megamek.client.ui.swing.GUIPreferences;
+import megamek.client.ui.swing.boardview.BoardView1;
+import megamek.common.*;
+import megamek.common.Building.DemolitionCharge;
+import megamek.common.actions.ArtilleryAttackAction;
+import megamek.common.actions.AttackAction;
+import megamek.common.actions.ClubAttackAction;
+import megamek.common.actions.DodgeAction;
+import megamek.common.actions.EntityAction;
+import megamek.common.actions.FlipArmsAction;
+import megamek.common.actions.TorsoTwistAction;
+import megamek.common.actions.WeaponAttackAction;
+import megamek.common.event.GameBoardChangeEvent;
+import megamek.common.event.GameCFREvent;
+import megamek.common.event.GameEntityChangeEvent;
+import megamek.common.event.GamePlayerChatEvent;
+import megamek.common.event.GamePlayerDisconnectedEvent;
+import megamek.common.event.GameReportEvent;
+import megamek.common.event.GameSettingsChangeEvent;
+import megamek.common.event.GameVictoryEvent;
+import megamek.common.net.ConnectionFactory;
+import megamek.common.net.ConnectionListenerAdapter;
+import megamek.common.net.DisconnectedEvent;
+import megamek.common.net.IConnection;
+import megamek.common.net.Packet;
+import megamek.common.net.PacketReceivedEvent;
+import megamek.common.options.GameOptions;
+import megamek.common.options.IBasicOption;
+import megamek.common.preference.PreferenceManager;
+import megamek.common.util.ImageUtil;
+import megamek.common.util.SerializationHelper;
+import megamek.common.util.StringUtil;
+import megamek.server.SmokeCloud;
+
+/**
+ * This class is instanciated for each client and for each bot running on that
+ * client. non-local clients are not also instantiated on the local server.
+ */
+<span class="nc" id="L87">public class Client implements IClientCommandHandler {</span>
+    public static final String CLIENT_COMMAND = &quot;#&quot;;
+
+    // we need these to communicate with the server
+    private String name;
+
+    private IConnection connection;
+
+    // the hash table of client commands
+<span class="nc" id="L96">    private Hashtable&lt;String, ClientCommand&gt; commandsHash = new Hashtable&lt;&gt;();</span>
+
+    // some info about us and the server
+<span class="nc" id="L99">    private boolean connected = false;</span>
+<span class="nc" id="L100">    protected int localPlayerNumber = -1;</span>
+    private String host;
+    private int port;
+
+    // the game state object
+<span class="nc" id="L105">    protected IGame game = new Game();</span>
+
+    // here's some game phase stuff
+    private MapSettings mapSettings;
+    public String phaseReport;
+    public String roundReport;
+
+    // random generatorsI
+    private RandomSkillsGenerator rsg;
+    // And close client events!
+<span class="nc" id="L115">    private Vector&lt;CloseClientListener&gt; closeClientListeners = new Vector&lt;CloseClientListener&gt;();</span>
+
+    // we might want to keep a game log...
+    private GameLog log;
+
+<span class="nc" id="L120">    private Set&lt;BoardDimensions&gt; availableSizes = new TreeSet&lt;BoardDimensions&gt;();</span>
+
+<span class="nc" id="L122">    private Vector&lt;Coords&gt; artilleryAutoHitHexes = null;</span>
+
+<span class="nc" id="L124">    private boolean disconnectFlag = false;</span>
+
+<span class="nc" id="L126">    private Hashtable&lt;String, Integer&gt; duplicateNameHash = new Hashtable&lt;String, Integer&gt;();</span>
+
+<span class="nc" id="L128">    public Map&lt;String, Client&gt; bots = new TreeMap&lt;String, Client&gt;(StringUtil.stringComparator());</span>
+
+    //Hashtable for storing image tags containing base64Text src
+    private Hashtable&lt;Integer, String&gt; imgCache;
+
+    //board view for getting entity art assets
+    private BoardView1 bv;
+
+    ConnectionHandler packetUpdate;
+
+<span class="nc" id="L138">    private class ConnectionHandler implements Runnable {</span>
+
+<span class="nc" id="L140">        boolean shouldStop = false;</span>
+
+        public void signalStop() {
+<span class="nc" id="L143">            shouldStop = true;</span>
+<span class="nc" id="L144">        }</span>
+
+        public void run() {
+<span class="nc bnc" id="L147" title="All 2 branches missed.">            while (!shouldStop) {</span>
+                // Write any queued packets
+<span class="nc" id="L149">                flushConn();</span>
+                // Wait for new input
+<span class="nc" id="L151">                updateConnection();</span>
+<span class="nc bnc" id="L152" title="All 4 branches missed.">                if ((connection == null) || connection.isClosed()) {</span>
+<span class="nc" id="L153">                    shouldStop = true;</span>
+                }
+            }
+<span class="nc" id="L156">        }</span>
+    }
+
+    private Thread connThread;
+
+<span class="nc" id="L161">    private ConnectionListenerAdapter connectionListener = new ConnectionListenerAdapter() {</span>
+
+        /**
+         * Called when it is sensed that a connection has terminated.
+         */
+        @Override
+        public void disconnected(DisconnectedEvent e) {
+            // We can't just run this directly, otherwise we open up all sorts
+            // of concurrency issues with the AWT event dispatch thread.
+            // Instead, if we will have the event dispatch thread handle it,
+            // by using SwingUtilities.invokeLater
+            // Not running this on the AWT EDT can lead to dead-lock
+<span class="nc" id="L173">            Runnable handlePacketEvent = new Runnable() {</span>
+                public void run() {
+<span class="nc" id="L175">                    Client.this.disconnected();</span>
+<span class="nc" id="L176">                }</span>
+            };
+<span class="nc" id="L178">            SwingUtilities.invokeLater(handlePacketEvent);</span>
+<span class="nc" id="L179">        }</span>
+
+        @Override
+        public void packetReceived(final PacketReceivedEvent e) {
+            // We can't just run this directly, otherwise we open up all sorts
+            // of concurrency issues with the AWT event dispatch thread.
+            // Instead, if we will have the event dispatch thread handle it,
+            // by using SwingUtilities.invokeLater
+            // TODO: I don't think this is really what we should do: ideally
+            // Client.handlePacket should play well with the AWT event queue,
+            // but nothing appears to really be designed to be thread safe, so
+            // this is a reasonable hack for now
+<span class="nc" id="L191">            Runnable handlePacketEvent = new Runnable() {</span>
+                public void run() {
+<span class="nc" id="L193">                    handlePacket(e.getPacket());</span>
+<span class="nc" id="L194">                }</span>
+            };
+<span class="nc" id="L196">            SwingUtilities.invokeLater(handlePacketEvent);</span>
+<span class="nc" id="L197">        }</span>
+
+    };
+
+    /**
+     * Construct a client which will try to connect. If the connection fails, it
+     * will alert the player, free resources and hide the frame.
+     *
+     * @param name
+     *            the player name for this client
+     * @param host
+     *            the hostname
+     * @param port
+     *            the host port
+     */
+<span class="nc" id="L212">    public Client(String name, String host, int port){</span>
+        // construct new client
+<span class="nc" id="L214">        this.name = name;</span>
+<span class="nc" id="L215">        this.host = host;</span>
+<span class="nc" id="L216">        this.port = port;</span>
+
+<span class="nc" id="L218">        registerCommand(new HelpCommand(this));</span>
+<span class="nc" id="L219">        registerCommand(new MoveCommand(this));</span>
+<span class="nc" id="L220">        registerCommand(new RulerCommand(this));</span>
+<span class="nc" id="L221">        registerCommand(new ShowEntityCommand(this));</span>
+<span class="nc" id="L222">        registerCommand(new FireCommand(this));</span>
+<span class="nc" id="L223">        registerCommand(new DeployCommand(this));</span>
+<span class="nc" id="L224">        registerCommand(new ShowTileCommand(this));</span>
+<span class="nc" id="L225">        registerCommand(new AddBotCommand(this));</span>
+<span class="nc" id="L226">        registerCommand(new AssignNovaNetworkCommand(this));</span>
+<span class="nc" id="L227">        registerCommand(new SitrepCommand(this));</span>
+
+<span class="nc" id="L229">        rsg = new RandomSkillsGenerator();</span>
+<span class="nc" id="L230">    }</span>
+
+    public int getLocalPlayerNumber() {
+<span class="nc" id="L233">        return localPlayerNumber;</span>
+    }
+
+    public void setLocalPlayerNumber(int localPlayerNumber) {
+<span class="nc" id="L237">        this.localPlayerNumber = localPlayerNumber;</span>
+<span class="nc" id="L238">    }</span>
+
+    /**
+     * call this once to update the connection
+     */
+    protected void updateConnection() {
+<span class="nc bnc" id="L244" title="All 4 branches missed.">        if (connection != null &amp;&amp; !connection.isClosed()) {</span>
+<span class="nc" id="L245">            connection.update();</span>
+        }
+<span class="nc" id="L247">    }</span>
+
+    public void setBoardView(BoardView1 bv){
+<span class="nc" id="L250">        this.bv = bv;</span>
+<span class="nc" id="L251">    }</span>
+
+    /**
+     * Attempt to connect to the specified host
+     */
+    public boolean connect() {
+<span class="nc" id="L257">        connection = ConnectionFactory.getInstance().createClientConnection(host, port, 1);</span>
+<span class="nc" id="L258">        boolean result = connection.open();</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">        if (result) {</span>
+<span class="nc" id="L260">            connection.addConnectionListener(connectionListener);</span>
+<span class="nc" id="L261">            packetUpdate = new ConnectionHandler();</span>
+<span class="nc" id="L262">            connThread = new Thread(packetUpdate, &quot;Client Connection, Player &quot; + name);</span>
+<span class="nc" id="L263">            connThread.start();</span>
+        }
+<span class="nc" id="L265">        return result;</span>
+    }
+
+    /**
+     * Shuts down threads and sockets
+     */
+    public synchronized void die() {
+        // If we're still connected, tell the server that we're going down.
+<span class="nc bnc" id="L273" title="All 2 branches missed.">        if (connected) {</span>
+            // Stop listening for in coming packets, this should be done before
+            // sending the close connection command
+<span class="nc" id="L276">            packetUpdate.signalStop();</span>
+<span class="nc" id="L277">            connThread.interrupt();</span>
+<span class="nc" id="L278">            send(new Packet(Packet.COMMAND_CLOSE_CONNECTION));</span>
+<span class="nc" id="L279">            flushConn();</span>
+        }
+<span class="nc" id="L281">        connected = false;</span>
+
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        if (connection != null) {</span>
+<span class="nc" id="L284">            connection.close();</span>
+        }
+
+<span class="nc bnc" id="L287" title="All 2 branches missed.">        for (int i = 0; i &lt; closeClientListeners.size(); i++) {</span>
+<span class="nc" id="L288">            closeClientListeners.elementAt(i).clientClosed();</span>
+        }
+
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (log != null) {</span>
+            try {
+<span class="nc" id="L293">                log.close();</span>
+<span class="nc" id="L294">            } catch (IOException e) {</span>
+<span class="nc" id="L295">                System.err.print(&quot;Exception closing logfile: &quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L296">                e.printStackTrace();</span>
+<span class="nc" id="L297">            }</span>
+        }
+<span class="nc" id="L299">        System.out.println(&quot;client: died&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L300">        System.out.flush();</span>
+<span class="nc" id="L301">    }</span>
+
+    /**
+     * The client has become disconnected from the server
+     */
+    protected void disconnected() {
+<span class="nc bnc" id="L307" title="All 2 branches missed.">        if (!disconnectFlag) {</span>
+<span class="nc" id="L308">            disconnectFlag = true;</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">            if (connected) {</span>
+<span class="nc" id="L310">                die();</span>
+            }
+<span class="nc bnc" id="L312" title="All 2 branches missed.">            if (!host.equals(&quot;localhost&quot;)) { //$NON-NLS-1$</span>
+<span class="nc" id="L313">                game.processGameEvent(new GamePlayerDisconnectedEvent(this, getLocalPlayer()));</span>
+            }
+        }
+<span class="nc" id="L316">    }</span>
+
+    /**
+     * Get hexes designated for automatic artillery hits.
+     */
+    public Vector&lt;Coords&gt; getArtilleryAutoHit() {
+<span class="nc" id="L322">        return artilleryAutoHitHexes;</span>
+    }
+
+    private void initGameLog() {
+        // log = new GameLog(
+        // PreferenceManager.getClientPreferences().getGameLogFilename(),
+        // false,
+        // (new
+        // Integer(PreferenceManager.getClientPreferences().getGameLogMaxSize()).longValue()
+        // * 1024 * 1024) );
+<span class="nc" id="L332">        log = new GameLog(PreferenceManager.getClientPreferences().getGameLogFilename());</span>
+<span class="nc" id="L333">        log.append(&quot;&lt;html&gt;&lt;body&gt;&quot;);</span>
+<span class="nc" id="L334">    }</span>
+
+    /**
+     * Called to determine whether the game log should be kept.
+     * &lt;p&gt;
+     * Default implementation delegates to {@code PreferenceManager.getClientPreferences()}.
+     */
+    protected boolean keepGameLog() {
+<span class="nc" id="L342">        return PreferenceManager.getClientPreferences().keepGameLog();</span>
+    }
+
+    /**
+     * Return an enumeration of the players in the game
+     */
+    public Enumeration&lt;IPlayer&gt; getPlayers() {
+<span class="nc" id="L349">        return game.getPlayers();</span>
+    }
+
+    public Entity getEntity(int id) {
+<span class="nc" id="L353">        return game.getEntity(id);</span>
+    }
+
+    /**
+     * Returns the individual player assigned the index parameter.
+     */
+    public IPlayer getPlayer(int idx) {
+<span class="nc" id="L360">        return game.getPlayer(idx);</span>
+    }
+
+    /**
+     * Return the local player
+     */
+    public IPlayer getLocalPlayer() {
+<span class="nc" id="L367">        return getPlayer(localPlayerNumber);</span>
+    }
+
+    /**
+     * Returns an &lt;code&gt;Enumeration&lt;/code&gt; of the entities that match the
+     * selection criteria.
+     */
+    public Iterator&lt;Entity&gt; getSelectedEntities(EntitySelector selector) {
+<span class="nc" id="L375">        return game.getSelectedEntities(selector);</span>
+    }
+
+    /**
+     * Returns the number of first selectable entity
+     */
+    public int getFirstEntityNum() {
+<span class="nc" id="L382">        return game.getFirstEntityNum(getMyTurn());</span>
+    }
+
+    /**
+     * Returns the number of the next selectable entity after the one given
+     */
+    public int getNextEntityNum(int entityId) {
+<span class="nc" id="L389">        return game.getNextEntityNum(getMyTurn(), entityId);</span>
+    }
+
+    /**
+     * Returns the number of the previous selectable entity after the one given
+     */
+    public int getPrevEntityNum(int entityId) {
+<span class="nc" id="L396">        return game.getPrevEntityNum(getMyTurn(), entityId);</span>
+    }
+
+    /**
+     * Returns the number of the first deployable entity
+     */
+    public int getFirstDeployableEntityNum() {
+<span class="nc" id="L403">        return game.getFirstDeployableEntityNum(getMyTurn());</span>
+    }
+
+    /**
+     * Returns the number of the next deployable entity
+     */
+    public int getNextDeployableEntityNum(int entityId) {
+<span class="nc" id="L410">        return game.getNextDeployableEntityNum(getMyTurn(), entityId);</span>
+    }
+
+    /**
+     * Shortcut to game.board
+     */
+    public IBoard getBoard() {
+<span class="nc" id="L417">        return game.getBoard();</span>
+    }
+
+    /**
+     * Returns an enumeration of the entities in game.entities
+     */
+    public List&lt;Entity&gt; getEntitiesVector() {
+<span class="nc" id="L424">        return game.getEntitiesVector();</span>
+    }
+
+    public MapSettings getMapSettings() {
+<span class="nc" id="L428">        return mapSettings;</span>
+    }
+
+    /**
+     * give the initiative to the next player on the team.
+     */
+    public void sendNextPlayer() {
+<span class="nc" id="L435">        connection.send(new Packet(Packet.COMMAND_FORWARD_INITIATIVE));</span>
+<span class="nc" id="L436">    }</span>
+
+    /**
+     * Changes the game phase, and the displays that go along with it.
+     */
+    public void changePhase(IGame.Phase phase) {
+<span class="nc" id="L442">        game.setPhase(phase);</span>
+        // Handle phase-specific items.
+<span class="nc bnc" id="L444" title="All 9 branches missed.">        switch (phase) {</span>
+        case PHASE_STARTING_SCENARIO:
+        case PHASE_EXCHANGE:
+<span class="nc" id="L447">            sendDone(true);</span>
+<span class="nc" id="L448">            break;</span>
+        case PHASE_DEPLOYMENT:
+            // free some memory thats only needed in lounge
+<span class="nc" id="L451">            MechFileParser.dispose();</span>
+            // We must do this last, as the name and unit generators can create
+            // a new instance if they are running
+<span class="nc" id="L454">            MechSummaryCache.dispose();</span>
+<span class="nc" id="L455">            memDump(&quot;entering deployment phase&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L456">            break;</span>
+        case PHASE_TARGETING:
+<span class="nc" id="L458">            memDump(&quot;entering targeting phase&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L459">            break;</span>
+        case PHASE_MOVEMENT:
+<span class="nc" id="L461">            memDump(&quot;entering movement phase&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L462">            break;</span>
+        case PHASE_OFFBOARD:
+<span class="nc" id="L464">            memDump(&quot;entering offboard phase&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L465">            break;</span>
+        case PHASE_FIRING:
+<span class="nc" id="L467">            memDump(&quot;entering firing phase&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L468">            break;</span>
+        case PHASE_PHYSICAL:
+<span class="nc" id="L470">            memDump(&quot;entering physical phase&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L471">            break;</span>
+        case PHASE_LOUNGE:
+            try {
+<span class="nc" id="L474">                QuirksHandler.initQuirksList();</span>
+<span class="nc" id="L475">            } catch (IOException e) {</span>
+<span class="nc" id="L476">                System.out.println(e);</span>
+<span class="nc" id="L477">                e.printStackTrace();</span>
+<span class="nc" id="L478">            }</span>
+<span class="nc" id="L479">            UnitRoleHandler.initialize();</span>
+<span class="nc" id="L480">            MechSummaryCache.getInstance().addListener(RandomUnitGenerator::getInstance);</span>
+<span class="nc bnc" id="L481" title="All 2 branches missed.">            if (MechSummaryCache.getInstance().isInitialized()) {</span>
+<span class="nc" id="L482">                RandomUnitGenerator.getInstance();</span>
+            }
+<span class="nc" id="L484">            duplicateNameHash.clear(); // reset this</span>
+<span class="nc" id="L485">            break;</span>
+        default:
+        }
+<span class="nc" id="L488">    }</span>
+
+    /**
+     * Adds the specified close client listener to receive close client events.
+     * This is used by external programs running megamek
+     *
+     * @param l
+     *            the game listener.
+     */
+    public void addCloseClientListener(CloseClientListener l) {
+<span class="nc" id="L498">        closeClientListeners.addElement(l);</span>
+<span class="nc" id="L499">    }</span>
+
+    /**
+     * is it my turn?
+     */
+    public boolean isMyTurn() {
+<span class="nc bnc" id="L505" title="All 2 branches missed.">        if (game.isPhaseSimultaneous()) {</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">            return game.getTurnForPlayer(localPlayerNumber) != null;</span>
+        }
+<span class="nc bnc" id="L508" title="All 4 branches missed.">        return (game.getTurn() != null) &amp;&amp; game.getTurn().isValid(localPlayerNumber, game);</span>
+    }
+
+    public GameTurn getMyTurn() {
+<span class="nc bnc" id="L512" title="All 2 branches missed.">        if (game.isPhaseSimultaneous()) {</span>
+<span class="nc" id="L513">            return game.getTurnForPlayer(localPlayerNumber);</span>
+        }
+<span class="nc" id="L515">        return game.getTurn();</span>
+    }
+
+    /**
+     * Can I unload entities stranded on immobile transports?
+     */
+    public boolean canUnloadStranded() {
+<span class="nc bnc" id="L522" title="All 2 branches missed.">        return (game.getTurn() instanceof GameTurn.UnloadStrandedTurn)</span>
+<span class="nc bnc" id="L523" title="All 2 branches missed.">                &amp;&amp; game.getTurn().isValid(localPlayerNumber, game);</span>
+    }
+
+    /**
+     * Send command to unload stranded entities to the server
+     */
+    public void sendUnloadStranded(int[] entityIds) {
+<span class="nc" id="L530">        Object[] data = new Object[1];</span>
+<span class="nc" id="L531">        data[0] = entityIds;</span>
+<span class="nc" id="L532">        send(new Packet(Packet.COMMAND_UNLOAD_STRANDED, data));</span>
+<span class="nc" id="L533">    }</span>
+
+    /**
+     * Change whose turn it is.
+     */
+    protected void changeTurnIndex(int index, int prevPlayerId) {
+<span class="nc" id="L539">        game.setTurnIndex(index, prevPlayerId);</span>
+<span class="nc" id="L540">    }</span>
+
+    /**
+     * Send mode-change data to the server
+     */
+    public void sendModeChange(int nEntity, int nEquip, int nMode) {
+<span class="nc" id="L546">        Object[] data = { Integer.valueOf(nEntity), Integer.valueOf(nEquip), Integer.valueOf(nMode) };</span>
+<span class="nc" id="L547">        send(new Packet(Packet.COMMAND_ENTITY_MODECHANGE, data));</span>
+<span class="nc" id="L548">    }</span>
+
+    /**
+     * Send mount-facing-change data to the server
+     */
+    public void sendMountFacingChange(int nEntity, int nEquip, int nFacing) {
+<span class="nc" id="L554">        Object[] data = { Integer.valueOf(nEntity), Integer.valueOf(nEquip), Integer.valueOf(nFacing) };</span>
+<span class="nc" id="L555">        send(new Packet(Packet.COMMAND_ENTITY_MOUNTED_FACINGCHANGE, data));</span>
+<span class="nc" id="L556">    }</span>
+
+    /**
+     * Send called shot change data to the server
+     */
+    public void sendCalledShotChange(int nEntity, int nEquip) {
+<span class="nc" id="L562">        Object[] data = { Integer.valueOf(nEntity), Integer.valueOf(nEquip) };</span>
+<span class="nc" id="L563">        send(new Packet(Packet.COMMAND_ENTITY_CALLEDSHOTCHANGE, data));</span>
+<span class="nc" id="L564">    }</span>
+
+    /**
+     * Send system mode-change data to the server
+     */
+    public void sendSystemModeChange(int nEntity, int nSystem, int nMode) {
+<span class="nc" id="L570">        Object[] data = { Integer.valueOf(nEntity), Integer.valueOf(nSystem), Integer.valueOf(nMode) };</span>
+<span class="nc" id="L571">        send(new Packet(Packet.COMMAND_ENTITY_SYSTEMMODECHANGE, data));</span>
+<span class="nc" id="L572">    }</span>
+
+    /**
+     * Send mode-change data to the server
+     */
+    public void sendAmmoChange(int nEntity, int nWeapon, int nAmmo) {
+<span class="nc" id="L578">        Object[] data = { Integer.valueOf(nEntity), Integer.valueOf(nWeapon), Integer.valueOf(nAmmo) };</span>
+<span class="nc" id="L579">        send(new Packet(Packet.COMMAND_ENTITY_AMMOCHANGE, data));</span>
+<span class="nc" id="L580">    }</span>
+
+    /**
+     * Send sensor-change data to the server
+     */
+    public void sendSensorChange(int nEntity, int nSensor) {
+<span class="nc" id="L586">        Object[] data = { Integer.valueOf(nEntity), Integer.valueOf(nSensor) };</span>
+<span class="nc" id="L587">        send(new Packet(Packet.COMMAND_ENTITY_SENSORCHANGE, data));</span>
+<span class="nc" id="L588">    }</span>
+
+    /**
+     * Send sinks-change data to the server
+     */
+    public void sendSinksChange(int nEntity, int activeSinks) {
+<span class="nc" id="L594">        Object[] data = { Integer.valueOf(nEntity), Integer.valueOf(activeSinks) };</span>
+<span class="nc" id="L595">        send(new Packet(Packet.COMMAND_ENTITY_SINKSCHANGE, data));</span>
+<span class="nc" id="L596">    }</span>
+
+    /**
+     * Send activate hidden data to the server
+     */
+    public void sendActivateHidden(int nEntity, IGame.Phase phase) {
+<span class="nc" id="L602">        Object[] data = { Integer.valueOf(nEntity), phase };</span>
+<span class="nc" id="L603">        send(new Packet(Packet.COMMAND_ENTITY_ACTIVATE_HIDDEN, data));</span>
+<span class="nc" id="L604">    }</span>
+
+    /**
+     * Send movement data for the given entity to the server.
+     */
+    public void moveEntity(int id, MovePath md) {
+<span class="nc" id="L610">        Object[] data = new Object[2];</span>
+
+<span class="nc" id="L612">        data[0] = Integer.valueOf(id);</span>
+<span class="nc" id="L613">        data[1] = md;</span>
+
+<span class="nc" id="L615">        send(new Packet(Packet.COMMAND_ENTITY_MOVE, data));</span>
+<span class="nc" id="L616">    }</span>
+
+    /**
+     * Maintain backwards compatability.
+     *
+     * @param id
+     *            - the &lt;code&gt;int&lt;/code&gt; ID of the deployed entity
+     * @param c
+     *            - the &lt;code&gt;Coords&lt;/code&gt; where the entity should be deployed
+     * @param nFacing
+     *            - the &lt;code&gt;int&lt;/code&gt; direction the entity should face
+     */
+    public void deploy(int id, Coords c, int nFacing, int elevation) {
+<span class="nc" id="L629">        this.deploy(id, c, nFacing, elevation, new Vector&lt;Entity&gt;(), false);</span>
+<span class="nc" id="L630">    }</span>
+
+    /**
+     * Deploy an entity at the given coordinates, with the given facing, and
+     * starting with the given units already loaded.
+     *
+     * @param id
+     *            - the &lt;code&gt;int&lt;/code&gt; ID of the deployed entity
+     * @param c
+     *            - the &lt;code&gt;Coords&lt;/code&gt; where the entity should be deployed
+     * @param nFacing
+     *            - the &lt;code&gt;int&lt;/code&gt; direction the entity should face
+     * @param loadedUnits
+     *            - a &lt;code&gt;List&lt;/code&gt; of units that start the game being
+     *            transported byt the deployed entity.
+     * @param assaultDrop
+     *            - true if deployment is an assault drop
+     */
+    public void deploy(int id, Coords c, int nFacing, int elevation, List&lt;Entity&gt; loadedUnits, boolean assaultDrop) {
+<span class="nc" id="L649">        int packetCount = 6 + loadedUnits.size();</span>
+<span class="nc" id="L650">        int index = 0;</span>
+<span class="nc" id="L651">        Object[] data = new Object[packetCount];</span>
+<span class="nc" id="L652">        data[index++] = Integer.valueOf(id);</span>
+<span class="nc" id="L653">        data[index++] = c;</span>
+<span class="nc" id="L654">        data[index++] = Integer.valueOf(nFacing);</span>
+<span class="nc" id="L655">        data[index++] = Integer.valueOf(elevation);</span>
+<span class="nc" id="L656">        data[index++] = Integer.valueOf(loadedUnits.size());</span>
+<span class="nc" id="L657">        data[index++] = Boolean.valueOf(assaultDrop);</span>
+
+<span class="nc bnc" id="L659" title="All 2 branches missed.">        for (Entity ent : loadedUnits) {</span>
+<span class="nc" id="L660">            data[index++] = Integer.valueOf(ent.getId());</span>
+<span class="nc" id="L661">        }</span>
+
+<span class="nc" id="L663">        send(new Packet(Packet.COMMAND_ENTITY_DEPLOY, data));</span>
+<span class="nc" id="L664">        flushConn();</span>
+<span class="nc" id="L665">    }</span>
+
+    /**
+     * For ground to air attacks, the ground unit targets the closest hex in the
+     * air units flight path. In the case of several equidistant hexes, the
+     * attacker gets to choose. This method updates the server with the users
+     * choice.
+     * 
+     * @param targetId
+     * @param attackerId
+     * @param pos
+     */
+    public void sendPlayerPickedPassThrough(Integer targetId, Integer attackerId, Coords pos) {
+<span class="nc" id="L678">        Object[] data = new Object[3];</span>
+<span class="nc" id="L679">        data[0] = targetId;</span>
+<span class="nc" id="L680">        data[1] = attackerId;</span>
+<span class="nc" id="L681">        data[2] = pos;</span>
+
+<span class="nc" id="L683">        send(new Packet(Packet.COMMAND_ENTITY_GTA_HEX_SELECT, data));</span>
+<span class="nc" id="L684">    }</span>
+
+    /**
+     * Send a weapon fire command to the server.
+     */
+    public void sendAttackData(int aen, Vector&lt;EntityAction&gt; attacks) {
+<span class="nc" id="L690">        Object[] data = new Object[2];</span>
+
+<span class="nc" id="L692">        data[0] = aen;</span>
+<span class="nc" id="L693">        data[1] = attacks;</span>
+
+<span class="nc" id="L695">        send(new Packet(Packet.COMMAND_ENTITY_ATTACK, data));</span>
+<span class="nc" id="L696">        flushConn();</span>
+<span class="nc" id="L697">    }</span>
+
+    /**
+     * Send the game options to the server
+     */
+    public void sendGameOptions(String password, Vector&lt;IBasicOption&gt; options) {
+<span class="nc" id="L703">        final Object[] data = new Object[2];</span>
+<span class="nc" id="L704">        data[0] = password;</span>
+<span class="nc" id="L705">        data[1] = options;</span>
+<span class="nc" id="L706">        send(new Packet(Packet.COMMAND_SENDING_GAME_SETTINGS, data));</span>
+<span class="nc" id="L707">    }</span>
+
+    /**
+     * Send the new map selection to the server
+     */
+    public void sendMapSettings(MapSettings settings) {
+<span class="nc" id="L713">        send(new Packet(Packet.COMMAND_SENDING_MAP_SETTINGS, settings));</span>
+<span class="nc" id="L714">    }</span>
+
+    /**
+     * Send the new map dimensions to the server
+     */
+    public void sendMapDimensions(MapSettings settings) {
+<span class="nc" id="L720">        send(new Packet(Packet.COMMAND_SENDING_MAP_DIMENSIONS, settings));</span>
+<span class="nc" id="L721">    }</span>
+
+    /**
+     * Send the planetary Conditions to the server
+     */
+    public void sendPlanetaryConditions(PlanetaryConditions conditions) {
+<span class="nc" id="L727">        send(new Packet(Packet.COMMAND_SENDING_PLANETARY_CONDITIONS, conditions));</span>
+<span class="nc" id="L728">    }</span>
+
+    /**
+     * Broadcast a general chat message from the local player
+     */
+    public void sendChat(String message) {
+<span class="nc" id="L734">        send(new Packet(Packet.COMMAND_CHAT, message));</span>
+<span class="nc" id="L735">        flushConn();</span>
+<span class="nc" id="L736">    }</span>
+
+    /**
+     * Broadcast a general chat message from the local player
+     */
+    public void sendServerChat(int connId, String message) {
+<span class="nc" id="L742">        Object[] data = { message, connId };</span>
+<span class="nc" id="L743">        send(new Packet(Packet.COMMAND_CHAT, data));</span>
+<span class="nc" id="L744">        flushConn();</span>
+<span class="nc" id="L745">    }</span>
+
+    /**
+     * Sends a &quot;player done&quot; message to the server.
+     */
+    public synchronized void sendDone(boolean done) {
+<span class="nc" id="L751">        send(new Packet(Packet.COMMAND_PLAYER_READY, done));</span>
+<span class="nc" id="L752">        flushConn();</span>
+<span class="nc" id="L753">    }</span>
+
+    /**
+     * Sends a &quot;reroll initiative&quot; message to the server.
+     */
+    public void sendRerollInitiativeRequest() {
+<span class="nc" id="L759">        send(new Packet(Packet.COMMAND_REROLL_INITIATIVE));</span>
+<span class="nc" id="L760">    }</span>
+
+    /**
+     * Sends the info associated with the local player.
+     */
+    public void sendPlayerInfo() {
+<span class="nc" id="L766">        IPlayer player = game.getPlayer(localPlayerNumber);</span>
+<span class="nc" id="L767">        send(new Packet(Packet.COMMAND_PLAYER_UPDATE, player));</span>
+<span class="nc" id="L768">    }</span>
+
+    /**
+     * Reset round deployment packet
+     */
+    public void sendResetRoundDeployment() {
+<span class="nc" id="L774">        send(new Packet(Packet.COMMAND_RESET_ROUND_DEPLOYMENT));</span>
+<span class="nc" id="L775">    }</span>
+
+    public void sendEntityWeaponOrderUpdate(Entity entity) {
+        Object data[];
+<span class="nc bnc" id="L779" title="All 2 branches missed.">        if (entity.getWeaponSortOrder() == Entity.WeaponSortOrder.CUSTOM) {</span>
+<span class="nc" id="L780">            data = new Object[3];</span>
+<span class="nc" id="L781">            data[2] = entity.getCustomWeaponOrder();</span>
+        } else {
+<span class="nc" id="L783">            data = new Object[2];</span>
+        }
+<span class="nc" id="L785">        data[0] = entity.getId();</span>
+<span class="nc" id="L786">        data[1] = entity.getWeaponSortOrder();</span>
+<span class="nc" id="L787">        send(new Packet(Packet.COMMAND_ENTITY_WORDER_UPDATE, data));</span>
+<span class="nc" id="L788">        entity.setWeapOrderChanged(false);</span>
+<span class="nc" id="L789">    }</span>
+
+    /**
+     * Sends an &quot;add entity&quot; packet with only one Entity.
+     *
+     * @param entity
+     *            The Entity to add.
+     */
+    public void sendAddEntity(Entity entity) {
+<span class="nc" id="L798">        ArrayList&lt;Entity&gt; entities = new ArrayList&lt;Entity&gt;(1);</span>
+<span class="nc" id="L799">        entities.add(entity);</span>
+<span class="nc" id="L800">        sendAddEntity(entities);</span>
+<span class="nc" id="L801">    }</span>
+
+    /**
+     * Sends an &quot;add entity&quot; packet that contains a collection of Entity
+     * objections.
+     *
+     * @param entities
+     *            The collection of Entity objects to add.
+     */
+    public void sendAddEntity(List&lt;Entity&gt; entities) {
+<span class="nc bnc" id="L811" title="All 2 branches missed.">        for (Entity entity : entities) {</span>
+<span class="nc" id="L812">            checkDuplicateNamesDuringAdd(entity);</span>
+<span class="nc" id="L813">        }</span>
+<span class="nc" id="L814">        send(new Packet(Packet.COMMAND_ENTITY_ADD, entities));</span>
+<span class="nc" id="L815">    }</span>
+
+    /**
+     * Sends an &quot;add squadron&quot; packet
+     */
+    public void sendAddSquadron(FighterSquadron fs, Vector&lt;Integer&gt; fighterIds) {
+<span class="nc" id="L821">        checkDuplicateNamesDuringAdd(fs);</span>
+<span class="nc" id="L822">        send(new Packet(Packet.COMMAND_SQUADRON_ADD, new Object[] { fs, fighterIds }));</span>
+<span class="nc" id="L823">    }</span>
+
+    /**
+     * Sends an &quot;deploy minefields&quot; packet
+     */
+    public void sendDeployMinefields(Vector&lt;Minefield&gt; minefields) {
+<span class="nc" id="L829">        send(new Packet(Packet.COMMAND_DEPLOY_MINEFIELDS, minefields));</span>
+<span class="nc" id="L830">    }</span>
+
+    /**
+     * Sends a &quot;set Artillery Autohit Hexes&quot; packet
+     */
+    public void sendArtyAutoHitHexes(Vector&lt;Coords&gt; hexes) {
+<span class="nc" id="L836">        artilleryAutoHitHexes = hexes; // save for minimap use</span>
+<span class="nc" id="L837">        send(new Packet(Packet.COMMAND_SET_ARTYAUTOHITHEXES, hexes));</span>
+<span class="nc" id="L838">    }</span>
+
+    /**
+     * Sends an &quot;update entity&quot; packet
+     */
+    public void sendUpdateEntity(Entity entity) {
+<span class="nc" id="L844">        send(new Packet(Packet.COMMAND_ENTITY_UPDATE, entity));</span>
+<span class="nc" id="L845">    }</span>
+
+    /**
+     * Sends an &quot;update entity&quot; packet
+     */
+    public void sendDeploymentUnload(Entity loader, Entity loaded) {
+<span class="nc" id="L851">        Object data[] = { loader.getId(), loaded.getId() };</span>
+<span class="nc" id="L852">        send(new Packet(Packet.COMMAND_ENTITY_DEPLOY_UNLOAD, data));</span>
+<span class="nc" id="L853">    }</span>
+
+    /**
+     * Sends an &quot;update custom initiative&quot; packet
+     */
+    public void sendCustomInit(IPlayer player) {
+<span class="nc" id="L859">        send(new Packet(Packet.COMMAND_CUSTOM_INITIATIVE, player));</span>
+<span class="nc" id="L860">    }</span>
+
+    /**
+     * Sends a &quot;delete entity&quot; packet
+     */
+    public void sendDeleteEntity(int id) {
+<span class="nc" id="L866">        ArrayList&lt;Integer&gt; ids = new ArrayList&lt;Integer&gt;(1);</span>
+<span class="nc" id="L867">        ids.add(id);</span>
+<span class="nc" id="L868">        sendDeleteEntities(ids);</span>
+<span class="nc" id="L869">    }</span>
+
+    public void sendDeleteEntities(List&lt;Integer&gt; ids) {
+<span class="nc" id="L872">        checkDuplicateNamesDuringDelete(ids);</span>
+<span class="nc" id="L873">        send(new Packet(Packet.COMMAND_ENTITY_REMOVE, ids));</span>
+<span class="nc" id="L874">    }</span>
+
+    /**
+     * Sends a &quot;load entity&quot; packet
+     */
+    public void sendLoadEntity(int id, int loaderId, int bayNumber) {
+<span class="nc" id="L880">        send(new Packet(Packet.COMMAND_ENTITY_LOAD, new Object[] { id, loaderId, bayNumber }));</span>
+<span class="nc" id="L881">    }</span>
+
+    /**
+     * sends a load game file to the server
+     */
+    public void sendLoadGame(File f) {
+<span class="nc" id="L887">        try (InputStream is = new GZIPInputStream(new FileInputStream(f))) {</span>
+<span class="nc" id="L888">            game.reset();</span>
+            
+<span class="nc" id="L890">            XStream xstream = SerializationHelper.getXStream();            </span>
+<span class="nc" id="L891">            IGame newGame = (IGame) xstream.fromXML(is);</span>
+
+<span class="nc" id="L893">            send(new Packet(Packet.COMMAND_LOAD_GAME, new Object[] { newGame }));</span>
+<span class="nc" id="L894">        } catch (Exception e) {</span>
+<span class="nc" id="L895">            e.printStackTrace();</span>
+<span class="nc" id="L896">            System.out.println(&quot;Can't find local savegame &quot; + f); //$NON-NLS-1$</span>
+<span class="nc" id="L897">        }</span>
+<span class="nc" id="L898">    }</span>
+
+    public void sendExplodeBuilding(DemolitionCharge charge) {
+<span class="nc" id="L901">        Object data[] = new Object[1];</span>
+<span class="nc" id="L902">        data[0] = charge;</span>
+<span class="nc" id="L903">        send(new Packet(Packet.COMMAND_BLDG_EXPLODE, data));</span>
+<span class="nc" id="L904">    }</span>
+
+    /**
+     * Receives player information from the message packet.
+     */
+    protected void receivePlayerInfo(Packet c) {
+<span class="nc" id="L910">        int pindex = c.getIntValue(0);</span>
+<span class="nc" id="L911">        IPlayer newPlayer = (IPlayer) c.getObject(1);</span>
+<span class="nc bnc" id="L912" title="All 2 branches missed.">        if (getPlayer(newPlayer.getId()) == null) {</span>
+<span class="nc" id="L913">            game.addPlayer(pindex, newPlayer);</span>
+        } else {
+<span class="nc" id="L915">            game.setPlayer(pindex, newPlayer);</span>
+        }
+<span class="nc" id="L917">    }</span>
+
+    /**
+     * Loads the turn list from the data in the packet
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveTurns(Packet packet) {
+<span class="nc" id="L924">        game.setTurnVector((List&lt;GameTurn&gt;) packet.getObject(0));</span>
+<span class="nc" id="L925">    }</span>
+
+    /**
+     * Loads the board from the data in the net command.
+     */
+    protected void receiveBoard(Packet c) {
+<span class="nc" id="L931">        Board newBoard = (Board) c.getObject(0);</span>
+<span class="nc" id="L932">        game.setBoard(newBoard);</span>
+<span class="nc" id="L933">    }</span>
+
+    /**
+     * Loads the entities from the data in the net command.
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveEntities(Packet c) {
+<span class="nc" id="L940">        List&lt;Entity&gt; newEntities = (List&lt;Entity&gt;) c.getObject(0);</span>
+<span class="nc" id="L941">        List&lt;Entity&gt; newOutOfGame = (List&lt;Entity&gt;) c.getObject(1);</span>
+        // Replace the entities in the game.
+<span class="nc" id="L943">        game.setEntitiesVector(newEntities);</span>
+<span class="nc bnc" id="L944" title="All 2 branches missed.">        if (newOutOfGame != null) {</span>
+<span class="nc" id="L945">            game.setOutOfGameEntitiesVector(newOutOfGame);</span>
+<span class="nc bnc" id="L946" title="All 2 branches missed.">            for(Entity e: newOutOfGame) {</span>
+<span class="nc" id="L947">                cacheImgTag(e);</span>
+<span class="nc" id="L948">            }</span>
+        }
+        //cache the image data for the entities
+<span class="nc bnc" id="L951" title="All 2 branches missed.">        for(Entity e: newEntities) {</span>
+<span class="nc" id="L952">            cacheImgTag(e);</span>
+<span class="nc" id="L953">        }</span>
+<span class="nc" id="L954">    }</span>
+
+    /**
+     * Loads entity update data from the data in the net command.
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveEntityUpdate(Packet c) {
+<span class="nc" id="L961">        int eindex = c.getIntValue(0);</span>
+<span class="nc" id="L962">        Entity entity = (Entity) c.getObject(1);</span>
+<span class="nc" id="L963">        Vector&lt;UnitLocation&gt; movePath = (Vector&lt;UnitLocation&gt;) c.getObject(2);</span>
+        // Replace this entity in the game.
+<span class="nc" id="L965">        game.setEntity(eindex, entity, movePath);</span>
+<span class="nc" id="L966">    }</span>
+
+    protected void receiveEntityAdd(Packet packet) {
+        @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L970">        List&lt;Integer&gt; entityIds = (List&lt;Integer&gt;) packet.getObject(0);</span>
+        @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L972">        List&lt;Entity&gt; entities = (List&lt;Entity&gt;) packet.getObject(1);</span>
+
+<span class="nc bnc" id="L974" title="All 2 branches missed.">        assert(entityIds.size() == entities.size());</span>
+<span class="nc bnc" id="L975" title="All 2 branches missed.">        for (int i = 0; i &lt; entityIds.size(); i++) {</span>
+<span class="nc bnc" id="L976" title="All 2 branches missed.">            assert(entityIds.get(i) == entities.get(i).getId());</span>
+        }
+<span class="nc" id="L978">        game.addEntities(entities);</span>
+<span class="nc" id="L979">    }</span>
+
+    protected void receiveEntityRemove(Packet packet) {
+        @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L983">        List&lt;Integer&gt; entityIds = (List&lt;Integer&gt;) packet.getObject(0);</span>
+<span class="nc" id="L984">        int condition = packet.getIntValue(1);</span>
+        //create a final image for the entity
+<span class="nc bnc" id="L986" title="All 2 branches missed.">        for(int id: entityIds) {</span>
+<span class="nc" id="L987">            cacheImgTag(game.getEntity(id));</span>
+<span class="nc" id="L988">        }</span>
+        // Move the unit to its final resting place.
+<span class="nc" id="L990">        game.removeEntities(entityIds, condition);</span>
+<span class="nc" id="L991">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveEntityVisibilityIndicator(Packet packet) {
+<span class="nc" id="L995">        Entity e = game.getEntity(packet.getIntValue(0));</span>
+<span class="nc bnc" id="L996" title="All 2 branches missed.">        if (e != null) { // we may not have this entity due to double blind</span>
+<span class="nc" id="L997">            e.setEverSeenByEnemy(packet.getBooleanValue(1));</span>
+<span class="nc" id="L998">            e.setVisibleToEnemy(packet.getBooleanValue(2));</span>
+<span class="nc" id="L999">            e.setDetectedByEnemy(packet.getBooleanValue(3));</span>
+<span class="nc" id="L1000">            e.setWhoCanSee((Vector&lt;IPlayer&gt;) packet.getObject(4));</span>
+<span class="nc" id="L1001">            e.setWhoCanDetect((Vector&lt;IPlayer&gt;) packet.getObject(5));</span>
+            // this next call is only needed sometimes, but we'll just
+            // call it everytime
+<span class="nc" id="L1004">            game.processGameEvent(new GameEntityChangeEvent(this, e));</span>
+        }
+<span class="nc" id="L1006">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveDeployMinefields(Packet packet) {
+<span class="nc" id="L1010">        game.addMinefields((Vector&lt;Minefield&gt;) packet.getObject(0));</span>
+<span class="nc" id="L1011">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveSendingMinefields(Packet packet) {
+<span class="nc" id="L1015">        game.setMinefields((Vector&lt;Minefield&gt;) packet.getObject(0));</span>
+<span class="nc" id="L1016">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveIlluminatedHexes(Packet p) {
+<span class="nc" id="L1020">        game.setIlluminatedPositions((HashSet&lt;Coords&gt;) p.getObject(0));</span>
+<span class="nc" id="L1021">    }</span>
+
+    protected void receiveRevealMinefield(Packet packet) {
+<span class="nc" id="L1024">        game.addMinefield((Minefield) packet.getObject(0));</span>
+<span class="nc" id="L1025">    }</span>
+
+    protected void receiveRemoveMinefield(Packet packet) {
+<span class="nc" id="L1028">        game.removeMinefield((Minefield) packet.getObject(0));</span>
+<span class="nc" id="L1029">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveUpdateMinefields(Packet packet) {
+        // only update information if you know about the minefield
+<span class="nc" id="L1034">        Vector&lt;Minefield&gt; newMines = new Vector&lt;Minefield&gt;();</span>
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">        for (Minefield mf : (Vector&lt;Minefield&gt;) packet.getObject(0)) {</span>
+<span class="nc bnc" id="L1036" title="All 2 branches missed.">            if (getLocalPlayer().containsMinefield(mf)) {</span>
+<span class="nc" id="L1037">                newMines.add(mf);</span>
+            }
+<span class="nc" id="L1039">        }</span>
+<span class="nc bnc" id="L1040" title="All 2 branches missed.">        if (newMines.size() &gt; 0) {</span>
+<span class="nc" id="L1041">            game.resetMinefieldDensity(newMines);</span>
+        }
+<span class="nc" id="L1043">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveBuildingUpdate(Packet packet) {
+<span class="nc" id="L1047">        game.getBoard().updateBuildings((Vector&lt;Building&gt;) packet.getObject(0));</span>
+<span class="nc" id="L1048">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveBuildingCollapse(Packet packet) {
+<span class="nc" id="L1052">        game.getBoard().collapseBuilding((Vector&lt;Coords&gt;) packet.getObject(0));</span>
+<span class="nc" id="L1053">    }</span>
+
+    /**
+     * Loads entity firing data from the data in the net command
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void receiveAttack(Packet c) {
+<span class="nc" id="L1060">        List&lt;EntityAction&gt; vector = (List&lt;EntityAction&gt;) c.getObject(0);</span>
+<span class="nc" id="L1061">        int charge = c.getIntValue(1);</span>
+<span class="nc" id="L1062">        boolean addAction = true;</span>
+<span class="nc bnc" id="L1063" title="All 2 branches missed.">        for (EntityAction ea : vector) {</span>
+<span class="nc" id="L1064">            int entityId = ea.getEntityId();</span>
+<span class="nc bnc" id="L1065" title="All 4 branches missed.">            if ((ea instanceof TorsoTwistAction) &amp;&amp; game.hasEntity(entityId)) {</span>
+<span class="nc" id="L1066">                TorsoTwistAction tta = (TorsoTwistAction) ea;</span>
+<span class="nc" id="L1067">                Entity entity = game.getEntity(entityId);</span>
+<span class="nc" id="L1068">                entity.setSecondaryFacing(tta.getFacing());</span>
+<span class="nc bnc" id="L1069" title="All 4 branches missed.">            } else if ((ea instanceof FlipArmsAction) &amp;&amp; game.hasEntity(entityId)) {</span>
+<span class="nc" id="L1070">                FlipArmsAction faa = (FlipArmsAction) ea;</span>
+<span class="nc" id="L1071">                Entity entity = game.getEntity(entityId);</span>
+<span class="nc" id="L1072">                entity.setArmsFlipped(faa.getIsFlipped());</span>
+<span class="nc bnc" id="L1073" title="All 4 branches missed.">            } else if ((ea instanceof DodgeAction) &amp;&amp; game.hasEntity(entityId)) {</span>
+<span class="nc" id="L1074">                Entity entity = game.getEntity(entityId);</span>
+<span class="nc" id="L1075">                entity.dodging = true;</span>
+<span class="nc" id="L1076">                addAction = false;</span>
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">            } else if (ea instanceof AttackAction) {</span>
+                // The equipment type of a club needs to be restored.
+<span class="nc bnc" id="L1079" title="All 2 branches missed.">                if (ea instanceof ClubAttackAction) {</span>
+<span class="nc" id="L1080">                    ClubAttackAction caa = (ClubAttackAction) ea;</span>
+<span class="nc" id="L1081">                    Mounted club = caa.getClub();</span>
+<span class="nc" id="L1082">                    club.restore();</span>
+                }
+            }
+
+<span class="nc bnc" id="L1086" title="All 2 branches missed.">            if (addAction) {</span>
+                // track in the appropriate list
+<span class="nc bnc" id="L1088" title="All 2 branches missed.">                if (charge == 0) {</span>
+<span class="nc" id="L1089">                    game.addAction(ea);</span>
+<span class="nc bnc" id="L1090" title="All 2 branches missed.">                } else if (charge == 1) {</span>
+<span class="nc" id="L1091">                    game.addCharge((AttackAction) ea);</span>
+                }
+            }
+<span class="nc" id="L1094">        }</span>
+<span class="nc" id="L1095">    }</span>
+
+
+    // Should be private?
+    public String receiveReport(Vector&lt;Report&gt; v) {
+<span class="nc bnc" id="L1100" title="All 2 branches missed.">        if (v == null) {</span>
+<span class="nc" id="L1101">            return &quot;[null report vector]&quot;;</span>
+        }
+
+<span class="nc" id="L1104">        StringBuffer report = new StringBuffer();</span>
+<span class="nc bnc" id="L1105" title="All 2 branches missed.">        for (Report r : v) {</span>
+<span class="nc" id="L1106">            report.append(r.getText());</span>
+<span class="nc" id="L1107">        }</span>
+
+<span class="nc" id="L1109">        Set&lt;Integer&gt; set = new HashSet&lt;Integer&gt;();</span>
+        //find id stored in spans and extract it
+<span class="nc" id="L1111">        Pattern p = Pattern.compile(&quot;&lt;s(.*?)n&gt;&quot;);</span>
+<span class="nc" id="L1112">        Matcher m = p.matcher(report.toString());</span>
+
+        //add all instances to a hashset to prevent duplicates
+<span class="nc bnc" id="L1115" title="All 2 branches missed.">        while(m.find()){</span>
+<span class="nc" id="L1116">            String cleanedText = m.group(1).replaceAll(&quot;\\D&quot;, &quot;&quot;);</span>
+<span class="nc bnc" id="L1117" title="All 2 branches missed.">            if(cleanedText.length() &gt; 0) {</span>
+<span class="nc" id="L1118">                set.add(Integer.parseInt(cleanedText));</span>
+            }
+<span class="nc" id="L1120">        }</span>
+
+<span class="nc" id="L1122">        String updatedReport = report.toString();</span>
+        //loop through the hashset of unique ids and replace the ids with img tags
+<span class="nc bnc" id="L1124" title="All 2 branches missed.">        for (int i : set) {</span>
+<span class="nc bnc" id="L1125" title="All 2 branches missed.">            if(getCachedImgTag(i) != null) {</span>
+<span class="nc" id="L1126">                updatedReport = updatedReport.replace(&quot;&lt;span id='&quot; + i + &quot;'&gt;&lt;/span&gt;&quot;, getCachedImgTag(i));</span>
+            }
+<span class="nc" id="L1128">        }</span>
+<span class="nc" id="L1129">        return updatedReport;</span>
+    }
+
+    /**
+     * returns the stored &lt;img&gt; tag for given unit id
+     */
+    private String getCachedImgTag(int id){
+<span class="nc bnc" id="L1136" title="All 4 branches missed.">        if (!GUIPreferences.getInstance().getBoolean(GUIPreferences.ADVANCED_ROUND_REPORT_SPRITES)</span>
+<span class="nc bnc" id="L1137" title="All 2 branches missed.">                || (imgCache == null) || !imgCache.containsKey(id)) {</span>
+<span class="nc" id="L1138">            return null;</span>
+        }
+<span class="nc" id="L1140">        return imgCache.get(id);</span>
+    }
+
+    /**
+     * Hashtable for storing &lt;img&gt; tags containing base64Text src.
+     */
+    private void cacheImgTag(Entity entity){
+
+<span class="nc bnc" id="L1148" title="All 2 branches missed.">        if(entity == null) {</span>
+<span class="nc" id="L1149">            MegaMek.getLogger().error(&quot;Null entity reference&quot;);</span>
+<span class="nc" id="L1150">            return;</span>
+        }
+
+<span class="nc bnc" id="L1153" title="All 2 branches missed.">        if (imgCache == null) {</span>
+<span class="nc" id="L1154">            imgCache = new Hashtable&lt;&gt;();</span>
+<span class="nc bnc" id="L1155" title="All 2 branches missed.">        } else if (imgCache.containsKey(entity.getId())) {</span>
+            //remove images that should be refreshed
+<span class="nc" id="L1157">            imgCache.remove(entity.getId());</span>
+        }
+
+<span class="nc bnc" id="L1160" title="All 2 branches missed.">        if (getTargetImage(entity) != null) {</span>
+            //convert image to base64, add to to &lt;img&gt; tag and store in cache
+<span class="nc" id="L1162">            Image image = ImageUtil.getScaledImage(getTargetImage(entity), 56, 48);</span>
+            try {
+                String base64Text;
+<span class="nc" id="L1165">                ByteArrayOutputStream baos = new ByteArrayOutputStream();</span>
+<span class="nc" id="L1166">                ImageIO.write((RenderedImage) image, &quot;png&quot;, baos);</span>
+<span class="nc" id="L1167">                baos.flush();</span>
+<span class="nc" id="L1168">                base64Text = Base64.getEncoder().encodeToString(baos.toByteArray());</span>
+<span class="nc" id="L1169">                baos.close();</span>
+<span class="nc" id="L1170">                String img = &quot;&lt;img src='data:image/png;base64,&quot; + base64Text + &quot;'&gt;&quot;;</span>
+<span class="nc" id="L1171">                imgCache.put(entity.getId(), img);</span>
+<span class="nc" id="L1172">            } catch (final IOException ioe) {</span>
+<span class="nc" id="L1173">                throw new UncheckedIOException(ioe);</span>
+<span class="nc" id="L1174">            }</span>
+        }
+<span class="nc" id="L1176">    }</span>
+
+    /**
+     * Gets the current mech image
+     */
+    private Image getTargetImage(Entity e){
+<span class="nc bnc" id="L1182" title="All 2 branches missed.">        if (bv == null) {</span>
+<span class="nc" id="L1183">            return null;</span>
+<span class="nc bnc" id="L1184" title="All 2 branches missed.">        } else if (e.isDestroyed()) {</span>
+<span class="nc" id="L1185">            return bv.getTilesetManager().wreckMarkerFor(e, -1);</span>
+        } else {
+<span class="nc" id="L1187">            return bv.getTilesetManager().imageFor(e);</span>
+        }
+    }
+
+    /**
+     * Saves server entity status data to a local file
+     */
+    private void saveEntityStatus(String sStatus) {
+        try {
+<span class="nc" id="L1196">            String sLogDir = PreferenceManager.getClientPreferences().getLogDirectory();</span>
+<span class="nc" id="L1197">            File logDir = new File(sLogDir);</span>
+<span class="nc bnc" id="L1198" title="All 2 branches missed.">            if (!logDir.exists()) {</span>
+<span class="nc" id="L1199">                logDir.mkdir();</span>
+            }
+<span class="nc" id="L1201">            String fileName = &quot;entitystatus.txt&quot;;</span>
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">            if (PreferenceManager.getClientPreferences().stampFilenames()) {</span>
+<span class="nc" id="L1203">                fileName = StringUtil.addDateTimeStamp(fileName);</span>
+            }
+<span class="nc" id="L1205">            FileWriter fw = new FileWriter(sLogDir + File.separator + fileName);</span>
+<span class="nc" id="L1206">            fw.write(sStatus);</span>
+<span class="nc" id="L1207">            fw.flush();</span>
+<span class="nc" id="L1208">            fw.close();</span>
+<span class="nc" id="L1209">        } catch (Exception e) {</span>
+<span class="nc" id="L1210">            e.printStackTrace();</span>
+<span class="nc" id="L1211">        }</span>
+<span class="nc" id="L1212">    }</span>
+
+    /**
+     * send the message to the server
+     */
+    protected void send(Packet packet) {
+<span class="nc bnc" id="L1218" title="All 2 branches missed.">        if (connection != null) {</span>
+<span class="nc" id="L1219">            connection.send(packet);</span>
+        }
+<span class="nc" id="L1221">    }</span>
+
+    /**
+     * Send a Nova CEWS update packet
+     *
+     * @param ID
+     * @param net
+     */
+    public void sendNovaChange(int ID, String net) {
+<span class="nc" id="L1230">        Object[] data = { Integer.valueOf(ID), new String(net) };</span>
+<span class="nc" id="L1231">        Packet packet = new Packet(Packet.COMMAND_ENTITY_NOVA_NETWORK_CHANGE, data);</span>
+<span class="nc" id="L1232">        send(packet);</span>
+<span class="nc" id="L1233">    }</span>
+
+    public void sendSpecialHexDisplayAppend(Coords c, SpecialHexDisplay shd) {
+<span class="nc" id="L1236">        Object[] data = { c, shd };</span>
+<span class="nc" id="L1237">        Packet packet = new Packet(Packet.COMMAND_SPECIAL_HEX_DISPLAY_APPEND, data);</span>
+<span class="nc" id="L1238">        send(packet);</span>
+<span class="nc" id="L1239">    }</span>
+
+    public void sendSpecialHexDisplayDelete(Coords c, SpecialHexDisplay shd) {
+<span class="nc" id="L1242">        Object[] data = { c, shd };</span>
+<span class="nc" id="L1243">        Packet packet = new Packet(Packet.COMMAND_SPECIAL_HEX_DISPLAY_DELETE, data);</span>
+<span class="nc" id="L1244">        send(packet);</span>
+<span class="nc" id="L1245">    }</span>
+
+    /**
+     * send all buffered packets on their way this should be called after
+     * everything which causes us to wait for a reply. For example &quot;done&quot; button
+     * presses etc. to make stuff more efficient, this should only be called
+     * after a batch of packets is sent,not separately for each packet
+     */
+    protected void flushConn() {
+<span class="nc bnc" id="L1254" title="All 2 branches missed.">        if (connection != null) {</span>
+<span class="nc" id="L1255">            connection.flush();</span>
+        }
+<span class="nc" id="L1257">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void handlePacket(Packet c) {
+<span class="nc bnc" id="L1261" title="All 2 branches missed.">        if (c == null) {</span>
+<span class="nc" id="L1262">            System.out.println(&quot;client: got null packet&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L1263">            return;</span>
+        }
+<span class="nc bnc" id="L1265" title="All 51 branches missed.">        switch (c.getCommand()) {</span>
+        case Packet.COMMAND_CLOSE_CONNECTION:
+<span class="nc" id="L1267">            disconnected();</span>
+<span class="nc" id="L1268">            break;</span>
+        case Packet.COMMAND_SERVER_GREETING:
+<span class="nc" id="L1270">            connected = true;</span>
+<span class="nc" id="L1271">            send(new Packet(Packet.COMMAND_CLIENT_NAME, name));</span>
+<span class="nc" id="L1272">            Object[] versionData = new Object[2];</span>
+<span class="nc" id="L1273">            versionData[0] = MegaMek.VERSION;</span>
+<span class="nc" id="L1274">            versionData[1] = MegaMek.getMegaMekSHA256();</span>
+<span class="nc" id="L1275">            send(new Packet(Packet.COMMAND_CLIENT_VERSIONS, versionData));</span>
+<span class="nc" id="L1276">            break;</span>
+        case Packet.COMMAND_SERVER_CORRECT_NAME:
+<span class="nc" id="L1278">            correctName(c);</span>
+<span class="nc" id="L1279">            break;</span>
+        case Packet.COMMAND_LOCAL_PN:
+<span class="nc" id="L1281">            localPlayerNumber = c.getIntValue(0);</span>
+<span class="nc" id="L1282">            break;</span>
+        case Packet.COMMAND_PLAYER_UPDATE:
+<span class="nc" id="L1284">            receivePlayerInfo(c);</span>
+<span class="nc" id="L1285">            break;</span>
+        case Packet.COMMAND_PLAYER_READY:
+<span class="nc" id="L1287">            getPlayer(c.getIntValue(0)).setDone(c.getBooleanValue(1));</span>
+<span class="nc" id="L1288">            break;</span>
+        case Packet.COMMAND_PLAYER_ADD:
+<span class="nc" id="L1290">            receivePlayerInfo(c);</span>
+<span class="nc" id="L1291">            break;</span>
+        case Packet.COMMAND_PLAYER_REMOVE:
+<span class="nc bnc" id="L1293" title="All 2 branches missed.">            for (Iterator&lt;Client&gt; botIterator = bots.values().iterator(); botIterator.hasNext();) {</span>
+<span class="nc" id="L1294">                Client bot = botIterator.next();</span>
+<span class="nc bnc" id="L1295" title="All 2 branches missed.">                if (bot.localPlayerNumber == c.getIntValue(0)) {</span>
+<span class="nc" id="L1296">                    botIterator.remove();</span>
+                }
+<span class="nc" id="L1298">            }</span>
+<span class="nc" id="L1299">            game.removePlayer(c.getIntValue(0));</span>
+<span class="nc" id="L1300">            break;</span>
+        case Packet.COMMAND_CHAT:
+<span class="nc bnc" id="L1302" title="All 2 branches missed.">            if (log == null) {</span>
+<span class="nc" id="L1303">                initGameLog();</span>
+            }
+<span class="nc bnc" id="L1305" title="All 4 branches missed.">            if ((log != null) &amp;&amp; keepGameLog()) {</span>
+<span class="nc" id="L1306">                log.append((String) c.getObject(0));</span>
+            }
+<span class="nc" id="L1308">            game.processGameEvent(new GamePlayerChatEvent(this, null, (String) c.getObject(0)));</span>
+<span class="nc" id="L1309">            break;</span>
+        case Packet.COMMAND_ENTITY_ADD:
+<span class="nc" id="L1311">            receiveEntityAdd(c);</span>
+<span class="nc" id="L1312">            break;</span>
+        case Packet.COMMAND_ENTITY_UPDATE:
+<span class="nc" id="L1314">            receiveEntityUpdate(c);</span>
+<span class="nc" id="L1315">            break;</span>
+        case Packet.COMMAND_ENTITY_REMOVE:
+<span class="nc" id="L1317">            receiveEntityRemove(c);</span>
+<span class="nc" id="L1318">            break;</span>
+        case Packet.COMMAND_ENTITY_VISIBILITY_INDICATOR:
+<span class="nc" id="L1320">            receiveEntityVisibilityIndicator(c);</span>
+<span class="nc" id="L1321">            break;</span>
+        case Packet.COMMAND_SENDING_MINEFIELDS:
+<span class="nc" id="L1323">            receiveSendingMinefields(c);</span>
+<span class="nc" id="L1324">            break;</span>
+        case Packet.COMMAND_SENDING_ILLUM_HEXES:
+<span class="nc" id="L1326">            receiveIlluminatedHexes(c);</span>
+<span class="nc" id="L1327">            break;</span>
+        case Packet.COMMAND_CLEAR_ILLUM_HEXES:
+<span class="nc" id="L1329">            game.clearIlluminatedPositions();</span>
+<span class="nc" id="L1330">            break;</span>
+        case Packet.COMMAND_UPDATE_MINEFIELDS:
+<span class="nc" id="L1332">            receiveUpdateMinefields(c);</span>
+<span class="nc" id="L1333">            break;</span>
+        case Packet.COMMAND_DEPLOY_MINEFIELDS:
+<span class="nc" id="L1335">            receiveDeployMinefields(c);</span>
+<span class="nc" id="L1336">            break;</span>
+        case Packet.COMMAND_REVEAL_MINEFIELD:
+<span class="nc" id="L1338">            receiveRevealMinefield(c);</span>
+<span class="nc" id="L1339">            break;</span>
+        case Packet.COMMAND_REMOVE_MINEFIELD:
+<span class="nc" id="L1341">            receiveRemoveMinefield(c);</span>
+<span class="nc" id="L1342">            break;</span>
+        case Packet.COMMAND_ADD_SMOKE_CLOUD:
+<span class="nc" id="L1344">            SmokeCloud cloud = (SmokeCloud) c.getObject(0);</span>
+<span class="nc" id="L1345">            game.addSmokeCloud(cloud);</span>
+<span class="nc" id="L1346">            break;</span>
+        case Packet.COMMAND_CHANGE_HEX:
+<span class="nc" id="L1348">            game.getBoard().setHex((Coords) c.getObject(0), (IHex) c.getObject(1));</span>
+<span class="nc" id="L1349">            break;</span>
+        case Packet.COMMAND_CHANGE_HEXES:
+<span class="nc" id="L1351">            List&lt;Coords&gt; coords = new ArrayList&lt;Coords&gt;((Set&lt;Coords&gt;) c.getObject(0));</span>
+<span class="nc" id="L1352">            List&lt;IHex&gt; hexes = new ArrayList&lt;IHex&gt;((Set&lt;IHex&gt;) c.getObject(1));</span>
+<span class="nc" id="L1353">            game.getBoard().setHexes(coords, hexes);</span>
+<span class="nc" id="L1354">            break;</span>
+        case Packet.COMMAND_BLDG_UPDATE:
+<span class="nc" id="L1356">            receiveBuildingUpdate(c);</span>
+<span class="nc" id="L1357">            break;</span>
+        case Packet.COMMAND_BLDG_COLLAPSE:
+<span class="nc" id="L1359">            receiveBuildingCollapse(c);</span>
+<span class="nc" id="L1360">            break;</span>
+        case Packet.COMMAND_PHASE_CHANGE:
+<span class="nc" id="L1362">            changePhase((IGame.Phase) c.getObject(0));</span>
+<span class="nc" id="L1363">            break;</span>
+        case Packet.COMMAND_TURN:
+<span class="nc" id="L1365">            changeTurnIndex(c.getIntValue(0), c.getIntValue(1));</span>
+<span class="nc" id="L1366">            break;</span>
+        case Packet.COMMAND_ROUND_UPDATE:
+<span class="nc" id="L1368">            game.setRoundCount(c.getIntValue(0));</span>
+<span class="nc" id="L1369">            break;</span>
+        case Packet.COMMAND_SENDING_TURNS:
+<span class="nc" id="L1371">            receiveTurns(c);</span>
+<span class="nc" id="L1372">            break;</span>
+        case Packet.COMMAND_SENDING_BOARD:
+<span class="nc" id="L1374">            receiveBoard(c);</span>
+<span class="nc" id="L1375">            break;</span>
+        case Packet.COMMAND_SENDING_ENTITIES:
+<span class="nc" id="L1377">            receiveEntities(c);</span>
+<span class="nc" id="L1378">            break;</span>
+        case Packet.COMMAND_SENDING_REPORTS:
+        case Packet.COMMAND_SENDING_REPORTS_TACTICAL_GENIUS:
+<span class="nc" id="L1381">            phaseReport = receiveReport((Vector&lt;Report&gt;) c.getObject(0));</span>
+<span class="nc bnc" id="L1382" title="All 2 branches missed.">            if (keepGameLog()) {</span>
+<span class="nc bnc" id="L1383" title="All 4 branches missed.">                if ((log == null) &amp;&amp; (game.getRoundCount() == 1)) {</span>
+<span class="nc" id="L1384">                    initGameLog();</span>
+                }
+<span class="nc bnc" id="L1386" title="All 2 branches missed.">                if (log != null) {</span>
+<span class="nc" id="L1387">                    log.append(phaseReport);</span>
+                }
+            }
+<span class="nc" id="L1390">            game.addReports((Vector&lt;Report&gt;) c.getObject(0));</span>
+<span class="nc" id="L1391">            roundReport = receiveReport(game.getReports(game.getRoundCount()));</span>
+<span class="nc bnc" id="L1392" title="All 2 branches missed.">            if (c.getCommand() == Packet.COMMAND_SENDING_REPORTS_TACTICAL_GENIUS) {</span>
+<span class="nc" id="L1393">                game.processGameEvent(new GameReportEvent(this, roundReport));</span>
+            }
+            break;
+        case Packet.COMMAND_SENDING_REPORTS_SPECIAL:
+<span class="nc" id="L1397">            game.processGameEvent(new GameReportEvent(this, receiveReport((Vector&lt;Report&gt;) c.getObject(0))));</span>
+<span class="nc" id="L1398">            break;</span>
+        case Packet.COMMAND_SENDING_REPORTS_ALL:
+<span class="nc" id="L1400">            Vector&lt;Vector&lt;Report&gt;&gt; allReports = (Vector&lt;Vector&lt;Report&gt;&gt;) c.getObject(0);</span>
+<span class="nc" id="L1401">            game.setAllReports(allReports);</span>
+<span class="nc bnc" id="L1402" title="All 2 branches missed.">            if (keepGameLog()) {</span>
+                // Re-write gamelog.txt from scratch
+<span class="nc" id="L1404">                initGameLog();</span>
+<span class="nc bnc" id="L1405" title="All 2 branches missed.">                if (log != null) {</span>
+<span class="nc bnc" id="L1406" title="All 2 branches missed.">                    for (int i = 0; i &lt; allReports.size(); i++) {</span>
+<span class="nc" id="L1407">                        log.append(receiveReport(allReports.elementAt(i)));</span>
+                    }
+                }
+            }
+<span class="nc" id="L1411">            roundReport = receiveReport(game.getReports(game.getRoundCount()));</span>
+            // We don't really have a copy of the phase report at
+            // this point, so I guess we'll just use the round report
+            // until the next phase actually completes.
+<span class="nc" id="L1415">            phaseReport = roundReport;</span>
+<span class="nc" id="L1416">            break;</span>
+        case Packet.COMMAND_ENTITY_ATTACK:
+<span class="nc" id="L1418">            receiveAttack(c);</span>
+<span class="nc" id="L1419">            break;</span>
+        case Packet.COMMAND_SENDING_GAME_SETTINGS:
+<span class="nc" id="L1421">            game.setOptions((GameOptions) c.getObject(0));</span>
+<span class="nc" id="L1422">            break;</span>
+        case Packet.COMMAND_SENDING_MAP_SETTINGS:
+<span class="nc" id="L1424">            mapSettings = (MapSettings) c.getObject(0);</span>
+<span class="nc" id="L1425">            mapSettings.adjustPathSeparator();</span>
+<span class="nc" id="L1426">            GameSettingsChangeEvent evt = new GameSettingsChangeEvent(this);</span>
+<span class="nc" id="L1427">            evt.setMapSettingsOnlyChange(true);</span>
+<span class="nc" id="L1428">            game.processGameEvent(evt);</span>
+<span class="nc" id="L1429">            break;</span>
+        case Packet.COMMAND_SENDING_PLANETARY_CONDITIONS:
+<span class="nc" id="L1431">            game.setPlanetaryConditions((PlanetaryConditions) c.getObject(0));</span>
+<span class="nc" id="L1432">            game.processGameEvent(new GameSettingsChangeEvent(this));</span>
+<span class="nc" id="L1433">            break;</span>
+        case Packet.COMMAND_SENDING_TAGINFO:
+<span class="nc" id="L1435">            Vector&lt;TagInfo&gt; vti = (Vector&lt;TagInfo&gt;) c.getObject(0);</span>
+<span class="nc bnc" id="L1436" title="All 2 branches missed.">            for (TagInfo ti : vti) {</span>
+<span class="nc" id="L1437">                game.addTagInfo(ti);</span>
+<span class="nc" id="L1438">            }</span>
+<span class="nc" id="L1439">            break;</span>
+        case Packet.COMMAND_RESET_TAGINFO:
+<span class="nc" id="L1441">            game.resetTagInfo();</span>
+<span class="nc" id="L1442">            break;</span>
+        case Packet.COMMAND_END_OF_GAME:
+<span class="nc" id="L1444">            String sEntityStatus = (String) c.getObject(0);</span>
+<span class="nc" id="L1445">            game.end(c.getIntValue(1), c.getIntValue(2));</span>
+            // save victory report
+<span class="nc" id="L1447">            saveEntityStatus(sEntityStatus);</span>
+<span class="nc" id="L1448">            break;</span>
+        case Packet.COMMAND_SENDING_ARTILLERYATTACKS:
+<span class="nc" id="L1450">            Vector&lt;ArtilleryAttackAction&gt; v = (Vector&lt;ArtilleryAttackAction&gt;) c.getObject(0);</span>
+<span class="nc" id="L1451">            game.setArtilleryVector(v);</span>
+<span class="nc" id="L1452">            break;</span>
+        case Packet.COMMAND_SENDING_FLARES:
+<span class="nc" id="L1454">            Vector&lt;Flare&gt; v2 = (Vector&lt;Flare&gt;) c.getObject(0);</span>
+<span class="nc" id="L1455">            game.setFlares(v2);</span>
+<span class="nc" id="L1456">            break;</span>
+        case Packet.COMMAND_SEND_SAVEGAME:
+<span class="nc" id="L1458">            String sFinalFile = (String) c.getObject(0);</span>
+<span class="nc" id="L1459">            String sLocalPath = (String) c.getObject(2);</span>
+<span class="nc" id="L1460">            String localFile = sLocalPath + File.separator + sFinalFile;</span>
+            try {
+<span class="nc" id="L1462">                File sDir = new File(sLocalPath);</span>
+<span class="nc bnc" id="L1463" title="All 2 branches missed.">                if (!sDir.exists()) {</span>
+<span class="nc" id="L1464">                    sDir.mkdir();</span>
+                }
+<span class="nc" id="L1466">            } catch (Exception e) {</span>
+<span class="nc" id="L1467">                System.err.println(&quot;Unable to create savegames directory&quot;);</span>
+<span class="nc" id="L1468">            }</span>
+            try {
+
+<span class="nc" id="L1471">                BufferedOutputStream fout = new BufferedOutputStream(new FileOutputStream(localFile));</span>
+<span class="nc" id="L1472">                ArrayList&lt;Integer&gt; data = (ArrayList&lt;Integer&gt;) c.getObject(1);</span>
+<span class="nc bnc" id="L1473" title="All 2 branches missed.">                for (Integer d : data) {</span>
+<span class="nc" id="L1474">                    fout.write(d);</span>
+<span class="nc" id="L1475">                }</span>
+<span class="nc" id="L1476">                fout.flush();</span>
+<span class="nc" id="L1477">                fout.close();</span>
+<span class="nc" id="L1478">            } catch (Exception e) {</span>
+<span class="nc" id="L1479">                System.err.println(&quot;Unable to save file: &quot; + sFinalFile);</span>
+<span class="nc" id="L1480">                e.printStackTrace();</span>
+<span class="nc" id="L1481">            }</span>
+<span class="nc" id="L1482">            break;</span>
+        case Packet.COMMAND_LOAD_SAVEGAME:
+<span class="nc" id="L1484">            String loadFile = (String) c.getObject(0);</span>
+            try {
+<span class="nc" id="L1486">                File f = new File(&quot;savegames&quot;, loadFile);</span>
+<span class="nc" id="L1487">                sendLoadGame(f);</span>
+<span class="nc" id="L1488">            } catch (Exception e) {</span>
+<span class="nc" id="L1489">                System.err.println(&quot;Unable to find the file: &quot; + loadFile);</span>
+<span class="nc" id="L1490">            }</span>
+<span class="nc" id="L1491">            break;</span>
+        case Packet.COMMAND_SENDING_SPECIAL_HEX_DISPLAY:
+<span class="nc" id="L1493">            game.getBoard()</span>
+<span class="nc" id="L1494">                    .setSpecialHexDisplayTable((Hashtable&lt;Coords, Collection&lt;SpecialHexDisplay&gt;&gt;) c.getObject(0));</span>
+<span class="nc" id="L1495">            game.processGameEvent(new GameBoardChangeEvent(this));</span>
+<span class="nc" id="L1496">            break;</span>
+        case Packet.COMMAND_SENDING_AVAILABLE_MAP_SIZES:
+<span class="nc" id="L1498">            availableSizes = (Set&lt;BoardDimensions&gt;) c.getObject(0);</span>
+<span class="nc" id="L1499">            game.processGameEvent(new GameSettingsChangeEvent(this));</span>
+<span class="nc" id="L1500">            break;</span>
+        case Packet.COMMAND_ENTITY_NOVA_NETWORK_CHANGE:
+<span class="nc" id="L1502">            receiveEntityNovaNetworkModeChange(c);</span>
+<span class="nc" id="L1503">            break;</span>
+        case Packet.COMMAND_CLIENT_FEEDBACK_REQUEST:
+<span class="nc" id="L1505">            int cfrType = (int) c.getData()[0];</span>
+<span class="nc" id="L1506">            GameCFREvent cfrEvt = new GameCFREvent(this, cfrType);</span>
+<span class="nc bnc" id="L1507" title="All 7 branches missed.">            switch (cfrType) {</span>
+            case (Packet.COMMAND_CFR_DOMINO_EFFECT):
+<span class="nc" id="L1509">                cfrEvt.setEntityId((int) c.getData()[1]);</span>
+<span class="nc" id="L1510">                break;</span>
+            case Packet.COMMAND_CFR_AMS_ASSIGN:
+<span class="nc" id="L1512">                cfrEvt.setEntityId((int) c.getData()[1]);</span>
+<span class="nc" id="L1513">                cfrEvt.setAmsEquipNum((int) c.getData()[2]);</span>
+<span class="nc" id="L1514">                cfrEvt.setWAAs((List&lt;WeaponAttackAction&gt;) c.getData()[3]);</span>
+<span class="nc" id="L1515">                break;</span>
+            case Packet.COMMAND_CFR_APDS_ASSIGN:
+<span class="nc" id="L1517">                cfrEvt.setEntityId((int) c.getData()[1]);</span>
+<span class="nc" id="L1518">                cfrEvt.setApdsDists((List&lt;Integer&gt;) c.getData()[2]);</span>
+<span class="nc" id="L1519">                cfrEvt.setWAAs((List&lt;WeaponAttackAction&gt;) c.getData()[3]);</span>
+<span class="nc" id="L1520">                break;</span>
+            case Packet.COMMAND_CFR_HIDDEN_PBS:
+<span class="nc" id="L1522">                cfrEvt.setEntityId((int) c.getObject(1));</span>
+<span class="nc" id="L1523">                cfrEvt.setTargetId((int) c.getObject(2));</span>
+<span class="nc" id="L1524">                break;</span>
+            case Packet.COMMAND_CFR_TELEGUIDED_TARGET:
+<span class="nc" id="L1526">                cfrEvt.setTeleguidedMissileTargets((List&lt;Integer&gt;)c.getObject(1));</span>
+<span class="nc" id="L1527">                cfrEvt.setTmToHitValues((List&lt;Integer&gt;)c.getObject(2));</span>
+<span class="nc" id="L1528">                break;</span>
+            case Packet.COMMAND_CFR_TAG_TARGET:
+<span class="nc" id="L1530">                cfrEvt.setTAGTargets((List&lt;Integer&gt;)c.getObject(1));</span>
+<span class="nc" id="L1531">                cfrEvt.setTAGTargetTypes((List&lt;Integer&gt;)c.getObject(2));</span>
+                break;
+            }
+<span class="nc" id="L1534">            game.processGameEvent(cfrEvt);</span>
+<span class="nc" id="L1535">            break;</span>
+        case Packet.COMMAND_GAME_VICTORY_EVENT:
+<span class="nc" id="L1537">            GameVictoryEvent gve = new GameVictoryEvent(this, game);</span>
+<span class="nc" id="L1538">            game.processGameEvent(gve);</span>
+            break;
+        }
+<span class="nc" id="L1541">    }</span>
+
+    /**
+     * receive and process an entity nova network mode change packet
+     *
+     * @param c
+     */
+    private void receiveEntityNovaNetworkModeChange(Packet c) {
+        try {
+<span class="nc" id="L1550">            int entityId = c.getIntValue(0);</span>
+<span class="nc" id="L1551">            String networkID = c.getObject(1).toString();</span>
+<span class="nc" id="L1552">            Entity e = game.getEntity(entityId);</span>
+<span class="nc bnc" id="L1553" title="All 2 branches missed.">            if (e != null) {</span>
+<span class="nc" id="L1554">                e.setNewRoundNovaNetworkString(networkID);</span>
+            }
+<span class="nc" id="L1556">        } catch (Exception ex) {</span>
+<span class="nc" id="L1557">            ex.printStackTrace();</span>
+<span class="nc" id="L1558">        }</span>
+
+<span class="nc" id="L1560">    }</span>
+
+    public void sendDominoCFRResponse(MovePath mp) {
+<span class="nc" id="L1563">        Object data[] = { Packet.COMMAND_CFR_DOMINO_EFFECT, mp };</span>
+<span class="nc" id="L1564">        Packet packet = new Packet(Packet.COMMAND_CLIENT_FEEDBACK_REQUEST, data);</span>
+<span class="nc" id="L1565">        send(packet);</span>
+<span class="nc" id="L1566">    }</span>
+
+    public void sendAMSAssignCFRResponse(Integer waaIndex) {
+<span class="nc" id="L1569">        Object data[] = { Packet.COMMAND_CFR_AMS_ASSIGN, waaIndex };</span>
+<span class="nc" id="L1570">        Packet packet = new Packet(Packet.COMMAND_CLIENT_FEEDBACK_REQUEST, data);</span>
+<span class="nc" id="L1571">        send(packet);</span>
+<span class="nc" id="L1572">    }</span>
+
+    public void sendAPDSAssignCFRResponse(Integer waaIndex) {
+<span class="nc" id="L1575">        Object data[] = { Packet.COMMAND_CFR_APDS_ASSIGN, waaIndex };</span>
+<span class="nc" id="L1576">        Packet packet = new Packet(Packet.COMMAND_CLIENT_FEEDBACK_REQUEST, data);</span>
+<span class="nc" id="L1577">        send(packet);</span>
+<span class="nc" id="L1578">    }</span>
+
+    public void sendHiddenPBSCFRResponse(Vector&lt;EntityAction&gt; attacks) {
+<span class="nc" id="L1581">        Object data[] = { Packet.COMMAND_CFR_HIDDEN_PBS, attacks };</span>
+<span class="nc" id="L1582">        Packet packet = new Packet(Packet.COMMAND_CLIENT_FEEDBACK_REQUEST, data);</span>
+<span class="nc" id="L1583">        send(packet);</span>
+<span class="nc" id="L1584">    }</span>
+
+    public void sendTelemissileTargetCFRResponse(int index) {
+<span class="nc" id="L1587">        Object data[] = { Packet.COMMAND_CFR_TELEGUIDED_TARGET, index };</span>
+<span class="nc" id="L1588">        Packet packet = new Packet(Packet.COMMAND_CLIENT_FEEDBACK_REQUEST, data);</span>
+<span class="nc" id="L1589">        send(packet);</span>
+<span class="nc" id="L1590">    }</span>
+    
+    public void sendTAGTargetCFRResponse(int index) {
+<span class="nc" id="L1593">        Object data[] = { Packet.COMMAND_CFR_TAG_TARGET, index };</span>
+<span class="nc" id="L1594">        Packet packet = new Packet(Packet.COMMAND_CLIENT_FEEDBACK_REQUEST, data);</span>
+<span class="nc" id="L1595">        send(packet);</span>
+<span class="nc" id="L1596">    }</span>
+
+    /**
+     * Perform a dump of the current memory usage.
+     * &lt;p/&gt;
+     * This method is useful in tracking performance issues on various player's
+     * systems. You can activate it by changing the &quot;memorydumpon&quot; setting to
+     * &quot;true&quot; in the clientsettings.xml file.
+     *
+     * @param where
+     *            - a &lt;code&gt;String&lt;/code&gt; indicating which part of the game is
+     *            making this call.
+     */
+    private void memDump(String where) {
+<span class="nc bnc" id="L1610" title="All 2 branches missed.">        if (PreferenceManager.getClientPreferences().memoryDumpOn()) {</span>
+<span class="nc" id="L1611">            StringBuffer buf = new StringBuffer();</span>
+<span class="nc" id="L1612">            final long total = Runtime.getRuntime().totalMemory();</span>
+<span class="nc" id="L1613">            final long free = Runtime.getRuntime().freeMemory();</span>
+<span class="nc" id="L1614">            final long used = total - free;</span>
+<span class="nc" id="L1615">            buf.append(&quot;Memory dump &quot;).append(where); //$NON-NLS-1$</span>
+<span class="nc bnc" id="L1616" title="All 2 branches missed.">            for (int loop = where.length(); loop &lt; 25; loop++) {</span>
+<span class="nc" id="L1617">                buf.append(' ');</span>
+            }
+<span class="nc" id="L1619">            buf.append(&quot;: used (&quot;).append(used).append(&quot;) + free (&quot;).append(free).append(&quot;) = &quot;).append(total); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$</span>
+<span class="nc" id="L1620">            System.out.println(buf.toString());</span>
+        }
+<span class="nc" id="L1622">    }</span>
+
+    public String getName() {
+<span class="nc" id="L1625">        return name;</span>
+    }
+
+    public int getPort() {
+<span class="nc" id="L1629">        return port;</span>
+    }
+
+    public String getHost() {
+<span class="nc" id="L1633">        return host;</span>
+    }
+
+    protected void correctName(Packet inP) {
+<span class="nc" id="L1637">        setName((String) (inP.getObject(0)));</span>
+<span class="nc" id="L1638">    }</span>
+
+    public void setName(String newN) {
+<span class="nc" id="L1641">        name = newN;</span>
+<span class="nc" id="L1642">    }</span>
+
+    /**
+     * Before we officially &quot;add&quot; this unit to the game, check and see if this
+     * client (player) already has a unit in the game with the same name. If so,
+     * add an identifier to the units name.
+     */
+    private void checkDuplicateNamesDuringAdd(Entity entity) {
+<span class="nc bnc" id="L1650" title="All 2 branches missed.">        if (duplicateNameHash.get(entity.getShortName()) == null) {</span>
+<span class="nc" id="L1651">            duplicateNameHash.put(entity.getShortName(), Integer.valueOf(1));</span>
+        } else {
+<span class="nc" id="L1653">            int count = duplicateNameHash.get(entity.getShortName()).intValue();</span>
+<span class="nc" id="L1654">            count++;</span>
+<span class="nc" id="L1655">            duplicateNameHash.put(entity.getShortName(), Integer.valueOf(count));</span>
+<span class="nc" id="L1656">            entity.duplicateMarker = count;</span>
+<span class="nc" id="L1657">            entity.generateShortName();</span>
+<span class="nc" id="L1658">            entity.generateDisplayName();</span>
+
+        }
+<span class="nc" id="L1661">    }</span>
+
+    /**
+     * If we remove an entity, we may need to update the duplicate identifier.
+     *
+     * @param ids
+     */
+    private void checkDuplicateNamesDuringDelete(List&lt;Integer&gt; ids) {
+<span class="nc" id="L1669">        ArrayList&lt;Entity&gt; myEntities = game.getPlayerEntities(game.getPlayer(localPlayerNumber), false);</span>
+<span class="nc" id="L1670">        Hashtable&lt;String, ArrayList&lt;Integer&gt;&gt; rawNameToId = new Hashtable&lt;String, ArrayList&lt;Integer&gt;&gt;(</span>
+<span class="nc" id="L1671">                (int) (myEntities.size() * 1.26));</span>
+
+<span class="nc bnc" id="L1673" title="All 2 branches missed.">        for (Entity e : myEntities) {</span>
+<span class="nc" id="L1674">            String rawName = e.getShortNameRaw();</span>
+<span class="nc" id="L1675">            ArrayList&lt;Integer&gt; namedIds = rawNameToId.get(rawName);</span>
+<span class="nc bnc" id="L1676" title="All 2 branches missed.">            if (namedIds == null) {</span>
+<span class="nc" id="L1677">                namedIds = new ArrayList&lt;Integer&gt;();</span>
+            }
+<span class="nc" id="L1679">            namedIds.add(e.getId());</span>
+<span class="nc" id="L1680">            rawNameToId.put(rawName, namedIds);</span>
+<span class="nc" id="L1681">        }</span>
+
+<span class="nc bnc" id="L1683" title="All 2 branches missed.">        for (int id : ids) {</span>
+<span class="nc" id="L1684">            Entity removedEntity = game.getEntity(id);</span>
+<span class="nc bnc" id="L1685" title="All 2 branches missed.">            if (removedEntity == null) {</span>
+<span class="nc" id="L1686">                continue;</span>
+            }
+
+<span class="nc" id="L1689">            String removedRawName = removedEntity.getShortNameRaw();</span>
+<span class="nc" id="L1690">            Integer count = duplicateNameHash.get(removedEntity.getShortNameRaw());</span>
+<span class="nc bnc" id="L1691" title="All 4 branches missed.">            if ((count != null) &amp;&amp; (count &gt; 1)) {</span>
+<span class="nc" id="L1692">                ArrayList&lt;Integer&gt; namedIds = rawNameToId.get(removedRawName);</span>
+<span class="nc bnc" id="L1693" title="All 2 branches missed.">                for (Integer i : namedIds) {</span>
+<span class="nc" id="L1694">                    Entity e = game.getEntity(i);</span>
+<span class="nc" id="L1695">                    String eRawName = e.getShortNameRaw();</span>
+<span class="nc bnc" id="L1696" title="All 4 branches missed.">                    if (eRawName.equals(removedRawName) &amp;&amp; (e.duplicateMarker &gt; removedEntity.duplicateMarker)) {</span>
+<span class="nc" id="L1697">                        e.duplicateMarker--;</span>
+<span class="nc" id="L1698">                        e.generateShortName();</span>
+<span class="nc" id="L1699">                        e.generateDisplayName();</span>
+                        // Update the Entity, unless it's going to be deleted
+<span class="nc bnc" id="L1701" title="All 2 branches missed.">                        if (!ids.contains(e.getId())) {</span>
+<span class="nc" id="L1702">                            sendUpdateEntity(e);</span>
+                        }
+                    }
+<span class="nc" id="L1705">                }</span>
+<span class="nc" id="L1706">                duplicateNameHash.put(removedEntity.getShortNameRaw(), Integer.valueOf(count - 1));</span>
+
+<span class="nc bnc" id="L1708" title="All 2 branches missed.">            } else if (count != null) {</span>
+<span class="nc" id="L1709">                duplicateNameHash.remove(removedEntity.getShortNameRaw());</span>
+            }
+<span class="nc" id="L1711">        }</span>
+<span class="nc" id="L1712">    }</span>
+
+    /**
+     * @param cmd
+     *            a client command with CLIENT_COMMAND prepended.
+     */
+    public String runCommand(String cmd) {
+<span class="nc" id="L1719">        cmd = cmd.substring(CLIENT_COMMAND.length());</span>
+
+<span class="nc" id="L1721">        return runCommand(cmd.split(&quot;\\s+&quot;));</span>
+    }
+
+    /**
+     * Runs the command
+     *
+     * @param args
+     *            the command and it's arguments with the CLIENT_COMMAND already
+     *            removed, and the string tokenized.
+     */
+    public String runCommand(String[] args) {
+<span class="nc bnc" id="L1732" title="All 6 branches missed.">        if ((args != null) &amp;&amp; (args.length &gt; 0) &amp;&amp; commandsHash.containsKey(args[0])) {</span>
+<span class="nc" id="L1733">            return commandsHash.get(args[0]).run(args);</span>
+        }
+<span class="nc" id="L1735">        return &quot;Unknown Client Command.&quot;;</span>
+    }
+
+    /**
+     * Registers a new command in the client command table
+     */
+    public void registerCommand(ClientCommand command) {
+<span class="nc" id="L1742">        commandsHash.put(command.getName(), command);</span>
+<span class="nc" id="L1743">    }</span>
+
+    /**
+     * Returns the command associated with the specified name
+     */
+    public ClientCommand getCommand(String commandName) {
+<span class="nc" id="L1749">        return commandsHash.get(commandName);</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see megamek.client.ui.IClientCommandHandler#getAllCommandNames()
+     */
+    public Enumeration&lt;String&gt; getAllCommandNames() {
+<span class="nc" id="L1758">        return commandsHash.keys();</span>
+    }
+
+    public RandomSkillsGenerator getRandomSkillsGenerator() {
+<span class="nc" id="L1762">        return rsg;</span>
+    }
+
+    public Set&lt;BoardDimensions&gt; getAvailableMapSizes() {
+<span class="nc" id="L1766">        return availableSizes;</span>
+    }
+
+    public IGame getGame() {
+<span class="nc" id="L1770">        return game;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

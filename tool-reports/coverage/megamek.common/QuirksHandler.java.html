@@ -1,0 +1,718 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>QuirksHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">QuirksHandler.java</span></div><h1>QuirksHandler.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2003, 2004 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.common;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.xml.parsers.DocumentBuilder;
+
+import megamek.common.annotations.Nullable;
+import megamek.common.logging.DefaultMmLogger;
+import megamek.common.logging.MMLogger;
+import megamek.common.options.IOption;
+import megamek.common.options.IOptionGroup;
+import megamek.common.options.Quirks;
+import megamek.common.options.WeaponQuirks;
+import megamek.utils.MegaMekXmlUtil;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+
+/**
+ * This class loads the quirks lists from the data/canonUnitQuirks.xml and /mmconf/unitQuirksOverride.xml files.
+ *
+ * @author Deric &quot;Netzilla&quot; Page (deric dot page at usa dot net)
+ * @version %I% %G%
+ * @since 2012-03-05
+ */
+public class QuirksHandler {
+    
+    private static final String CUSTOM_QUIRKS_FOOTER = &quot;&lt;/unitQuirks&gt;&quot;;
+    private static final String CUSTOM_QUIRKS_HEADER;
+    
+    static {
+<span class="nc" id="L59">        CUSTOM_QUIRKS_HEADER = &quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;UTF-8\&quot;?&gt;\n\n&quot; +</span>
+                               &quot;&lt;!--\n&quot; +
+                               &quot;NOTE: saving quirks for units within MM will cause this file to get re-written and all changes will be lost!\n\n&quot; +
+                               &quot;This file allows users to customize the default cannon quirks list.  Any quirk assignments in this file will override\n&quot; +
+                               &quot;  the cannon quirk entries entirely.  Changes to this file will not take effect until the next time megamek is launched.\n\n&quot; +
+                               &quot;To assign a unit a quirk, the entry should be in the following format:\n&quot; +
+                               &quot;    &lt;unit&gt;\n&quot; +
+                               &quot;        &lt;chassis&gt;[chassis name]&lt;/chassis&gt;\n&quot; +
+                               &quot;        &lt;model&gt;{model}&lt;/model&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;[quirk1 name]&lt;/quirk&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;[quirk2 name]&lt;/quirk&gt;\n&quot; +
+                               &quot;        &lt;weaponQuirk&gt;\n&quot; +
+                               &quot;            &lt;weaponQuirkName&gt;[weapon quirk 1 name]&lt;/weaponQuirkName&gt;\n&quot; +
+                               &quot;            &lt;location&gt;[location of weapon]&lt;/location&gt;\n&quot; +
+                               &quot;            &lt;slot&gt;[critical slot of weapon]&lt;/slot&gt;\n&quot; +
+                               &quot;            &lt;weaponName&gt;[name of weapon]&lt;/weaponName&gt;\n&quot; +
+                               &quot;        &lt;/weaponQuirk&gt;\n&quot; +
+                               &quot;        &lt;weaponQuirk&gt;\n&quot; +
+                               &quot;            &lt;weaponQuirkName&gt;[weapon quirk 2 name]&lt;/weaponQuirkName&gt;\n&quot; +
+                               &quot;            &lt;location&gt;[location of weapon]&lt;/location&gt;\n&quot; +
+                               &quot;            &lt;slot&gt;[critical slot of weapon]&lt;/slot&gt;\n&quot; +
+                               &quot;            &lt;weaponName&gt;[name of weapon]&lt;/weaponName&gt;\n&quot; +
+                               &quot;        &lt;/weaponQuirk&gt;\n&quot; +
+                               &quot;    &lt;/unit&gt;\n\n&quot; +
+                               &quot;The \&quot;model\&quot; field can be left blank if there is no model number for the unit (common for some tank chassis), but the\n&quot; +
+                               &quot;  tags should still be included.  A &lt;model&gt; of \&quot;all\&quot; will cause all units with the same &lt;chassis&gt; to have the defined\n&quot; +
+                               &quot;  quirks.  This can later be overridden with entries for specific models.\n\n&quot; +
+                               &quot;Multiple quirks should be contained within separate \&quot;quirk\&quot; tags.\n\n&quot; +
+                               &quot;Multiple weapon quirks should be contained within separate \&quot;weaponQuirk\&quot; structures, even if multiple quirks apply to\n&quot; +
+                               &quot;  the same weapon.\n\n&quot; +
+                               &quot;The proper names for quirks can be found in the\n&quot; +
+                               &quot;  l10n/megamek/common/options/messages.properties file.  Search for the \&quot;QuirksInfo\&quot; section.\n&quot; +
+                               &quot;  The name you want will fall between \&quot;option\&quot; and \&quot;displayableName\&quot;.  For example, if you wish to apply the\n&quot; +
+                               &quot;  \&quot;Anti-Aircraft Targeting\&quot; quirk to a unit, you will find the following entry in the messages.properties file:\n&quot; +
+                               &quot;    QuirksInfo.option.anti_air.displayableName\n&quot; +
+                               &quot;  The name you want to include in this file for the &lt;quirk&gt; entry is \&quot;anti_air\&quot;.\n&quot; +
+                               &quot;If you wish to remove all quirks for a unit, you can create an entry in this file with a &lt;quirk&gt; of \&quot;none\&quot;.\n\n&quot; +
+                               &quot;Example:  If you wish to declare that all Atlas variants do not have the Command Mech quirk:\n&quot; +
+                               &quot;    &lt;unit&gt;\n&quot; +
+                               &quot;        &lt;chassis&gt;Atlas&lt;/chassis&gt;\n&quot; +
+                               &quot;        &lt;model&gt;all&lt;/model&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;none&lt;/quirk&gt;\n&quot; +
+                               &quot;    &lt;/unit&gt;\n\n&quot; +
+                               &quot;Example: If you decide only the AS7-D Atlas, but no other variant, should have the Command Mech quirk:\n&quot; +
+                               &quot;        &lt;unit&gt;\n&quot; +
+                               &quot;        &lt;chassis&gt;Atlas&lt;/chassis&gt;\n&quot; +
+                               &quot;        &lt;model&gt;all&lt;/model&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;none&lt;/quirk&gt;\n&quot; +
+                               &quot;    &lt;/unit&gt;\n&quot; +
+                               &quot;    &lt;unit&gt;\n&quot; +
+                               &quot;        &lt;chassis&gt;Atlas&lt;/chassis&gt;\n&quot; +
+                               &quot;        &lt;model&gt;AS7-D&lt;/model&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;command_mech&lt;/quirk&gt;\n&quot; +
+                               &quot;    &lt;/unit&gt;\n\n&quot; +
+                               &quot;Example: You can also do this in the opposite direction, so that all Atlases have the Command Mech quirk except the AS7-D:\n&quot; +
+                               &quot;    &lt;unit&gt;\n&quot; +
+                               &quot;        &lt;chassis&gt;Atlas&lt;/chassis&gt;\n&quot; +
+                               &quot;        &lt;model&gt;all&lt;/model&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;command_mech&lt;/quirk&gt;\n&quot; +
+                               &quot;    &lt;/unit&gt;\n&quot; +
+                               &quot;    &lt;unit&gt;\n&quot; +
+                               &quot;        &lt;chassis&gt;Atlas&lt;/chassis&gt;\n&quot; +
+                               &quot;        &lt;model&gt;AS7-D&lt;/model&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;none&lt;/quirk&gt;\n&quot; +
+                               &quot;    &lt;/unit&gt;\n\n&quot; +
+                               &quot;Example: You can define quirks that affect all units of a given chassis and then add specific quirks to specific models:\n&quot; +
+                               &quot;    &lt;unit&gt;\n&quot; +
+                               &quot;        &lt;chassis&gt;Atlas&lt;/chassis&gt;\n&quot; +
+                               &quot;        &lt;model&gt;all&lt;/model&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;command_mech&lt;/quirk&gt;\n&quot; +
+                               &quot;    &lt;/unit&gt;\n&quot; +
+                               &quot;    &lt;unit&gt;\n&quot; +
+                               &quot;        &lt;chassis&gt;Atlas&lt;/chassis&gt;\n&quot; +
+                               &quot;        &lt;model&gt;AS7-D&lt;/model&gt;\n&quot; +
+                               &quot;        &lt;quirk&gt;anti_air&lt;/quirk&gt;\n&quot; +
+                               &quot;    &lt;/unit&gt;\n&quot; +
+                               &quot;--&gt;\n\n&quot; +
+                               &quot;&lt;unitQuirks xmlns:xsi=\&quot;http://www.w3.org/2001/XMLSchema-instance\&quot; xsi:noNamespaceSchemaLocation=\&quot;../data/unitQuirksSchema.xsl\&quot;&gt;\n&quot;;
+    }
+    
+    private static final String UNIT = &quot;unit&quot;;
+    private static final String CHASSIS = &quot;chassis&quot;;
+    private static final String MODEL = &quot;model&quot;;
+    private static final String UNIT_TYPE = &quot;unitType&quot;;
+    private static final String QUIRK = &quot;quirk&quot;;
+    private static final String WEAPON_QUIRK = &quot;weaponQuirk&quot;;
+    private static final String LOCATION = &quot;location&quot;;
+    private static final String SLOT = &quot;slot&quot;;
+    private static final String WEAPON_NAME = &quot;weaponName&quot;;
+    private static final String WEAPON_QUIRK_NAME = &quot;weaponQuirkName&quot;;
+
+    private static final String MODEL_ALL = &quot;all&quot;;
+    
+    private static final String NO_QUIRKS = &quot;none&quot;;
+    
+    private static Map&lt;String, List&lt;QuirkEntry&gt;&gt; canonQuirkMap;
+    private static Map&lt;String, List&lt;QuirkEntry&gt;&gt; customQuirkMap;
+<span class="nc" id="L156">    private static AtomicBoolean customQuirksDirty = new AtomicBoolean(false);</span>
+<span class="nc" id="L157">    private static AtomicBoolean initialized = new AtomicBoolean(false);</span>
+
+<span class="nc" id="L159">    private static MMLogger logger = null;</span>
+
+    private QuirksHandler() {
+    }
+
+    // Use to pass in a fake logger for unit tests.
+    static void setLogger(final MMLogger newLogger) {
+<span class="nc" id="L166">        logger = newLogger;</span>
+<span class="nc" id="L167">    }</span>
+
+    private static MMLogger getLogger() {
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (null == logger) {</span>
+<span class="nc" id="L171">            logger = DefaultMmLogger.getInstance();</span>
+        }
+<span class="nc" id="L173">        return logger;</span>
+    }
+    
+    /**
+     * Generate a Quirk's Unit ID given an Entity.
+     *
+     * @param ent Entity to generate UnitId from
+     * @param useModel determines if the model should be used, or be 'all'
+     * @return The ID for the unit.
+     */
+    private static String getUnitId(Entity ent, boolean useModel) {
+<span class="nc" id="L184">        String typeText = Entity.getEntityMajorTypeName(ent.getEntityType());</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">        if (useModel) {</span>
+<span class="nc" id="L186">            return ent.getChassis() + &quot;~&quot; + ent.getModel() + &quot;~&quot; + typeText;</span>
+        } else {
+<span class="nc" id="L188">            return ent.getChassis() + &quot;~~&quot; + typeText;</span>
+        }
+    }
+    
+    public static String getUnitId(String chassis, String model, String type) {
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        return chassis + &quot;~&quot; + (model.equals(MODEL_ALL) ? &quot;&quot; : model) + &quot;~&quot; + type;</span>
+    }
+
+    public static String getChassis(String unitId) {
+<span class="nc" id="L197">        int splitIdx = unitId.indexOf(&quot;~&quot;);</span>
+<span class="nc bnc" id="L198" title="All 2 branches missed.">        if (splitIdx == -1) {</span>
+<span class="nc" id="L199">            return unitId;</span>
+        } else {
+<span class="nc" id="L201">            return unitId.substring(0, splitIdx);</span>
+        }
+    }
+
+    public static String getModel(String unitId) {
+<span class="nc" id="L206">        int splitIdx = unitId.indexOf(&quot;~&quot;);</span>
+<span class="nc" id="L207">        int endIdx = unitId.lastIndexOf(&quot;~&quot;);</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (splitIdx == -1) {</span>
+<span class="nc" id="L209">            return null;</span>
+        } else {
+<span class="nc" id="L211">            return unitId.substring(splitIdx + 1, endIdx);</span>
+        }
+    }
+
+    public static String getUnitType(String unitId) {
+<span class="nc" id="L216">        int splitIdx = unitId.lastIndexOf(&quot;~&quot;);</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        if (splitIdx == -1) {</span>
+<span class="nc" id="L218">            return null;</span>
+        } else {
+<span class="nc" id="L220">            return unitId.substring(splitIdx + 1, unitId.length());</span>
+        }
+    }
+
+    public static String replaceUnitType(String unitId, String newUnitType) {
+<span class="nc" id="L225">        int splitIdx = unitId.lastIndexOf(&quot;~&quot;);</span>
+<span class="nc" id="L226">        return unitId.substring(0, splitIdx) + &quot;~&quot; + newUnitType;</span>
+    }
+
+    private static Map&lt;String, List&lt;QuirkEntry&gt;&gt; loadQuirksFile(String path) throws IOException {
+<span class="nc" id="L230">        Map&lt;String, List&lt;QuirkEntry&gt;&gt; quirkMap = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L232">        File file = new File(path);</span>
+<span class="nc bnc" id="L233" title="All 4 branches missed.">        if (!file.exists() || !file.isFile()) {</span>
+<span class="nc" id="L234">            getLogger().warning(&quot;Could not load quirks from &quot; + path);</span>
+<span class="nc" id="L235">            return quirkMap;</span>
+        }
+
+        // Build the XML document.
+<span class="nc" id="L239">        StringBuilder log = new StringBuilder();</span>
+        try {
+<span class="nc" id="L241">            DocumentBuilder builder = MegaMekXmlUtil.newSafeDocumentBuilder();</span>
+<span class="nc" id="L242">            log.append(&quot;Parsing &quot;).append(path);</span>
+<span class="nc" id="L243">            Document doc = builder.parse(file);</span>
+<span class="nc" id="L244">            log.append(&quot;\n...Parsing finished.&quot;);</span>
+
+            // Get the list of units.
+<span class="nc" id="L247">            NodeList listOfEntries = doc.getElementsByTagName(UNIT);</span>
+<span class="nc" id="L248">            int totalEntries = listOfEntries.getLength();</span>
+<span class="nc" id="L249">            log.append(&quot;\n\tTotal number of unit tags: &quot;).append(totalEntries);</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">            for (int unitCount = 0; unitCount &lt; totalEntries; unitCount++) {</span>
+
+                // Get the first element of this node.
+<span class="nc" id="L253">                Element unitList = (Element) listOfEntries.item(unitCount);</span>
+
+                // Get the chassis
+<span class="nc" id="L256">                Element chassisElement = (Element) unitList.getElementsByTagName(CHASSIS).item(0);</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">                if (chassisElement == null) {</span>
+<span class="nc" id="L258">                    log.append(&quot;\n\tMissing &lt;chassis&gt; element #&quot;).append(unitCount);</span>
+<span class="nc" id="L259">                    continue;</span>
+                }
+<span class="nc" id="L261">                String chassis = chassisElement.getTextContent().trim();</span>
+
+                // Get the model.
+<span class="nc" id="L264">                Element modelElement = (Element) unitList.getElementsByTagName(MODEL).item(0);</span>
+                // default to &quot;all&quot; model for entries that don't list a model.. backwards compatibility with older quirks files
+<span class="nc" id="L266">                String model = MODEL_ALL;</span>
+<span class="nc bnc" id="L267" title="All 2 branches missed.">                if (modelElement != null) {</span>
+<span class="nc" id="L268">                    model = modelElement.getTextContent().trim();</span>
+                }
+
+<span class="nc" id="L271">                Element typeElement = (Element) unitList.getElementsByTagName(UNIT_TYPE).item(0);</span>
+                // default to &quot;Mech&quot; type for entries that don't list a type.. backwards compatibility with older quirks files
+<span class="nc" id="L273">                String unitType = &quot;Mech&quot;;</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">                if (typeElement != null) {</span>
+<span class="nc" id="L275">                    unitType = typeElement.getTextContent().trim();</span>
+                }
+
+                // Generate the unit ID
+<span class="nc" id="L279">                String unitId = getUnitId(chassis, model, unitType);</span>
+
+                // Get the quirks.
+<span class="nc" id="L282">                NodeList quirkNodes = unitList.getElementsByTagName(QUIRK);</span>
+<span class="nc" id="L283">                NodeList weapQuirkNodes = unitList.getElementsByTagName(WEAPON_QUIRK);</span>
+<span class="nc" id="L284">                List&lt;QuirkEntry&gt; quirkList = new ArrayList&lt;&gt;(quirkNodes.getLength() + weapQuirkNodes.getLength());</span>
+
+                // Add the quirks.
+<span class="nc bnc" id="L287" title="All 2 branches missed.">                for (int quirkCount = 0; quirkCount &lt; quirkNodes.getLength(); quirkCount++) {</span>
+                    // Create the quirk entry and add it to the list.
+<span class="nc" id="L289">                    Element quirkElement = (Element) quirkNodes.item(quirkCount);</span>
+<span class="nc" id="L290">                    String qeText = quirkElement.getTextContent().trim();</span>
+<span class="nc bnc" id="L291" title="All 4 branches missed.">                    if ((quirkElement.getTextContent() == null) || qeText.isEmpty()) {</span>
+<span class="nc" id="L292">                        log.append(&quot;\n\t\t&quot;).append(unitId).append(&quot;: no text content!&quot;);</span>
+<span class="nc" id="L293">                        continue;</span>
+                    }
+<span class="nc" id="L295">                    QuirkEntry quirkEntry = new QuirkEntry(qeText, unitId);</span>
+<span class="nc" id="L296">                    quirkList.add(quirkEntry);</span>
+                }
+
+                // Add the weapon quirks.
+<span class="nc bnc" id="L300" title="All 2 branches missed.">                for (int quirkCount = 0; quirkCount &lt; weapQuirkNodes.getLength(); quirkCount++) {</span>
+<span class="nc" id="L301">                    Element quirkElement = (Element) weapQuirkNodes.item(quirkCount);</span>
+
+                    // Get the name of the quirk.
+<span class="nc" id="L304">                    Element nameElement = (Element) quirkElement.getElementsByTagName(WEAPON_QUIRK_NAME).item(0);</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">                    if (nameElement == null) {</span>
+<span class="nc" id="L306">                        log.append(&quot;\n\t\t&quot;).append(unitId).append(&quot;: no weapon quirk name!&quot;);</span>
+<span class="nc" id="L307">                        continue;</span>
+                    }
+<span class="nc" id="L309">                    String weaponQuirkName = nameElement.getTextContent().trim();</span>
+
+                    // Get the weapon's location.
+<span class="nc" id="L312">                    Element locElement = (Element) quirkElement.getElementsByTagName(LOCATION).item(0);</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">                    if (locElement == null) {</span>
+<span class="nc" id="L314">                        log.append(&quot;\n\t\t&quot;).append(unitId).append(&quot;: no weapon quirk loc!&quot;);</span>
+<span class="nc" id="L315">                        continue;</span>
+                    }
+<span class="nc" id="L317">                    String location = locElement.getTextContent().trim();</span>
+
+                    // Get the weapon's critical slot.
+<span class="nc" id="L320">                    Element slotElement = (Element) quirkElement.getElementsByTagName(SLOT).item(0);</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">                    if (slotElement == null) {</span>
+<span class="nc" id="L322">                        log.append(&quot;\n\t\t&quot;).append(unitId).append(&quot;: no weapon quirk slot!&quot;);</span>
+<span class="nc" id="L323">                        continue;</span>
+                    }
+<span class="nc" id="L325">                    String slot = slotElement.getTextContent().trim();</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">                    if (slot.length() &lt; 1) {</span>
+<span class="nc" id="L327">                        throw new IllegalArgumentException(unitId</span>
+                                + &quot; weapon quirk &quot; + weaponQuirkName
+                                + &quot; has an illegal slot entry!&quot;);
+                    } 
+
+                    // Get the weapon's name.
+<span class="nc" id="L333">                    Element weapElement = (Element) quirkElement.getElementsByTagName(WEAPON_NAME).item(0);</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">                    if (weapElement == null) {</span>
+<span class="nc" id="L335">                        log.append(&quot;\n\t\t&quot;).append(unitId).append(&quot;: no weapon quirk weapon name!&quot;);</span>
+<span class="nc" id="L336">                        continue;</span>
+                    }
+<span class="nc" id="L338">                    String weaponName = weapElement.getTextContent().trim();</span>
+
+                    // Add the weapon quirk to the list.
+<span class="nc" id="L341">                    QuirkEntry weaponQuirk = new QuirkEntry(weaponQuirkName,</span>
+<span class="nc" id="L342">                            location, Integer.parseInt(slot), weaponName,</span>
+                            unitId);
+<span class="nc" id="L344">                    quirkList.add(weaponQuirk);</span>
+                }
+
+                // Add the unit to the default quirks list.
+<span class="nc bnc" id="L348" title="All 2 branches missed.">                if (quirkList.isEmpty()) {</span>
+<span class="nc" id="L349">                    log.append(&quot;\n\t\tNo quirks found for &quot;);</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">                    if (unitId.length() &gt; 0) {</span>
+<span class="nc" id="L351">                        log.append(unitId);</span>
+                    } else {
+<span class="nc" id="L353">                        log.append(&quot;&lt;BlankUnitId&gt;&quot;);</span>
+                    }
+                }
+<span class="nc bnc" id="L356" title="All 2 branches missed.">                if (quirkMap.containsKey(unitId)) {</span>
+<span class="nc" id="L357">                    log.append(&quot;\n\t\t&quot;).append(unitId).append(&quot;: duplicate entry added!&quot;);</span>
+                }
+<span class="nc" id="L359">                quirkMap.put(unitId, quirkList);</span>
+            }
+<span class="nc" id="L361">            log.append(&quot;\n\tTotal number of quirk entries: &quot;).append(quirkMap.size());</span>
+<span class="nc" id="L362">            return quirkMap;</span>
+<span class="nc" id="L363">        } catch (Exception e) {</span>
+<span class="nc" id="L364">            getLogger().error(e);</span>
+<span class="nc" id="L365">            throw new IOException(e);</span>
+        } finally {
+<span class="nc" id="L367">            getLogger().info(log.toString());</span>
+        }
+    }
+
+    /**
+     * Reads in the values from the canonUnitQuirks.xml file and stores them in memory.
+     *
+     * @throws IOException If the file cannot be read.
+     */
+    public static void initQuirksList() throws IOException {
+
+        // Get the path to the canonUnitQuirks.xml file.
+<span class="nc" id="L379">        String userDir = System.getProperty(&quot;user.dir&quot;);</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">        if (!userDir.endsWith(File.separator)) {</span>
+<span class="nc" id="L381">            userDir += File.separator;</span>
+        }
+
+        // Load the canon quirks list.
+<span class="nc" id="L385">        String filePath = Configuration.dataDir().getAbsolutePath() + File.separator + &quot;canonUnitQuirks.xml&quot;;</span>
+<span class="nc" id="L386">        canonQuirkMap = loadQuirksFile(filePath);</span>
+
+        // Load the custom quirks list.
+<span class="nc" id="L389">        filePath = userDir + &quot;mmconf&quot; + File.separator + &quot;unitQuirksOverride.xml&quot;;</span>
+<span class="nc" id="L390">        customQuirkMap = loadQuirksFile(filePath);</span>
+
+<span class="nc" id="L392">        initialized.set(true);</span>
+<span class="nc" id="L393">    }</span>
+    
+    public static void saveCustomQuirksList() throws IOException {
+        // If customQuirkMap wasn't initialized, no reason to save it
+<span class="nc bnc" id="L397" title="All 2 branches missed.">        if (customQuirkMap == null) {</span>
+<span class="nc" id="L398">            return;</span>
+        }
+        
+        // If the custom quirks map wasn't ever changed, no reason to save
+<span class="nc bnc" id="L402" title="All 2 branches missed.">        if (!customQuirksDirty.get()) {</span>
+<span class="nc" id="L403">            return;</span>
+        }
+        
+        // Get the path to the unitQuirksOverride.xml file.
+<span class="nc" id="L407">        String userDir = System.getProperty(&quot;user.dir&quot;);</span>
+<span class="nc bnc" id="L408" title="All 2 branches missed.">        if (!userDir.endsWith(File.separator)) {</span>
+<span class="nc" id="L409">            userDir += File.separator;</span>
+        }
+<span class="nc" id="L411">        String filePath = userDir + &quot;mmconf&quot; + File.separator</span>
+                + &quot;unitQuirksOverride.xml&quot;;
+        
+<span class="nc" id="L414">        Writer output = null;</span>
+        try {
+<span class="nc" id="L416">            output = new BufferedWriter(new OutputStreamWriter(</span>
+                    new FileOutputStream(filePath)));
+<span class="nc" id="L418">            output.write(CUSTOM_QUIRKS_HEADER);</span>
+<span class="nc bnc" id="L419" title="All 2 branches missed.">            for (String unitId : customQuirkMap.keySet()) {</span>
+<span class="nc" id="L420">                String chassis = getChassis(unitId);</span>
+<span class="nc" id="L421">                String model = getModel(unitId);</span>
+<span class="nc" id="L422">                String unitType = getUnitType(unitId);</span>
+                
+<span class="nc" id="L424">                output.write(&quot;\t&quot; + getOpenTag(UNIT) + &quot;\n&quot;);</span>
+                
+                // Write Chassis
+<span class="nc" id="L427">                output.write(&quot;\t\t&quot; + getOpenTag(CHASSIS));</span>
+<span class="nc" id="L428">                output.write(chassis);</span>
+<span class="nc" id="L429">                output.write(getCloseTag(CHASSIS) + &quot;\n&quot;);</span>
+                
+                // Write Model
+<span class="nc bnc" id="L432" title="All 4 branches missed.">                if ((null != model) &amp;&amp; model.length() &gt; 0) {</span>
+<span class="nc" id="L433">                    output.write(&quot;\t\t&quot; + getOpenTag(MODEL));</span>
+<span class="nc" id="L434">                    output.write(model);</span>
+<span class="nc" id="L435">                    output.write(getCloseTag(MODEL) + &quot;\n&quot;);</span>
+                }
+
+                // Write unit type
+<span class="nc" id="L439">                output.write(&quot;\t\t&quot; + getOpenTag(UNIT_TYPE));</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">                output.write(null == unitType ? &quot;&quot; : unitType);</span>
+<span class="nc" id="L441">                output.write(getCloseTag(UNIT_TYPE) + &quot;\n&quot;);</span>
+
+                // Write out quirks
+<span class="nc" id="L444">                List&lt;QuirkEntry&gt; quirks = customQuirkMap.get(unitId);</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">                if (quirks.isEmpty()) {</span>
+<span class="nc" id="L446">                    output.write(&quot;\t\t&quot; + getOpenTag(QUIRK));</span>
+<span class="nc" id="L447">                    output.write(NO_QUIRKS);</span>
+<span class="nc" id="L448">                    output.write(getCloseTag(QUIRK) + &quot;\n&quot;);</span>
+                } else {
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                    for (QuirkEntry quirk : quirks) {</span>
+                        // Write Weapon Quirk
+<span class="nc bnc" id="L452" title="All 2 branches missed.">                        if (quirk.isWeaponQuirk()) {</span>
+<span class="nc" id="L453">                            output.write(&quot;\t\t&quot; + getOpenTag(WEAPON_QUIRK) + &quot;\n&quot;);</span>
+                            // Quirk Name
+<span class="nc" id="L455">                            output.write(&quot;\t\t\t&quot; + getOpenTag(WEAPON_QUIRK_NAME));</span>
+<span class="nc" id="L456">                            output.write(quirk.getQuirk());</span>
+<span class="nc" id="L457">                            output.write(getCloseTag(WEAPON_QUIRK_NAME) + &quot;\n&quot;);</span>
+                            // Location
+<span class="nc" id="L459">                            output.write(&quot;\t\t\t&quot; + getOpenTag(LOCATION));</span>
+<span class="nc" id="L460">                            output.write(quirk.getLocation());</span>
+<span class="nc" id="L461">                            output.write(getCloseTag(LOCATION) + &quot;\n&quot;);</span>
+                            // Slot
+<span class="nc" id="L463">                            output.write(&quot;\t\t\t&quot; + getOpenTag(SLOT));</span>
+<span class="nc" id="L464">                            output.write(quirk.getSlot() + &quot;&quot;);</span>
+<span class="nc" id="L465">                            output.write(getCloseTag(SLOT) + &quot;\n&quot;);</span>
+                            // Weapon Name
+<span class="nc" id="L467">                            output.write(&quot;\t\t\t&quot; + getOpenTag(WEAPON_NAME));</span>
+<span class="nc" id="L468">                            output.write(quirk.getWeaponName());</span>
+<span class="nc" id="L469">                            output.write(getCloseTag(WEAPON_NAME) + &quot;\n&quot;);</span>
+                            // Close Tag
+<span class="nc" id="L471">                            output.write(&quot;\t\t&quot; + getCloseTag(WEAPON_QUIRK) + &quot;\n&quot;);</span>
+                        } else { // Write normal quirk
+<span class="nc" id="L473">                            output.write(&quot;\t\t&quot; + getOpenTag(QUIRK));</span>
+<span class="nc" id="L474">                            output.write(quirk.getQuirk());</span>
+<span class="nc" id="L475">                            output.write(getCloseTag(QUIRK) + &quot;\n&quot;);</span>
+                        }
+<span class="nc" id="L477">                    }   </span>
+                }            
+<span class="nc" id="L479">                output.write(&quot;\t&quot; + getCloseTag(UNIT) + &quot;\n\n&quot;);</span>
+<span class="nc" id="L480">            }</span>
+            
+<span class="nc" id="L482">            output.write(CUSTOM_QUIRKS_FOOTER);</span>
+<span class="nc" id="L483">        } catch (IOException e) {</span>
+<span class="nc" id="L484">            getLogger().error(&quot;Error writing CustomQuirks file!&quot;, e);</span>
+        } finally {
+<span class="nc bnc" id="L486" title="All 2 branches missed.">            if (output != null) {</span>
+<span class="nc" id="L487">                output.close();</span>
+            }
+        }        
+<span class="nc" id="L490">    }</span>
+    
+    private static String getOpenTag(String s) {
+<span class="nc" id="L493">        return &quot;&lt;&quot; + s + &quot;&gt;&quot;;</span>
+    }
+    
+    private static String getCloseTag(String s) {
+<span class="nc" id="L497">        return &quot;&lt;/&quot; + s + &quot;&gt;&quot;;</span>
+    }
+
+    /**
+     * Retrieves the list of quirks for the identified unit.
+     *
+     * @param entity The entity whose quirks are to be returned.
+     * @return A {@code List} of the quirks ({@code QuirkEntry}) for the given
+     *         unit. If the unit is not in the list, a NULL value is returned.
+     */
+    @Nullable
+    static List&lt;QuirkEntry&gt; getQuirks(Entity entity) {
+<span class="nc bnc" id="L509" title="All 4 branches missed.">        if (!initialized.get() || (null == canonQuirkMap)) {</span>
+<span class="nc" id="L510">            return null;</span>
+        }
+<span class="nc" id="L512">        List&lt;QuirkEntry&gt; quirks = new ArrayList&lt;&gt;();</span>
+
+        // General entry for the chassis.
+<span class="nc" id="L515">        String generalId = getUnitId(entity, false);</span>
+
+        // Build the unit ID from the chassis and model.
+<span class="nc" id="L518">        String unitId = getUnitId(entity, true);</span>
+
+        try {
+            // Check for a general entry for this chassis in the custom list.
+<span class="nc bnc" id="L522" title="All 2 branches missed.">            if (customQuirkMap.containsKey(generalId)) {</span>
+<span class="nc" id="L523">                quirks.addAll(customQuirkMap.get(generalId));</span>
+            }
+
+            // Check for a model-specific entry.
+<span class="nc bnc" id="L527" title="All 2 branches missed.">            if (customQuirkMap.containsKey(unitId)) {</span>
+
+                // If this specific model has no quirks, return null.
+<span class="nc bnc" id="L530" title="All 2 branches missed.">                if (NO_QUIRKS.equalsIgnoreCase(customQuirkMap.get(unitId).get(0).getQuirk())) {</span>
+<span class="nc" id="L531">                    return null;</span>
+                }
+
+                // Add the model-specific quirks.
+<span class="nc" id="L535">                quirks.addAll(customQuirkMap.get(unitId));</span>
+            }
+
+            // If there is only one quirk on the list and it indicates that the custom list has removed all quirks from
+            // this unit, return null.
+<span class="nc bnc" id="L540" title="All 4 branches missed.">            if ((quirks.size() == 1) &amp;&amp; NO_QUIRKS.equalsIgnoreCase(quirks.get(0).getQuirk())) {</span>
+<span class="nc" id="L541">                return null;</span>
+            }
+
+            // If quirk entries were found on the customized list, return those quirks.
+<span class="nc bnc" id="L545" title="All 2 branches missed.">            if (!quirks.isEmpty()) {</span>
+<span class="nc" id="L546">                return quirks;</span>
+            }
+
+            // Check the canonical list for a general entry for this chassis.
+<span class="nc bnc" id="L550" title="All 2 branches missed.">            if (canonQuirkMap.containsKey(generalId)) {</span>
+<span class="nc" id="L551">                quirks.addAll(canonQuirkMap.get(generalId));</span>
+            }
+
+            // Check for a model-specific entry.
+<span class="nc bnc" id="L555" title="All 2 branches missed.">            if (canonQuirkMap.containsKey(unitId)) {</span>
+
+                // If this specific model, has no quirks, return null.
+<span class="nc bnc" id="L558" title="All 2 branches missed.">                if (NO_QUIRKS.equalsIgnoreCase(canonQuirkMap.get(unitId).get(0).getQuirk())) {</span>
+<span class="nc" id="L559">                    return null;</span>
+                }
+
+                // Add the model-specific quirks.
+<span class="nc" id="L563">                quirks.addAll(canonQuirkMap.get(unitId));</span>
+            }
+
+<span class="nc bnc" id="L566" title="All 2 branches missed.">            return quirks.isEmpty() ? null : quirks;</span>
+<span class="nc" id="L567">        } catch (Exception e) {</span>
+<span class="nc" id="L568">            String msg = &quot;generalId: '&quot; + generalId + &quot;'\nunitId: '&quot; + unitId + &quot;'\n&quot;;</span>
+<span class="nc" id="L569">            getLogger().error(msg, e);</span>
+<span class="nc" id="L570">            throw new RuntimeException(msg, e);</span>
+        }
+    }
+    
+    public static void addCustomQuirk(Entity entity, boolean useModel) {
+        // Shouldn't happen, but lets be careful
+<span class="nc bnc" id="L576" title="All 2 branches missed.">        if (customQuirkMap == null) {</span>
+            try {
+<span class="nc" id="L578">                QuirksHandler.initQuirksList();</span>
+<span class="nc" id="L579">            } catch (IOException e) {</span>
+<span class="nc" id="L580">                getLogger().error(e);</span>
+<span class="nc" id="L581">            }</span>
+        }
+        
+<span class="nc" id="L584">        customQuirksDirty.set(true);</span>
+        
+        // Generate Unit ID
+        String unitId;
+<span class="nc" id="L588">        unitId = getUnitId(entity, useModel);</span>
+
+        // Get a quirks list
+<span class="nc" id="L591">        List&lt;QuirkEntry&gt; quirkEntries = customQuirkMap.get(unitId);</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">        if (quirkEntries == null) {</span>
+<span class="nc" id="L593">            quirkEntries = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L594">            customQuirkMap.put(unitId, quirkEntries);</span>
+        }
+<span class="nc" id="L596">        quirkEntries.clear();</span>
+        
+        // Add Entity Quirks
+<span class="nc bnc" id="L599" title="All 2 branches missed.">        if (entity.countQuirks() &gt; 0) {</span>
+<span class="nc" id="L600">            Quirks entQuirks = entity.getQuirks();</span>
+<span class="nc" id="L601">            Enumeration&lt;IOptionGroup&gt; quirksGroup = entQuirks.getGroups();</span>
+            Enumeration&lt;IOption&gt; quirkOptions;
+<span class="nc bnc" id="L603" title="All 2 branches missed.">            while (quirksGroup.hasMoreElements()) {</span>
+<span class="nc" id="L604">                IOptionGroup group = quirksGroup.nextElement();</span>
+<span class="nc" id="L605">                quirkOptions = group.getSortedOptions();</span>
+<span class="nc bnc" id="L606" title="All 2 branches missed.">                while (quirkOptions.hasMoreElements()) {</span>
+<span class="nc" id="L607">                    IOption option = quirkOptions.nextElement();</span>
+                    // Ignore illegal quirks, and ones that aren't set
+<span class="nc bnc" id="L609" title="All 2 branches missed.">                    if (!Quirks.isQuirkLegalFor(option, entity)</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">                            || !option.booleanValue()) {</span>
+<span class="nc" id="L611">                        continue;</span>
+                    }
+                    // Add new QuirkEntry
+<span class="nc" id="L614">                    QuirkEntry qe = new QuirkEntry(option.getName(), unitId);</span>
+<span class="nc" id="L615">                    quirkEntries.add(qe);</span>
+<span class="nc" id="L616">                }</span>
+<span class="nc" id="L617">            }</span>
+        }
+        
+        // Handle Weapon/Equipment Quirks
+        // Need to keep track of processed mounts, for multi-crit equipment
+<span class="nc" id="L622">        List&lt;Mounted&gt; addedEquipment = new ArrayList&lt;&gt;();</span>
+        // Need to know loc and slot, so can't iterate over Entity.getEquipment
+<span class="nc bnc" id="L624" title="All 2 branches missed.">        for  (int loc = 0; loc &lt; entity.locations(); loc++) {</span>
+<span class="nc" id="L625">            int numCrits = entity.getNumberOfCriticals(loc);</span>
+<span class="nc bnc" id="L626" title="All 2 branches missed.">            for (int slot = 0; slot &lt; numCrits; slot++) {</span>
+<span class="nc" id="L627">                CriticalSlot crit = entity.getCritical(loc, slot);</span>
+                // Ignore systems and null entries
+<span class="nc bnc" id="L629" title="All 2 branches missed.">                if ((crit == null)</span>
+<span class="nc bnc" id="L630" title="All 2 branches missed.">                        || (crit.getType() == CriticalSlot.TYPE_SYSTEM)) {</span>
+<span class="nc" id="L631">                    continue;</span>
+                }
+                // Add quirk for mount if we haven't already
+<span class="nc bnc" id="L634" title="All 2 branches missed.">                if ((crit.getMount() != null)</span>
+<span class="nc bnc" id="L635" title="All 2 branches missed.">                        &amp;&amp; !addedEquipment.contains(crit.getMount())) {</span>
+<span class="nc" id="L636">                    addWeaponQuirk(quirkEntries, crit.getMount(), loc, slot,</span>
+                            unitId, entity);
+<span class="nc" id="L638">                    addedEquipment.add(crit.getMount());</span>
+                }
+                // Add quirk for mount2 if we haven't already
+<span class="nc bnc" id="L641" title="All 2 branches missed.">                if ((crit.getMount2() != null)</span>
+<span class="nc bnc" id="L642" title="All 2 branches missed.">                        &amp;&amp; !addedEquipment.contains(crit.getMount2())) {</span>
+<span class="nc" id="L643">                    addWeaponQuirk(quirkEntries, crit.getMount2(), loc, slot,</span>
+                            unitId, entity);
+<span class="nc" id="L645">                    addedEquipment.add(crit.getMount2());</span>
+                }
+            }
+        }
+<span class="nc" id="L649">    }</span>
+    
+    /**
+     * Convenience method for adding a weapon quirk to the quirk entries list.
+     *
+     * @param quirkEntries The quirks to be added.
+     * @param m The weapon to which the quirks will be applied.
+     * @param loc The servo location of the weapon.
+     * @param slot The slot number of the weapon.
+     * @param unitId The identity of the unit.
+     * @param entity The entity itself.
+     */
+    private static void addWeaponQuirk(List&lt;QuirkEntry&gt; quirkEntries,
+            @Nullable Mounted m, int loc, int slot, String unitId, Entity entity) {
+        // If mount is null, nothing to do
+<span class="nc bnc" id="L664" title="All 2 branches missed.">        if (m == null) {</span>
+<span class="nc" id="L665">            return;</span>
+        }
+        // Ignore if the mount has no quirks
+<span class="nc bnc" id="L668" title="All 2 branches missed.">        if (m.countQuirks() &gt; 0) {</span>
+<span class="nc" id="L669">            WeaponQuirks weapQuirks = m.getQuirks();</span>
+<span class="nc" id="L670">            Enumeration&lt;IOptionGroup&gt; quirksGroup = weapQuirks.getGroups();</span>
+            Enumeration&lt;IOption&gt; quirkOptions;
+<span class="nc bnc" id="L672" title="All 2 branches missed.">           while (quirksGroup.hasMoreElements()) {</span>
+<span class="nc" id="L673">                IOptionGroup group = quirksGroup.nextElement();</span>
+<span class="nc" id="L674">                quirkOptions = group.getSortedOptions();</span>
+<span class="nc bnc" id="L675" title="All 2 branches missed.">                while (quirkOptions.hasMoreElements()) {</span>
+<span class="nc" id="L676">                    IOption option = quirkOptions.nextElement();</span>
+                    // Don't add quirk if it's not on 
+<span class="nc bnc" id="L678" title="All 2 branches missed.">                    if (!option.booleanValue()) {</span>
+<span class="nc" id="L679">                        continue;</span>
+                    }
+                    // Create new entry and add it
+<span class="nc" id="L682">                    QuirkEntry qe = new QuirkEntry(option.getName(),</span>
+<span class="nc" id="L683">                            entity.getLocationAbbr(loc), slot, m.getType()</span>
+<span class="nc" id="L684">                                    .getInternalName(), unitId);</span>
+<span class="nc" id="L685">                    quirkEntries.add(qe);</span>
+<span class="nc" id="L686">                }</span>
+<span class="nc" id="L687">            }</span>
+        }
+<span class="nc" id="L689">    }</span>
+
+    public static Set&lt;String&gt; getCanonQuirkIds() {
+<span class="nc" id="L692">        return canonQuirkMap.keySet();</span>
+    }
+
+    /**
+     * Used by QuirkRewriteTool to take a quirk entry from canon quirks, and
+     * munge its eType and write it to customQuirks.
+     */
+    public static void mungeQuirks(String quirkId, String newId) {
+        // Shouldn't happen, but lets be careful
+<span class="nc bnc" id="L701" title="All 2 branches missed.">        if (customQuirkMap == null) {</span>
+            try {
+<span class="nc" id="L703">                QuirksHandler.initQuirksList();</span>
+<span class="nc" id="L704">            } catch (IOException e) {</span>
+<span class="nc" id="L705">                getLogger().error(e);</span>
+<span class="nc" id="L706">            }</span>
+        }
+
+<span class="nc" id="L709">        customQuirksDirty.set(true);</span>
+
+<span class="nc" id="L711">        customQuirkMap.put(newId, canonQuirkMap.get(quirkId));</span>
+<span class="nc" id="L712">    }</span>
+
+    public static boolean customQuirksContain(String unitId) {
+<span class="nc" id="L715">        return customQuirkMap.containsKey(unitId);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

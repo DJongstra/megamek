@@ -1,0 +1,665 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TilesetManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing.tileset</a> &gt; <span class="el_source">TilesetManager.java</span></div><h1>TilesetManager.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2002, 2003, 2004 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018, 2020 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+package megamek.client.ui.swing.tileset;
+
+import java.util.*;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Graphics;
+import java.awt.Image;
+import java.awt.MediaTracker;
+import java.awt.Polygon;
+import java.awt.Toolkit;
+import java.awt.image.BufferedImage;
+import java.awt.image.FilteredImageSource;
+import java.awt.image.ImageProducer;
+import java.io.File;
+import java.io.IOException;
+
+import megamek.MegaMek;
+import megamek.client.ui.ITilesetManager;
+import megamek.client.ui.swing.GUIPreferences;
+import megamek.client.ui.swing.boardview.BoardView1;
+import megamek.client.ui.swing.tileset.MechTileset.MechEntry;
+import megamek.client.ui.swing.util.EntityWreckHelper;
+import megamek.client.ui.swing.util.ImageCache;
+import megamek.client.ui.swing.util.PlayerColour;
+import megamek.client.ui.swing.util.RotateFilter;
+import megamek.common.*;
+import megamek.common.annotations.Nullable;
+import megamek.common.icons.Camouflage;
+import megamek.common.preference.*;
+import megamek.common.util.ImageUtil;
+import megamek.common.util.fileUtils.MegaMekFile;
+
+/**
+ * Handles loading and manipulating images from both the mech tileset and the
+ * terrain tileset.
+ *
+ * @author Ben
+ */
+public class TilesetManager implements IPreferenceChangeListener, ITilesetManager {
+
+    public static final String DIR_NAME_WRECKS = &quot;wrecks&quot;; //$NON-NLS-1$
+    public static final String DIR_NAME_BOTTOM_DECALS = &quot;bottomdecals&quot;;
+    public static final String FILENAME_PREFIX_WRECKS = &quot;destroyed_decal&quot;;
+    public static final String FILENAME_SUFFIX_WRECKS_ASSAULTPLUS = &quot;assaultplus&quot;;
+    public static final String FILENAME_SUFFIX_WRECKS_ULTRALIGHT = &quot;ultralight&quot;;
+
+    private static final int NUM_DECAL_ROTATIONS = 4;
+    private static final int MAX_NUM_DECALS = 10;
+
+    public static final String FILENAME_DEFAULT_HEX_SET = &quot;defaulthexset.txt&quot;; //$NON-NLS-1$
+
+<span class="nc" id="L67">    private static final String FILENAME_NIGHT_IMAGE = new File(&quot;transparent&quot;, &quot;night.png&quot;).toString();  //$NON-NLS-1$  //$NON-NLS-2$</span>
+<span class="nc" id="L68">    private static final String FILENAME_HEX_MASK = new File(&quot;transparent&quot;, &quot;HexMask.png&quot;).toString();  //$NON-NLS-1$  //$NON-NLS-2$</span>
+    private static final String FILENAME_ARTILLERY_AUTOHIT_IMAGE = &quot;artyauto.gif&quot;; //$NON-NLS-1$
+    private static final String FILENAME_ARTILLERY_ADJUSTED_IMAGE = &quot;artyadj.gif&quot;; //$NON-NLS-1$
+    private static final String FILENAME_ARTILLERY_INCOMING_IMAGE = &quot;artyinc.gif&quot;; //$NON-NLS-1$
+
+    public static final int ARTILLERY_AUTOHIT = 0;
+    public static final int ARTILLERY_ADJUSTED = 1;
+    public static final int ARTILLERY_INCOMING = 2;
+
+    // component to load images to
+    private BoardView1 boardview;
+
+    // keep tracking of loading images
+    private MediaTracker tracker;
+<span class="nc" id="L82">    private boolean started = false;</span>
+<span class="nc" id="L83">    private boolean loaded = false;</span>
+
+    // mech images
+<span class="nc" id="L86">    private MechTileset wreckTileset = new MechTileset(</span>
+<span class="nc" id="L87">            new MegaMekFile(Configuration.unitImagesDir(), DIR_NAME_WRECKS).getFile());</span>
+<span class="nc" id="L88">    private List&lt;EntityImage&gt; mechImageList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L89">    private Map&lt;ArrayList&lt;Integer&gt;, EntityImage&gt; mechImages = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L90">    private Map&lt;String, Image&gt; wreckageDecals = new HashMap&lt;&gt;();</span>
+    private Map&lt;String, Integer&gt; wreckageDecalCount;
+
+    // hex images
+    private HexTileset hexTileset;
+
+    private Image minefieldSign;
+    private Image nightFog;
+
+    /** An opaque hex shape used to limit draw operations to the exact hex shape. */
+    private Image hexMask;
+
+    private Image artilleryAutohit;
+    private Image artilleryAdjusted;
+    private Image artilleryIncoming;
+
+    /**
+     * Hexes under the effects of ECM have a shaded &quot;static&quot; image displayed,
+     * to represent the noise generated by ECM.  This is a cache that stores
+     * images for various colors (for Players, and possibly multiple players
+     * in the same hex).
+     */
+<span class="nc" id="L112">    private Map&lt;Color, Image&gt; ecmStaticImages = new HashMap&lt;&gt;();</span>
+
+    /** Creates new TilesetManager. */
+<span class="nc" id="L115">    public TilesetManager(BoardView1 bv) throws IOException {</span>
+<span class="nc" id="L116">        boardview = bv;</span>
+<span class="nc" id="L117">        hexTileset = new HexTileset(boardview.game);</span>
+<span class="nc" id="L118">        tracker = new MediaTracker(boardview);</span>
+        try {
+<span class="nc" id="L120">            File wreckDir = new File(Configuration.unitImagesDir(), DIR_NAME_WRECKS);</span>
+<span class="nc" id="L121">            File wreckDecalDir = new File(wreckDir, DIR_NAME_BOTTOM_DECALS);</span>
+
+<span class="nc" id="L123">            int bigWreckCount = 0;</span>
+<span class="nc" id="L124">            int tinyWreckCount = 0;</span>
+
+            // this section of code counts how many of each type of image is accessible
+<span class="nc bnc" id="L127" title="All 2 branches missed.">            for (int decalIndex = 1; decalIndex &lt; MAX_NUM_DECALS; decalIndex++) {</span>
+<span class="nc" id="L128">                String heavyFileName = String.format(&quot;%s_%d_%s.png&quot;, FILENAME_PREFIX_WRECKS, decalIndex, FILENAME_SUFFIX_WRECKS_ASSAULTPLUS);</span>
+<span class="nc" id="L129">                String lightFileName = String.format(&quot;%s_%d_%s.png&quot;, FILENAME_PREFIX_WRECKS, decalIndex, FILENAME_SUFFIX_WRECKS_ULTRALIGHT);</span>
+<span class="nc" id="L130">                Image heavyImage = LoadSpecificImage(wreckDecalDir, heavyFileName);</span>
+<span class="nc" id="L131">                Image lightImage = LoadSpecificImage(wreckDecalDir, lightFileName);</span>
+
+<span class="nc bnc" id="L133" title="All 2 branches missed.">                if (heavyImage != null) {</span>
+<span class="nc" id="L134">                    bigWreckCount++;</span>
+                }
+
+<span class="nc bnc" id="L137" title="All 2 branches missed.">                if (lightImage != null) {</span>
+<span class="nc" id="L138">                    tinyWreckCount++;</span>
+                }
+
+                // if we can't load any more images, no need to keep failing
+<span class="nc bnc" id="L142" title="All 4 branches missed.">                if (heavyImage == null &amp;&amp; lightImage == null) {</span>
+<span class="nc" id="L143">                    break;</span>
+                }
+            }
+
+<span class="nc" id="L147">            wreckageDecalCount = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L148">            wreckageDecalCount.put(FILENAME_SUFFIX_WRECKS_ULTRALIGHT, tinyWreckCount);</span>
+<span class="nc" id="L149">            wreckageDecalCount.put(FILENAME_SUFFIX_WRECKS_ASSAULTPLUS, bigWreckCount);</span>
+
+<span class="nc" id="L151">        } catch (Exception ignored) {</span>
+
+<span class="nc" id="L153">        }</span>
+<span class="nc" id="L154">        wreckTileset.loadFromFile(&quot;wreckset.txt&quot;);</span>
+        try {
+<span class="nc" id="L156">            hexTileset.incDepth = 0;</span>
+<span class="nc" id="L157">            hexTileset.loadFromFile(PreferenceManager.getClientPreferences().getMapTileset());</span>
+<span class="nc" id="L158">        } catch (Exception FileNotFoundException) {</span>
+<span class="nc" id="L159">            MegaMek.getLogger().error(&quot;Error loading tileset &quot;</span>
+<span class="nc" id="L160">                    + PreferenceManager.getClientPreferences().getMapTileset() + &quot; Reverting to default hexset!&quot;);</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">            if (new MegaMekFile(Configuration.hexesDir(), FILENAME_DEFAULT_HEX_SET).getFile().exists()){</span>
+<span class="nc" id="L162">                hexTileset.loadFromFile(FILENAME_DEFAULT_HEX_SET);</span>
+            } else {
+<span class="nc" id="L164">                MegaMek.getLogger().fatal(&quot;Could not load default tileset &quot; + FILENAME_DEFAULT_HEX_SET);</span>
+            }
+<span class="nc" id="L166">        }</span>
+<span class="nc" id="L167">        PreferenceManager.getClientPreferences().addPreferenceChangeListener(this);</span>
+<span class="nc" id="L168">        GUIPreferences.getInstance().addPreferenceChangeListener(this);</span>
+<span class="nc" id="L169">    }</span>
+
+    /** React to changes in the settings. */
+    @Override
+    public void preferenceChange(PreferenceChangeEvent e) {
+        // A new Hex Tileset has been selected
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        if (e.getName().equals(IClientPreferences.MAP_TILESET)) {</span>
+<span class="nc" id="L176">            HexTileset hts = new HexTileset(boardview.game);</span>
+            try {
+<span class="nc" id="L178">                hexTileset.incDepth = 0;</span>
+<span class="nc" id="L179">                hts.loadFromFile((String) e.getNewValue());</span>
+<span class="nc" id="L180">                hexTileset = hts;</span>
+<span class="nc" id="L181">                boardview.clearHexImageCache();</span>
+<span class="nc" id="L182">            } catch (IOException ex) {</span>
+<span class="nc" id="L183">                return;</span>
+<span class="nc" id="L184">            }</span>
+        }
+
+        // The setting to show damage decals and smoke has changed
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        if (e.getName().equals(GUIPreferences.SHOW_DAMAGE_DECAL)) {</span>
+<span class="nc" id="L189">            reset();</span>
+        }
+<span class="nc" id="L191">    }</span>
+
+    /** Retrieve an icon for the unit (used in the Unit Overview). */
+    @Override
+    public Image iconFor(Entity entity) {
+<span class="nc" id="L196">        EntityImage entityImage = getFromCache(entity, -1);</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">        if (entityImage == null) {</span>
+<span class="nc" id="L198">            MegaMek.getLogger().error(&quot;Unable to load icon for entity: &quot; + entity.getShortNameRaw());</span>
+<span class="nc" id="L199">            Image generic = getGenericImage(entity, -1);</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">            return (generic != null) ? ImageUtil.getScaledImage(generic, 56, 48) : null;</span>
+        }
+<span class="nc" id="L202">        return entityImage.getIcon();</span>
+    }
+
+    /** Retrieve a wreck icon for the unit. */
+    public Image wreckMarkerFor(Entity entity, int secondaryPos) {
+<span class="nc" id="L207">        EntityImage entityImage = getFromCache(entity, secondaryPos);</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (entityImage == null) {</span>
+<span class="nc" id="L209">            MegaMek.getLogger().error(&quot;Unable to load wreck image for entity: &quot; + entity.getShortNameRaw());</span>
+<span class="nc" id="L210">            return getGenericImage(entity, -1, wreckTileset);</span>
+        }
+<span class="nc" id="L212">        return entityImage.getWreckFacing(entity.getFacing());</span>
+    }
+
+    /** Retrieves the &quot;devastated&quot; decoration for the given entity */
+    public Image getCraterFor(Entity entity, int secondaryPos) {
+        Image marker;
+
+<span class="nc" id="L219">        String suffix = EntityWreckHelper.getWeightSuffix(entity);</span>
+<span class="nc" id="L220">        String filename = String.format(&quot;crater_decal_%s.png&quot;, suffix);</span>
+<span class="nc" id="L221">        File wreckDir = new File(Configuration.unitImagesDir(), DIR_NAME_WRECKS);</span>
+<span class="nc" id="L222">        File wreckDecalDir = new File(wreckDir, DIR_NAME_BOTTOM_DECALS);</span>
+
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        if(wreckageDecals.containsKey(filename)) {</span>
+<span class="nc" id="L225">            marker = wreckageDecals.get(filename);</span>
+        } else {
+<span class="nc" id="L227">            marker = TilesetManager.LoadSpecificImage(wreckDecalDir, filename);</span>
+<span class="nc" id="L228">            wreckageDecals.put(filename, marker);</span>
+        }
+
+<span class="nc" id="L231">        return marker;</span>
+    }
+
+    /** Retrieves the &quot;destroyed&quot; decoration for the given entity */
+    public Image bottomLayerWreckMarkerFor(Entity entity, int secondaryPos) {
+        Image marker;
+
+        // wreck filenames are in the format destroyed_decal_x_weightsuffix, where x is 1 through however many bottom splats we have
+        // in the directory. To make sure we don't swap splats between entities, we make it depend on entity ID
+<span class="nc" id="L240">        String suffix = EntityWreckHelper.getWeightSuffix(entity);</span>
+
+        // defensive coding in case data is missing
+<span class="nc bnc" id="L243" title="All 2 branches missed.">        if(wreckageDecalCount.get(suffix) == 0) {</span>
+<span class="nc" id="L244">            return null;</span>
+        }
+
+<span class="nc" id="L247">        int wreckNum = (entity.getId() % this.wreckageDecalCount.get(suffix)) + 1;</span>
+<span class="nc" id="L248">        String filename = String.format(&quot;%s_%d_%s.png&quot;, FILENAME_PREFIX_WRECKS, wreckNum, suffix);</span>
+<span class="nc" id="L249">        File wreckDir = new File(Configuration.unitImagesDir(), DIR_NAME_WRECKS);</span>
+<span class="nc" id="L250">        File wreckDecalDir = new File(wreckDir, DIR_NAME_BOTTOM_DECALS);</span>
+
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        if(wreckageDecals.containsKey(filename)) {</span>
+<span class="nc" id="L253">            marker = wreckageDecals.get(filename);</span>
+        } else {
+<span class="nc" id="L255">            marker = TilesetManager.LoadSpecificImage(wreckDecalDir, filename);</span>
+<span class="nc" id="L256">            wreckageDecals.put(filename, marker);</span>
+        }
+
+<span class="nc" id="L259">        return marker;</span>
+    }
+
+    /** Retrieves the &quot;destroyed&quot; decoration for the given entity */
+    public Image bottomLayerFuelLeakMarkerFor(Entity entity) {
+        Image marker;
+
+<span class="nc" id="L266">        String suffix = EntityWreckHelper.getWeightSuffix(entity);</span>
+<span class="nc" id="L267">        String filename = String.format(&quot;fuelleak_decal_%s.png&quot;, suffix);</span>
+<span class="nc" id="L268">        File wreckDir = new File(Configuration.unitImagesDir(), DIR_NAME_WRECKS);</span>
+<span class="nc" id="L269">        File wreckDecalDir = new File(wreckDir, DIR_NAME_BOTTOM_DECALS);</span>
+
+<span class="nc" id="L271">        int rotationKey = entity.getId() % NUM_DECAL_ROTATIONS;</span>
+<span class="nc" id="L272">        String imageKey = String.format(&quot;%s%s&quot;, filename, rotationKey);</span>
+
+<span class="nc bnc" id="L274" title="All 2 branches missed.">        if(!wreckageDecals.containsKey(imageKey)) {</span>
+<span class="nc" id="L275">            Image baseImage = TilesetManager.LoadSpecificImage(wreckDecalDir, filename);</span>
+
+<span class="nc bnc" id="L277" title="All 2 branches missed.">            for(double x = 0; x &lt; NUM_DECAL_ROTATIONS; x++) {</span>
+<span class="nc" id="L278">                RotateFilter rf = new RotateFilter(x * 90);</span>
+<span class="nc" id="L279">                String newImageKey = String.format(&quot;%s%s&quot;, filename, (int) x);</span>
+
+<span class="nc" id="L281">                ImageProducer ip = new FilteredImageSource(baseImage.getSource(), rf);</span>
+<span class="nc" id="L282">                Image resultImage = Toolkit.getDefaultToolkit().createImage(ip);</span>
+<span class="nc" id="L283">                wreckageDecals.put(newImageKey, resultImage);</span>
+            }
+        }
+
+<span class="nc" id="L287">        marker = wreckageDecals.get(imageKey);</span>
+
+<span class="nc" id="L289">        return marker;</span>
+    }
+
+    /** Retrieves the &quot;destroyed&quot; decoration for the given entity */
+    public Image bottomLayerMotiveMarkerFor(Entity entity) {
+<span class="nc" id="L294">        Image marker = null;</span>
+
+<span class="nc" id="L296">        String weightSuffix = EntityWreckHelper.getWeightSuffix(entity);</span>
+<span class="nc" id="L297">        String motivePrefix = EntityWreckHelper.getMotivePrefix(entity);</span>
+
+<span class="nc bnc" id="L299" title="All 2 branches missed.">        if(motivePrefix != null) {</span>
+<span class="nc" id="L300">            String filename = String.format(&quot;%s_decal_%s.png&quot;, motivePrefix, weightSuffix);</span>
+<span class="nc" id="L301">            File wreckDir = new File(Configuration.unitImagesDir(), DIR_NAME_WRECKS);</span>
+<span class="nc" id="L302">            File wreckDecalDir = new File(wreckDir, DIR_NAME_BOTTOM_DECALS);</span>
+
+<span class="nc" id="L304">            int rotationKey = entity.getId() % NUM_DECAL_ROTATIONS;</span>
+<span class="nc" id="L305">            String imageKey = String.format(&quot;%s%s&quot;, filename, rotationKey);</span>
+
+<span class="nc bnc" id="L307" title="All 2 branches missed.">            if(!wreckageDecals.containsKey(imageKey)) {</span>
+<span class="nc" id="L308">                Image baseImage = TilesetManager.LoadSpecificImage(wreckDecalDir, filename);</span>
+
+<span class="nc bnc" id="L310" title="All 2 branches missed.">                for(double x = 0; x &lt; NUM_DECAL_ROTATIONS; x++) {</span>
+<span class="nc" id="L311">                    RotateFilter rf = new RotateFilter(x * 90);</span>
+<span class="nc" id="L312">                    String newImageKey = String.format(&quot;%s%s&quot;, filename, (int) x);</span>
+
+<span class="nc" id="L314">                    ImageProducer ip = new FilteredImageSource(baseImage.getSource(), rf);</span>
+<span class="nc" id="L315">                    Image resultImage = Toolkit.getDefaultToolkit().createImage(ip);</span>
+<span class="nc" id="L316">                    wreckageDecals.put(newImageKey, resultImage);</span>
+                }
+            }
+
+<span class="nc" id="L320">            marker = wreckageDecals.get(imageKey);</span>
+        }
+
+<span class="nc" id="L323">        return marker;</span>
+    }
+
+    /** Retrieve an image for the unit. */
+    public Image imageFor(Entity entity) {
+<span class="nc" id="L328">        return imageFor(entity, -1);</span>
+    }
+
+    /** Retrieve an image for the unit. */
+    public Image imageFor(Entity entity, int secondaryPos) {
+        // mechs look like they're facing their secondary facing
+        // (except QuadVees, which are using turrets instead of torso twists
+<span class="nc bnc" id="L335" title="All 6 branches missed.">        if (((entity instanceof Mech) || (entity instanceof Protomech))</span>
+                &amp;&amp; !(entity instanceof QuadVee)) {
+<span class="nc" id="L337">            return imageFor(entity, entity.getSecondaryFacing(), secondaryPos);</span>
+        }
+<span class="nc" id="L339">        return imageFor(entity, entity.getFacing(), secondaryPos);</span>
+    }
+
+    /** Retrieve an image for the unit. */
+    public Image imageFor(Entity entity, int facing, int secondaryPos) {
+<span class="nc" id="L344">        EntityImage entityImage = getFromCache(entity, secondaryPos);</span>
+<span class="nc bnc" id="L345" title="All 2 branches missed.">        if (entityImage == null) {</span>
+<span class="nc" id="L346">            MegaMek.getLogger().error(&quot;Unable to load image for entity: &quot; + entity.getShortNameRaw());</span>
+<span class="nc" id="L347">            return getGenericImage(entity, -1);</span>
+        }
+        // get image rotated for facing
+<span class="nc" id="L350">        return entityImage.getFacing(facing);</span>
+    }
+
+
+    /** Retrieves the image from the cache and loads it if not present. */
+    private EntityImage getFromCache(Entity entity, int secondaryPos) {
+<span class="nc" id="L356">        List&lt;Integer&gt; temp = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L357">        temp.add(entity.getId());</span>
+<span class="nc" id="L358">        temp.add(secondaryPos);</span>
+<span class="nc" id="L359">        EntityImage result = mechImages.get(temp);</span>
+
+        // Image could be null, for example with double blind
+<span class="nc bnc" id="L362" title="All 2 branches missed.">        if (result == null) {</span>
+<span class="nc" id="L363">            MegaMek.getLogger().info(&quot;Loading image on the fly: &quot; + entity.getShortNameRaw());</span>
+<span class="nc" id="L364">            loadImage(entity, secondaryPos);</span>
+<span class="nc" id="L365">            result = mechImages.get(temp);</span>
+        }
+<span class="nc" id="L367">        return result;</span>
+    }
+
+    private @Nullable Image getGenericImage(Entity entity, int secondaryPos) {
+<span class="nc" id="L371">        return getGenericImage(entity, secondaryPos, MMStaticDirectoryManager.getMechTileset());</span>
+    }
+
+    /** Retrieves a generic unit image if possible. May still return null! */
+    private @Nullable Image getGenericImage(Entity entity, int secondaryPos, MechTileset tileSet) {
+<span class="nc" id="L376">        MechEntry defaultEntry = tileSet.genericFor(entity, secondaryPos);</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">        if (defaultEntry.getImage() == null) {</span>
+<span class="nc" id="L378">            defaultEntry.loadImage();</span>
+        }
+<span class="nc" id="L380">        return defaultEntry.getImage();</span>
+    }
+
+    /**
+     * Return the base image for the hex
+     */
+    public Image baseFor(IHex hex) {
+<span class="nc" id="L387">        return hexTileset.getBase(hex, boardview);</span>
+    }
+
+    /**
+     * Return a list of superimposed images for the hex
+     */
+    public List&lt;Image&gt; supersFor(IHex hex) {
+<span class="nc" id="L394">        return hexTileset.getSupers(hex, boardview);</span>
+    }
+
+    /**
+     * Return a list of orthographic images for the hex
+     */
+    public List&lt;Image&gt; orthoFor(IHex hex) {
+<span class="nc" id="L401">        return hexTileset.getOrtho(hex, boardview);</span>
+    }
+
+    public Image getMinefieldSign() {
+<span class="nc" id="L405">        return minefieldSign;</span>
+    }
+
+    public Image getNightFog() {
+<span class="nc" id="L409">        return nightFog;</span>
+    }
+
+    public Image getHexMask() {
+<span class="nc" id="L413">        return hexMask;</span>
+    }
+
+    public Set&lt;String&gt; getThemes() {
+<span class="nc" id="L417">        return hexTileset.getThemes();</span>
+    }
+
+    /**
+     * Hexes affected by ECM will have a shaded static effect drawn on them.
+     * This method will check the cache for a suitable static image for a given
+     * color, and if one doesn't exists an image is created and cached.
+     *
+     * @param tint
+     * @return
+     */
+    public Image getEcmStaticImage(Color tint) {
+<span class="nc" id="L429">        Image image = ecmStaticImages.get(tint);</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">        if (image == null) {</span>
+            // Create a new hex-sized image
+<span class="nc" id="L432">            image = new BufferedImage(HexTileset.HEX_W,</span>
+                    HexTileset.HEX_H, BufferedImage.TYPE_INT_ARGB);
+<span class="nc" id="L434">            Graphics g = image.getGraphics();</span>
+<span class="nc" id="L435">            Polygon hexPoly = boardview.getHexPoly();</span>
+<span class="nc" id="L436">            g.setColor(tint.darker());</span>
+            // Draw ~200 small &quot;ovals&quot; at random locations within a a hex
+            // A 3x3 oval ends up looking more like a cross
+<span class="nc bnc" id="L439" title="All 2 branches missed.">            for (int i = 0; i &lt; 200; i++) {</span>
+<span class="nc" id="L440">                int x = (int)(Math.random() * HexTileset.HEX_W);</span>
+<span class="nc" id="L441">                int y = (int)(Math.random() * HexTileset.HEX_H);</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">                if (hexPoly.contains(x,y)) {</span>
+<span class="nc" id="L443">                    g.fillOval(x, y, 3, 3);</span>
+                }
+            }
+<span class="nc" id="L446">            ecmStaticImages.put(tint, image);</span>
+        }
+<span class="nc" id="L448">        return image;</span>
+    }
+
+    public Image getArtilleryTarget(int which) {
+<span class="nc bnc" id="L452" title="All 3 branches missed.">        switch (which) {</span>
+            case ARTILLERY_AUTOHIT:
+<span class="nc" id="L454">                return artilleryAutohit;</span>
+            case ARTILLERY_ADJUSTED:
+<span class="nc" id="L456">                return artilleryAdjusted;</span>
+            case ARTILLERY_INCOMING:
+            default:
+<span class="nc" id="L459">                return artilleryIncoming;</span>
+        }
+    }
+
+    /**
+     * @return true if we're in the process of loading some images
+     */
+    public boolean isStarted() {
+<span class="nc" id="L467">        return started;</span>
+    }
+
+    /**
+     * @return true if we're done loading images
+     */
+    public synchronized boolean isLoaded() {
+<span class="nc bnc" id="L474" title="All 2 branches missed.">        if (!loaded) {</span>
+<span class="nc" id="L475">            loaded = tracker.checkAll(true);</span>
+        }
+<span class="nc bnc" id="L477" title="All 4 branches missed.">        return started &amp;&amp; loaded;</span>
+    }
+
+    /**
+     * Load all the images we'll need for the game and place them in the tracker
+     */
+    public void loadNeededImages(IGame game) {
+<span class="nc" id="L484">        loaded = false;</span>
+<span class="nc" id="L485">        IBoard board = game.getBoard();</span>
+        // pre-match all hexes with images, load hex images
+<span class="nc" id="L487">        int width = board.getWidth();</span>
+<span class="nc" id="L488">        int height = board.getHeight();</span>
+        // We want to cache as many of the images as we can, but if we have
+        // more images than cache size, lets not waste time
+<span class="nc bnc" id="L491" title="All 2 branches missed.">        if ((width*height) &gt; ImageCache.MAX_SIZE){</span>
+            // Find the largest size by size square we can fit in the cache
+<span class="nc" id="L493">            int max_dim = (int)Math.sqrt(ImageCache.MAX_SIZE);</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">            if (width &lt; max_dim) {</span>
+<span class="nc" id="L495">                    height = (int)(ImageCache.MAX_SIZE / width);</span>
+<span class="nc bnc" id="L496" title="All 2 branches missed.">            } else if (height &lt; max_dim) {</span>
+<span class="nc" id="L497">                    width = (int)(ImageCache.MAX_SIZE / height);</span>
+            } else {
+<span class="nc" id="L499">                width = height = max_dim;</span>
+            }
+        }
+<span class="nc bnc" id="L502" title="All 2 branches missed.">        for (int y = 0; y &lt; height; y++) {</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">            for (int x = 0; x &lt; width; x++) {</span>
+<span class="nc" id="L504">                IHex hex = board.getHex(x, y);</span>
+<span class="nc" id="L505">                loadHexImage(hex);</span>
+            }
+        }
+
+        // load all mech images
+<span class="nc bnc" id="L510" title="All 2 branches missed.">        for (Entity e : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L511" title="All 2 branches missed.">            if (e.getSecondaryPositions().isEmpty()) {</span>
+<span class="nc" id="L512">                loadImage(e, -1);</span>
+            } else {
+<span class="nc bnc" id="L514" title="All 2 branches missed.">                for (Integer secPos : e.getSecondaryPositions().keySet()) {</span>
+<span class="nc" id="L515">                    loadImage(e, secPos);</span>
+<span class="nc" id="L516">                }</span>
+            }
+
+<span class="nc" id="L519">        }</span>
+
+<span class="nc" id="L521">        minefieldSign = LoadSpecificImage(Configuration.hexesDir(), Minefield.FILENAME_IMAGE);</span>
+<span class="nc" id="L522">        nightFog = LoadSpecificImage(Configuration.hexesDir(), FILENAME_NIGHT_IMAGE);</span>
+<span class="nc" id="L523">        hexMask = LoadSpecificImage(Configuration.hexesDir(), FILENAME_HEX_MASK);</span>
+
+<span class="nc" id="L525">        artilleryAutohit = LoadSpecificImage(Configuration.hexesDir(), FILENAME_ARTILLERY_AUTOHIT_IMAGE);</span>
+<span class="nc" id="L526">        artilleryAdjusted = LoadSpecificImage(Configuration.hexesDir(), FILENAME_ARTILLERY_ADJUSTED_IMAGE);</span>
+<span class="nc" id="L527">        artilleryIncoming = LoadSpecificImage(Configuration.hexesDir(), FILENAME_ARTILLERY_INCOMING_IMAGE);</span>
+
+<span class="nc" id="L529">        started = true;</span>
+<span class="nc" id="L530">    }</span>
+
+    /** Local method. Loads and returns the image. */
+    public static Image LoadSpecificImage(File path, String name) {
+<span class="nc" id="L534">        Image result = ImageUtil.loadImageFromFile(new MegaMekFile(path, name).toString());</span>
+<span class="nc bnc" id="L535" title="All 6 branches missed.">        if ((result == null) || (result.getWidth(null) &lt;= 0) || (result.getHeight(null) &lt;= 0)) {</span>
+<span class="nc" id="L536">            MegaMek.getLogger().error(&quot;Error opening image: &quot; + name);</span>
+        }
+<span class="nc" id="L538">        return result;</span>
+    }
+
+    public synchronized void reloadImage(Entity en) {
+<span class="nc bnc" id="L542" title="All 2 branches missed.">        if (en.getSecondaryPositions().isEmpty()) {</span>
+<span class="nc" id="L543">            loadImage(en, -1);</span>
+        } else {
+<span class="nc" id="L545">            en.getSecondaryPositions().keySet().forEach(p -&gt; loadImage(en, p));</span>
+        }
+<span class="nc" id="L547">    }</span>
+
+    /**
+     * Loads the image(s) for this hex into the tracker.
+     *
+     * @param hex the hex to load
+     */
+    private synchronized void loadHexImage(IHex hex) {
+<span class="nc" id="L555">        hexTileset.assignMatch(hex, boardview);</span>
+<span class="nc" id="L556">        hexTileset.trackHexImages(hex, tracker);</span>
+<span class="nc" id="L557">    }</span>
+
+    /**
+     * Removes the hex images from the cache.
+     *
+     * @param hex
+     */
+    public void clearHex(IHex hex) {
+<span class="nc" id="L565">        hexTileset.clearHex(hex);</span>
+<span class="nc" id="L566">    }</span>
+
+    /**
+     * Waits until a certain hex's images are done loading.
+     *
+     * @param hex the hex to wait for
+     */
+    public synchronized void waitForHex(IHex hex) {
+<span class="nc" id="L574">        loadHexImage(hex);</span>
+        try {
+<span class="nc" id="L576">            tracker.waitForID(1);</span>
+<span class="nc" id="L577">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L578">            e.printStackTrace();</span>
+<span class="nc" id="L579">        }</span>
+<span class="nc" id="L580">    }</span>
+
+    /**
+     * Loads all the hex tileset images
+     */
+    public synchronized void loadAllHexes() {
+<span class="nc" id="L586">        hexTileset.loadAllImages(boardview, tracker);</span>
+<span class="nc" id="L587">    }</span>
+
+    /**
+     *  Loads a preview image of the unit into the BufferedPanel.
+     */
+    @Override
+    public Image loadPreviewImage(Entity entity, Camouflage camouflage, Component bp) {
+<span class="nc" id="L594">        Image base = MMStaticDirectoryManager.getMechTileset().imageFor(entity);</span>
+<span class="nc" id="L595">        EntityImage entityImage = new EntityImage(base, camouflage, bp, entity);</span>
+<span class="nc" id="L596">        entityImage.loadFacings();</span>
+<span class="nc" id="L597">        Image preview = entityImage.getFacing(entity.getFacing());</span>
+
+<span class="nc" id="L599">        MediaTracker loadTracker = new MediaTracker(boardview);</span>
+<span class="nc" id="L600">        loadTracker.addImage(preview, 0);</span>
+        try {
+<span class="nc" id="L602">            loadTracker.waitForID(0);</span>
+<span class="nc" id="L603">        } catch (InterruptedException ignored) {</span>
+            // should never come here
+<span class="nc" id="L605">        }</span>
+
+<span class="nc" id="L607">        return preview;</span>
+    }
+
+    /**
+     * Load a single entity image
+     */
+    public synchronized void loadImage(Entity entity, int secondaryPos) {
+<span class="nc" id="L614">        Image base = MMStaticDirectoryManager.getMechTileset().imageFor(entity, secondaryPos);</span>
+<span class="nc" id="L615">        Image wreck = wreckTileset.imageFor(entity, secondaryPos);</span>
+
+<span class="nc" id="L617">        IPlayer player = entity.getOwner();</span>
+<span class="nc" id="L618">        PlayerColour tint = player.getColour();</span>
+
+<span class="nc" id="L620">        Camouflage camouflage = entity.getCamouflageOrElse(player.getCamouflage());</span>
+<span class="nc" id="L621">        EntityImage entityImage = null;</span>
+
+        // check if we have a duplicate image already loaded
+<span class="nc bnc" id="L624" title="All 2 branches missed.">        for (Iterator&lt;EntityImage&gt; j = mechImageList.iterator(); j.hasNext();) {</span>
+<span class="nc" id="L625">            EntityImage onList = j.next();</span>
+<span class="nc bnc" id="L626" title="All 4 branches missed.">            if ((onList.getBase() != null) &amp;&amp; onList.getBase().equals(base)</span>
+<span class="nc bnc" id="L627" title="All 2 branches missed.">                    &amp;&amp; onList.getCamouflage().equals(camouflage)</span>
+<span class="nc bnc" id="L628" title="All 2 branches missed.">                    &amp;&amp; (onList.getDmgLvl() == entity.getDamageLevel(false))) {</span>
+<span class="nc" id="L629">                entityImage = onList;</span>
+<span class="nc" id="L630">                break;</span>
+            }
+<span class="nc" id="L632">        }</span>
+
+        // if we don't have a cached image, make a new one
+<span class="nc bnc" id="L635" title="All 2 branches missed.">        if (entityImage == null) {</span>
+<span class="nc" id="L636">            entityImage = new EntityImage(base, wreck, camouflage, boardview, entity, secondaryPos);</span>
+<span class="nc" id="L637">            mechImageList.add(entityImage);</span>
+<span class="nc" id="L638">            entityImage.loadFacings();</span>
+<span class="nc bnc" id="L639" title="All 2 branches missed.">            for (int j = 0; j &lt; 6; j++) {</span>
+<span class="nc" id="L640">                tracker.addImage(entityImage.getFacing(j), 1);</span>
+            }
+        }
+
+        // relate this id to this image set
+<span class="nc" id="L645">        ArrayList&lt;Integer&gt; temp = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L646">        temp.add(entity.getId());</span>
+<span class="nc" id="L647">        temp.add(secondaryPos);</span>
+<span class="nc" id="L648">        mechImages.put(temp, entityImage);</span>
+<span class="nc" id="L649">    }</span>
+
+    /**
+     * Resets the started and loaded flags
+     */
+    @Override
+    public synchronized void reset() {
+<span class="nc" id="L656">        loaded = false;</span>
+<span class="nc" id="L657">        started = false;</span>
+
+<span class="nc" id="L659">        tracker = new MediaTracker(boardview);</span>
+<span class="nc" id="L660">        mechImageList.clear();</span>
+<span class="nc" id="L661">        mechImages.clear();</span>
+<span class="nc" id="L662">        hexTileset.clearAllHexes();</span>
+<span class="nc" id="L663">    }    </span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

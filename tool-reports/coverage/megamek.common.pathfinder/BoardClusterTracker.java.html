@@ -1,0 +1,464 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BoardClusterTracker.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">BoardClusterTracker.java</span></div><h1>BoardClusterTracker.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2020 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.pathfinder;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import megamek.client.bot.princess.CardinalEdge;
+import megamek.common.Building;
+import megamek.common.BulldozerMovePath;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IBoard;
+import megamek.common.IHex;
+import megamek.common.MiscType;
+import megamek.common.Terrains;
+import megamek.common.util.BoardUtilities;
+
+/**
+ * This class handles the tracking of &quot;clusters&quot; of movable areas for various movement types, 
+ * either with or without destruction awareness.
+ */
+<span class="nc" id="L41">public class BoardClusterTracker {</span>
+    /**
+     * Movement types that are relevant for &quot;destruction-aware pathfinding&quot;
+     * Have a close relationship but are not exactly one to one with entity movement modes.
+     */
+<span class="nc" id="L46">    public static enum MovementType {</span>
+<span class="nc" id="L47">        Walker,</span>
+<span class="nc" id="L48">        Wheeled,</span>
+<span class="nc" id="L49">        WheeledAmphi,</span>
+<span class="nc" id="L50">        Tracked,</span>
+<span class="nc" id="L51">        TrackedAmphi,</span>
+<span class="nc" id="L52">        Hover,</span>
+<span class="nc" id="L53">        Foot,</span>
+<span class="nc" id="L54">        Jump,</span>
+<span class="nc" id="L55">        Flyer,</span>
+<span class="nc" id="L56">        Water,</span>
+<span class="nc" id="L57">        None;</span>
+        
+        public static boolean canUseBridge(MovementType movementType) {
+<span class="nc bnc" id="L60" title="All 8 branches missed.">            return movementType != Jump &amp;&amp;</span>
+                    movementType != Flyer &amp;&amp;
+                    movementType != Water &amp;&amp;
+                    movementType != None;
+        }
+        
+        /**
+         * Figures out the relevant entity movement mode (for path caching) based on properties 
+         * of the entity. Mostly just movement mode, but some complications exist for tracked/wheeled vehicles.
+         */
+        public static MovementType getMovementType(Entity entity) {
+<span class="nc bnc" id="L71" title="All 8 branches missed.">            switch(entity.getMovementMode()) {</span>
+                case BIPED:
+                case TRIPOD:
+                case QUAD:
+<span class="nc" id="L75">                    return Walker;</span>
+                case INF_LEG:
+<span class="nc" id="L77">                    return Foot;</span>
+                case TRACKED:
+<span class="nc bnc" id="L79" title="All 2 branches missed.">                    return entity.hasWorkingMisc(MiscType.F_FULLY_AMPHIBIOUS) ? TrackedAmphi : Tracked;</span>
+                    //technically  MiscType.F_AMPHIBIOUS and MiscType.F_LIMITED_AMPHIBIOUS apply here too, but are not implemented in general
+                case INF_MOTORIZED:
+                case WHEELED:
+<span class="nc bnc" id="L83" title="All 2 branches missed.">                    return entity.hasWorkingMisc(MiscType.F_FULLY_AMPHIBIOUS) ? WheeledAmphi : Wheeled;</span>
+                case HOVER:
+<span class="nc" id="L85">                    return Hover;</span>
+                case BIPED_SWIM:
+                case QUAD_SWIM:
+                case INF_UMU:
+                case SUBMARINE:
+                case NAVAL:
+                case HYDROFOIL:
+<span class="nc" id="L92">                    return Water;</span>
+                case VTOL:
+                case SPHEROID:
+                case AERODYNE:
+                case AEROSPACE:
+                case AIRSHIP:
+<span class="nc" id="L98">                    return Flyer;</span>
+                default:
+<span class="nc" id="L100">                    return None;</span>
+            }
+        }
+    }
+    
+<span class="nc" id="L105">    private Map&lt;MovementType, Map&lt;Coords, BoardCluster&gt;&gt; movableAreas = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L106">    private Map&lt;MovementType, Map&lt;Coords, BoardCluster&gt;&gt; movableAreasWithTerrainReduction = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L107">    private Map&lt;MovementType, Map&lt;Coords, BoardCluster&gt;&gt; movableAreasBridges = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L108">    private Map&lt;MovementType, Map&lt;Coords, BoardCluster&gt;&gt; movableAreasBridgesWithTerrainReduction = new HashMap&lt;&gt;();</span>
+    
+    /**
+     * Returns the size of the biggest terrain-reduced or non-terrain-reduced
+     * board cluster in which the given coordinates currently reside.
+     */
+    public int getBoardClusterSize(Entity entity, Coords actualCoords, boolean terrainReduction) {
+<span class="nc" id="L115">        MovementType movementType = MovementType.getMovementType(entity);</span>
+        
+<span class="nc" id="L117">        updateMovableAreas(entity);</span>
+        
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        if (terrainReduction) {</span>
+<span class="nc" id="L120">            BoardCluster noBridgeCluster = movableAreasWithTerrainReduction.get(movementType).get(actualCoords);</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">            int noBridgeClusterSize = noBridgeCluster == null ? 0 : noBridgeCluster.contents.size();</span>
+            
+<span class="nc" id="L123">            BoardCluster bridgeCluster = movableAreasBridgesWithTerrainReduction.get(movementType).get(actualCoords);</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">            int bridgeClusterSize = bridgeCluster == null ? 0 : bridgeCluster.contents.size();</span>
+            
+<span class="nc" id="L126">            return Math.max(noBridgeClusterSize, bridgeClusterSize);</span>
+        } else {
+<span class="nc" id="L128">            BoardCluster noBridgeCluster = movableAreas.get(movementType).get(actualCoords);</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">            int noBridgeClusterSize = noBridgeCluster == null ? 0 : noBridgeCluster.contents.size();</span>
+            
+<span class="nc" id="L131">            BoardCluster bridgeCluster = movableAreasBridges.get(movementType).get(actualCoords);</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">            int bridgeClusterSize = bridgeCluster == null ? 0 : bridgeCluster.contents.size();</span>
+            
+<span class="nc" id="L134">            return Math.max(noBridgeClusterSize, bridgeClusterSize);</span>
+        }
+    }
+    
+    /**
+     * Determines whether, for the given entity, the two sets of coordinates share any cluster.
+     */
+    public boolean coordinatesShareCluster(Entity mover, Coords first, Coords second, int firstElevation, int secondElevation) {
+<span class="nc" id="L142">        updateMovableAreas(mover);</span>
+        
+<span class="nc" id="L144">        MovementType movementType = MovementType.getMovementType(mover);</span>
+        
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        return coordinatesShareCluster(first, second, firstElevation, secondElevation, movableAreasBridges.get(movementType).get(first)) ||</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">            coordinatesShareCluster(first, second, firstElevation, secondElevation, movableAreasBridgesWithTerrainReduction.get(movementType).get(first)) ||</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">            coordinatesShareCluster(first, second, firstElevation, secondElevation, movableAreas.get(movementType).get(first)) ||</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">            coordinatesShareCluster(first, second, firstElevation, secondElevation, movableAreasWithTerrainReduction.get(movementType).get(first));</span>
+    }
+    
+    /**
+     * Determines if the given cluster contains both the given sets of coordinates.
+     */
+    public boolean coordinatesShareCluster(Coords first, Coords second, int firstElevation, int secondElevation, BoardCluster cluster) {
+        // two coordinates are considered to share a cluster if they are both in it at the precise elevations we're considering        
+<span class="nc bnc" id="L157" title="All 6 branches missed.">        return (cluster != null) &amp;&amp; cluster.contents.containsKey(first) &amp;&amp; cluster.contents.containsKey(second) &amp;&amp;</span>
+<span class="nc bnc" id="L158" title="All 4 branches missed.">                cluster.contents.get(first) == firstElevation &amp;&amp; cluster.contents.get(second) == secondElevation;</span>
+    }
+    
+    /**
+     * Returns a set of coordinates on a given board edge that intersects with the cluster
+     * in which the given entity resides. May return an empty set.
+     */
+    public Set&lt;Coords&gt; getDestinationCoords(Entity entity, CardinalEdge edge, boolean terrainReduction) {
+<span class="nc" id="L166">        CardinalEdge actualEdge = edge;</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">        if(edge == CardinalEdge.NEAREST_OR_NONE) {</span>
+<span class="nc" id="L168">            actualEdge = BoardUtilities.getClosestEdge(entity);</span>
+        }
+        
+<span class="nc" id="L171">        updateMovableAreas(entity);</span>
+        
+<span class="nc" id="L173">        MovementType movementType = MovementType.getMovementType(entity);</span>
+<span class="nc" id="L174">        BoardCluster entityCluster = null;</span>
+        
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if(terrainReduction) {</span>
+<span class="nc" id="L177">            entityCluster = movableAreasWithTerrainReduction.get(movementType).get(entity.getPosition());</span>
+        } else {
+<span class="nc" id="L179">            entityCluster = movableAreas.get(movementType).get(entity.getPosition());</span>
+        }
+        
+<span class="nc" id="L182">        Set&lt;Coords&gt; retVal = Collections.emptySet();</span>
+        
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if(entityCluster != null) {</span>
+<span class="nc" id="L185">            retVal = entityCluster.getIntersectingHexes(actualEdge, entity.getGame().getBoard());</span>
+        }
+        
+        // try with bridges
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (retVal.size() == 0) {</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">            if (terrainReduction) {</span>
+<span class="nc" id="L191">                entityCluster = movableAreasBridgesWithTerrainReduction.get(movementType).get(entity.getPosition());</span>
+            } else {
+<span class="nc" id="L193">                entityCluster = movableAreasBridges.get(movementType).get(entity.getPosition());</span>
+            }
+            
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            if (entityCluster != null) {</span>
+<span class="nc" id="L197">                retVal = entityCluster.getIntersectingHexes(actualEdge, entity.getGame().getBoard());</span>
+            }
+        }
+        
+<span class="nc" id="L201">        return retVal;</span>
+    }
+    
+    /**
+     * Resets board clusters
+     */
+    public void clearMovableAreas() {
+<span class="nc" id="L208">        movableAreas.clear();</span>
+<span class="nc" id="L209">        movableAreasWithTerrainReduction.clear();</span>
+<span class="nc" id="L210">        movableAreasBridges.clear();</span>
+<span class="nc" id="L211">        movableAreasBridgesWithTerrainReduction.clear();</span>
+<span class="nc" id="L212">    }</span>
+    
+    /**
+     * Updates and stores accessible clusters for the given entity,
+     * both for destruction and non-destruction-aware path finding.
+     */
+    public void updateMovableAreas(Entity entity) {
+<span class="nc" id="L219">        MovementType movementType = MovementType.getMovementType(entity);</span>
+        
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        if (!movableAreas.containsKey(movementType)) {</span>
+<span class="nc" id="L222">            movableAreas.put(movementType, generateClusters(entity, false, false));</span>
+        }
+        
+<span class="nc bnc" id="L225" title="All 2 branches missed.">        if (!movableAreasWithTerrainReduction.containsKey(movementType)) {</span>
+<span class="nc" id="L226">            movableAreasWithTerrainReduction.putIfAbsent(movementType, generateClusters(entity, true, false));</span>
+        }
+        
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if (!movableAreasBridges.containsKey(movementType)) {</span>
+<span class="nc" id="L230">            movableAreasBridges.put(movementType, generateClusters(entity, false, true));</span>
+        }
+        
+<span class="nc bnc" id="L233" title="All 2 branches missed.">        if (!movableAreasBridgesWithTerrainReduction.containsKey(movementType)) {</span>
+<span class="nc" id="L234">            movableAreasBridgesWithTerrainReduction.putIfAbsent(movementType, generateClusters(entity, true, true));</span>
+        }
+<span class="nc" id="L236">    }</span>
+
+    /**
+     * Returns accessible clusters for the given entity.
+     */
+    public Map&lt;Coords, BoardCluster&gt; generateClusters(Entity entity, boolean destructionAware, boolean useBridgeTop) { 
+<span class="nc" id="L242">        Map&lt;Coords, BoardCluster&gt; clusters = new HashMap&lt;&gt;();</span>
+        
+        // start with (0, 0)
+        // for each hex:
+        // if hex is not accessible to this entity, move on
+        // if hex is accessible, check if its neighbors are in a cluster
+        // for each neighbor in a cluster, check if we can move from this hex to the neighbor and back 
+        //      if yes, flag for joining neighbor's cluster
+        //      note that if any other neighbor is in a different cluster, and we can move back and forth, we merge the two clusters
+        // if no neighbors or cannot move back and forth between hex and neighbors, start new cluster
+        
+<span class="nc bnc" id="L253" title="All 4 branches missed.">        if (entity == null || entity.getGame() == null) {</span>
+<span class="nc" id="L254">            return clusters;</span>
+        }
+        
+<span class="nc" id="L257">        IBoard board = entity.getGame().getBoard();</span>
+<span class="nc" id="L258">        int clusterID = 0;</span>
+        
+<span class="nc" id="L260">        MovementType movementType = MovementType.getMovementType(entity);</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        boolean isHovercraft = movementType == MovementType.Hover;</span>
+<span class="nc bnc" id="L262" title="All 4 branches missed.">        boolean isAmphibious = movementType == MovementType.WheeledAmphi ||</span>
+                                movementType == MovementType.TrackedAmphi;
+        
+<span class="nc" id="L265">        boolean canUseBridge = MovementType.canUseBridge(movementType);</span>
+        
+<span class="nc bnc" id="L267" title="All 2 branches missed.">        for(int x = 0; x &lt; board.getWidth(); x++) {</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">            for(int y = 0; y &lt; board.getHeight(); y++) {</span>
+<span class="nc" id="L269">                Coords c = new Coords(x, y);</span>
+                
+                // hex is either inaccessible
+                // or it is inaccessible AND we can't level it, then we move on
+<span class="nc bnc" id="L273" title="All 8 branches missed.">                if ((entity.isLocationProhibited(c) || buildingPlowThroughRequired(entity, movementType, c)) &amp;&amp;</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">                        (!destructionAware || (destructionAware &amp;&amp; !canLevel(entity, c)))) {</span>
+<span class="nc" id="L275">                    continue;</span>
+                }
+                
+<span class="nc" id="L278">                int myElevation = 0; </span>
+                        
+<span class="nc bnc" id="L280" title="All 6 branches missed.">                if (useBridgeTop &amp;&amp; board.getHex(c).containsTerrain(Terrains.BRIDGE) &amp;&amp;</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">                        canUseBridge &amp;&amp; (entity.getWeight() &lt;= board.getBuildingAt(c).getCurrentCF(c))) {</span>
+<span class="nc" id="L282">                    myElevation = board.getHex(c).ceiling();</span>
+                } else {
+<span class="nc" id="L284">                    myElevation = BoardEdgePathFinder.calculateUnitElevationInHex(board.getHex(c), entity, isHovercraft, isAmphibious);</span>
+                }
+                
+<span class="nc" id="L287">                List&lt;Coords&gt; neighborsToJoin = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L288">                BoardCluster biggestNeighbor = null; </span>
+                
+                // hex is accessible one way or another
+<span class="nc bnc" id="L291" title="All 2 branches missed.">                for(int direction = 0; direction &lt; 6; direction++) {</span>
+<span class="nc" id="L292">                    Coords neighbor = c.translated(direction);</span>
+                    
+<span class="nc bnc" id="L294" title="All 2 branches missed.">                    if(clusters.containsKey(neighbor)) {</span>
+<span class="nc" id="L295">                        int neighborElevation = 0;</span>
+                        
+<span class="nc bnc" id="L297" title="All 6 branches missed.">                        if (useBridgeTop &amp;&amp; board.getHex(neighbor).containsTerrain(Terrains.BRIDGE) &amp;&amp;</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">                                canUseBridge &amp;&amp; (entity.getWeight() &lt;= board.getBuildingAt(neighbor).getCurrentCF(neighbor))) {</span>
+<span class="nc" id="L299">                            neighborElevation = board.getHex(neighbor).ceiling();</span>
+                        } else {
+<span class="nc" id="L301">                            neighborElevation = BoardEdgePathFinder.calculateUnitElevationInHex(board.getHex(neighbor), entity, isHovercraft, isAmphibious);</span>
+                        }
+                        
+                        // if we can't reach from here to the neighbor due to elevation differences, move on
+                        // buildings require special handling - while a tank technically CAN plow through a building
+                        // it is highly inadvisable and we will avoid it for now.
+<span class="nc" id="L307">                        int elevationDiff = Math.abs(neighborElevation - myElevation);</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">                        if ((elevationDiff &gt; entity.getMaxElevationChange())</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">                                || buildingPlowThroughRequired(entity, movementType, neighbor)) {</span>
+<span class="nc" id="L310">                            continue;</span>
+                        }
+                        
+                        // we can &quot;freely&quot; go back and forth between ourselves and the neighbor, so let's join that cluster 
+<span class="nc" id="L314">                        neighborsToJoin.add(neighbor);</span>
+                        
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                        if((biggestNeighbor == null) || </span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">                                (clusters.get(neighbor).contents.size() &gt; biggestNeighbor.contents.size())) {</span>
+<span class="nc" id="L318">                            biggestNeighbor = clusters.get(neighbor);</span>
+                        }
+                    }
+                }
+                
+                // start up a new cluster if we have no mutually accessible neighbors
+<span class="nc bnc" id="L324" title="All 4 branches missed.">                if(neighborsToJoin.isEmpty() || biggestNeighbor == null) {</span>
+<span class="nc" id="L325">                    BoardCluster newCluster = new BoardCluster(clusterID++);</span>
+<span class="nc" id="L326">                    newCluster.contents.put(c, myElevation);</span>
+<span class="nc" id="L327">                    clusters.put(c, newCluster);</span>
+                // otherwise, join an existing cluster, bringing any other mutually accessible neighbors and their clusters with me
+                // join the biggest neighbor to reduce shuffling.
+<span class="nc" id="L330">                } else {</span>
+<span class="nc" id="L331">                    biggestNeighbor.contents.put(c, myElevation);</span>
+<span class="nc" id="L332">                    clusters.put(c, biggestNeighbor);</span>
+                    
+                    // merge any other clusters belonging to joined neighbors to this cluster
+<span class="nc bnc" id="L335" title="All 2 branches missed.">                    for(int neighborIndex = 0; neighborIndex &lt; neighborsToJoin.size(); neighborIndex++) {</span>
+<span class="nc" id="L336">                        BoardCluster oldCluster = clusters.get(neighborsToJoin.get(neighborIndex));</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">                        if(oldCluster == biggestNeighbor) {</span>
+<span class="nc" id="L338">                            continue;</span>
+                        }
+                        
+<span class="nc bnc" id="L341" title="All 2 branches missed.">                        for(Coords member : oldCluster.contents.keySet()) {</span>
+<span class="nc" id="L342">                            biggestNeighbor.contents.put(member, oldCluster.contents.get(member));</span>
+<span class="nc" id="L343">                            clusters.put(member, biggestNeighbor);</span>
+<span class="nc" id="L344">                        }</span>
+                    }
+                    
+                }
+            }
+        }
+        
+<span class="nc" id="L351">        return clusters;</span>
+    }
+    
+    /**
+     * Whether or not we are required to plow through a building if we enter this hex.
+     */
+    private boolean buildingPlowThroughRequired(Entity entity, MovementType relevantMovementType, Coords coords) {
+        // basic premise:
+        // ground tanks cannot climb over buildings and must plow through
+        // mechs can climb over buildings that won't collapse under them
+        // the relative height comparison is handled elsewhere
+        
+<span class="nc" id="L363">        IBoard board = entity.getGame().getBoard();</span>
+<span class="nc" id="L364">        IHex hex = board.getHex(coords);</span>
+        
+<span class="nc bnc" id="L366" title="All 4 branches missed.">        if (!hex.containsTerrain(Terrains.BLDG_CF) &amp;&amp; !hex.containsExit(Terrains.FUEL_TANK_CF)) {</span>
+<span class="nc" id="L367">            return false;</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">        } else if (relevantMovementType == MovementType.Walker) {</span>
+<span class="nc" id="L369">            final Building building = board.getBuildingAt(coords);</span>
+            
+<span class="nc bnc" id="L371" title="All 2 branches missed.">            if (building == null) {</span>
+<span class="nc" id="L372">                return false;</span>
+            }
+            
+<span class="nc" id="L375">            int buildingCF = building.getCurrentCF(coords);</span>
+            
+<span class="nc bnc" id="L377" title="All 2 branches missed.">            return entity.getWeight() &gt; buildingCF;            </span>
+<span class="nc bnc" id="L378" title="All 8 branches missed.">        } else if ((relevantMovementType != MovementType.Flyer) &amp;&amp;</span>
+                (relevantMovementType != MovementType.Jump) &amp;&amp;
+                (relevantMovementType != MovementType.None) &amp;&amp;
+                (relevantMovementType != MovementType.Water)) {
+<span class="nc" id="L382">            return true;</span>
+        } else {
+<span class="nc" id="L384">            return false;</span>
+        }
+    }
+    
+    /**
+     * Indicates whether an entity would be able to pass through a given set of coordinates
+     * if it were to degrade the terrain there sufficiently.
+     */
+    private boolean canLevel(Entity entity, Coords c) {
+<span class="nc bnc" id="L393" title="All 2 branches missed.">        return BulldozerMovePath.calculateLevelingCost(c, entity) &gt; BulldozerMovePath.CANNOT_LEVEL;</span>
+    }
+    
+    /**
+     * A data structure representing a set of coordinates to which an entity can move.
+     */
+    public static class BoardCluster {
+<span class="nc" id="L400">        public Map&lt;Coords, Integer&gt; contents = new HashMap&lt;&gt;();</span>
+        public int id;
+        
+<span class="nc" id="L403">        public BoardCluster(int id) {</span>
+<span class="nc" id="L404">            this.id = id;</span>
+<span class="nc" id="L405">        }</span>
+        
+        /**
+         * Returns a set of coords in the current cluster that intersect the given board edge.
+         */
+        public Set&lt;Coords&gt; getIntersectingHexes(CardinalEdge edge, IBoard board) {
+            int xStart, xEnd, yStart, yEnd;
+<span class="nc bnc" id="L412" title="All 5 branches missed.">            switch(edge) {</span>
+            case NORTH:
+<span class="nc" id="L414">                xStart = 0;</span>
+<span class="nc" id="L415">                xEnd = board.getWidth();</span>
+<span class="nc" id="L416">                yStart = 0;</span>
+<span class="nc" id="L417">                yEnd = 1;</span>
+<span class="nc" id="L418">                break;</span>
+            case SOUTH:
+<span class="nc" id="L420">                xStart = 0;</span>
+<span class="nc" id="L421">                xEnd = board.getWidth();</span>
+<span class="nc" id="L422">                yStart = board.getHeight() - 1;</span>
+<span class="nc" id="L423">                yEnd = board.getHeight();</span>
+<span class="nc" id="L424">                break;</span>
+            case EAST:
+<span class="nc" id="L426">                xStart = board.getWidth() - 1;</span>
+<span class="nc" id="L427">                xEnd = board.getWidth();</span>
+<span class="nc" id="L428">                yStart = 0;</span>
+<span class="nc" id="L429">                yEnd = board.getHeight();</span>
+<span class="nc" id="L430">                break;</span>
+            case WEST:
+<span class="nc" id="L432">                xStart = 0;</span>
+<span class="nc" id="L433">                xEnd = 1;</span>
+<span class="nc" id="L434">                yStart = 0;</span>
+<span class="nc" id="L435">                yEnd = board.getHeight();</span>
+<span class="nc" id="L436">                break;</span>
+            default:
+<span class="nc" id="L438">                return null;</span>
+            }
+            
+<span class="nc" id="L441">            return getIntersectingHexes(xStart, xEnd, yStart, yEnd);</span>
+        }
+        
+        /**
+         * Returns a set of coordinates in the current cluster that intersect
+         * an arbitrary rectangle.
+         */
+        public Set&lt;Coords&gt; getIntersectingHexes(int xStart, int xEnd, int yStart, int yEnd) {
+<span class="nc" id="L449">            Set&lt;Coords&gt; retVal = new HashSet&lt;&gt;();</span>
+            
+<span class="nc bnc" id="L451" title="All 2 branches missed.">            for(int x = xStart; x &lt; xEnd; x++) {</span>
+<span class="nc bnc" id="L452" title="All 2 branches missed.">                for(int y = yStart; y &lt; yEnd; y++) {</span>
+<span class="nc" id="L453">                    Coords coords = new Coords(x, y);</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">                    if (contents.containsKey(coords)) {</span>
+<span class="nc" id="L455">                        retVal.add(coords);</span>
+                    }
+                }
+            }
+            
+<span class="nc" id="L460">            return retVal;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

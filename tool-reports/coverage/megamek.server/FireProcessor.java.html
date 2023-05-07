@@ -1,0 +1,596 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FireProcessor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.server</a> &gt; <span class="el_source">FireProcessor.java</span></div><h1>FireProcessor.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.server;
+
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.Vector;
+
+import megamek.common.Building;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.PlanetaryConditions;
+import megamek.common.Report;
+import megamek.common.TargetRoll;
+import megamek.common.Terrains;
+import megamek.common.options.OptionsConstants;
+
+public class FireProcessor extends DynamicTerrainProcessor {
+
+    private IGame game;
+    Vector&lt;Report&gt; vPhaseReport;
+
+    public FireProcessor(Server server) {
+<span class="nc" id="L44">        super(server);</span>
+<span class="nc" id="L45">    }</span>
+
+    @Override
+    void doEndPhaseChanges(Vector&lt;Report&gt; vPhaseReport) {
+<span class="nc" id="L49">        game = server.getGame();</span>
+<span class="nc bnc" id="L50" title="All 2 branches missed.">        if (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_START_FIRE)) {</span>
+<span class="nc" id="L51">            this.vPhaseReport = vPhaseReport;</span>
+<span class="nc" id="L52">            resolveFire();</span>
+<span class="nc" id="L53">            this.vPhaseReport = null;</span>
+        }
+<span class="nc" id="L55">    }</span>
+
+    /**
+     * This debug/profiling function will print the current time (in
+     * milliseconds) to the log. If the boolean is true, the garbage collector
+     * will be called in an attempt to minimize timing errors. You should try
+     * and minimize applications being run in the background when using this
+     * function. Note that MS Windows only has 10 milisecond resolution. The
+     * function should be optimized completely out of the code when the first
+     * if-statement below reads &quot;if (false)...&quot;, so performance shouldn't be
+     * impacted if you leave calls to this function in the code (I think).
+     */
+    @SuppressWarnings(&quot;unused&quot;)
+    private void debugTime(String s, boolean collectGarbage) {
+        // Change the &quot;false&quot; below to &quot;true&quot; to enable this function
+        if (false) {
+            if (collectGarbage) {
+                System.gc();
+            }
+            System.out.println(s + &quot;: &quot; + System.currentTimeMillis());
+        }
+<span class="nc" id="L76">    }</span>
+
+    /**
+     * Make fires spread, smoke spread, and make sure that all fires started
+     * this turn are marked as &quot;burning&quot; for next turn. What turn the fire startd on is no
+     * longer determined by level but is rather a characteristic of the hex.
+     * Level now denotes standard and inferno fires.
+     */
+    private void resolveFire() {
+<span class="nc" id="L85">        IBoard board = game.getBoard();</span>
+<span class="nc" id="L86">        int width = board.getWidth();</span>
+<span class="nc" id="L87">        int height = board.getHeight();</span>
+<span class="nc" id="L88">        int windDirection = game.getPlanetaryConditions().getWindDirection();</span>
+<span class="nc" id="L89">        int windStrength = game.getPlanetaryConditions().getWindStrength();</span>
+        Report r;
+
+        // Get the position map of all entities in the game.
+<span class="nc" id="L93">        Hashtable&lt;Coords, Vector&lt;Entity&gt;&gt; positionMap = game.getPositionMap();</span>
+
+        // process smoke FIRST, before any fires spread or
+        // smoke is produced.
+<span class="nc" id="L97">        resolveSmoke();</span>
+
+        // Cycle through all buildings, checking for fire.
+        // ASSUMPTION: buildings don't lose 2 CF on the turn a fire starts.
+        // ASSUMPTION: multi-hex buildings lose 2 CF in each burning hex
+<span class="nc" id="L102">        Enumeration&lt;Building&gt; buildings = game.getBoard().getBuildings();</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        while (buildings.hasMoreElements()) {</span>
+<span class="nc" id="L104">            Building bldg = buildings.nextElement();</span>
+<span class="nc" id="L105">            Enumeration&lt;Coords&gt; bldgCoords = bldg.getCoords();</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">            while (bldgCoords.hasMoreElements()) {</span>
+<span class="nc" id="L107">                Coords coords = bldgCoords.nextElement();</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">                if (bldg.isBurning(coords)) {</span>
+<span class="nc" id="L109">                    int cf = Math.max(bldg.getCurrentCF(coords) - 2, 0);</span>
+<span class="nc" id="L110">                    bldg.setCurrentCF(cf, coords);</span>
+
+                    // Does the building burn down?
+<span class="nc bnc" id="L113" title="All 2 branches missed.">                    if (cf == 0) {</span>
+<span class="nc" id="L114">                        r = new Report(5120, Report.PUBLIC);</span>
+<span class="nc" id="L115">                        r.add(bldg.getName());</span>
+<span class="nc" id="L116">                        vPhaseReport.addElement(r);</span>
+                    }
+
+                    // If it doesn't collapse under its load, mark it for update.
+<span class="nc bnc" id="L120" title="All 2 branches missed.">                    else if (!server.checkForCollapse(bldg, positionMap, coords, false, vPhaseReport)) {</span>
+<span class="nc" id="L121">                        bldg.setPhaseCF(cf, coords);</span>
+                    }
+                }
+
+<span class="nc" id="L125">            }</span>
+<span class="nc" id="L126">         }</span>
+
+<span class="nc" id="L128">        debugTime(&quot;resolve fire 1&quot;, true);</span>
+
+        // Cycle through all hexes, checking for fire and the spread of fire
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        for (int currentXCoord = 0; currentXCoord &lt; width; currentXCoord++) {</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">            for (int currentYCoord = 0; currentYCoord &lt; height; currentYCoord++) {</span>
+<span class="nc" id="L133">                Coords currentCoords = new Coords(currentXCoord, currentYCoord);</span>
+<span class="nc" id="L134">                IHex currentHex = board.getHex(currentXCoord, currentYCoord);</span>
+
+<span class="nc bnc" id="L136" title="All 2 branches missed.">                if(currentHex.containsTerrain(Terrains.FIRE)) {</span>
+                    //If the woods has been cleared, or the building
+                    // has collapsed put non-inferno fires out.
+<span class="nc bnc" id="L139" title="All 2 branches missed.">                    if ((currentHex.terrainLevel(Terrains.FIRE)</span>
+                            == Terrains.FIRE_LVL_NORMAL)
+<span class="nc bnc" id="L141" title="All 2 branches missed.">                            &amp;&amp; !currentHex.isIgnitable()) {</span>
+<span class="nc" id="L142">                        server.removeFire(currentCoords, &quot;lack of fuel&quot;);</span>
+<span class="nc" id="L143">                        continue;</span>
+                    }
+
+                    //only check spread for fires that didn't start this turn
+<span class="nc bnc" id="L147" title="All 2 branches missed.">                    if(currentHex.getFireTurn() &gt; 0) {</span>
+                        //optional rule, woods burn down
+<span class="nc" id="L149">                        Vector&lt;Report&gt; burnReports = null;</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">                        if ((currentHex.containsTerrain(Terrains.WOODS) || currentHex</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">                                .containsTerrain(Terrains.JUNGLE))</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">                                &amp;&amp; game.getOptions().booleanOption(</span>
+                                        OptionsConstants.ADVANCED_WOODS_BURN_DOWN)) {
+<span class="nc" id="L154">                            burnReports = burnDownWoods(currentCoords);</span>
+                        }
+                        //report and check for fire spread
+<span class="nc" id="L157">                        r = new Report(5125, Report.PUBLIC);</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">                        if ((currentHex.terrainLevel(Terrains.FIRE)</span>
+                                == Terrains.FIRE_LVL_INFERNO)
+<span class="nc bnc" id="L160" title="All 2 branches missed.">                                || (currentHex.terrainLevel(Terrains.FIRE)</span>
+                                        == Terrains.FIRE_LVL_INFERNO_BOMB)
+<span class="nc bnc" id="L162" title="All 2 branches missed.">                                || (currentHex.terrainLevel(Terrains.FIRE)</span>
+                                        == Terrains.FIRE_LVL_INFERNO_IV)) {
+<span class="nc" id="L164">                            r.messageId = 5130;</span>
+                        }
+<span class="nc" id="L166">                        r.add(currentCoords.getBoardNum());</span>
+<span class="nc" id="L167">                        vPhaseReport.addElement(r);</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">                        if (burnReports != null) {</span>
+<span class="nc" id="L169">                            vPhaseReport.addAll(burnReports);</span>
+                        }
+<span class="nc" id="L171">                        spreadFire(currentXCoord, currentYCoord, windDirection,</span>
+                                windStrength);
+                    }
+                }
+            }
+        }
+
+        //Cycle through all hexes again, reporting new fires, spreading smoke, and incrementing the fire turn.
+        //Can't do this in first loop because new fires may be spread
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        for (int currentXCoord = 0; currentXCoord &lt; width; currentXCoord++) {</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">            for (int currentYCoord = 0; currentYCoord &lt; height; currentYCoord++) {</span>
+<span class="nc" id="L182">                Coords currentCoords = new Coords(currentXCoord, currentYCoord);</span>
+<span class="nc" id="L183">                IHex currentHex = board.getHex(currentXCoord, currentYCoord);</span>
+
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                if(currentHex.containsTerrain(Terrains.FIRE)) {</span>
+<span class="nc" id="L186">                    Building bldg = game.getBoard().getBuildingAt(</span>
+                            currentCoords);
+                    //was the fire started this turn?
+<span class="nc bnc" id="L189" title="All 2 branches missed.">                    if(currentHex.getFireTurn() == 0) {</span>
+                        //report fire started this round
+<span class="nc" id="L191">                        r = new Report(5135, Report.PUBLIC);</span>
+<span class="nc" id="L192">                        r.add(currentCoords.getBoardNum());</span>
+<span class="nc" id="L193">                        vPhaseReport.addElement(r);</span>
+
+                        // If the hex contains a building, set it on fire.
+<span class="nc bnc" id="L196" title="All 2 branches missed.">                        if (bldg != null) {</span>
+<span class="nc" id="L197">                            bldg.setBurning(true, currentCoords);</span>
+                        }
+                    }
+
+                    //check for any explosions
+<span class="nc" id="L202">                    server.checkExplodeIndustrialZone(currentCoords, vPhaseReport);</span>
+
+                    // Add smoke, unless tornado or optional rules
+<span class="nc bnc" id="L205" title="All 2 branches missed.">                    boolean containsForest = (currentHex.containsTerrain(Terrains.WOODS)</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">                            || currentHex.containsTerrain(Terrains.JUNGLE));</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                    boolean bInferno = currentHex.terrainLevel(Terrains.FIRE) == 2;</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">                    if ((game.getPlanetaryConditions().getWindStrength() &lt; PlanetaryConditions.WI_TORNADO_F13)</span>
+<span class="nc bnc" id="L209" title="All 6 branches missed.">                            &amp;&amp; !(game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_FOREST_FIRES_NO_SMOKE)</span>
+                                    &amp;&amp; containsForest &amp;&amp; (bldg == null))) {
+<span class="nc" id="L211">                        ArrayList&lt;Coords&gt; smokeList = new ArrayList&lt;Coords&gt;();</span>
+
+<span class="nc" id="L213">                        smokeList.add(currentCoords.translated(windDirection));</span>
+<span class="nc" id="L214">                        smokeList.add(currentCoords.translated((windDirection + 1) % 6));</span>
+<span class="nc" id="L215">                        smokeList.add(currentCoords.translated((windDirection + 5) % 6));</span>
+
+<span class="nc" id="L217">                        server.addSmoke(smokeList, windDirection, bInferno);</span>
+<span class="nc" id="L218">                        board.initializeAround(currentXCoord, currentYCoord);</span>
+                    }
+                    //increment the fire turn counter
+<span class="nc" id="L221">                    currentHex.incrementFireTurn();</span>
+<span class="nc" id="L222">                    server.getHexUpdateSet().add(currentCoords);</span>
+                }
+            }
+        }
+
+<span class="nc" id="L227">    } // End the ResolveFire() method</span>
+
+    public Vector&lt;Report&gt; burnDownWoods(Coords coords) {
+<span class="nc" id="L230">        Vector&lt;Report&gt; burnReports = new Vector&lt;&gt;();</span>
+<span class="nc" id="L231">        int burnDamage = 5;</span>
+        try {
+<span class="nc" id="L233">            burnDamage = game.getOptions().intOption(OptionsConstants.ADVANCED_WOODS_BURN_DOWN_AMOUNT);</span>
+<span class="nc" id="L234">        } catch (Exception ex) {</span>
+<span class="nc" id="L235">            ex.printStackTrace();</span>
+<span class="nc" id="L236">        }</span>
+        // Report that damage applied to terrain
+<span class="nc" id="L238">        Report r = new Report(3383, Report.PUBLIC);</span>
+<span class="nc" id="L239">        r.indent(1);</span>
+<span class="nc" id="L240">        r.add(burnDamage);</span>
+<span class="nc" id="L241">        burnReports.addElement(r);</span>
+
+<span class="nc" id="L243">        Vector&lt;Report&gt; newReports =</span>
+<span class="nc" id="L244">                server.tryClearHex(coords, burnDamage, Entity.NONE);</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">        for (Report nr : newReports) {</span>
+<span class="nc" id="L246">            nr.indent(2);</span>
+<span class="nc" id="L247">        }</span>
+<span class="nc" id="L248">        burnReports.addAll(newReports);</span>
+<span class="nc" id="L249">        return burnReports;</span>
+    }
+
+    /**
+     * Spreads the fire around the specified coordinates.
+     */
+    public void spreadFire(int x, int y, int windDir, int windStr) {
+<span class="nc" id="L256">        Coords src = new Coords(x, y);</span>
+<span class="nc" id="L257">        Coords nextCoords = src.translated(windDir);</span>
+
+        //check for height differences between hexes
+        //TODO: until further clarification only the heights matter (not the base elevation)
+        //This means that a fire cannot spread from a level 6 building at base level 0 to
+        //a level 1 building at base level 0, for example.
+
+<span class="nc" id="L264">        int curHeight = game.getBoard().getHex(src).ceiling();</span>
+
+<span class="nc" id="L266">        TargetRoll directroll = new TargetRoll(9, &quot;spread downwind&quot;);</span>
+<span class="nc" id="L267">        TargetRoll obliqueroll = new TargetRoll(11, &quot;spread 60 degrees to downwind&quot;);</span>
+
+<span class="nc bnc" id="L269" title="All 4 branches missed.">        if((windStr &gt; PlanetaryConditions.WI_NONE) &amp;&amp; (windStr &lt; PlanetaryConditions.WI_STRONG_GALE)) {</span>
+<span class="nc" id="L270">            directroll.addModifier(-2, &quot;light/moderate gale&quot;);</span>
+<span class="nc" id="L271">            obliqueroll.addModifier(-1, &quot;light/moderate gale&quot;);</span>
+        }
+<span class="nc bnc" id="L273" title="All 2 branches missed.">        else if(windStr &gt; PlanetaryConditions.WI_MOD_GALE) {</span>
+<span class="nc" id="L274">            directroll.addModifier(-3, &quot;strong gale+&quot;);</span>
+<span class="nc" id="L275">            directroll.addModifier(-2, &quot;strong gale+&quot;);</span>
+        }
+
+<span class="nc" id="L278">        spreadFire(nextCoords, directroll, curHeight);</span>
+
+        // Spread to the next hex downwind on a 12 if the first hex wasn't
+        // burning...
+        // unless a higher hex intervenes
+<span class="nc" id="L283">        IHex nextHex = game.getBoard().getHex(nextCoords);</span>
+<span class="nc" id="L284">        IHex jumpHex = game.getBoard().getHex(nextCoords.translated(windDir));</span>
+<span class="nc bnc" id="L285" title="All 6 branches missed.">        if ((nextHex != null) &amp;&amp; (jumpHex != null) &amp;&amp; !(nextHex.containsTerrain(Terrains.FIRE))</span>
+<span class="nc bnc" id="L286" title="All 4 branches missed.">                &amp;&amp; ((curHeight &gt;= nextHex.ceiling()) || (jumpHex.ceiling() &gt;= nextHex.ceiling()))) {</span>
+            // we've already gone one step in the wind direction, now go another
+<span class="nc" id="L288">            directroll.addModifier(3, &quot;crossing non-burning hex&quot;);</span>
+<span class="nc" id="L289">            spreadFire(nextCoords.translated(windDir), directroll, curHeight);</span>
+        }
+
+        // spread fire 60 degrees clockwise....
+<span class="nc" id="L293">        spreadFire(src.translated((windDir + 1) % 6), obliqueroll, curHeight);</span>
+
+        // spread fire 60 degrees counterclockwise
+<span class="nc" id="L296">        spreadFire(src.translated((windDir + 5) % 6), obliqueroll, curHeight);</span>
+<span class="nc" id="L297">    }</span>
+
+    /**
+     * Spreads the fire, and reports the spread, to the specified hex, if
+     * possible, if the hex isn't already on fire, and the fire roll is made.
+     */
+    public void spreadFire(Coords coords, TargetRoll roll, int height) {
+<span class="nc" id="L304">        IHex hex = game.getBoard().getHex(coords);</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">        if (hex == null) {</span>
+            // Don't attempt to spread fire off the board.
+<span class="nc" id="L307">            return;</span>
+        }
+
+<span class="nc bnc" id="L310" title="All 2 branches missed.">        if(Math.abs(hex.ceiling() - height) &gt; 4) {</span>
+<span class="nc" id="L311">            return;</span>
+        }
+
+<span class="nc bnc" id="L314" title="All 4 branches missed.">        if (!(hex.containsTerrain(Terrains.FIRE)) &amp;&amp; server.checkIgnition(coords, roll)) {</span>
+<span class="nc" id="L315">            Report r = new Report(5150, Report.PUBLIC);</span>
+<span class="nc" id="L316">            r.add(coords.getBoardNum());</span>
+<span class="nc" id="L317">            vPhaseReport.addElement(r);</span>
+        }
+<span class="nc" id="L319">    }</span>
+
+    /**
+     * Under L3 rules, smoke drifts in the direction of the wind and has a
+     * chance to dissipate. This function will keep track of hexes to have smoke
+     * removed and added, since there's no other way to tell if a certain smoke
+     * cloud has drifted that turn. This method creates the class SmokeDrift to
+     * store hex and size data for the smoke clouds. This method calls functions
+     * driftAddSmoke, driftSmokeDissipate, driftSmokeReport
+     */
+    private void resolveSmoke() {
+<span class="nc" id="L330">        IBoard board = game.getBoard();</span>
+<span class="nc" id="L331">        int windDir = game.getPlanetaryConditions().getWindDirection();</span>
+<span class="nc" id="L332">        int windStr = game.getPlanetaryConditions().getWindStrength();</span>
+        //if the breeze option is turned on, then treat wind strength like light gale if none
+<span class="nc bnc" id="L334" title="All 4 branches missed.">        if(game.getOptions().booleanOption(OptionsConstants.BASE_BREEZE) &amp;&amp; (windStr == PlanetaryConditions.WI_NONE)) {</span>
+<span class="nc" id="L335">            windStr = PlanetaryConditions.WI_LIGHT_GALE;</span>
+        }
+
+        ArrayList&lt;Coords&gt; smokeToAdd;
+<span class="nc" id="L339">        HashMap&lt;SmokeCloud, ArrayList&lt;Coords&gt;&gt; smokeCloudData = new HashMap&lt;SmokeCloud, ArrayList&lt;Coords&gt;&gt;();</span>
+
+        // Cycle through all smokeclouds
+
+<span class="nc bnc" id="L343" title="All 2 branches missed.">        for ( SmokeCloud cloud : server.getSmokeCloudList() ){</span>
+<span class="nc" id="L344">            smokeToAdd = new ArrayList&lt;Coords&gt;();</span>
+<span class="nc bnc" id="L345" title="All 2 branches missed.">            for ( Coords currentCoords : cloud.getCoordsList() ){</span>
+
+<span class="nc" id="L347">                Coords smokeCoords = driftAddSmoke(currentCoords, windDir, windStr);</span>
+                //Smoke has Dissipated by moving into a hex with a greater then 4 elevation drop.
+<span class="nc bnc" id="L349" title="All 2 branches missed.">                if ( smokeCoords == null ){</span>
+<span class="nc" id="L350">                    Report r = new Report(5220, Report.PUBLIC);</span>
+<span class="nc" id="L351">                    r.add(currentCoords.getBoardNum());</span>
+<span class="nc" id="L352">                    vPhaseReport.addElement(r);</span>
+<span class="nc" id="L353">                    r = new Report(5222,Report.PUBLIC);</span>
+<span class="nc" id="L354">                    vPhaseReport.addElement(r);</span>
+<span class="nc" id="L355">                }</span>
+<span class="nc bnc" id="L356" title="All 4 branches missed.">                else if (board.contains(smokeCoords) &amp;&amp; !currentCoords.equals(smokeCoords) ) {</span>
+                    // don't add it to the vector if it's not on board!
+<span class="nc" id="L358">                    smokeToAdd.add(smokeCoords);</span>
+<span class="nc" id="L359">                    cloud.setDrift(true);</span>
+<span class="nc bnc" id="L360" title="All 2 branches missed.">                } else if ( !board.contains(smokeCoords) ) {</span>
+                    // report that the smoke has blown off the map
+<span class="nc" id="L362">                    Report r = new Report(5230, Report.PUBLIC);</span>
+<span class="nc" id="L363">                    r.add(currentCoords.getBoardNum());</span>
+<span class="nc" id="L364">                    vPhaseReport.addElement(r);</span>
+                }
+
+<span class="nc" id="L367">            } // end the loop through Cloud coordinates</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">            if ( smokeToAdd.size() &gt; 0 ) {</span>
+<span class="nc" id="L369">                smokeCloudData.put(cloud,smokeToAdd);</span>
+            }
+<span class="nc" id="L371">        } // end the loop through clouds</span>
+
+        //update all the new coords for the smoke cloud.
+<span class="nc bnc" id="L374" title="All 2 branches missed.">        for ( SmokeCloud cloud : smokeCloudData.keySet() ){</span>
+<span class="nc" id="L375">            smokeToAdd = smokeCloudData.get(cloud);</span>
+<span class="nc" id="L376">            server.updateSmoke(cloud, smokeToAdd);</span>
+<span class="nc" id="L377">        }</span>
+
+        // Cycle through the vector again and dissipate the smoke, then
+        // reporting it
+<span class="nc bnc" id="L381" title="All 2 branches missed.">        for ( SmokeCloud cloud : server.getSmokeCloudList() ){</span>
+
+<span class="nc" id="L383">                int roll = Compute.d6(2);</span>
+
+<span class="nc" id="L385">                boolean dissipated = driftSmokeDissipate(cloud, roll, windStr);</span>
+
+<span class="nc bnc" id="L387" title="All 4 branches missed.">                if ( dissipated || cloud.didDrift() ){</span>
+<span class="nc" id="L388">                    driftSmokeReport(cloud,dissipated);</span>
+<span class="nc bnc" id="L389" title="All 2 branches missed.">                    if (dissipated) {</span>
+<span class="nc" id="L390">                        cloud.reduceSmokeLevel();</span>
+                    }
+                }
+<span class="nc" id="L393">                cloud.setDrift(false);</span>
+<span class="nc" id="L394">        }</span>
+
+<span class="nc" id="L396">    } // end smoke resolution</span>
+
+    /**
+     * Override for the main driftAddSmoke to allow for 0 direction changes
+     * @param coords
+     * @param windDir
+     * @param windStr
+     * @return
+     */
+    public Coords driftAddSmoke(Coords coords, int windDir, int windStr) {
+<span class="nc" id="L406">        return driftAddSmoke(coords, windDir, windStr, 0);</span>
+    }
+
+    /**
+     * Smoke cannot climb more then 4 hexes if the next hex is more then 4 in elevation then
+     * The smoke will try to go right. If it cannot go right it'll try to go left
+     * if it cannot go left it'll stay put.
+     *
+     * @param src
+     * @param windDir
+     * @param windStr
+     * @param directionChanges How many times the smoke has tried to change directions to get around an obsticle.
+     * @return
+     */
+    public Coords driftAddSmoke(Coords src, int windDir, int windStr, int directionChanges) {
+        //Coords src = new Coords(x, y);
+<span class="nc" id="L422">        Coords nextCoords = src.translated(windDir);</span>
+<span class="nc" id="L423">        IBoard board = game.getBoard();</span>
+
+        //if the wind conditions are calm, then don't drift it
+<span class="nc bnc" id="L426" title="All 2 branches missed.">        if(windStr == PlanetaryConditions.WI_NONE) {</span>
+<span class="nc" id="L427">            return src;</span>
+        }
+
+        //if it is no longer on the board then return it now to avoid getting null arguments later
+<span class="nc bnc" id="L431" title="All 2 branches missed.">        if(!board.contains(nextCoords)) {</span>
+<span class="nc" id="L432">            return nextCoords;</span>
+        }
+        //if the smoke didn't start on the board because of shifting wind then return it
+<span class="nc bnc" id="L435" title="All 2 branches missed.">        if(!board.contains(src)) {</span>
+<span class="nc" id="L436">            return src;</span>
+        }
+
+<span class="nc" id="L439">        int hexElevation = board.getHex(src).getLevel();</span>
+<span class="nc" id="L440">        int nextElevation = board.getHex(nextCoords).getLevel();</span>
+
+<span class="nc bnc" id="L442" title="All 2 branches missed.">        if ( board.getHex(nextCoords).containsTerrain(Terrains.BUILDING) ) {</span>
+<span class="nc" id="L443">            nextElevation += board.getHex(nextCoords).terrainLevel(Terrains.BLDG_ELEV);</span>
+        }
+
+<span class="nc bnc" id="L446" title="All 2 branches missed.">        if ( board.getHex(src).containsTerrain(Terrains.BUILDING) ) {</span>
+<span class="nc" id="L447">            hexElevation += board.getHex(src).terrainLevel(Terrains.BLDG_ELEV);</span>
+        }
+        //If the smoke moves into a hex that has a greater then 4 elevation drop it dissipates.
+<span class="nc bnc" id="L450" title="All 2 branches missed.">        if ( (hexElevation - nextElevation) &gt; 4 ) {</span>
+<span class="nc" id="L451">            return null;</span>
+        }
+
+<span class="nc bnc" id="L454" title="All 2 branches missed.">        if ( (hexElevation - nextElevation) &lt; -4 ){</span>
+            //Try Right
+<span class="nc bnc" id="L456" title="All 2 branches missed.">            if ( directionChanges == 0 ){</span>
+<span class="nc" id="L457">                return driftAddSmoke(src, (windDir + 1) % 6, windStr, ++directionChanges);</span>
+            }
+            //Try Left
+<span class="nc bnc" id="L460" title="All 2 branches missed.">            else if ( directionChanges == 1) {</span>
+<span class="nc" id="L461">                return driftAddSmoke(src, (windDir - 2 ) % 6, windStr, ++directionChanges);</span>
+            //Stay put
+            } else {
+<span class="nc" id="L464">                return src;</span>
+            }
+        }
+
+        // stronger wind causes smoke to drift farther
+<span class="nc bnc" id="L469" title="All 2 branches missed.">        if (windStr &gt; PlanetaryConditions.WI_MOD_GALE) {</span>
+<span class="nc" id="L470">            return driftAddSmoke(nextCoords, windDir, --windStr);</span>
+        }
+
+<span class="nc" id="L473">        return nextCoords;</span>
+    }
+
+    /**
+     * Diisipates Smoke clouds instead of indivdiual smoke hexes
+     * @param cloud
+     * @param roll
+     * @param windStr
+     * @return
+     */
+    public boolean driftSmokeDissipate(SmokeCloud cloud, int roll, int windStr) {
+
+        //HVAC Heavy smoke dissipation
+<span class="nc bnc" id="L486" title="All 4 branches missed.">        if ( (cloud.getDuration() &gt; 0) &amp;&amp; ((cloud.getDuration()-1) == 0) ) {</span>
+<span class="nc" id="L487">            cloud.setDuration(0);</span>
+<span class="nc" id="L488">            cloud.setSmokeLevel(0);</span>
+<span class="nc" id="L489">            return true;</span>
+        }
+
+<span class="nc bnc" id="L492" title="All 4 branches missed.">        if ( (cloud.getDuration() &gt; 0) &amp;&amp; ((cloud.getDuration()-1) &gt; 0) ) {</span>
+<span class="nc" id="L493">            cloud.setDuration(cloud.getDuration()-1);</span>
+        }
+
+        // Dissipate in various winds
+<span class="nc bnc" id="L497" title="All 14 branches missed.">        if ((roll &gt; 10) || ((roll &gt; 9) &amp;&amp; (windStr == PlanetaryConditions.WI_MOD_GALE))</span>
+                || ((roll &gt; 7) &amp;&amp; (windStr == PlanetaryConditions.WI_STRONG_GALE))
+                || ((roll &gt; 5) &amp;&amp; (windStr == PlanetaryConditions.WI_STORM))) {
+<span class="nc" id="L500">            return true;</span>
+        }
+        //All smoke goes bye bye in Tornados
+<span class="nc bnc" id="L503" title="All 2 branches missed.">        if ( windStr &gt; PlanetaryConditions.WI_STORM ) {</span>
+<span class="nc" id="L504">            cloud.setSmokeLevel(0);</span>
+<span class="nc" id="L505">            return true;</span>
+        }
+<span class="nc" id="L507">        return false;</span>
+    }
+
+    public void driftSmokeReport(SmokeCloud cloud, boolean dis) {
+        Report r;
+<span class="nc" id="L512">        int size = cloud.getSmokeLevel();</span>
+<span class="nc bnc" id="L513" title="All 4 branches missed.">        if ((size % 2 == 0) &amp;&amp; (dis == true)) {</span>
+            // heavy smoke drifts and dissipates to light
+<span class="nc bnc" id="L515" title="All 2 branches missed.">            for ( int pos = 0; pos &lt; cloud.getCoordsList().size(); pos++ ) {</span>
+<span class="nc bnc" id="L516" title="All 2 branches missed.">                if ( pos == 0 ) {</span>
+<span class="nc" id="L517">                    r = new Report(5210, Report.PUBLIC);</span>
+                } else {
+<span class="nc" id="L519">                    r = new Report(5211, Report.PUBLIC);</span>
+                }
+<span class="nc" id="L521">                r.add(cloud.getCoordsList().get(pos).getBoardNum());</span>
+<span class="nc" id="L522">                r.newlines = 0;</span>
+<span class="nc" id="L523">                vPhaseReport.addElement(r);</span>
+            }
+
+<span class="nc" id="L526">            r = new Report(5212, Report.PUBLIC);</span>
+<span class="nc" id="L527">            vPhaseReport.addElement(r);</span>
+<span class="nc bnc" id="L528" title="All 4 branches missed.">        } else if ((size % 2 == 0) &amp;&amp; (dis == false)) {</span>
+            // heavy smoke drifts
+<span class="nc bnc" id="L530" title="All 2 branches missed.">            for ( int pos = 0; pos &lt; cloud.getCoordsList().size(); pos++ ) {</span>
+<span class="nc bnc" id="L531" title="All 2 branches missed.">                if ( pos == 0 ) {</span>
+<span class="nc" id="L532">                    r = new Report(5210, Report.PUBLIC);</span>
+                } else {
+<span class="nc" id="L534">                    r = new Report(5211, Report.PUBLIC);</span>
+                }
+<span class="nc" id="L536">                r.add(cloud.getCoordsList().get(pos).getBoardNum());</span>
+<span class="nc" id="L537">                r.newlines = 0;</span>
+<span class="nc" id="L538">                vPhaseReport.addElement(r);</span>
+            }
+
+<span class="nc" id="L541">            r = new Report(5213, Report.PUBLIC);</span>
+<span class="nc" id="L542">            vPhaseReport.addElement(r);</span>
+<span class="nc bnc" id="L543" title="All 4 branches missed.">        } else if ((size % 2 == 1) &amp;&amp; (dis == true)) {</span>
+            // light smoke drifts and dissipates
+<span class="nc bnc" id="L545" title="All 2 branches missed.">            for ( int pos = 0; pos &lt; cloud.getCoordsList().size(); pos++ ) {</span>
+<span class="nc bnc" id="L546" title="All 2 branches missed.">                if ( pos == 0 ) {</span>
+<span class="nc" id="L547">                    r = new Report(5220, Report.PUBLIC);</span>
+                } else {
+<span class="nc" id="L549">                    r = new Report(5211, Report.PUBLIC);</span>
+                }
+<span class="nc" id="L551">                r.add(cloud.getCoordsList().get(pos).getBoardNum());</span>
+<span class="nc" id="L552">                r.newlines = 0;</span>
+<span class="nc" id="L553">                vPhaseReport.addElement(r);</span>
+            }
+
+<span class="nc" id="L556">            r = new Report(5222, Report.PUBLIC);</span>
+<span class="nc" id="L557">            vPhaseReport.addElement(r);</span>
+
+<span class="nc bnc" id="L559" title="All 4 branches missed.">        } else if ((size % 2 == 1) &amp;&amp; (dis == false)) {</span>
+            // light smoke drifts
+
+<span class="nc bnc" id="L562" title="All 2 branches missed.">            for ( int pos = 0; pos &lt; cloud.getCoordsList().size(); pos++ ) {</span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                if ( pos == 0) {</span>
+<span class="nc" id="L564">                    r = new Report(5220, Report.PUBLIC);</span>
+                } else {
+<span class="nc" id="L566">                    r = new Report(5211, Report.PUBLIC);</span>
+                }
+
+<span class="nc" id="L569">                r.add(cloud.getCoordsList().get(pos).getBoardNum());</span>
+<span class="nc" id="L570">                r.newlines = 0;</span>
+<span class="nc" id="L571">                vPhaseReport.addElement(r);</span>
+            }
+
+<span class="nc" id="L574">            r = new Report(5213, Report.PUBLIC);</span>
+<span class="nc" id="L575">            vPhaseReport.addElement(r);</span>
+
+<span class="nc bnc" id="L577" title="All 2 branches missed.">        }else if (size &lt; 1 ) {</span>
+            // light smoke drifts and dissipates
+<span class="nc bnc" id="L579" title="All 2 branches missed.">            for ( int pos = 0; pos &lt; cloud.getCoordsList().size(); pos++ ) {</span>
+<span class="nc bnc" id="L580" title="All 2 branches missed.">                if ( pos == 0 ) {</span>
+<span class="nc" id="L581">                    r = new Report(5223, Report.PUBLIC);</span>
+                } else {
+<span class="nc" id="L583">                    r = new Report(5211, Report.PUBLIC);</span>
+                }
+<span class="nc" id="L585">                r.add(cloud.getCoordsList().get(pos).getBoardNum());</span>
+<span class="nc" id="L586">                r.newlines = 0;</span>
+<span class="nc" id="L587">                vPhaseReport.addElement(r);</span>
+            }
+
+<span class="nc" id="L590">            r = new Report(5224, Report.PUBLIC);</span>
+<span class="nc" id="L591">            vPhaseReport.addElement(r);</span>
+
+        }
+<span class="nc" id="L594">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

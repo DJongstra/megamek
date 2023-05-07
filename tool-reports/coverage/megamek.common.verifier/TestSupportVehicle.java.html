@@ -1,0 +1,1683 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TestSupportVehicle.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.verifier</a> &gt; <span class="el_source">TestSupportVehicle.java</span></div><h1>TestSupportVehicle.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek -
+ * Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.common.verifier;
+import megamek.MegaMek;
+import megamek.common.*;
+import megamek.common.annotations.Nullable;
+import megamek.common.util.StringUtil;
+import megamek.common.weapons.flamers.VehicleFlamerWeapon;
+import megamek.common.weapons.infantry.InfantryWeapon;
+import megamek.common.weapons.lasers.CLChemicalLaserWeapon;
+
+import java.math.BigInteger;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * Author: arlith
+ */
+public class TestSupportVehicle extends TestEntity {
+
+    /**
+     * Support vehicle categories for construction purposes. Most of these match with a particular movement
+     * mode, but the construction rules treat naval and rail units as single types.
+     */
+<span class="nc" id="L38">    public enum SVType implements ITechnologyDelegator {</span>
+<span class="nc" id="L39">        AIRSHIP (300, EntityMovementMode.AIRSHIP,</span>
+                new double[]{0.2, 0.25, 0.3}, new double[]{0.004, 0.008, 0.012}),
+<span class="nc" id="L41">        FIXED_WING (200, EntityMovementMode.AERODYNE,</span>
+                new double[]{0.08, 0.1, 0.15}, new double[]{0.005, 0.01, 0.015}),
+<span class="nc" id="L43">        HOVERCRAFT (100, EntityMovementMode.HOVER,</span>
+                new double[]{0.2, 0.25, 0.3}, new double[]{0.0025, 0.004, 0.007}),
+<span class="nc" id="L45">        NAVAL (300, EntityMovementMode.NAVAL,</span>
+                new double[]{0.12, 0.15, 0.17}, new double[]{0.004, 0.007, 0.009}),
+<span class="nc" id="L47">        TRACKED (200, EntityMovementMode.TRACKED,</span>
+                new double[]{0.13, 0.15, 0.25}, new double[]{0.006, 0.013, 0.025}),
+<span class="nc" id="L49">        VTOL (60, EntityMovementMode.VTOL,</span>
+                new double[]{0.2, 0.25, 0.3}, new double[]{0.002, 0.0025, 0.004}),
+<span class="nc" id="L51">        WHEELED (160, EntityMovementMode.WHEELED,</span>
+                new double[]{0.12, 0.15, 0.18}, new double[]{0.0025, 0.0075, 0.015}),
+<span class="nc" id="L53">        WIGE (240, EntityMovementMode.WIGE,</span>
+                new double[]{0.12, 0.15, 0.17}, new double[]{0.003, 0.005, 0.006}),
+<span class="nc" id="L55">        RAIL (600, EntityMovementMode.RAIL,</span>
+                new double[]{0.15, 0.2, 0.3}, new double[]{0.003, 0.004, 0.005}),
+<span class="nc" id="L57">        SATELLITE (300, EntityMovementMode.STATION_KEEPING,</span>
+                new double[]{0.08, 0.12, 0.16}, new double[]{0.1, 0.1, 0.1});
+
+        /** The maximum tonnage for a large support vehicle of this type; for airship this is the
+         *  maximum for a medium for now.
+         */
+        public final int maxTonnage;
+        public final EntityMovementMode defaultMovementMode;
+        /** Used to calculate chassis weight for small, medium, large weight classes */
+        private final double[] baseChassisValue;
+        /** Used to calculate engine weight for small, medium, large weight classes */
+        private final double[] baseEngineValue;
+
+        SVType(int maxTonnage, EntityMovementMode defaultMovementMode,
+<span class="nc" id="L71">               double[] baseChassisValue, double[] baseEngineValue) {</span>
+<span class="nc" id="L72">            this.maxTonnage = maxTonnage;</span>
+<span class="nc" id="L73">            this.defaultMovementMode = defaultMovementMode;</span>
+<span class="nc" id="L74">            this.baseChassisValue = baseChassisValue;</span>
+<span class="nc" id="L75">            this.baseEngineValue = baseEngineValue;</span>
+<span class="nc" id="L76">        }</span>
+
+        static Set&lt;SVType&gt; allBut(SVType type) {
+<span class="nc" id="L79">            return EnumSet.complementOf(EnumSet.of(type));</span>
+        }
+
+        static Set&lt;SVType&gt; allBut(SVType first, SVType... rest) {
+<span class="nc" id="L83">            return EnumSet.complementOf(EnumSet.of(first, rest));</span>
+        }
+
+        /**
+         * Finds the enum value corresponding to a support vehicle based on movement mode.
+         *
+         * @param entity The support vehicle
+         * @return       The support vehicle type, or {@code null} if the entity's movement type is not
+         *               a valid one for a support vehicle.
+         */
+        public static @Nullable
+        SVType getVehicleType(Entity entity) {
+<span class="nc bnc" id="L95" title="All 11 branches missed.">            switch (entity.getMovementMode()) {</span>
+                case AIRSHIP:
+<span class="nc" id="L97">                    return AIRSHIP;</span>
+                case AERODYNE:
+<span class="nc" id="L99">                    return FIXED_WING;</span>
+                case HOVER:
+<span class="nc" id="L101">                    return HOVERCRAFT;</span>
+                case TRACKED:
+<span class="nc" id="L103">                    return TRACKED;</span>
+                case WHEELED:
+<span class="nc" id="L105">                    return WHEELED;</span>
+                case NAVAL:
+                case HYDROFOIL:
+                case SUBMARINE:
+<span class="nc" id="L109">                    return NAVAL;</span>
+                case VTOL:
+<span class="nc" id="L111">                    return VTOL;</span>
+                case WIGE:
+<span class="nc" id="L113">                    return WIGE;</span>
+                case RAIL:
+                case MAGLEV:
+<span class="nc" id="L116">                    return RAIL;</span>
+                case STATION_KEEPING:
+<span class="nc" id="L118">                    return SATELLITE;</span>
+                default:
+<span class="nc" id="L120">                    return null;</span>
+            }
+        }
+
+        /**
+         * The base chassis value is used for calculating the chassis weight.
+         *
+         * @param sizeClass The {@link EntityWeightClass} of the support vehicle.
+         * @return          The base chassis value. Returns 0 if not a support vehicle weight class.
+         */
+        public double getBaseChassisValue(int sizeClass) {
+<span class="nc" id="L131">            int index = sizeClass - EntityWeightClass.WEIGHT_SMALL_SUPPORT;</span>
+<span class="nc bnc" id="L132" title="All 4 branches missed.">            if ((index &gt;= 0) &amp;&amp; (index &lt; baseChassisValue.length)) {</span>
+<span class="nc" id="L133">                return baseChassisValue[index];</span>
+            } else {
+<span class="nc" id="L135">                return 0.0;</span>
+            }
+        }
+
+        /**
+         * The base chassis value is used for calculating the chassis weight.
+         *
+         * @param sv A support vehicle
+         * @return   The base chassis value. Returns 0 if the entity is not a support vehicle.
+         */
+        public static double getBaseChassisValue(Entity sv) {
+<span class="nc" id="L146">            SVType type = getVehicleType(sv);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">            if (null != type) {</span>
+<span class="nc" id="L148">                return type.getBaseChassisValue(sv.getWeightClass());</span>
+            }
+<span class="nc" id="L150">            return 0.0;</span>
+        }
+
+        /**
+         * The base engine value is used for calculating the engine weight.
+         *
+         * @param sizeClass The {@link EntityWeightClass} of the support vehicle.
+         * @return          The base engine value. Returns 0 if not a support vehicle weight class.
+         */
+        public double getBaseEngineValue(int sizeClass) {
+<span class="nc" id="L160">            int index = sizeClass - EntityWeightClass.WEIGHT_SMALL_SUPPORT;</span>
+<span class="nc bnc" id="L161" title="All 4 branches missed.">            if ((index &gt;= 0) &amp;&amp; (index &lt; baseEngineValue.length)) {</span>
+<span class="nc" id="L162">                return baseEngineValue[index];</span>
+            } else {
+<span class="nc" id="L164">                return 0.0;</span>
+            }
+        }
+
+        /**
+         * The base engine value is used for calculating the engine weight.
+         *
+         * @param sv A support vehicle
+         * @return   The base engine value. Returns 0 if the entity is not a support vehicle.
+         */
+        public static double getBaseEngineValue(Entity sv) {
+<span class="nc" id="L175">            SVType type = getVehicleType(sv);</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">            if (null != type) {</span>
+<span class="nc" id="L177">                return type.getBaseEngineValue(sv.getWeightClass());</span>
+            }
+<span class="nc" id="L179">            return 0.0;</span>
+        }
+
+        @Override
+        public ITechnology getTechSource() {
+            /* Support vehicle availability advancement can vary with the size class.
+               The small is the least restrictive, so it serves as the base line for each
+               type as a whole. */
+<span class="nc bnc" id="L187" title="All 3 branches missed.">            switch (defaultMovementMode) {</span>
+                case AERODYNE:
+                case AIRSHIP:
+                case STATION_KEEPING:
+<span class="nc" id="L191">                    return FixedWingSupport.getConstructionTechAdvancement(defaultMovementMode,</span>
+                            EntityWeightClass.WEIGHT_SMALL_SUPPORT);
+                case VTOL:
+<span class="nc" id="L194">                    return SupportVTOL.getConstructionTechAdvancement(EntityWeightClass.WEIGHT_SMALL_SUPPORT);</span>
+                default:
+<span class="nc" id="L196">                    return SupportTank.getConstructionTechAdvancement(defaultMovementMode,</span>
+                            EntityWeightClass.WEIGHT_SMALL_SUPPORT);
+            }
+        }
+    }
+
+    /**
+     * Additional construction data for chassis mods, used to determine whether they are legal for particular
+     * units.
+     */
+<span class="nc" id="L206">    public enum ChassisModification implements ITechnologyDelegator {</span>
+<span class="nc" id="L207">        AMPHIBIOUS (1.75,EquipmentTypeLookup.AMPHIBIOUS_CHASSIS_MOD,</span>
+<span class="nc" id="L208">                SVType.allBut(SVType.HOVERCRAFT, SVType.NAVAL)),</span>
+<span class="nc" id="L209">        ARMORED (1.5,EquipmentTypeLookup.ARMORED_CHASSIS_MOD,</span>
+<span class="nc" id="L210">                SVType.allBut(SVType.AIRSHIP)),</span>
+<span class="nc" id="L211">        BICYCLE (0.75,EquipmentTypeLookup.BICYCLE_CHASSIS_MOD,</span>
+<span class="nc" id="L212">                EnumSet.of(SVType.HOVERCRAFT, SVType.WHEELED)),</span>
+<span class="nc" id="L213">        CONVERTIBLE (1.1,EquipmentTypeLookup.CONVERTIBLE_CHASSIS_MOD,</span>
+<span class="nc" id="L214">                EnumSet.of(SVType.HOVERCRAFT, SVType.WHEELED, SVType.TRACKED)),</span>
+<span class="nc" id="L215">        DUNE_BUGGY (1.5,EquipmentTypeLookup.DUNE_BUGGY_CHASSIS_MOD,</span>
+<span class="nc" id="L216">                EnumSet.of(SVType.WHEELED)),</span>
+<span class="nc" id="L217">        ENVIRONMENTAL_SEALING (2.0,EquipmentTypeLookup.SV_ENVIRONMENTAL_SEALING_CHASSIS_MOD,</span>
+<span class="nc" id="L218">                EnumSet.allOf(SVType.class)),</span>
+<span class="nc" id="L219">        EXTERNAL_POWER_PICKUP (1.1,EquipmentTypeLookup.EXTERNAL_POWER_PICKUP_CHASSIS_MOD,</span>
+<span class="nc" id="L220">                EnumSet.of(SVType.RAIL)),</span>
+<span class="nc" id="L221">        HYDROFOIL (1.7,EquipmentTypeLookup.HYDROFOIL_CHASSIS_MOD,</span>
+<span class="nc" id="L222">                EnumSet.of(SVType.NAVAL)),</span>
+<span class="nc" id="L223">        MONOCYCLE (0.5,EquipmentTypeLookup.MONOCYCLE_CHASSIS_MOD,</span>
+<span class="nc" id="L224">                EnumSet.of(SVType.HOVERCRAFT, SVType.WHEELED), true),</span>
+<span class="nc" id="L225">        OFFROAD (1.5,EquipmentTypeLookup.OFFROAD_CHASSIS_MOD,</span>
+<span class="nc" id="L226">                EnumSet.of(SVType.WHEELED)),</span>
+<span class="nc" id="L227">        OMNI (1.0,EquipmentTypeLookup.OMNI_CHASSIS_MOD),</span>
+<span class="nc" id="L228">        PROP (1.2,EquipmentTypeLookup.PROP_CHASSIS_MOD,</span>
+<span class="nc" id="L229">                EnumSet.of(SVType.FIXED_WING)),</span>
+<span class="nc" id="L230">        SNOWMOBILE (1.75,EquipmentTypeLookup.SNOWMOBILE_CHASSIS_MOD,</span>
+<span class="nc" id="L231">                EnumSet.of(SVType.WHEELED, SVType.TRACKED)),</span>
+<span class="nc" id="L232">        STOL (1.5,EquipmentTypeLookup.STOL_CHASSIS_MOD,</span>
+<span class="nc" id="L233">                EnumSet.of(SVType.FIXED_WING)),</span>
+<span class="nc" id="L234">        SUBMERSIBLE (1.8,EquipmentTypeLookup.SUBMERSIBLE_CHASSIS_MOD,</span>
+<span class="nc" id="L235">                EnumSet.of(SVType.NAVAL)),</span>
+<span class="nc" id="L236">        TRACTOR (1.2,EquipmentTypeLookup.TRACTOR_CHASSIS_MOD,</span>
+<span class="nc" id="L237">                EnumSet.of(SVType.WHEELED, SVType.TRACKED, SVType.NAVAL, SVType.RAIL)),</span>
+<span class="nc" id="L238">        TRAILER (0.8,EquipmentTypeLookup.TRAILER_CHASSIS_MOD,</span>
+<span class="nc" id="L239">                EnumSet.of(SVType.WHEELED, SVType.TRACKED, SVType.RAIL)),</span>
+<span class="nc" id="L240">        ULTRA_LIGHT (0.5,EquipmentTypeLookup.ULTRALIGHT_CHASSIS_MOD,</span>
+                true),
+<span class="nc" id="L242">        VSTOL (2.0,EquipmentTypeLookup.VSTOL_CHASSIS_MOD,</span>
+<span class="nc" id="L243">                EnumSet.of(SVType.FIXED_WING));</span>
+
+        public final double multiplier;
+        public final MiscType equipment;
+        public final boolean smallOnly;
+        public final Set&lt;SVType&gt; allowedTypes;
+
+        ChassisModification(double multiplier, String eqTypeKey) {
+<span class="nc" id="L251">            this(multiplier, eqTypeKey, EnumSet.allOf(SVType.class), false);</span>
+<span class="nc" id="L252">        }</span>
+
+        ChassisModification(double multiplier, String eqTypeKey, boolean smallOnly) {
+<span class="nc" id="L255">            this(multiplier, eqTypeKey, EnumSet.allOf(SVType.class), smallOnly);</span>
+<span class="nc" id="L256">        }</span>
+
+        ChassisModification(double multiplier, String eqTypeKey, Set&lt;SVType&gt; allowedTypes) {
+<span class="nc" id="L259">            this(multiplier, eqTypeKey, allowedTypes, false);</span>
+<span class="nc" id="L260">        }</span>
+
+<span class="nc" id="L262">        ChassisModification(double multiplier, String eqTypeKey, Set&lt;SVType&gt; allowedTypes, boolean smallOnly) {</span>
+<span class="nc" id="L263">            this.multiplier = multiplier;</span>
+<span class="nc" id="L264">            this.equipment = (MiscType) EquipmentType.get(eqTypeKey);</span>
+<span class="nc" id="L265">            this.allowedTypes = allowedTypes;</span>
+<span class="nc" id="L266">            this.smallOnly = smallOnly;</span>
+<span class="nc" id="L267">        }</span>
+
+        /**
+         * Checks for compatibility with a support vehicle type and weight class
+         *
+         * @param sv The support vehicle
+         * @return   Whether the mod is valid for the vehicle
+         */
+        public boolean validFor(Entity sv) {
+<span class="nc bnc" id="L276" title="All 6 branches missed.">            return sv.isSupportVehicle() &amp;&amp; allowedTypes.contains(SVType.getVehicleType(sv))</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">                    &amp;&amp; (!smallOnly || (sv.getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT))</span>
+                    // Hydrofoil has a specific upper weight limit rather than a weight class.
+<span class="nc bnc" id="L279" title="All 4 branches missed.">                    &amp;&amp; (!this.equals(HYDROFOIL) || sv.getWeight() &lt;= 100.0)</span>
+                    // Can't put a turret on a convertible
+<span class="nc bnc" id="L281" title="All 4 branches missed.">                    &amp;&amp; (!this.equals(CONVERTIBLE) || !(sv instanceof Tank)</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">                        || ((Tank) sv).hasNoTurret())</span>
+                    // External power pickup (rail) is only valid with the external engine type
+<span class="nc bnc" id="L284" title="All 2 branches missed.">                    &amp;&amp; (!this.equals(EXTERNAL_POWER_PICKUP)</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">                        || (sv.getEngine().getEngineType() == Engine.EXTERNAL));</span>
+        }
+
+        /**
+         * Checks whether something about the vehicle requires a specific chassis mod.
+         *
+         * @param sv A support vehicle
+         * @return   Whether this chassis mod is required by the vehicle.
+         */
+        public boolean requiredFor(Entity sv) {
+<span class="nc bnc" id="L295" title="All 3 branches missed.">            switch (this) {</span>
+                case PROP:
+<span class="nc bnc" id="L297" title="All 2 branches missed.">                    return sv instanceof FixedWingSupport</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">                            &amp;&amp; SVEngine.getEngineType(sv.getEngine()).electric;</span>
+                case EXTERNAL_POWER_PICKUP:
+<span class="nc bnc" id="L300" title="All 2 branches missed.">                    return sv.getMovementMode().equals(EntityMovementMode.RAIL)</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">                            &amp;&amp; SVEngine.getEngineType(sv.getEngine()).equals(SVEngine.EXTERNAL);</span>
+                default:
+<span class="nc" id="L303">                    return false;</span>
+            }
+        }
+
+        /**
+         * Checks for compatibility between different chassis modifications
+         *
+         * @param other Another chassis mod
+         * @return      Whether this chassis mod can be installed on the same vehicle as another mod.
+         */
+        public boolean compatibleWith(ChassisModification other) {
+<span class="nc bnc" id="L314" title="All 8 branches missed.">            switch (this) {</span>
+                case ARMORED:
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                    return other != ULTRA_LIGHT;</span>
+                case ULTRA_LIGHT:
+<span class="nc bnc" id="L318" title="All 2 branches missed.">                    return other != ARMORED;</span>
+                case BICYCLE:
+<span class="nc bnc" id="L320" title="All 2 branches missed.">                    return other != MONOCYCLE;</span>
+                case MONOCYCLE:
+<span class="nc bnc" id="L322" title="All 2 branches missed.">                    return other != BICYCLE;</span>
+                case SNOWMOBILE:
+<span class="nc bnc" id="L324" title="All 6 branches missed.">                    return other != DUNE_BUGGY</span>
+                            &amp;&amp; other != AMPHIBIOUS
+                            &amp;&amp; other != OFFROAD;
+                case DUNE_BUGGY:
+<span class="nc bnc" id="L328" title="All 6 branches missed.">                    return other != SNOWMOBILE</span>
+                            &amp;&amp; other != AMPHIBIOUS
+                            &amp;&amp; other != OFFROAD;
+                case AMPHIBIOUS:
+                case OFFROAD:
+<span class="nc bnc" id="L333" title="All 4 branches missed.">                    return other != SNOWMOBILE</span>
+                            &amp;&amp; other != DUNE_BUGGY;
+                default:
+<span class="nc" id="L336">                    return true;</span>
+            }
+        }
+
+        @Override
+        public ITechnology getTechSource() {
+<span class="nc" id="L342">            return equipment;</span>
+        }
+
+        /**
+         * Find the enum value that corresponds to an {@link EquipmentType} instance.
+         *
+         * @param eq The equipment to match
+         * @return   The corresponding enum value, or {@code null} if there is no match.
+         */
+        public @Nullable
+        static ChassisModification getChassisMod(EquipmentType eq) {
+<span class="nc bnc" id="L353" title="All 2 branches missed.">            for (ChassisModification mod : values()) {</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">                if (mod.equipment.equals(eq)) {</span>
+<span class="nc" id="L355">                    return mod;</span>
+                }
+            }
+<span class="nc" id="L358">            return null;</span>
+        }
+    }
+
+    /**
+     * Additional construction data for engine types, used to determine which ones are available for which
+     * vehicle types.
+     */
+<span class="nc" id="L366">    public enum SVEngine implements ITechnologyDelegator {</span>
+<span class="nc" id="L367">        STEAM (Engine.STEAM, EnumSet.of(SVType.WHEELED, SVType.TRACKED,</span>
+                SVType.AIRSHIP, SVType.NAVAL, SVType.RAIL)),
+<span class="nc" id="L369">        COMBUSTION (Engine.COMBUSTION_ENGINE, SVType.allBut(SVType.SATELLITE)),</span>
+<span class="nc" id="L370">        BATTERY (Engine.BATTERY, true),</span>
+<span class="nc" id="L371">        FUEL_CELL (Engine.FUEL_CELL, true),</span>
+<span class="nc" id="L372">        SOLAR (Engine.SOLAR, EnumSet.of(SVType.WHEELED, SVType.TRACKED, SVType.AIRSHIP, SVType.FIXED_WING,</span>
+                SVType.NAVAL, SVType.WIGE, SVType.SATELLITE), true),
+<span class="nc" id="L374">        FISSION (Engine.FISSION),</span>
+<span class="nc" id="L375">        FUSION (Engine.NORMAL_ENGINE),</span>
+<span class="nc" id="L376">        MAGLEV (Engine.MAGLEV, EnumSet.of(SVType.RAIL)),</span>
+<span class="nc" id="L377">        EXTERNAL (Engine.EXTERNAL, EnumSet.of(SVType.RAIL), true),</span>
+<span class="nc" id="L378">        NONE (Engine.NONE, EnumSet.of(SVType.WHEELED, SVType.TRACKED, SVType.RAIL), false);</span>
+
+        /** The engine type constant used to create a new {@link Engine}. */
+        public final Engine engine;
+        /** Fixed-wing must have prop chassis mod to use an electric engine */
+        public final boolean electric;
+        private final Set&lt;SVType&gt; allowedTypes;
+
+        SVEngine(int engineType) {
+<span class="nc" id="L387">            this(engineType, EnumSet.allOf(SVType.class), false);</span>
+<span class="nc" id="L388">        }</span>
+
+        SVEngine(int engineType, boolean electric) {
+<span class="nc" id="L391">            this(engineType, EnumSet.allOf(SVType.class), electric);</span>
+<span class="nc" id="L392">        }</span>
+
+        SVEngine(int engineType, Set&lt;SVType&gt; allowedTypes) {
+<span class="nc" id="L395">            this(engineType, allowedTypes, false);</span>
+<span class="nc" id="L396">        }</span>
+
+<span class="nc" id="L398">        SVEngine(int engineType, Set&lt;SVType&gt; allowedTypes, boolean electric) {</span>
+<span class="nc" id="L399">            this.engine = new Engine(0, engineType, Engine.SUPPORT_VEE_ENGINE);</span>
+<span class="nc" id="L400">            this.allowedTypes = allowedTypes;</span>
+<span class="nc" id="L401">            this.electric = electric;</span>
+<span class="nc" id="L402">        }</span>
+
+        /**
+         * Finds the enum value corresponding to an {@link Engine}.
+         *
+         * @param engine The engine
+         * @return       The enum value for the engine, or {@code null} if it is not a valid SV engine type.
+         */
+        public @Nullable
+        static SVEngine getEngineType(Engine engine) {
+<span class="nc bnc" id="L412" title="All 2 branches missed.">            if (null != engine) {</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">                for (SVEngine e : values()) {</span>
+<span class="nc bnc" id="L414" title="All 2 branches missed.">                    if (e.engine.getEngineType() == engine.getEngineType()) {</span>
+<span class="nc" id="L415">                        return e;</span>
+                    }
+                }
+            }
+<span class="nc" id="L419">            return null;</span>
+        }
+
+        /**
+         * @param type The support vehicle type
+         * @return     Whether the engine is valid for the support vee.
+         */
+        public boolean isValidFor(SVType type) {
+<span class="nc" id="L427">            return allowedTypes.contains(type);</span>
+        }
+
+        /**
+         * @param entity A support vehicle
+         * @return       Whether the engine is valid for the support vee.
+         */
+        public boolean isValidFor(Entity entity) {
+<span class="nc bnc" id="L435" title="All 4 branches missed.">            if ((this == NONE) &amp;&amp; !entity.isTrailer()) {</span>
+<span class="nc" id="L436">                return false;</span>
+            }
+<span class="nc" id="L438">            return isValidFor(SVType.getVehicleType(entity));</span>
+        }
+
+        @Override
+        public ITechnology getTechSource() {
+<span class="nc" id="L443">            return engine;</span>
+        }
+    }
+
+    /**
+     * Tech advancement data for structural components with variable tech levels (structure,
+     * armor, engine). This is assembled from the table on TM, p. 122 and IO, p. 49, primitive construction
+     * rules (IO, p. 120-121) and a pending proposal to the rules committee for E.
+     */
+<span class="nc" id="L452">    public static final TechAdvancement[] TECH_LEVEL_TA = {</span>
+<span class="nc" id="L453">            new TechAdvancement(ITechnology.TECH_BASE_ALL).setTechRating(ITechnology.RATING_A)</span>
+<span class="nc" id="L454">                    .setAdvancement(ITechnology.DATE_PS, ITechnology.DATE_PS, ITechnology.DATE_PS)</span>
+<span class="nc" id="L455">                    .setAvailability(ITechnology.RATING_A, ITechnology.RATING_A,</span>
+                    ITechnology.RATING_A, ITechnology.RATING_A),
+<span class="nc" id="L457">            new TechAdvancement(ITechnology.TECH_BASE_ALL).setTechRating(ITechnology.RATING_B)</span>
+<span class="nc" id="L458">                    .setAdvancement(ITechnology.DATE_PS, ITechnology.DATE_PS, ITechnology.DATE_PS)</span>
+<span class="nc" id="L459">                    .setAvailability(ITechnology.RATING_B, ITechnology.RATING_B,</span>
+                    ITechnology.RATING_B, ITechnology.RATING_A),
+<span class="nc" id="L461">            new TechAdvancement(ITechnology.TECH_BASE_ALL).setTechRating(ITechnology.RATING_C)</span>
+<span class="nc" id="L462">                    .setAdvancement(ITechnology.DATE_ES, ITechnology.DATE_ES, ITechnology.DATE_ES)</span>
+<span class="nc" id="L463">                    .setPrototypeFactions(ITechnology.F_TA).setProductionFactions(ITechnology.F_TA)</span>
+<span class="nc" id="L464">                    .setAvailability(ITechnology.RATING_C, ITechnology.RATING_B,</span>
+                    ITechnology.RATING_B, ITechnology.RATING_B),
+<span class="nc" id="L466">            new TechAdvancement(ITechnology.TECH_BASE_ALL).setTechRating(ITechnology.RATING_D)</span>
+<span class="nc" id="L467">                    .setAdvancement(2420, 2430, 2435).setApproximate(true, true, false)</span>
+<span class="nc" id="L468">                    .setPrototypeFactions(ITechnology.F_TH).setProductionFactions(ITechnology.F_TH)</span>
+<span class="nc" id="L469">                    .setAvailability(ITechnology.RATING_C, ITechnology.RATING_C,</span>
+                    ITechnology.RATING_C, ITechnology.RATING_B),
+<span class="nc" id="L471">            new TechAdvancement(ITechnology.TECH_BASE_ALL).setTechRating(ITechnology.RATING_E)</span>
+<span class="nc" id="L472">                    .setISAdvancement(2557, 2571, 3055).setClanAdvancement(2557, 2571, 2815)</span>
+<span class="nc" id="L473">                    .setAvailability(ITechnology.RATING_D, ITechnology.RATING_F,</span>
+                    ITechnology.RATING_D, ITechnology.RATING_C),
+<span class="nc" id="L475">            new TechAdvancement(ITechnology.TECH_BASE_ALL).setTechRating(ITechnology.RATING_F)</span>
+<span class="nc" id="L476">                    .setISAdvancement(ITechnology.DATE_NONE, ITechnology.DATE_NONE, 3065).setISApproximate(false, false, true)</span>
+<span class="nc" id="L477">                    .setClanAdvancement(2820, 2825, 2830).setClanApproximate(true, true, false)</span>
+<span class="nc" id="L478">                    .setAvailability(ITechnology.RATING_E, ITechnology.RATING_E,</span>
+                    ITechnology.RATING_D, ITechnology.RATING_C)
+    };
+
+    /**
+     * The chassis weight multiplier for tech ratings A-F
+     */
+<span class="nc" id="L485">    private static final double[] STRUCTURE_TECH_MULTIPLIER = {</span>
+            1.6, 1.3, 1.15, 1.0, 0.85, 0.66
+    };
+
+    /**
+     * Filters all vehicle armor according to given tech constraints. Standard armor is treated as basic
+     * support vehicle armor.
+     *
+     * @param techManager Applies the filtering criteria
+     * @return            A list of armor equipment that meets the tech constraints
+     */
+    public static List&lt;EquipmentType&gt; legalArmorsFor(ITechManager techManager) {
+<span class="nc bnc" id="L497" title="All 2 branches missed.">        if (techManager.getTechLevel().ordinal() &lt; SimpleTechLevel.ADVANCED.ordinal()) {</span>
+<span class="nc" id="L498">            return Collections.singletonList(EquipmentType.get(EquipmentType.armorNames[EquipmentType.T_ARMOR_STANDARD]));</span>
+        }
+<span class="nc" id="L500">        List&lt;EquipmentType&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">        for (int at = 0; at &lt; EquipmentType.armorNames.length; at++) {</span>
+<span class="nc bnc" id="L502" title="All 2 branches missed.">            if (at == EquipmentType.T_ARMOR_PATCHWORK) {</span>
+<span class="nc" id="L503">                continue;</span>
+            }
+<span class="nc" id="L505">            String name = EquipmentType.getArmorTypeName(at, techManager.useClanTechBase());</span>
+<span class="nc" id="L506">            EquipmentType eq = EquipmentType.get(name);</span>
+<span class="nc bnc" id="L507" title="All 2 branches missed.">            if ((null != eq)</span>
+<span class="nc bnc" id="L508" title="All 2 branches missed.">                    &amp;&amp; eq.hasFlag(MiscType.F_SUPPORT_TANK_EQUIPMENT)</span>
+<span class="nc bnc" id="L509" title="All 2 branches missed.">                    &amp;&amp; techManager.isLegal(eq)) {</span>
+<span class="nc" id="L510">                retVal.add(eq);</span>
+            }
+<span class="nc bnc" id="L512" title="All 2 branches missed.">            if (techManager.useMixedTech()) {</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">                name = EquipmentType.getArmorTypeName(at, !techManager.useClanTechBase());</span>
+<span class="nc" id="L514">                EquipmentType eq2 = EquipmentType.get(name);</span>
+<span class="nc bnc" id="L515" title="All 4 branches missed.">                if ((null != eq2) &amp;&amp; (eq != eq2)</span>
+<span class="nc bnc" id="L516" title="All 2 branches missed.">                        &amp;&amp; eq2.hasFlag(MiscType.F_SUPPORT_TANK_EQUIPMENT)</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">                        &amp;&amp; techManager.isLegal(eq2)) {</span>
+<span class="nc" id="L518">                    retVal.add(eq2);</span>
+                }
+            }
+        }
+<span class="nc" id="L522">        return retVal;</span>
+    }
+
+    /**
+     * The maximum number of armor points a support vehicle is computed by multiplying the total tonnage by a factor
+     * determined by the vehicle type and adding four.
+     *
+     * @param vee The support vehicle
+     * @return    The maximum number of armor points. If the entity cannot be identified as a support vehicle, returns 0.
+     */
+    public static int maxArmorFactor(Entity vee) {
+<span class="nc" id="L533">        SVType type = SVType.getVehicleType(vee);</span>
+<span class="nc bnc" id="L534" title="All 2 branches missed.">        if (null == type) {</span>
+<span class="nc" id="L535">            return 0;</span>
+        }
+<span class="nc" id="L537">        double factor = 0;</span>
+<span class="nc bnc" id="L538" title="All 5 branches missed.">        switch (type) {</span>
+            case AIRSHIP:
+            case NAVAL:
+<span class="nc bnc" id="L541" title="All 2 branches missed.">                if (vee.getWeightClass() == EntityWeightClass.WEIGHT_LARGE_SUPPORT) {</span>
+<span class="nc" id="L542">                    factor = 0.05;</span>
+                } else {
+<span class="nc" id="L544">                    factor = 0.334;</span>
+                }
+<span class="nc" id="L546">                break;</span>
+            case WIGE:
+            case RAIL:
+            case SATELLITE:
+<span class="nc" id="L550">                factor = 0.5;</span>
+<span class="nc" id="L551">                break;</span>
+            case FIXED_WING:
+            case HOVERCRAFT:
+            case VTOL:
+<span class="nc" id="L555">                factor = 1.0;</span>
+<span class="nc" id="L556">                break;</span>
+            case TRACKED:
+            case WHEELED:
+<span class="nc" id="L559">                factor = 2.0;</span>
+                break;
+        }
+<span class="nc" id="L562">        return 4 + (int) (vee.getWeight() * factor);</span>
+    }
+
+    /**
+     * Calculates the weight of each point of armor. For standard SV armor this is based on the tech and BAR
+     * ratings. For advanced armors this is the reciprocal of the number of points per ton.
+     *
+     * @param vee The support vehicle
+     * @return    The weight of each armor point in tons, rounded to the kilogram.
+     */
+    public static double armorWeightPerPoint(Entity vee) {
+<span class="nc" id="L573">        final int at = vee.getArmorType(vee.firstArmorIndex());</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">        if (at == EquipmentType.T_ARMOR_STANDARD) {</span>
+<span class="nc" id="L575">            return EquipmentType.getSupportVehicleArmorWeightPerPoint(vee.getBARRating(vee.firstArmorIndex()),</span>
+<span class="nc" id="L576">                    vee.getArmorTechRating());</span>
+        } else {
+<span class="nc" id="L578">            final double ppt = 16.0 * EquipmentType.getArmorPointMultiplier(</span>
+<span class="nc" id="L579">                    at, vee.getArmorTechLevel(vee.firstArmorIndex()));</span>
+<span class="nc" id="L580">            return round(1.0 / ppt, Ceil.KILO);</span>
+        }
+    }
+
+    /**
+     * Checks whether the support vehicle can mount sponson turrets (TO, p. 348)
+     *
+     * @param type  The support vehicle type
+     * @param small Whether the {@link Entity} is a small support vehicle
+     * @return      Whether the vehicle can use sponson turrets.
+     */
+    public static boolean sponsonLegal(SVType type, boolean small) {
+<span class="nc bnc" id="L592" title="All 8 branches missed.">        return !small</span>
+                &amp;&amp; (type != SVType.FIXED_WING)
+                &amp;&amp; (type != SVType.AIRSHIP)
+                &amp;&amp; (type != SVType.SATELLITE);
+    }
+
+    /**
+     * Checks whether the support vehicle can mount pintle turrets (TM, p. 348)
+     *
+     * @param type  The support vehicle type
+     * @param small Whether the {@link Entity} is a small support vehicle
+     * @return      Whether the vehicle can use pintle turrets.
+     */
+    public static boolean pintleLegal(SVType type, boolean small) {
+<span class="nc bnc" id="L606" title="All 6 branches missed.">        return small</span>
+                &amp;&amp; (type != SVType.FIXED_WING)
+                &amp;&amp; (type != SVType.NAVAL);
+    }
+
+    private final Entity supportVee;
+    /** Used by support tanks for calculation of turret weight */
+    private final TestTank testTank;
+    /** Used by fixed wing, airship, and satellite for some calculations and validation */
+    private final TestAero testAero;
+    
+    public TestSupportVehicle(Entity sv, TestEntityOption options,
+            String fileString) {
+<span class="nc" id="L619">        super(options, sv.getEngine(), null, null);</span>
+<span class="nc" id="L620">        this.supportVee = sv;</span>
+<span class="nc bnc" id="L621" title="All 2 branches missed.">        testTank = sv instanceof Tank ? new TestTank((Tank) sv, options, fileString) : null;</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">        testAero = sv instanceof Aero ? new TestAero((Aero) sv, options, fileString) : null;</span>
+<span class="nc" id="L623">    }</span>
+    
+    @Override
+    public String printWeightStructure() {
+<span class="nc" id="L627">        return StringUtil.makeLength(</span>
+<span class="nc" id="L628">                &quot;Chassis: &quot;, getPrintSize() - 5)</span>
+<span class="nc" id="L629">                + TestEntity.makeWeightString(getWeightStructure(), usesKgStandard()) + &quot;\n&quot;;</span>
+    }
+
+    @Override
+    public String printWeightEngine() {
+<span class="nc" id="L634">        return StringUtil.makeLength(String.format(&quot;Engine: %s (%s)&quot;,</span>
+<span class="nc" id="L635">                engine.getEngineName(), ITechnology.getRatingName(getEntity().getEngineTechRating())),</span>
+<span class="nc" id="L636">                getPrintSize() - 5)</span>
+<span class="nc" id="L637">                + TestEntity.makeWeightString(getWeightEngine(), usesKgStandard()) + &quot;\n&quot;;</span>
+    }
+
+    @Override
+    public String printWeightArmor() {
+        String name;
+<span class="nc bnc" id="L643" title="All 2 branches missed.">        if (getEntity().hasBARArmor(getEntity().firstArmorIndex())) {</span>
+<span class="nc" id="L644">            name = String.format(&quot;BAR %d [%s]&quot;,</span>
+<span class="nc" id="L645">                    getEntity().getBARRating(getEntity().firstArmorIndex()),</span>
+<span class="nc" id="L646">                    ITechnology.getRatingName(getEntity().getArmorTechRating()));</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">        } else if (!getEntity().hasPatchworkArmor()) {</span>
+<span class="nc" id="L648">            name = EquipmentType.getArmorTypeName(getEntity()</span>
+<span class="nc" id="L649">                            .getArmorType(getEntity().firstArmorIndex()));</span>
+        } else {
+<span class="nc" id="L651">            name = &quot;Patchwork&quot;;</span>
+        }
+<span class="nc" id="L653">        return StringUtil.makeLength(</span>
+<span class="nc" id="L654">                String.format(&quot;Armor: %d (%s)&quot;, getTotalOArmor(), name),</span>
+<span class="nc" id="L655">                getPrintSize() - 5)</span>
+<span class="nc" id="L656">                + TestEntity.makeWeightString(getWeightArmor(), usesKgStandard()) + &quot;\n&quot;;</span>
+
+    }
+
+    @Override
+    public Entity getEntity() {
+<span class="nc" id="L662">        return supportVee;</span>
+    }
+
+    @Override
+    public boolean isTank() {
+<span class="nc" id="L667">        return supportVee instanceof Tank;</span>
+    }
+
+    @Override
+    public boolean isMech() {
+<span class="nc" id="L672">        return false;</span>
+    }
+
+    @Override
+    public boolean isAero() {
+<span class="nc" id="L677">        return supportVee.isAero();</span>
+    }
+
+    @Override
+    public boolean isSmallCraft() {
+<span class="nc" id="L682">        return false;</span>
+    }
+
+    @Override
+    public boolean isAdvancedAerospace() {
+<span class="nc" id="L687">        return false;</span>
+    }
+
+    @Override
+    public boolean isProtomech() {
+<span class="nc" id="L692">        return false;</span>
+    }
+
+    /**
+     * Rounds up to the nearest half ton or kilogram as appropriate to the vehicle
+     *
+     * @param val The weight to round, in tons
+     * @return    The rounded weight, in tons
+     */
+    private double ceilWeight(double val) {
+<span class="nc bnc" id="L702" title="All 2 branches missed.">        if (supportVee.getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+            // Deal first with possible variances from floating point precision
+            // by rounding to the gram, then round the result up to the next kilogram.
+            // Then convert back to metric tons.
+<span class="nc" id="L706">            return Math.ceil(Math.round(val * 1000000.0) / 1000.0) / 1000.0;</span>
+        } else {
+<span class="nc" id="L708">            return ceil(val, Ceil.HALFTON);</span>
+        }
+    }
+
+    @Override
+    public double calculateWeight() {
+<span class="nc" id="L714">        return ceilWeight(super.calculateWeight() + getFuelTonnage());</span>
+    }
+
+    @Override
+    public double getWeightStructure() {
+<span class="nc" id="L719">        double weight = supportVee.getWeight();</span>
+<span class="nc" id="L720">        weight *= SVType.getBaseChassisValue(supportVee);</span>
+<span class="nc" id="L721">        weight *= STRUCTURE_TECH_MULTIPLIER[supportVee.getStructuralTechRating()];</span>
+<span class="nc bnc" id="L722" title="All 2 branches missed.">        for (Mounted m : supportVee.getMisc()) {</span>
+<span class="nc bnc" id="L723" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_CHASSIS_MODIFICATION)) {</span>
+<span class="nc" id="L724">                ChassisModification mod = ChassisModification.getChassisMod(m.getType());</span>
+<span class="nc bnc" id="L725" title="All 2 branches missed.">                if (null != mod) {</span>
+<span class="nc" id="L726">                    weight *= mod.multiplier;</span>
+                } else {
+<span class="nc" id="L728">                    MegaMek.getLogger().warning(&quot;Could not find multiplier for &quot; </span>
+<span class="nc" id="L729">                            + m.getType().getName() + &quot; chassis mod.&quot;);</span>
+                }
+            }
+<span class="nc" id="L732">        }</span>
+<span class="nc" id="L733">        return ceilWeight(weight);</span>
+    }
+
+    public double getFuelTonnage() {
+<span class="nc bnc" id="L737" title="All 2 branches missed.">        if (supportVee instanceof Aero) {</span>
+<span class="nc" id="L738">            return ((Aero) supportVee).getFuelTonnage();</span>
+        } else {
+<span class="nc" id="L740">            return ((Tank) supportVee).getFuelTonnage();</span>
+        }
+    }
+
+    private double getWeightFireControl() {
+<span class="nc bnc" id="L745" title="All 2 branches missed.">        for (Mounted m : supportVee.getMisc()) {</span>
+<span class="nc bnc" id="L746" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_BASIC_FIRECONTROL)</span>
+<span class="nc bnc" id="L747" title="All 2 branches missed.">                    || m.getType().hasFlag(MiscType.F_ADVANCED_FIRECONTROL)) {</span>
+<span class="nc" id="L748">                return m.getTonnage();</span>
+            }
+<span class="nc" id="L750">        }</span>
+<span class="nc" id="L751">        return 0.0;</span>
+    }
+
+    private double getWeightCrewAccomodations() {
+<span class="nc" id="L755">        double weight = 0;</span>
+<span class="nc bnc" id="L756" title="All 2 branches missed.">        for (Transporter t : supportVee.getTransports()) {</span>
+<span class="nc bnc" id="L757" title="All 4 branches missed.">            if ((t instanceof Bay) &amp;&amp; ((Bay) t).isQuarters()) {</span>
+<span class="nc" id="L758">                weight += ((Bay) t).getWeight();</span>
+            }
+<span class="nc" id="L760">        }</span>
+<span class="nc" id="L761">        return round(weight, Ceil.KILO);</span>
+    }
+
+    @Override
+    public double getWeightControls() {
+<span class="nc" id="L766">        return getWeightFireControl() + getWeightCrewAccomodations();</span>
+    }
+
+    @Override
+    public double getWeightMisc() {
+<span class="nc" id="L771">        return getTankWeightTurret()</span>
+<span class="nc" id="L772">                + getTankWeightDualTurret();</span>
+    }
+
+    public double getTankWeightTurret() {
+<span class="nc bnc" id="L776" title="All 2 branches missed.">        if (null != testTank) {</span>
+<span class="nc" id="L777">            return testTank.getTankWeightTurret();</span>
+        } else {
+<span class="nc" id="L779">            return 0.0;</span>
+        }
+    }
+
+    public double getTankWeightDualTurret() {
+<span class="nc bnc" id="L784" title="All 2 branches missed.">        if (null != testTank) {</span>
+<span class="nc" id="L785">            return testTank.getTankWeightDualTurret();</span>
+        } else {
+<span class="nc" id="L787">            return 0.0;</span>
+        }
+    }
+
+    @Override
+    public double getWeightAmmo() {
+<span class="nc bnc" id="L793" title="All 2 branches missed.">        if (getEntity().getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc" id="L794">            double weight = 0;</span>
+<span class="nc bnc" id="L795" title="All 2 branches missed.">            for (Mounted m : getEntity().getWeaponList()) {</span>
+<span class="nc" id="L796">                weight += getSmallSVAmmoWeight(m);</span>
+<span class="nc" id="L797">            }</span>
+<span class="nc" id="L798">            return weight;</span>
+        } else {
+<span class="nc" id="L800">            return super.getWeightAmmo();</span>
+        }
+    }
+
+    @Override
+    public double getWeightPowerAmp() {
+        // Small support vees only use infantry weapons, which do not require amplifiers.
+<span class="nc bnc" id="L807" title="All 2 branches missed.">        if (supportVee.getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc" id="L808">            return 0.0;</span>
+        }
+
+<span class="nc bnc" id="L811" title="All 4 branches missed.">        if (!engine.isFusion() &amp;&amp; (engine.getEngineType() != Engine.FISSION)) {</span>
+<span class="nc" id="L812">            double weight = 0;</span>
+<span class="nc bnc" id="L813" title="All 2 branches missed.">            for (Mounted m : supportVee.getWeaponList()) {</span>
+<span class="nc" id="L814">                WeaponType wt = (WeaponType) m.getType();</span>
+<span class="nc bnc" id="L815" title="All 6 branches missed.">                if (wt.hasFlag(WeaponType.F_ENERGY) &amp;&amp; !(wt instanceof CLChemicalLaserWeapon) &amp;&amp; !(wt instanceof VehicleFlamerWeapon)) {</span>
+<span class="nc" id="L816">                    weight += m.getTonnage();</span>
+                }
+<span class="nc bnc" id="L818" title="All 4 branches missed.">                if ((m.getLinkedBy() != null) &amp;&amp; (m.getLinkedBy().getType() instanceof</span>
+<span class="nc" id="L819">                        MiscType) &amp;&amp; m.getLinkedBy().getType().</span>
+<span class="nc bnc" id="L820" title="All 2 branches missed.">                        hasFlag(MiscType.F_PPC_CAPACITOR)) {</span>
+<span class="nc" id="L821">                    weight += m.getLinkedBy().getTonnage();</span>
+                }
+<span class="nc" id="L823">            }</span>
+<span class="nc bnc" id="L824" title="All 2 branches missed.">            for (Mounted m : supportVee.getMisc()) {</span>
+<span class="nc bnc" id="L825" title="All 4 branches missed.">                if (m.getType().hasFlag(MiscType.F_CLUB) &amp;&amp; m.getType().hasSubType(MiscType.S_SPOT_WELDER)) {</span>
+<span class="nc" id="L826">                    weight += m.getTonnage();</span>
+                }
+<span class="nc" id="L828">            }</span>
+<span class="nc" id="L829">            return ceilWeight(weight / 10);</span>
+        }
+<span class="nc" id="L831">        return 0.0;</span>
+    }
+
+    @Override
+    protected boolean includeMiscEquip(MiscType eq) {
+        // fire control is counted with control system weight and chassis mods are part of
+        // the structure weight
+<span class="nc" id="L838">        final BigInteger exclude = MiscType.F_BASIC_FIRECONTROL.or(MiscType.F_ADVANCED_FIRECONTROL)</span>
+<span class="nc" id="L839">                .or(MiscType.F_CHASSIS_MODIFICATION);</span>
+<span class="nc bnc" id="L840" title="All 2 branches missed.">        return !eq.hasFlag(exclude);</span>
+    }
+
+    @Override
+    public double getWeightHeatSinks() {
+        // Unlike other units, support vehicles do not get any free engine heat sinks.
+<span class="nc" id="L846">        return getCountHeatSinks();</span>
+    }
+
+    @Override
+    public boolean hasDoubleHeatSinks() {
+<span class="nc" id="L851">        return false;</span>
+    }
+
+    @Override
+    public int getCountHeatSinks() {
+        // Small support vees can't mount heavy weapons, so no reason to iterate through them to check.
+<span class="nc bnc" id="L857" title="All 2 branches missed.">        if (supportVee.getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc" id="L858">            return 0;</span>
+        }
+<span class="nc" id="L860">        return heatNeutralHSRequirement();</span>
+    }
+
+    @Override
+    public String printWeightMisc() {
+<span class="nc bnc" id="L865" title="All 2 branches missed.">        if (null != testTank) {</span>
+<span class="nc" id="L866">            return testTank.printWeightMisc();</span>
+        } else {
+<span class="nc bnc" id="L868" title="All 2 branches missed.">            return getWeightPowerAmp() != 0 ? StringUtil.makeLength(</span>
+<span class="nc" id="L869">                    &quot;Power Amp:&quot;, getPrintSize() - 5)</span>
+<span class="nc" id="L870">                    + TestEntity.makeWeightString(getWeightPowerAmp(), usesKgStandard()) + &quot;\n&quot; : &quot;&quot;;</span>
+        }
+    }
+
+    @Override
+    public String printWeightControls() {
+<span class="nc" id="L876">        String fireCon = &quot;&quot;;</span>
+<span class="nc bnc" id="L877" title="All 2 branches missed.">        for (Mounted m : supportVee.getMisc()) {</span>
+<span class="nc bnc" id="L878" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_BASIC_FIRECONTROL)</span>
+<span class="nc bnc" id="L879" title="All 2 branches missed.">                    || m.getType().hasFlag(MiscType.F_ADVANCED_FIRECONTROL)) {</span>
+<span class="nc" id="L880">                fireCon = StringUtil.makeLength(m.getName(), getPrintSize() - 5)</span>
+<span class="nc" id="L881">                        + TestEntity.makeWeightString(m.getTonnage(), usesKgStandard()) + &quot;\n&quot;;</span>
+<span class="nc" id="L882">                break;</span>
+            }
+<span class="nc" id="L884">        }</span>
+<span class="nc" id="L885">        double weight = getWeightCrewAccomodations();</span>
+<span class="nc bnc" id="L886" title="All 2 branches missed.">        String crewStr = weight &gt; 0 ?</span>
+<span class="nc" id="L887">                StringUtil.makeLength(&quot;Crew Accomodations:&quot;, getPrintSize() - 5)</span>
+<span class="nc" id="L888">                    + TestEntity.makeWeightString(weight, usesKgStandard()) + &quot;\n&quot; : &quot;&quot;;</span>
+<span class="nc" id="L889">        return fireCon + crewStr;</span>
+    }
+
+    @Override
+    public StringBuffer printAmmo(StringBuffer buff, int posLoc, int posWeight) {
+<span class="nc bnc" id="L894" title="All 2 branches missed.">        if (getEntity().getWeightClass() != EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc" id="L895">            return super.printAmmo(buff, posLoc, posWeight);</span>
+        }
+<span class="nc bnc" id="L897" title="All 2 branches missed.">        for (Mounted m : getEntity().getWeaponList()) {</span>
+<span class="nc" id="L898">            double weight = getSmallSVAmmoWeight(m);</span>
+<span class="nc bnc" id="L899" title="All 2 branches missed.">            if (weight &gt; 0) {</span>
+<span class="nc" id="L900">                buff.append(StringUtil.makeLength(&quot;Ammo [&quot; + m.getName() + &quot;]&quot;, 20));</span>
+<span class="nc" id="L901">                buff.append(&quot; &quot;).append(</span>
+<span class="nc" id="L902">                        StringUtil.makeLength(getLocationAbbr(m.getLocation()),</span>
+<span class="nc" id="L903">                                getPrintSize() - 5 - 20))</span>
+<span class="nc" id="L904">                        .append(TestEntity.makeWeightString(weight, true)).append(&quot;\n&quot;);</span>
+            }
+<span class="nc" id="L906">        }</span>
+<span class="nc" id="L907">        return buff;</span>
+    }
+
+    public static double getSmallSVAmmoWeight(Mounted mounted) {
+        // first clip is free
+<span class="nc bnc" id="L912" title="All 4 branches missed.">        if ((mounted.getSize() &gt; 1) &amp;&amp; (mounted.getType() instanceof InfantryWeapon)) {</span>
+<span class="nc" id="L913">            return RoundWeight.nextKg((mounted.getSize() - 1)</span>
+<span class="nc" id="L914">                    * ((InfantryWeapon) mounted.getType()).getAmmoWeight());</span>
+        } else {
+<span class="nc" id="L916">            return 0.0;</span>
+        }
+    }
+
+    public boolean canUseSponsonTurret() {
+<span class="nc" id="L921">        return sponsonLegal(SVType.getVehicleType(getEntity()),</span>
+<span class="nc bnc" id="L922" title="All 2 branches missed.">                getEntity().getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT);</span>
+    }
+
+    public boolean canUsePintleTurret() {
+<span class="nc" id="L926">        return pintleLegal(SVType.getVehicleType(getEntity()),</span>
+<span class="nc bnc" id="L927" title="All 2 branches missed.">                getEntity().getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT);</span>
+    }
+
+    @Override
+    public boolean correctEntity(StringBuffer buff) {
+<span class="nc" id="L932">        return correctEntity(buff, getEntity().getTechLevel());</span>
+    }
+
+    @Override
+    public boolean correctEntity(StringBuffer buff, int ammoTechLvl) {
+<span class="nc" id="L937">        boolean correct = true;</span>
+<span class="nc bnc" id="L938" title="All 2 branches missed.">        if (skip()) {</span>
+<span class="nc" id="L939">            return true;</span>
+        }
+<span class="nc bnc" id="L941" title="All 2 branches missed.">        if (!correctWeight(buff)) {</span>
+<span class="nc" id="L942">            buff.insert(0, printTechLevel() + printShortMovement());</span>
+<span class="nc" id="L943">            buff.append(printWeightCalculation()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L944">            correct = false;</span>
+        }
+<span class="nc bnc" id="L946" title="All 2 branches missed.">        if (!engine.engineValid) {</span>
+<span class="nc" id="L947">            buff.append(engine.problem.toString()).append(&quot;\n\n&quot;);</span>
+<span class="nc" id="L948">            correct = false;</span>
+        }
+<span class="nc bnc" id="L950" title="All 4 branches missed.">        if ((supportVee instanceof Tank) &amp;&amp; (((Tank) supportVee).fuelTonnagePer100km() &gt; 0.0)</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">                &amp;&amp; (((Tank) supportVee).getFuelTonnage() &lt;= 0.0)) {</span>
+<span class="nc" id="L952">            buff.append(&quot;Support vehicles with &quot;).append(engine.getEngineName())</span>
+<span class="nc" id="L953">                    .append(&quot; engine must allocate some weight for fuel.\n&quot;);</span>
+<span class="nc" id="L954">            correct = false;</span>
+<span class="nc bnc" id="L955" title="All 2 branches missed.">        } else if ((supportVee instanceof FixedWingSupport)</span>
+<span class="nc bnc" id="L956" title="All 2 branches missed.">                &amp;&amp; (((FixedWingSupport) supportVee).getOriginalFuel() &lt;= 0.0)</span>
+<span class="nc bnc" id="L957" title="All 2 branches missed.">                &amp;&amp; ((FixedWingSupport) supportVee).kgPerFuelPoint() &gt; 0) {</span>
+<span class="nc" id="L958">            buff.append(&quot;Aerospace units must allocate some weight for fuel.\n&quot;);</span>
+<span class="nc" id="L959">            correct = false;</span>
+        }
+<span class="nc bnc" id="L961" title="All 2 branches missed.">        if (occupiedSlotCount() &gt; totalSlotCount()) {</span>
+<span class="nc" id="L962">            buff.append(&quot;Not enough item slots available! Using &quot;);</span>
+<span class="nc" id="L963">            buff.append(Math.abs(occupiedSlotCount() - totalSlotCount()));</span>
+<span class="nc" id="L964">            buff.append(&quot; slot(s) too many.\n&quot;);</span>
+<span class="nc" id="L965">            buff.append(printSlotCalculation()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L966">            correct = false;</span>
+        }
+<span class="nc" id="L968">        int armorLimit = maxArmorFactor(supportVee);</span>
+<span class="nc bnc" id="L969" title="All 2 branches missed.">        if (supportVee.getTotalOArmor() &gt; armorLimit) {</span>
+<span class="nc" id="L970">            buff.append(&quot;Armor exceeds point limit for &quot;);</span>
+<span class="nc" id="L971">            buff.append(supportVee.getWeight());</span>
+<span class="nc" id="L972">            buff.append(&quot;-ton &quot;);</span>
+<span class="nc" id="L973">            buff.append(supportVee.getMovementModeAsString());</span>
+<span class="nc" id="L974">            buff.append(&quot; support vehicle: &quot;);</span>
+<span class="nc" id="L975">            buff.append(supportVee.getTotalOArmor());</span>
+<span class="nc" id="L976">            buff.append(&quot; points &gt; &quot;);</span>
+<span class="nc" id="L977">            buff.append(armorLimit);</span>
+<span class="nc" id="L978">            buff.append(&quot;.\n\n&quot;);</span>
+<span class="nc" id="L979">            correct = false;</span>
+        }
+<span class="nc bnc" id="L981" title="All 2 branches missed.">        if (supportVee.hasBARArmor(supportVee.firstArmorIndex())) {</span>
+<span class="nc" id="L982">            int bar = supportVee.getBARRating(supportVee.firstArmorIndex());</span>
+<span class="nc bnc" id="L983" title="All 4 branches missed.">            if ((bar &lt; 2) || (bar &gt; 10)) {</span>
+<span class="nc" id="L984">                buff.append(&quot;Armor must have a BAR between 2 and 10.\n&quot;);</span>
+<span class="nc" id="L985">                correct = false;</span>
+            } else {
+<span class="nc" id="L987">                double perPoint = EquipmentType.getSupportVehicleArmorWeightPerPoint(bar, supportVee.getArmorTechRating());</span>
+<span class="nc bnc" id="L988" title="All 2 branches missed.">                if (perPoint &lt; 0.001) {</span>
+<span class="nc" id="L989">                    buff.append(&quot;BAR &quot;).append(bar).append(&quot; exceeds maximum for armor tech rating &quot;)</span>
+<span class="nc" id="L990">                            .append(ITechnology.getRatingName(supportVee.getArmorTechRating()))</span>
+<span class="nc" id="L991">                            .append(&quot;.\n&quot;);</span>
+<span class="nc" id="L992">                    correct = false;</span>
+                }
+            }
+        }
+<span class="nc bnc" id="L996" title="All 2 branches missed.">        if (supportVee instanceof VTOL) {</span>
+<span class="nc bnc" id="L997" title="All 2 branches missed.">            if (!supportVee.hasWorkingMisc(MiscType.F_MAST_MOUNT)) {</span>
+<span class="nc bnc" id="L998" title="All 2 branches missed.">                for (Mounted m : supportVee.getEquipment()) {</span>
+<span class="nc bnc" id="L999" title="All 2 branches missed.">                    if (m.getLocation() == VTOL.LOC_ROTOR) {</span>
+<span class="nc" id="L1000">                        buff.append(&quot;rotor equipment must be placed in mast mount&quot;);</span>
+<span class="nc" id="L1001">                        correct = false;</span>
+                    }
+<span class="nc" id="L1003">                }</span>
+            }
+<span class="nc bnc" id="L1005" title="All 2 branches missed.">            if (supportVee.getOArmor(VTOL.LOC_ROTOR) &gt; TestTank.VTOL_MAX_ROTOR_ARMOR) {</span>
+<span class="nc" id="L1006">                buff.append(supportVee.getOArmor(VTOL.LOC_ROTOR));</span>
+<span class="nc" id="L1007">                buff.append(&quot; points of VTOL rotor armor exceed &quot;);</span>
+<span class="nc" id="L1008">                buff.append(TestTank.VTOL_MAX_ROTOR_ARMOR);</span>
+<span class="nc" id="L1009">                buff.append(&quot;-point limit.\n\n&quot;);</span>
+<span class="nc" id="L1010">                correct = false;</span>
+            }
+        }
+<span class="nc" id="L1013">        int hardpoints = 0;</span>
+<span class="nc" id="L1014">        boolean sponson = false;</span>
+<span class="nc" id="L1015">        boolean pintle = false;</span>
+<span class="nc bnc" id="L1016" title="All 2 branches missed.">        for (Mounted m : supportVee.getMisc()) {</span>
+<span class="nc bnc" id="L1017" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_ARMORED_MOTIVE_SYSTEM)</span>
+<span class="nc bnc" id="L1018" title="All 4 branches missed.">                    &amp;&amp; (getEntity() instanceof Aero || getEntity() instanceof VTOL)) {</span>
+<span class="nc" id="L1019">                buff.append(&quot;Armored Motive system and incompatible movemement mode!\n\n&quot;);</span>
+<span class="nc" id="L1020">                correct = false;</span>
+<span class="nc bnc" id="L1021" title="All 2 branches missed.">            } else if (m.getType().hasFlag(MiscType.F_LIFEBOAT)</span>
+<span class="nc bnc" id="L1022" title="All 2 branches missed.">                    &amp;&amp; m.getType().hasSubType(MiscType.S_MARITIME_ESCAPE_POD | MiscType.S_MARITIME_LIFEBOAT)</span>
+<span class="nc bnc" id="L1023" title="All 2 branches missed.">                    &amp;&amp; !SVType.NAVAL.equals(SVType.getVehicleType(supportVee))</span>
+<span class="nc bnc" id="L1024" title="All 2 branches missed.">                    &amp;&amp; !supportVee.hasWorkingMisc(MiscType.F_AMPHIBIOUS)) {</span>
+<span class="nc" id="L1025">                buff.append(m.getName()).append(&quot; requires naval support vehicle or amphibious chassis modification.\n&quot;);</span>
+<span class="nc" id="L1026">                correct = false;</span>
+<span class="nc bnc" id="L1027" title="All 2 branches missed.">            } else if (m.getType().hasFlag(MiscType.F_EXTERNAL_STORES_HARDPOINT)) {</span>
+<span class="nc" id="L1028">                hardpoints++;</span>
+<span class="nc bnc" id="L1029" title="All 2 branches missed.">            } else if (m.getType().hasFlag(MiscType.F_SPONSON_TURRET)) {</span>
+<span class="nc" id="L1030">                sponson = true;</span>
+<span class="nc bnc" id="L1031" title="All 2 branches missed.">            } else if (m.getType().hasFlag(MiscType.F_PINTLE_TURRET)) {</span>
+<span class="nc" id="L1032">                pintle = true;</span>
+            }
+<span class="nc" id="L1034">        }</span>
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">        if (hardpoints &gt; supportVee.getWeight() / 10.0) {</span>
+<span class="nc" id="L1036">            buff.append(&quot;Exceeds maximum of one external stores hardpoint per 10 tons.\n&quot;);</span>
+<span class="nc" id="L1037">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1039" title="All 4 branches missed.">        if (sponson &amp;&amp; !canUseSponsonTurret()) {</span>
+<span class="nc" id="L1040">            buff.append(&quot;Only medium and large surface vehicles can use a sponson turret.\n&quot;);</span>
+<span class="nc" id="L1041">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1043" title="All 4 branches missed.">        if (sponson &amp;&amp; supportVee.getOriginalJumpMP() &gt; 0) {</span>
+<span class="nc" id="L1044">            buff.append(&quot;Cannot mount both jump jets and sponson turrets.\n&quot;);</span>
+<span class="nc" id="L1045">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1047" title="All 4 branches missed.">        if (pintle &amp;&amp; !canUsePintleTurret()) {</span>
+<span class="nc" id="L1048">            buff.append(&quot;Only small surface support vehicles can use a pintle turret.\n&quot;);</span>
+<span class="nc" id="L1049">            correct = false;</span>
+        }
+<span class="nc" id="L1051">        double weaponWeight = 0.0;</span>
+<span class="nc bnc" id="L1052" title="All 2 branches missed.">        for (Mounted m : supportVee.getWeaponList()) {</span>
+<span class="nc bnc" id="L1053" title="All 2 branches missed.">            if (!isValidWeapon(m)) {</span>
+<span class="nc" id="L1054">                buff.append(m.getType().getName()).append(&quot; is not a valid weapon for this unit.\n&quot;);</span>
+<span class="nc" id="L1055">                correct = false;</span>
+            }
+<span class="nc" id="L1057">            weaponWeight += m.getTonnage();</span>
+<span class="nc" id="L1058">        }</span>
+<span class="nc bnc" id="L1059" title="All 4 branches missed.">        if (supportVee.isOmni() &amp;&amp; (supportVee.hasWorkingMisc(MiscType.F_BASIC_FIRECONTROL)</span>
+<span class="nc bnc" id="L1060" title="All 2 branches missed.">                    || supportVee.hasWorkingMisc(MiscType.F_ADVANCED_FIRECONTROL))</span>
+<span class="nc bnc" id="L1061" title="All 2 branches missed.">                &amp;&amp; (weaponWeight / 10.0 &gt; supportVee.getBaseChassisFireConWeight())) {</span>
+<span class="nc" id="L1062">            buff.append(&quot;Omni configuration exceeds weapon capacity of base chassis fire control system.\n&quot;);</span>
+<span class="nc" id="L1063">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1065" title="All 2 branches missed.">        for (Mounted m : supportVee.getEquipment()) {</span>
+<span class="nc bnc" id="L1066" title="All 4 branches missed.">            if ((m.getType() instanceof MiscType) &amp;&amp; !m.getType().hasFlag(MiscType.F_SUPPORT_TANK_EQUIPMENT)) {</span>
+<span class="nc" id="L1067">                buff.append(m.getType().getName()).append(&quot; cannot be used by support vehicles.\n&quot;);</span>
+<span class="nc" id="L1068">                correct = false;</span>
+<span class="nc bnc" id="L1069" title="All 2 branches missed.">            } else if ((supportVee.getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT)</span>
+<span class="nc bnc" id="L1070" title="All 2 branches missed.">                    &amp;&amp; (((m.getType() instanceof WeaponType)</span>
+<span class="nc bnc" id="L1071" title="All 2 branches missed.">                        &amp;&amp; !m.getType().hasFlag(WeaponType.F_INFANTRY))</span>
+<span class="nc bnc" id="L1072" title="All 4 branches missed.">                    || ((m.getType() instanceof MiscType) &amp;&amp; m.getType().hasFlag(MiscType.F_HEAVY_EQUIPMENT)))) {</span>
+<span class="nc" id="L1073">                buff.append(&quot;Small support vehicles cannot mount heavy weapons or equipment (&quot;)</span>
+<span class="nc" id="L1074">                        .append(m.getName()).append(&quot;).\n&quot;);</span>
+<span class="nc" id="L1075">                correct = false;</span>
+<span class="nc bnc" id="L1076" title="All 2 branches missed.">            } else if ((m.getType() instanceof WeaponType)</span>
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">                    &amp;&amp; (supportVee.getWeightClass() != EntityWeightClass.WEIGHT_SMALL_SUPPORT)</span>
+<span class="nc bnc" id="L1078" title="All 2 branches missed.">                    &amp;&amp; !m.getType().hasFlag(WeaponType.F_TANK_WEAPON)) {</span>
+<span class="nc" id="L1079">                buff.append(m.getType().getName()).append(&quot; cannot be used by support vehicles.\n&quot;);</span>
+<span class="nc" id="L1080">                correct = false;</span>
+<span class="nc bnc" id="L1081" title="All 2 branches missed.">            } else if (!TestTank.legalForMotiveType(m.getType(), supportVee.getMovementMode(), true)) {</span>
+<span class="nc" id="L1082">                buff.append(m.getType().getName()).append(&quot; is incompatible with &quot;)</span>
+<span class="nc" id="L1083">                        .append(supportVee.getMovementModeAsString());</span>
+<span class="nc" id="L1084">                correct = false;</span>
+            }
+<span class="nc" id="L1086">        }</span>
+<span class="nc bnc" id="L1087" title="All 2 branches missed.">        for (int loc = 0; loc &lt; supportVee.locations(); loc++) {</span>
+<span class="nc" id="L1088">            int count = 0;</span>
+<span class="nc bnc" id="L1089" title="All 2 branches missed.">            for (Mounted misc : supportVee.getMisc()) {</span>
+<span class="nc bnc" id="L1090" title="All 4 branches missed.">                if ((misc.getLocation() == loc) &amp;&amp; misc.getType().hasFlag(MiscType.F_MANIPULATOR)) {</span>
+<span class="nc" id="L1091">                    count++;</span>
+                }
+<span class="nc" id="L1093">            }</span>
+<span class="nc bnc" id="L1094" title="All 2 branches missed.">            if (count &gt; 2) {</span>
+<span class="nc" id="L1095">                buff.append(&quot;max of 2 manipulators per location&quot;);</span>
+<span class="nc" id="L1096">                correct = false;</span>
+<span class="nc" id="L1097">                break;</span>
+            }
+        }
+<span class="nc bnc" id="L1100" title="All 4 branches missed.">        if (supportVee.isAero() &amp;&amp; testAero.hasMismatchedLateralWeapons(buff)) {</span>
+<span class="nc" id="L1101">            correct = false;</span>
+        }
+
+<span class="nc bnc" id="L1104" title="All 2 branches missed.">        if (hasIllegalChassisMods(buff)) {</span>
+<span class="nc" id="L1105">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1107" title="All 2 branches missed.">        if (hasInsufficientSeating(buff)) {</span>
+<span class="nc" id="L1108">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1110" title="All 4 branches missed.">        if (showFailedEquip() &amp;&amp; hasFailedEquipment(buff)) {</span>
+<span class="nc" id="L1111">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1113" title="All 2 branches missed.">        if (hasIllegalTechLevels(buff, ammoTechLvl)) {</span>
+<span class="nc" id="L1114">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1116" title="All 4 branches missed.">        if (showIncorrectIntroYear() &amp;&amp; hasIncorrectIntroYear(buff)) {</span>
+<span class="nc" id="L1117">            correct = false;</span>
+        }
+<span class="nc bnc" id="L1119" title="All 2 branches missed.">        if (hasIllegalEquipmentCombinations(buff)) {</span>
+<span class="nc" id="L1120">            correct = false;</span>
+        }
+
+<span class="nc bnc" id="L1123" title="All 2 branches missed.">        if (!correctCriticals(buff)) {</span>
+<span class="nc" id="L1124">            correct = false;</span>
+        }
+<span class="nc" id="L1126">        return correct;</span>
+    }
+
+    @Override
+    public boolean hasIllegalEquipmentCombinations(StringBuffer buffer) {
+<span class="nc" id="L1131">        boolean illegal = super.hasIllegalEquipmentCombinations(buffer);</span>
+<span class="nc bnc" id="L1132" title="All 2 branches missed.">        for (Mounted mounted : supportVee.getMisc()) {</span>
+<span class="nc bnc" id="L1133" title="All 2 branches missed.">            if (mounted.getType().hasFlag(MiscType.F_ARMORED_CHASSIS)</span>
+<span class="nc bnc" id="L1134" title="All 2 branches missed.">                    || mounted.getType().hasFlag(MiscType.F_AMPHIBIOUS)</span>
+<span class="nc bnc" id="L1135" title="All 2 branches missed.">                    || mounted.getType().hasFlag(MiscType.F_ENVIRONMENTAL_SEALING)</span>
+<span class="nc bnc" id="L1136" title="All 2 branches missed.">                    || mounted.getType().hasFlag(MiscType.F_SUBMERSIBLE)) {</span>
+<span class="nc bnc" id="L1137" title="All 2 branches missed.">                for (int loc = supportVee.firstArmorIndex(); loc &lt; supportVee.locations(); loc++) {</span>
+                    // Tanks have the body location first. Aero SVs have it last, but also have the
+                    // squadron wings location.
+<span class="nc bnc" id="L1140" title="All 4 branches missed.">                    if (supportVee.isAero() &amp;&amp; (loc &gt;= FixedWingSupport.LOC_WINGS)) {</span>
+<span class="nc" id="L1141">                        break;</span>
+                    }
+<span class="nc bnc" id="L1143" title="All 2 branches missed.">                    if (supportVee.getOArmor(loc) == 0) {</span>
+<span class="nc" id="L1144">                        buffer.append(mounted.getType().getName())</span>
+<span class="nc" id="L1145">                                .append(&quot; requires at least one point of armor in every location.\n&quot;);</span>
+<span class="nc" id="L1146">                        illegal = true;</span>
+<span class="nc" id="L1147">                        break;</span>
+                    }
+                }
+<span class="nc" id="L1150">                break;</span>
+            }
+<span class="nc" id="L1152">        }</span>
+<span class="nc" id="L1153">        return illegal;</span>
+    }
+
+    boolean hasIllegalChassisMods(StringBuffer buff) {
+<span class="nc" id="L1157">        boolean illegal = false;</span>
+<span class="nc" id="L1158">        final Set&lt;ChassisModification&gt; chassisMods = supportVee.getMisc().stream()</span>
+<span class="nc" id="L1159">                .filter(m -&gt; m.getType().hasFlag(MiscType.F_CHASSIS_MODIFICATION))</span>
+<span class="nc" id="L1160">                .map(m -&gt; ChassisModification.getChassisMod(m.getType()))</span>
+<span class="nc" id="L1161">                .filter(Objects::nonNull).collect(Collectors.toSet());</span>
+<span class="nc bnc" id="L1162" title="All 2 branches missed.">        if (!chassisMods.contains(ChassisModification.ARMORED)) {</span>
+<span class="nc bnc" id="L1163" title="All 2 branches missed.">            if (!supportVee.hasBARArmor(supportVee.firstArmorIndex())) {</span>
+<span class="nc" id="L1164">                buff.append(&quot;Advanced armor requires the Armored Chassis Mod.\n&quot;);</span>
+<span class="nc" id="L1165">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1167" title="All 2 branches missed.">            if (EquipmentType.getSupportVehicleArmorWeightPerPoint(</span>
+<span class="nc" id="L1168">                    supportVee.getBARRating(supportVee.firstArmorIndex()),</span>
+<span class="nc" id="L1169">                            supportVee.getArmorTechRating()) &gt; 0.05) {</span>
+<span class="nc" id="L1170">                buff.append(&quot;Armor heavier than 50kg/point requires the Armored Chassis Mod.\n&quot;);</span>
+<span class="nc" id="L1171">                illegal = true;</span>
+            }
+        }
+<span class="nc bnc" id="L1174" title="All 4 branches missed.">        if (supportVee.isAero() &amp;&amp; SVEngine.getEngineType(supportVee.getEngine()).electric</span>
+<span class="nc bnc" id="L1175" title="All 2 branches missed.">                &amp;&amp; !chassisMods.contains(ChassisModification.PROP)) {</span>
+<span class="nc" id="L1176">            buff.append(&quot;Fixed Wing and Airship support vehicles with electric engines requires the Prop Chassis Mod.\n&quot;);</span>
+<span class="nc" id="L1177">            illegal = true;</span>
+        }
+<span class="nc bnc" id="L1179" title="All 2 branches missed.">        if ((supportVee.getEngine().getEngineType() == Engine.EXTERNAL)</span>
+<span class="nc bnc" id="L1180" title="All 2 branches missed.">                &amp;&amp; !chassisMods.contains(ChassisModification.EXTERNAL_POWER_PICKUP)) {</span>
+<span class="nc" id="L1181">            buff.append(&quot;An external engine requires the External Power Pickup Chassis Mod.\n&quot;);</span>
+<span class="nc" id="L1182">            illegal = true;</span>
+        }
+<span class="nc bnc" id="L1184" title="All 2 branches missed.">        if (chassisMods.contains(ChassisModification.HYDROFOIL)</span>
+<span class="nc bnc" id="L1185" title="All 2 branches missed.">                &amp;&amp; (supportVee.getWeight() &gt; 100.0)) {</span>
+<span class="nc" id="L1186">            buff.append(&quot;The Hydrofoil Chassis Mod may not be used on naval support vehicles larger than 100 tons.\n&quot;);</span>
+<span class="nc" id="L1187">            illegal = true;</span>
+        }
+<span class="nc bnc" id="L1189" title="All 4 branches missed.">        if (chassisMods.contains(ChassisModification.CONVERTIBLE)</span>
+<span class="nc bnc" id="L1190" title="All 2 branches missed.">                &amp;&amp; (supportVee instanceof Tank) &amp;&amp; !((Tank) supportVee).hasNoTurret()) {</span>
+<span class="nc" id="L1191">            buff.append(&quot;The Convertible Chassis Mod may not be used with a turret.\n&quot;);</span>
+<span class="nc" id="L1192">            illegal = true;</span>
+        }
+<span class="nc bnc" id="L1194" title="All 2 branches missed.">        for (ChassisModification mod : chassisMods) {</span>
+<span class="nc bnc" id="L1195" title="All 2 branches missed.">            if (!mod.allowedTypes.contains(SVType.getVehicleType(supportVee))) {</span>
+<span class="nc" id="L1196">                buff.append(mod.equipment.getName())</span>
+<span class="nc" id="L1197">                        .append(&quot; is not valid for &quot;)</span>
+<span class="nc" id="L1198">                        .append(supportVee.getMovementModeAsString())</span>
+<span class="nc" id="L1199">                        .append(&quot;\n&quot;);</span>
+<span class="nc" id="L1200">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1202" title="All 4 branches missed.">            if (mod.smallOnly &amp;&amp; (supportVee.getWeightClass() != EntityWeightClass.WEIGHT_SMALL_SUPPORT)) {</span>
+<span class="nc" id="L1203">                buff.append(mod.equipment.getName())</span>
+<span class="nc" id="L1204">                        .append(&quot; is only valid with small support vehicles.\n&quot;);</span>
+<span class="nc" id="L1205">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1207" title="All 2 branches missed.">            if (!mod.validFor(supportVee)) {</span>
+<span class="nc" id="L1208">                buff.append(&quot;Incompatible chassis mod: &quot;)</span>
+<span class="nc" id="L1209">                        .append(mod.equipment.getName())</span>
+<span class="nc" id="L1210">                        .append(&quot;\n&quot;);</span>
+<span class="nc" id="L1211">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1213" title="All 2 branches missed.">            for (ChassisModification mod2 : chassisMods) {</span>
+                // Only compare to mods with higher ordinals to make sure each combination
+                // only gets checked once.
+<span class="nc bnc" id="L1216" title="All 2 branches missed.">                if ((mod2.ordinal() &gt; mod.ordinal())</span>
+<span class="nc bnc" id="L1217" title="All 2 branches missed.">                        &amp;&amp; !mod.compatibleWith(mod2)) {</span>
+<span class="nc" id="L1218">                    buff.append(mod.equipment.getName())</span>
+<span class="nc" id="L1219">                            .append(&quot; is incompatible with &quot;)</span>
+<span class="nc" id="L1220">                            .append(mod2.equipment.getName())</span>
+<span class="nc" id="L1221">                            .append(&quot;\n&quot;);</span>
+<span class="nc" id="L1222">                    illegal = true;</span>
+                }
+<span class="nc" id="L1224">            }</span>
+<span class="nc" id="L1225">        }</span>
+<span class="nc" id="L1226">        return illegal;</span>
+    }
+
+    boolean hasInsufficientSeating(StringBuffer buff) {
+        // Small SVs are required to provide seating for all crew. M/L have
+        // seating provided as part of the structure.
+<span class="nc bnc" id="L1232" title="All 2 branches missed.">        if (supportVee.getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc" id="L1233">            int minCrew = Compute.getFullCrewSize(supportVee);</span>
+            // Pillion and ejection seating are subclasses of StandardSeatCargoBay
+<span class="nc" id="L1235">            int seating = supportVee.getTransports().stream()</span>
+<span class="nc" id="L1236">                    .filter(t -&gt; t instanceof StandardSeatCargoBay)</span>
+<span class="nc" id="L1237">                    .mapToInt(t -&gt; (int) ((Bay) t).getCapacity())</span>
+<span class="nc" id="L1238">                    .sum();</span>
+<span class="nc bnc" id="L1239" title="All 2 branches missed.">            if (seating &lt; minCrew) {</span>
+<span class="nc" id="L1240">                buff.append(&quot;Minimum crew is &quot;).append(minCrew)</span>
+<span class="nc" id="L1241">                        .append(&quot; but there is only seating for &quot;)</span>
+<span class="nc" id="L1242">                        .append(seating).append(&quot;.\n&quot;);</span>
+<span class="nc" id="L1243">                return true;</span>
+            }
+        }
+<span class="nc" id="L1246">        return false;</span>
+    }
+
+    private boolean isValidWeapon(Mounted weapon) {
+<span class="nc bnc" id="L1250" title="All 2 branches missed.">        if (supportVee.getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc bnc" id="L1251" title="All 2 branches missed.">            return weapon.getType().hasFlag(WeaponType.F_INFANTRY)</span>
+<span class="nc bnc" id="L1252" title="All 2 branches missed.">                    &amp;&amp; !weapon.getType().hasFlag(WeaponType.F_INFANTRY_ONLY);</span>
+        } else {
+<span class="nc" id="L1254">            return weapon.getType().hasFlag(WeaponType.F_TANK_WEAPON);</span>
+        }
+    }
+
+    public boolean correctCriticals(StringBuffer buff) {
+<span class="nc" id="L1259">        List&lt;Mounted&gt; unallocated = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1260">        boolean correct = true;</span>
+
+<span class="nc bnc" id="L1262" title="All 2 branches missed.">        for (Mounted mount : supportVee.getMisc()) {</span>
+<span class="nc bnc" id="L1263" title="All 2 branches missed.">            if ((mount.getLocation() == Entity.LOC_NONE)</span>
+<span class="nc bnc" id="L1264" title="All 2 branches missed.">                    &amp;&amp; (mount.getType().getSupportVeeSlots(supportVee) != 0)) {</span>
+<span class="nc" id="L1265">                unallocated.add(mount);</span>
+            }
+<span class="nc" id="L1267">        }</span>
+<span class="nc bnc" id="L1268" title="All 2 branches missed.">        for (Mounted mount : supportVee.getWeaponList()) {</span>
+<span class="nc bnc" id="L1269" title="All 2 branches missed.">            if (mount.getLocation() == Entity.LOC_NONE) {</span>
+<span class="nc" id="L1270">                unallocated.add(mount);</span>
+            }
+<span class="nc" id="L1272">        }</span>
+<span class="nc bnc" id="L1273" title="All 2 branches missed.">        if (supportVee.getWeightClass() != EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc bnc" id="L1274" title="All 2 branches missed.">            for (Mounted mount : supportVee.getAmmo()) {</span>
+<span class="nc bnc" id="L1275" title="All 2 branches missed.">                if ((mount.getLocation() == Entity.LOC_NONE) &amp;&amp;</span>
+<span class="nc bnc" id="L1276" title="All 2 branches missed.">                        !mount.isOneShotAmmo()) {</span>
+<span class="nc" id="L1277">                    unallocated.add(mount);</span>
+                }
+<span class="nc" id="L1279">            }</span>
+        }
+
+<span class="nc bnc" id="L1282" title="All 2 branches missed.">        if (!unallocated.isEmpty()) {</span>
+<span class="nc" id="L1283">            buff.append(&quot;Unallocated Equipment:\n&quot;);</span>
+<span class="nc bnc" id="L1284" title="All 2 branches missed.">            for (Mounted mount : unallocated) {</span>
+<span class="nc" id="L1285">                buff.append(mount.getType().getInternalName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1286">            }</span>
+<span class="nc" id="L1287">            correct = false;</span>
+        }
+
+<span class="nc" id="L1290">        return correct;</span>
+    }
+
+    @Override
+    public StringBuffer printEntity() {
+<span class="nc" id="L1295">        StringBuffer buff = new StringBuffer();</span>
+<span class="nc" id="L1296">        buff.append(getName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1297">        buff.append(&quot;Found in: &quot;).append(fileString).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1298">        buff.append(printTechLevel());</span>
+<span class="nc" id="L1299">        buff.append(&quot;Intro year: &quot;).append(supportVee.getYear()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1300">        buff.append(printSource());</span>
+<span class="nc" id="L1301">        buff.append(printShortMovement());</span>
+<span class="nc bnc" id="L1302" title="All 2 branches missed.">        if (correctWeight(buff, true, true)) {</span>
+<span class="nc bnc" id="L1303" title="All 2 branches missed.">            if (!usesKgStandard()) {</span>
+<span class="nc" id="L1304">                buff.append(&quot;Weight: &quot;).append(getWeight()).append(&quot; (&quot;)</span>
+<span class="nc" id="L1305">                        .append(calculateWeight()).append(&quot;)\n&quot;);</span>
+            } else {
+<span class="nc" id="L1307">                buff.append(&quot;Weight: &quot;).append(getWeight() * 1000).append(&quot; kg (&quot;)</span>
+<span class="nc" id="L1308">                        .append(calculateWeight() * 1000).append(&quot; kg)\n&quot;);</span>
+            }
+        }
+
+<span class="nc" id="L1312">        buff.append(printWeightCalculation()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1313">        printFailedEquipment(buff);</span>
+<span class="nc" id="L1314">        return buff;</span>
+    }
+
+    public StringBuffer printSlotCalculation() {
+<span class="nc" id="L1318">        StringBuffer buff = new StringBuffer();</span>
+<span class="nc" id="L1319">        buff.append(&quot;Available slots: &quot;).append(totalSlotCount()).append(&quot;\n&quot;);</span>
+        // different engines take different amounts of slots
+
+        // JJs take just 1 slot
+<span class="nc bnc" id="L1323" title="All 2 branches missed.">        if (supportVee.getJumpMP(false) &gt; 0) {</span>
+<span class="nc" id="L1324">            buff.append(StringUtil.makeLength(&quot;Jump Jets&quot;, 30)).append(&quot;1\n&quot;);</span>
+        }
+
+<span class="nc" id="L1327">        boolean addedCargo = false;</span>
+<span class="nc bnc" id="L1328" title="All 2 branches missed.">        for (Mounted mount : supportVee.getEquipment()) {</span>
+<span class="nc bnc" id="L1329" title="All 2 branches missed.">            if ((mount.getType() instanceof MiscType)</span>
+<span class="nc bnc" id="L1330" title="All 2 branches missed.">                    &amp;&amp; mount.getType().hasFlag(MiscType.F_CARGO)) {</span>
+<span class="nc bnc" id="L1331" title="All 2 branches missed.">                if (!addedCargo) {</span>
+<span class="nc" id="L1332">                    buff.append(StringUtil.makeLength(mount.getName(), 30));</span>
+<span class="nc" id="L1333">                    buff.append(mount.getType().getSupportVeeSlots(supportVee)).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1334">                    addedCargo = true;</span>
+<span class="nc" id="L1335">                    continue;</span>
+                } else {
+                    continue;
+                }
+            }
+
+<span class="nc bnc" id="L1341" title="All 2 branches missed.">            if (!(mount.getType() instanceof AmmoType)</span>
+<span class="nc bnc" id="L1342" title="All 2 branches missed.">                    &amp;&amp; (EquipmentType.getArmorType(mount.getType()) == EquipmentType.T_ARMOR_UNKNOWN)</span>
+<span class="nc bnc" id="L1343" title="All 2 branches missed.">                    &amp;&amp; !mount.getType().hasFlag(MiscType.F_JUMP_JET)) {</span>
+<span class="nc" id="L1344">                buff.append(StringUtil.makeLength(mount.getName(), 30));</span>
+<span class="nc" id="L1345">                buff.append(mount.getType().getSupportVeeSlots(supportVee)).append(&quot;\n&quot;);</span>
+            }
+<span class="nc" id="L1347">        }</span>
+<span class="nc bnc" id="L1348" title="All 2 branches missed.">        if (getCrewSlots() &gt; 0) {</span>
+<span class="nc" id="L1349">            buff.append(StringUtil.makeLength(&quot;Crew Seats/Quarters:&quot;, 30));</span>
+<span class="nc" id="L1350">            buff.append(getCrewSlots()).append(&quot;\n&quot;);</span>
+        }
+        // different armor types take different amount of slots
+<span class="nc" id="L1353">        int armorSlots = 0;</span>
+<span class="nc bnc" id="L1354" title="All 2 branches missed.">        if (!supportVee.hasPatchworkArmor()) {</span>
+<span class="nc" id="L1355">            int at = supportVee.getArmorType(supportVee.firstArmorIndex());</span>
+<span class="nc bnc" id="L1356" title="All 2 branches missed.">            if (at == EquipmentType.T_ARMOR_STANDARD) {</span>
+                // Support vehicle armor takes slots like ferro-fibrous at BAR 10/TL E/F
+<span class="nc bnc" id="L1358" title="All 2 branches missed.">                if (supportVee.getBARRating(supportVee.firstArmorIndex()) == 10) {</span>
+<span class="nc bnc" id="L1359" title="All 2 branches missed.">                    if (supportVee.getArmorTechRating() == ITechnology.RATING_E) {</span>
+<span class="nc" id="L1360">                        armorSlots += AdvancedSVArmor.FERRO_FIBROUS.space;</span>
+<span class="nc bnc" id="L1361" title="All 2 branches missed.">                    } else if (supportVee.getArmorTechRating() == ITechnology.RATING_F) {</span>
+<span class="nc" id="L1362">                        armorSlots += AdvancedSVArmor.CLAN_FERRO_FIBROUS.space;</span>
+                    }
+                }
+            } else {
+<span class="nc" id="L1366">                AdvancedSVArmor armor = AdvancedSVArmor.getArmor(at,</span>
+<span class="nc" id="L1367">                        TechConstants.isClan(supportVee.getArmorTechLevel(supportVee.firstArmorIndex())));</span>
+<span class="nc bnc" id="L1368" title="All 2 branches missed.">                if (null != armor) {</span>
+<span class="nc" id="L1369">                    armorSlots += armor.space;</span>
+                }
+            }
+<span class="nc" id="L1372">        } else {</span>
+<span class="nc bnc" id="L1373" title="All 2 branches missed.">            for (int loc = 0; loc &lt; supportVee.locations(); loc++) {</span>
+<span class="nc" id="L1374">                AdvancedSVArmor armor = AdvancedSVArmor.getArmor(supportVee.getArmorType(loc),</span>
+<span class="nc" id="L1375">                        TechConstants.isClan(supportVee.getArmorTechLevel(loc)));</span>
+<span class="nc bnc" id="L1376" title="All 2 branches missed.">                if (null != armor) {</span>
+<span class="nc" id="L1377">                    armorSlots += armor.patchworkSpace;</span>
+                }
+            }
+        }
+<span class="nc bnc" id="L1381" title="All 2 branches missed.">        if (armorSlots != 0) {</span>
+<span class="nc" id="L1382">            buff.append(StringUtil.makeLength(&quot;Armor&quot;, 30));</span>
+<span class="nc" id="L1383">            buff.append(armorSlots).append(&quot;\n&quot;);</span>
+        }
+
+        // for ammo, each type of ammo takes one slots, regardless of
+        // submunition type
+<span class="nc" id="L1388">        Set&lt;String&gt; foundAmmo = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1389" title="All 2 branches missed.">        for (Mounted ammo : supportVee.getAmmo()) {</span>
+<span class="nc bnc" id="L1390" title="All 2 branches missed.">            if (ammo.isOneShotAmmo()) {</span>
+<span class="nc" id="L1391">                continue;</span>
+            }
+<span class="nc" id="L1393">            AmmoType at = (AmmoType) ammo.getType();</span>
+<span class="nc bnc" id="L1394" title="All 2 branches missed.">            if (!foundAmmo.contains(at.getAmmoType() + &quot;:&quot; + at.getRackSize())) {</span>
+<span class="nc" id="L1395">                buff.append(StringUtil.makeLength(at.getName(), 30));</span>
+<span class="nc" id="L1396">                buff.append(&quot;1\n&quot;);</span>
+<span class="nc" id="L1397">                foundAmmo.add(at.getAmmoType() + &quot;:&quot; + at.getRackSize());</span>
+            }
+<span class="nc" id="L1399">        }</span>
+        // if a tank has an infantry bay, add 1 slots (multiple bays take 1 slot
+        // total)
+<span class="nc" id="L1402">        boolean troopspaceFound = false;</span>
+<span class="nc bnc" id="L1403" title="All 2 branches missed.">        for (Transporter transport : supportVee.getTransports()) {</span>
+<span class="nc bnc" id="L1404" title="All 4 branches missed.">            if ((transport instanceof TroopSpace) &amp;&amp; !troopspaceFound) {</span>
+<span class="nc" id="L1405">                buff.append(StringUtil.makeLength(&quot;Troop Space&quot;, 30));</span>
+<span class="nc" id="L1406">                buff.append(&quot;1\n&quot;);</span>
+<span class="nc" id="L1407">                troopspaceFound = true;</span>
+<span class="nc bnc" id="L1408" title="All 4 branches missed.">            } else if ((transport instanceof Bay) &amp;&amp; !((Bay) transport).isQuarters()) {</span>
+<span class="nc" id="L1409">                buff.append(StringUtil.makeLength(((Bay) transport).getType(), 30))</span>
+<span class="nc" id="L1410">                        .append(&quot;1\n&quot;);</span>
+            }
+<span class="nc" id="L1412">        }</span>
+<span class="nc" id="L1413">        return buff;</span>
+    }
+
+    @Override
+    public String getName() {
+<span class="nc" id="L1418">        return &quot;Support Vehicle: &quot; + supportVee.getDisplayName();</span>
+    }
+
+    @Override
+    public double getWeightArmor() {
+<span class="nc" id="L1423">        return supportVee.getArmorWeight();</span>
+    }
+
+    /**
+     * @return   The total slot space
+     */
+    public int totalSlotCount() {
+<span class="nc" id="L1430">        return 5 + (int) Math.floor(supportVee.getWeight() / 10.0);</span>
+    }
+
+    /**
+     * @return The number of slots taken up by installed equipment
+     */
+    public int occupiedSlotCount() {
+<span class="nc" id="L1437">        return getCrewSlots() + getArmorSlots() + getAmmoSlots()</span>
+<span class="nc" id="L1438">                + getWeaponSlots() + getMiscEquipSlots() + getTransportSlots();</span>
+    }
+
+    /**
+     * @return The number of slots taken up by armor
+     */
+    public int getArmorSlots() {
+<span class="nc bnc" id="L1445" title="All 2 branches missed.">        if (!supportVee.hasPatchworkArmor()) {</span>
+<span class="nc" id="L1446">            int at = supportVee.getArmorType(supportVee.firstArmorIndex());</span>
+<span class="nc bnc" id="L1447" title="All 2 branches missed.">            if (at == EquipmentType.T_ARMOR_STANDARD) {</span>
+                // Support vehicle armor takes slots like ferro-fibrous at BAR 10/TL E/F
+<span class="nc bnc" id="L1449" title="All 2 branches missed.">                if (supportVee.getBARRating(supportVee.firstArmorIndex()) == 10) {</span>
+<span class="nc bnc" id="L1450" title="All 2 branches missed.">                    if (supportVee.getArmorTechRating() == ITechnology.RATING_E) {</span>
+<span class="nc" id="L1451">                        return AdvancedSVArmor.FERRO_FIBROUS.space;</span>
+<span class="nc bnc" id="L1452" title="All 2 branches missed.">                    } else if (supportVee.getArmorTechRating() == ITechnology.RATING_F) {</span>
+<span class="nc" id="L1453">                        return AdvancedSVArmor.CLAN_FERRO_FIBROUS.space;</span>
+                    }
+                }
+<span class="nc" id="L1456">                return 0;</span>
+            } else {
+<span class="nc" id="L1458">                AdvancedSVArmor armor = AdvancedSVArmor.getArmor(at,</span>
+<span class="nc" id="L1459">                        TechConstants.isClan(supportVee.getArmorTechLevel(supportVee.firstArmorIndex())));</span>
+<span class="nc bnc" id="L1460" title="All 2 branches missed.">                if (null != armor) {</span>
+<span class="nc" id="L1461">                    return armor.space;</span>
+                } else {
+<span class="nc" id="L1463">                    return 0;</span>
+                }
+            }
+        } else {
+<span class="nc" id="L1467">            int space = 0;</span>
+<span class="nc bnc" id="L1468" title="All 2 branches missed.">            for (int loc = 0; loc &lt; supportVee.locations(); loc++) {</span>
+<span class="nc" id="L1469">                AdvancedSVArmor armor = AdvancedSVArmor.getArmor(supportVee.getArmorType(loc),</span>
+<span class="nc" id="L1470">                        TechConstants.isClan(supportVee.getArmorTechLevel(loc)));</span>
+<span class="nc bnc" id="L1471" title="All 2 branches missed.">                if (null != armor) {</span>
+<span class="nc" id="L1472">                    space += armor.patchworkSpace;</span>
+                }
+            }
+<span class="nc" id="L1475">            return space;</span>
+        }
+    }
+
+    /**
+     * @return The number of slots taken up by weapons
+     */
+    public int getWeaponSlots() {
+<span class="nc" id="L1483">        int slots = 0;</span>
+<span class="nc bnc" id="L1484" title="All 2 branches missed.">        for (Mounted m : supportVee.getWeaponList()) {</span>
+<span class="nc" id="L1485">            slots += m.getType().getSupportVeeSlots(supportVee);</span>
+<span class="nc" id="L1486">        }</span>
+<span class="nc" id="L1487">        return slots;</span>
+    }
+
+    /**
+     * @return The number of slots taken up by ammo.
+     */
+    public int getAmmoSlots() {
+        // Small SV ammo occupies the same slot as the weapon.
+<span class="nc bnc" id="L1495" title="All 2 branches missed.">        if (supportVee.getWeightClass() == EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc" id="L1496">            return 0;</span>
+        }
+<span class="nc" id="L1498">        int slots = 0;</span>
+<span class="nc" id="L1499">        Set&lt;String&gt; foundAmmo = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1500" title="All 2 branches missed.">        for (Mounted ammo : supportVee.getAmmo()) {</span>
+            // don't count oneshot
+<span class="nc bnc" id="L1502" title="All 2 branches missed.">            if (ammo.isOneShotAmmo()) {</span>
+<span class="nc" id="L1503">                continue;</span>
+            }
+<span class="nc" id="L1505">            AmmoType at = (AmmoType) ammo.getType();</span>
+<span class="nc bnc" id="L1506" title="All 2 branches missed.">            if (!foundAmmo.contains(at.getAmmoType() + &quot;:&quot; + at.getRackSize())) {</span>
+<span class="nc" id="L1507">                slots++;</span>
+<span class="nc" id="L1508">                foundAmmo.add(at.getAmmoType() + &quot;:&quot; + at.getRackSize());</span>
+            }
+<span class="nc" id="L1510">        }</span>
+<span class="nc" id="L1511">        return slots;</span>
+    }
+
+    /**
+     * @return The number of slots taken by miscellaneous equipment.
+     */
+    public int getMiscEquipSlots() {
+<span class="nc" id="L1518">        int slots = 0;</span>
+<span class="nc bnc" id="L1519" title="All 2 branches missed.">        for (Mounted m : supportVee.getMisc()) {</span>
+            // Skip armor and jump jets
+<span class="nc bnc" id="L1521" title="All 2 branches missed.">            if ((EquipmentType.getArmorType(m.getType()) == EquipmentType.T_ARMOR_UNKNOWN)</span>
+<span class="nc bnc" id="L1522" title="All 2 branches missed.">                    &amp;&amp; !m.getType().hasFlag(MiscType.F_JUMP_JET)) {</span>
+<span class="nc" id="L1523">                slots += m.getType().getSupportVeeSlots(supportVee);</span>
+            }
+<span class="nc" id="L1525">        }</span>
+        // Jump jets take a single slot regardless of the number.
+<span class="nc bnc" id="L1527" title="All 2 branches missed.">        if (supportVee.hasWorkingMisc(MiscType.F_JUMP_JET)) {</span>
+<span class="nc" id="L1528">            slots++;</span>
+        }
+<span class="nc" id="L1530">        return slots;</span>
+    }
+
+    public static final int INDEX_FIRST_CLASS = 0;
+    public static final int INDEX_SECOND_CLASS = 1;
+    public static final int INDEX_STD_CREW = 2;
+    public static final int INDEX_STEERAGE = 3;
+    /**
+     * Calculates capacity of quarters above the minimum crew requirement. Only quarters above the minimum
+     * crew requirement take up equipment slots. Second class quarters are considered passenger accomodations
+     * and always count toward slots. Others are assigned to the least bulky type first.
+     *
+     * @param sv A support vehicle
+     * @return   An array of the count of each type of quarters that require slots. See INDEX_* constants for
+     *           indices.
+     */
+    public static int[] extraCrewQuartersCount(Entity sv) {
+<span class="nc" id="L1547">        int firstClass = 0;</span>
+<span class="nc" id="L1548">        int stdCrew = 0;</span>
+<span class="nc" id="L1549">        int steerage = 0;</span>
+<span class="nc" id="L1550">        int[] retVal = { 0, 0, 0, 0 };</span>
+<span class="nc bnc" id="L1551" title="All 2 branches missed.">        for (Transporter t : sv.getTransports()) {</span>
+<span class="nc bnc" id="L1552" title="All 2 branches missed.">            if (t instanceof FirstClassQuartersCargoBay) {</span>
+<span class="nc" id="L1553">                firstClass += ((Bay) t).getCapacity();</span>
+<span class="nc bnc" id="L1554" title="All 2 branches missed.">            } else if (t instanceof SecondClassQuartersCargoBay) {</span>
+<span class="nc" id="L1555">                retVal[INDEX_SECOND_CLASS] += ((Bay) t).getCapacity();</span>
+<span class="nc bnc" id="L1556" title="All 2 branches missed.">            } else if (t instanceof CrewQuartersCargoBay) {</span>
+<span class="nc" id="L1557">                stdCrew += ((Bay) t).getCapacity();</span>
+<span class="nc bnc" id="L1558" title="All 2 branches missed.">            } else if (t instanceof SteerageQuartersCargoBay) {</span>
+<span class="nc" id="L1559">                steerage += ((Bay) t).getCapacity();</span>
+            }
+<span class="nc" id="L1561">        }</span>
+<span class="nc" id="L1562">        int extraCrew = firstClass + stdCrew + steerage - Compute.getFullCrewSize(sv);</span>
+<span class="nc bnc" id="L1563" title="All 4 branches missed.">        if ((extraCrew &gt; 0) &amp;&amp; (steerage &gt; 0)) {</span>
+<span class="nc" id="L1564">            retVal[INDEX_STEERAGE] = Math.min(extraCrew, steerage);</span>
+<span class="nc" id="L1565">            extraCrew -= retVal[INDEX_STEERAGE];</span>
+        }
+<span class="nc bnc" id="L1567" title="All 4 branches missed.">        if ((extraCrew &gt; 0) &amp;&amp; (stdCrew &gt; 0)) {</span>
+<span class="nc" id="L1568">            retVal[INDEX_STD_CREW] = Math.min(extraCrew, stdCrew);</span>
+<span class="nc" id="L1569">            extraCrew -= retVal[INDEX_STD_CREW];</span>
+        }
+<span class="nc bnc" id="L1571" title="All 4 branches missed.">        if ((extraCrew &gt; 0) &amp;&amp; (firstClass &gt; 0)) {</span>
+<span class="nc" id="L1572">            retVal[INDEX_FIRST_CLASS] = Math.min(extraCrew, firstClass);</span>
+        }
+<span class="nc" id="L1574">        return retVal;</span>
+    }
+
+    /**
+     * Calculates the number of equipment slots taken up by crew quarters. Quarters for minimum crew
+     * do not take up slots.
+     *
+     * @return The number of equipment slots required by crew quarters.
+     */
+    public int getCrewSlots() {
+<span class="nc" id="L1584">        int[] excess = extraCrewQuartersCount(getEntity());</span>
+<span class="nc" id="L1585">        return (int) Math.ceil(excess[INDEX_FIRST_CLASS] / 5.0)</span>
+<span class="nc" id="L1586">                + (int) Math.ceil(excess[INDEX_SECOND_CLASS] / 20.0)</span>
+<span class="nc" id="L1587">                + (int) Math.ceil(excess[INDEX_STD_CREW] / 20.0)</span>
+<span class="nc" id="L1588">                + (int) Math.ceil(excess[INDEX_STEERAGE] / 50.0);</span>
+    }
+
+    /**
+     * Each distinct bay requires a slot, regardless of size. All {@link TroopSpace} is treated as a single
+     * bay.
+     *
+     * @return The number of slots required by transporters.
+     */
+    public int getTransportSlots() {
+<span class="nc" id="L1598">        int slots = 0;</span>
+<span class="nc" id="L1599">        boolean foundTroopSpace = false;</span>
+<span class="nc bnc" id="L1600" title="All 2 branches missed.">        for (Transporter t : supportVee.getTransports()) {</span>
+<span class="nc bnc" id="L1601" title="All 4 branches missed.">            if ((t instanceof Bay) &amp;&amp; !((Bay) t).isQuarters()) {</span>
+<span class="nc" id="L1602">                slots++;</span>
+<span class="nc bnc" id="L1603" title="All 4 branches missed.">            } else if ((t instanceof TroopSpace) &amp;&amp; !foundTroopSpace) {</span>
+<span class="nc" id="L1604">                slots++;</span>
+<span class="nc" id="L1605">                foundTroopSpace = true;</span>
+            }
+<span class="nc" id="L1607">        }</span>
+<span class="nc" id="L1608">        return slots;</span>
+    }
+
+<span class="nc" id="L1611">    public enum AdvancedSVArmor {</span>
+<span class="nc" id="L1612">        CLAN_FERRO_FIBROUS(EquipmentType.T_ARMOR_FERRO_FIBROUS, 1, 1, true),</span>
+<span class="nc" id="L1613">        CLAN_FERRO_ALUM(EquipmentType.T_ARMOR_ALUM, 1, 1, true),</span>
+<span class="nc" id="L1614">        FERRO_LAMELLOR(EquipmentType.T_ARMOR_FERRO_LAMELLOR, 2, 1, true),</span>
+<span class="nc" id="L1615">        CLAN_REACTIVE(EquipmentType.T_ARMOR_REACTIVE, 1, 1, true),</span>
+<span class="nc" id="L1616">        CLAN_REFLECTIVE(EquipmentType.T_ARMOR_REFLECTIVE, 1, 1, true),</span>
+<span class="nc" id="L1617">        ANTI_PENETRATIVE_ABLATION(</span>
+                EquipmentType.T_ARMOR_ANTI_PENETRATIVE_ABLATION, 1, 1, false),
+<span class="nc" id="L1619">        BALLISTIC_REINFORCED(</span>
+                EquipmentType.T_ARMOR_BALLISTIC_REINFORCED, 2, 1, false),
+<span class="nc" id="L1621">        FERRO_FIBROUS(EquipmentType.T_ARMOR_ALUM, 2, 1, false),</span>
+<span class="nc" id="L1622">        FERRO_ALUM(EquipmentType.T_ARMOR_ALUM, 2, 1, false),</span>
+<span class="nc" id="L1623">        FERRO_FIBROUS_PROTO(EquipmentType.T_ARMOR_FERRO_FIBROUS_PROTO, 3, 1, false),</span>
+<span class="nc" id="L1624">        FERRO__ALUM_PROTO(EquipmentType.T_ARMOR_FERRO_ALUM_PROTO, 3, 1, false),</span>
+<span class="nc" id="L1625">        HEAVY_FERRO_FIBROUS(EquipmentType.T_ARMOR_HEAVY_FERRO, 4, 2, false),</span>
+<span class="nc" id="L1626">        LIGHT_FERRO_FIBROUS(EquipmentType.T_ARMOR_LIGHT_FERRO, 1, 1, false),</span>
+<span class="nc" id="L1627">        HEAVY_FERRO_ALUM(EquipmentType.T_ARMOR_HEAVY_ALUM, 4, 2, false),</span>
+<span class="nc" id="L1628">        LIGHT_FERRO_ALUM(EquipmentType.T_ARMOR_LIGHT_ALUM, 1, 1, false),</span>
+<span class="nc" id="L1629">        PRIMITIVE(EquipmentType.T_ARMOR_PRIMITIVE_FIGHTER, 0, 0, false),</span>
+<span class="nc" id="L1630">        REACTIVE(EquipmentType.T_ARMOR_REACTIVE, 3, 1, false),</span>
+<span class="nc" id="L1631">        REFLECTIVE(EquipmentType.T_ARMOR_REFLECTIVE, 2, 1, false),</span>
+<span class="nc" id="L1632">        STEALTH_VEHICLE(EquipmentType.T_ARMOR_STEALTH_VEHICLE, 2, 1, false);</span>
+
+        public final int armorType;
+        /**
+         * The type, corresponding to types defined in
+         * &lt;code&gt;EquipmentType&lt;/code&gt;.
+         */
+        public final EquipmentType eqType;
+
+        /**
+         * The number of spaces occupied by the armor type.
+         */
+        public final int space;
+
+        /**
+         * The number of weapon spaces occupied by patchwork armor.
+         */
+        public final int patchworkSpace;
+
+        /**
+         * Denotes whether this armor is Clan or not.
+         */
+        public final boolean isClan;
+
+<span class="nc" id="L1656">        AdvancedSVArmor(int at, int space, int patchworkSpace, boolean clan){</span>
+<span class="nc" id="L1657">            this.armorType = at;</span>
+<span class="nc" id="L1658">            eqType = EquipmentType.get(EquipmentType.getArmorTypeName(at, clan));</span>
+<span class="nc" id="L1659">            this.space = space;</span>
+<span class="nc" id="L1660">            this.patchworkSpace = patchworkSpace;</span>
+<span class="nc" id="L1661">            isClan = clan;</span>
+<span class="nc" id="L1662">        }</span>
+
+        /**
+         * Given an armor type, return the &lt;code&gt;AdvancedSVArmor&lt;/code&gt; instance that
+         * represents that type.
+         *
+         * @param at The armor type.
+         * @param c  Whether this armor type is Clan or not.
+         * @return   The &lt;code&gt;AdvancedSVArmor&lt;/code&gt; that correspondes to the given
+         *              type or null if no match was found.
+         */
+        public static @Nullable AdvancedSVArmor getArmor(int at, boolean c){
+<span class="nc bnc" id="L1674" title="All 2 branches missed.">            for (AdvancedSVArmor a : values()){</span>
+<span class="nc bnc" id="L1675" title="All 4 branches missed.">                if ((a.armorType == at) &amp;&amp; (a.isClan == c)) {</span>
+<span class="nc" id="L1676">                    return a;</span>
+                }
+            }
+<span class="nc" id="L1679">            return null;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

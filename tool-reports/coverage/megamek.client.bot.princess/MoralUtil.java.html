@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MoralUtil.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">MoralUtil.java</span></div><h1>MoralUtil.java</h1><pre class="source lang-java linenums">/*
+ * MoralUtilImpl.java
+ *
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.bot.princess;
+
+import megamek.common.Compute;
+import megamek.common.Entity;
+import megamek.common.IGame;
+import megamek.common.IPlayer;
+import megamek.common.Infantry;
+import megamek.common.Protomech;
+import megamek.common.logging.MMLogger;
+
+import java.text.DecimalFormat;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Method for handling moral with Princess.
+ *
+ * @author Deric Page &lt;deric dot page at gmail dot com&gt;
+ * @since: 5/13/14 8:36 AM
+ * @version: %Id%
+ */
+public class MoralUtil implements IMoralUtil {
+
+<span class="nc" id="L41">    private static final DecimalFormat DEC_FORMAT = new DecimalFormat(&quot;0.00&quot;);</span>
+
+<span class="nc" id="L43">    private final Set&lt;Integer&gt; BROKEN_UNITS = Collections.newSetFromMap(new ConcurrentHashMap&lt;&gt;());</span>
+
+    private final MMLogger logger;
+
+<span class="nc" id="L47">    public MoralUtil(MMLogger logger) {</span>
+<span class="nc" id="L48">        this.logger = logger;</span>
+<span class="nc" id="L49">    }</span>
+
+    @Override
+    public boolean isUnitBroken(int unitId) {
+<span class="nc" id="L53">        return BROKEN_UNITS.contains(unitId);</span>
+    }
+
+    @Override
+    public void checkMoral(boolean forcedWithdrawal, int bravery, int selfPreservation, IPlayer player, IGame game) {
+<span class="nc" id="L58">        StringBuilder logMsg = new StringBuilder(&quot;Starting moral checks for &quot;).append(player.getName());</span>
+
+        try {
+
+            // These mods don't vary by unit.
+<span class="nc" id="L63">            int bvMod = calcBvRatioMod(player, game, logMsg);</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">            logMsg.append(&quot; (&quot;).append(bvMod &gt;= 0 ? &quot;+&quot; : &quot;&quot;).append(bvMod).append(&quot;)&quot;);</span>
+
+<span class="nc" id="L66">            int braveryMod = calcBehaviorMod(bravery);</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">            logMsg.append(&quot;\n\tBravery &quot;).append(bravery).append(&quot; (&quot;).append(braveryMod &gt;= 0 ? &quot;+&quot; : &quot;&quot;)</span>
+<span class="nc" id="L68">                  .append(braveryMod).append(&quot;)&quot;);</span>
+
+<span class="nc" id="L70">            int selfPreservationMod = -calcBehaviorMod(selfPreservation);</span>
+<span class="nc" id="L71">            logMsg.append(&quot;\n\tSelf Preservation &quot;).append(selfPreservation).append(&quot; (&quot;)</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">                  .append(selfPreservationMod &gt;= 0 ? &quot;+&quot; : &quot;&quot;).append(selfPreservationMod).append(&quot;)&quot;);</span>
+
+            // Loop through all the units controlled by this player.
+<span class="nc bnc" id="L75" title="All 2 branches missed.">            for (Entity unit : game.getPlayerEntities(player, true)) {</span>
+
+<span class="nc" id="L77">                logMsg.append(&quot;\n\tUnit &quot;).append(unit.getDisplayName());</span>
+
+                // If the unit is already off board, it doesn't really matter.
+<span class="nc bnc" id="L80" title="All 4 branches missed.">                if (unit.isOffBoard() || (unit.getPosition() == null)) {</span>
+<span class="nc" id="L81">                    logMsg.append(&quot;\n\t\tIs off board; skipping.&quot;);</span>
+<span class="nc" id="L82">                    continue;</span>
+                }
+
+                // If this unit is already broken, we need to check to see if it will rally.
+<span class="nc" id="L86">                int unitId = unit.getId();</span>
+<span class="nc" id="L87">                boolean rally = BROKEN_UNITS.contains(unitId);</span>
+<span class="nc" id="L88">                logMsg.append(&quot;\n\t\tNeeds to rally: &quot;).append(rally);</span>
+
+                // Base target number is 2 for a regular check or 6 for a rally check.
+<span class="nc bnc" id="L91" title="All 2 branches missed.">                int targetNumber = rally ? 6 : 2;</span>
+<span class="nc" id="L92">                logMsg.append(&quot;\n\t\tBase Target Number = &quot;).append(targetNumber);</span>
+
+                // If the unit is crippled and forced withdrawal is in effect, the unit will automatically break.
+<span class="nc" id="L95">                targetNumber += calcDamageMod(unit, forcedWithdrawal, logMsg);</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">                if (targetNumber &gt;= 12) {</span>
+<span class="nc" id="L97">                    addBrokenUnit(unitId);</span>
+<span class="nc" id="L98">                    continue;</span>
+                }
+
+                // Get the other unit-specific mods.
+<span class="nc" id="L102">                targetNumber += calcExperienceMod(unit, logMsg);</span>
+
+                // Add in the general mods.
+<span class="nc" id="L105">                targetNumber += braveryMod;</span>
+<span class="nc" id="L106">                targetNumber += selfPreservationMod;</span>
+<span class="nc" id="L107">                targetNumber += bvMod;</span>
+<span class="nc" id="L108">                logMsg.append(&quot;\n\t\tFinal Target Number = &quot;).append(targetNumber);</span>
+
+                // If the target number is 12+ or 2-, there's no point in rolling.
+<span class="nc bnc" id="L111" title="All 2 branches missed.">                if (targetNumber &gt;= 12) {</span>
+<span class="nc" id="L112">                    addBrokenUnit(unitId);</span>
+<span class="nc" id="L113">                    continue;</span>
+                }
+<span class="nc bnc" id="L115" title="All 2 branches missed.">                if (targetNumber &lt;= 2) {</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">                    if (rally) {</span>
+<span class="nc" id="L117">                        removeBrokenUnit(unitId);</span>
+                    }
+                    continue;
+                }
+
+                // Roll the moral check.
+<span class="nc" id="L123">                int roll = rollDice();</span>
+<span class="nc" id="L124">                logMsg.append(&quot;\n\t\tRolled &quot;).append(roll);</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">                if (roll &lt; targetNumber) {</span>
+<span class="nc" id="L126">                    addBrokenUnit(unitId);</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">                } else if (rally) {</span>
+<span class="nc" id="L128">                    removeBrokenUnit(unitId);</span>
+                }
+<span class="nc" id="L130">            }</span>
+        } finally {
+<span class="nc" id="L132">            logger.info(logMsg.toString());</span>
+        }
+<span class="nc" id="L134">    }</span>
+
+    /**
+     * @param unitId The ID of the {@link Entity} to be added to the broken units list.
+     */
+    protected void addBrokenUnit(int unitId) {
+<span class="nc" id="L140">        BROKEN_UNITS.add(unitId);</span>
+<span class="nc" id="L141">    }</span>
+
+    /**
+     * @param unitId The ID of the {@link Entity} to be removed from the broken units list.
+     */
+    protected void removeBrokenUnit(int unitId) {
+<span class="nc" id="L147">        BROKEN_UNITS.remove(unitId);</span>
+<span class="nc" id="L148">    }</span>
+
+    /**
+     * @return The result of a 2d6 roll from {@link Compute#d6(int)}
+     */
+    protected int rollDice() {
+<span class="nc" id="L154">        return Compute.d6(2);</span>
+    }
+
+    private int calcBvRatioMod(IPlayer player, IGame game, StringBuilder logMsg) {
+<span class="nc" id="L158">        int friendlyBv = 0;</span>
+<span class="nc" id="L159">        int enemyBv = 0;</span>
+
+        // Loop through every entity in the game.
+<span class="nc" id="L162">        List&lt;Entity&gt; allEntities = game.getEntitiesVector();</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">        for (Entity entity : allEntities) {</span>
+
+            // Ignore units not on the board.
+<span class="nc bnc" id="L166" title="All 4 branches missed.">            if ((entity.getPosition() == null) || entity.isOffBoard()) {</span>
+<span class="nc" id="L167">                continue;</span>
+            }
+
+            // If this is an enemy unit add it's BV to the enemy BV total, otherwise add it to the friendly BV total
+            // so long as it's not broken and still on the board.
+<span class="nc bnc" id="L172" title="All 2 branches missed.">            if (entity.getOwner().isEnemyOf(player)) {</span>
+<span class="nc" id="L173">                enemyBv += entity.calculateBattleValue();</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">            } else if (!BROKEN_UNITS.contains(entity.getId())) {</span>
+<span class="nc" id="L175">                friendlyBv += entity.calculateBattleValue();</span>
+            }
+<span class="nc" id="L177">        }</span>
+
+        // The target number mod is based on the friendly : enemy BV ratio.
+<span class="nc" id="L180">        float ratio = (float) friendlyBv / enemyBv;</span>
+<span class="nc" id="L181">        logMsg.append(&quot;\n\tBV Ratio = &quot;).append(friendlyBv).append(&quot; / &quot;).append(enemyBv).append(&quot; = &quot;)</span>
+<span class="nc" id="L182">              .append(DEC_FORMAT.format(ratio));</span>
+
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if (ratio &gt;= 3.0) {</span>
+<span class="nc" id="L185">            return -4;</span>
+        }
+<span class="nc bnc" id="L187" title="All 2 branches missed.">        if (ratio &gt;= 2.5) {</span>
+<span class="nc" id="L188">            return -3;</span>
+        }
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        if (ratio &gt;= 2.0) {</span>
+<span class="nc" id="L191">            return -2;</span>
+        }
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        if (ratio &gt;= 1.5) {</span>
+<span class="nc" id="L194">            return -1;</span>
+        }
+<span class="nc bnc" id="L196" title="All 2 branches missed.">        if (ratio &gt;= 0.67) {</span>
+<span class="nc" id="L197">            return 0;</span>
+        }
+<span class="nc bnc" id="L199" title="All 2 branches missed.">        if (ratio &gt; 0.5) {</span>
+<span class="nc" id="L200">            return 1;</span>
+        }
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        if (ratio &gt; 0.4) {</span>
+<span class="nc" id="L203">            return 2;</span>
+        }
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        if (ratio &gt; 0.33) {</span>
+<span class="nc" id="L206">            return 3;</span>
+        }
+<span class="nc" id="L208">        return 4;</span>
+    }
+
+    private int calcBehaviorMod(int behavior) {
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        if (behavior == 0) {</span>
+<span class="nc" id="L213">            return 3;</span>
+        }
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        if (behavior == 1) {</span>
+<span class="nc" id="L216">            return 2;</span>
+        }
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        if (behavior &lt;= 3) {</span>
+<span class="nc" id="L219">            return 1;</span>
+        }
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        if (behavior &lt;= 6) {</span>
+<span class="nc" id="L222">            return 0;</span>
+        }
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        if (behavior &lt;= 8) {</span>
+<span class="nc" id="L225">            return -1;</span>
+        }
+<span class="nc bnc" id="L227" title="All 2 branches missed.">        if (behavior == 9) {</span>
+<span class="nc" id="L228">            return -2;</span>
+        }
+<span class="nc" id="L230">        return -3;</span>
+    }
+
+    private int calcDamageMod(Entity unit, boolean forcedWithdrawal, StringBuilder logMsg) {
+
+        // Crippled units automatically withdraw if Forced Withdrawal is in effect.
+<span class="nc bnc" id="L236" title="All 4 branches missed.">        if (unit.isCrippled() &amp;&amp; forcedWithdrawal) {</span>
+<span class="nc" id="L237">            logMsg.append(&quot;\n\t\tCrippled and forced to withdraw.&quot;);</span>
+<span class="nc" id="L238">            return 12;</span>
+        }
+
+<span class="nc" id="L241">        int dmgLevel = unit.getDamageLevel();</span>
+<span class="nc" id="L242">        logMsg.append(&quot;\n\t\tDamage Level &quot;).append(dmgLevel).append(&quot; (+&quot;).append(dmgLevel).append(&quot;)&quot;);</span>
+<span class="nc" id="L243">        return dmgLevel;</span>
+    }
+
+    // More experienced pilots are less likely to break.
+    private int calcExperienceMod(Entity unit, StringBuilder logMsg) {
+<span class="nc" id="L248">        final float greenThreshold = 5.5F;</span>
+<span class="nc" id="L249">        final float regularThreshold = 4.0F;</span>
+<span class="nc" id="L250">        final float veteranThreshold = 2.5F;</span>
+
+        float skillAverage;
+<span class="nc bnc" id="L253" title="All 4 branches missed.">        if (unit instanceof Infantry || unit instanceof Protomech) {</span>
+<span class="nc" id="L254">            skillAverage = unit.getCrew().getGunnery();</span>
+        } else {
+<span class="nc" id="L256">            skillAverage = (unit.getCrew().getGunnery() + unit.getCrew().getPiloting()) / 2F;</span>
+        }
+
+<span class="nc bnc" id="L259" title="All 2 branches missed.">        if (skillAverage &gt;= greenThreshold) {</span>
+<span class="nc" id="L260">            logMsg.append(&quot;\n\t\tGreen unit (+0)&quot;);</span>
+<span class="nc" id="L261">            return 0;</span>
+        }
+<span class="nc bnc" id="L263" title="All 2 branches missed.">        if (skillAverage &gt;= regularThreshold) {</span>
+<span class="nc" id="L264">            logMsg.append(&quot;\n\t\tRegular unit (-1)&quot;);</span>
+<span class="nc" id="L265">            return -1;</span>
+        }
+<span class="nc bnc" id="L267" title="All 2 branches missed.">        if (skillAverage &gt;= veteranThreshold) {</span>
+<span class="nc" id="L268">            logMsg.append(&quot;\n\t\tVeteran unit (-2)&quot;);</span>
+<span class="nc" id="L269">            return -2;</span>
+        }
+<span class="nc" id="L271">        logMsg.append(&quot;\n\t\tElite unit (-3)&quot;);</span>
+<span class="nc" id="L272">        return -3;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

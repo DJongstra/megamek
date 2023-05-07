@@ -1,0 +1,1598 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LosEffects.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">LosEffects.java</span></div><h1>LosEffects.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2002-2003 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+/*
+ * LosEffects.java
+ *
+ * Created on October 14, 2002, 11:19 PM
+ */
+
+package megamek.common;
+
+import java.util.ArrayList;
+import java.util.Vector;
+
+import megamek.client.ui.Messages;
+import megamek.common.options.OptionsConstants;
+import megamek.server.SmokeCloud;
+
+/**
+ * Keeps track of the cumulative effects of intervening terrain on LOS
+ *
+ * @author Ben
+ */
+<span class="nc" id="L35">public class LosEffects {</span>
+
+<span class="nc" id="L37">    public static class AttackInfo {</span>
+        public boolean attUnderWater;
+        public boolean attInWater;
+        public boolean attOnLand;
+        public boolean targetUnderWater;
+        public boolean targetInWater;
+        public boolean targetOnLand;
+        public boolean underWaterCombat;
+<span class="nc" id="L45">        public boolean targetEntity = true;</span>
+        public boolean targetInfantry;
+        public boolean targetIsMech;
+        public boolean attackerIsMech;
+        public boolean attOffBoard;
+        public Coords attackPos;
+        public Coords targetPos;
+        
+        /**
+         * The absolute elevation of the attacker, i.e. the number of levels
+         * attacker is placed above a level 0 hex.
+         */
+        public int attackAbsHeight;
+        
+        /**
+         * The absolute elevation of the target, i.e. the number of levels
+         * target is placed above a level 0 hex.
+         */
+        public int targetAbsHeight;
+        
+        /**
+         * The height of the attacker, that is, how many levels above its
+         * elevation it is for LOS purposes.
+         */
+        public int attackHeight;
+        
+        /**
+         * The height of the target, that is, how many levels above its
+         * elevation it is for LOS purposes.
+         */
+        public int targetHeight;
+        public int attackerId;
+        public int targetId;
+<span class="nc" id="L78">        int minimumWaterDepth = -1;</span>
+    }
+
+    // MAXTECH BMR
+    public static final int COVER_NONE = 0; // no cover (none)
+    public static final int COVER_LOWLEFT = 0x1; // 25% cover (partial)
+    public static final int COVER_LOWRIGHT = 0x2; // 25% cover (partial)
+    public static final int COVER_LEFT = 0x4; // vertical cover (blocked)
+    public static final int COVER_RIGHT = 0x8; // vertical cover (blocked)
+    public static final int COVER_HORIZONTAL = 0x3; // 50% cover (partial)
+    // Upper: for underwater attacks against 'mechs standing in depth 1, TW 109
+    public static final int COVER_UPPER = 0xC; // 50% cover (partial)
+    public static final int COVER_FULL = 0xF; // blocked (blocked)
+    public static final int COVER_75LEFT = 0x7; // 75% cover (blocked)
+    public static final int COVER_75RIGHT = 0xB; // 75% cover (blocked)
+    
+    public static final int DAMAGABLE_COVER_NONE = 0;
+    public static final int DAMAGABLE_COVER_DROPSHIP = 0x1;
+    public static final int DAMAGABLE_COVER_BUILDING = 0x2;
+
+<span class="nc" id="L98">    boolean blocked = false;</span>
+<span class="nc" id="L99">    boolean deadZone = false;</span>
+<span class="nc" id="L100">    boolean infProtected = false;</span>
+<span class="nc" id="L101">    boolean hasLoS = true;</span>
+<span class="nc" id="L102">    boolean targetIsOversized = false;</span>
+<span class="nc" id="L103">    int plantedFields = 0;</span>
+<span class="nc" id="L104">    int heavyIndustrial = 0;</span>
+<span class="nc" id="L105">    int lightWoods = 0;</span>
+<span class="nc" id="L106">    int heavyWoods = 0;</span>
+<span class="nc" id="L107">    int ultraWoods = 0;</span>
+<span class="nc" id="L108">    int lightSmoke = 0;</span>
+<span class="nc" id="L109">    int heavySmoke = 0;</span>
+<span class="nc" id="L110">    int screen = 0;</span>
+<span class="nc" id="L111">    int softBuildings = 0;</span>
+<span class="nc" id="L112">    int hardBuildings = 0;</span>
+<span class="nc" id="L113">    int buildingLevelsOrHexes = 0;</span>
+<span class="nc" id="L114">    boolean blockedByHill = false;</span>
+<span class="nc" id="L115">    boolean blockedByWater = false;</span>
+<span class="nc" id="L116">    int targetCover = COVER_NONE; // that means partial cover</span>
+<span class="nc" id="L117">    int attackerCover = COVER_NONE; // ditto</span>
+<span class="nc" id="L118">    Building thruBldg = null;</span>
+    Coords targetLoc;
+    /**
+     * Indicates if the primary cover is damagable.
+     */
+<span class="nc" id="L123">    int damagableCoverTypePrimary   = DAMAGABLE_COVER_NONE;</span>
+    /**
+     * Indicates if the secondary cover is damagable
+     */   
+<span class="nc" id="L127">    int damagableCoverTypeSecondary = DAMAGABLE_COVER_NONE;</span>
+    /**
+     * Keeps track of the building that provides cover.  This is used
+     * to assign damage for shots that hit cover.  The primary cover is used 
+     * if there is a sole piece of cover (horizontal cover, 25% cover).
+     * In the case of a primary and secondary, the primary cover protects the 
+     * right side.
+     */
+<span class="nc" id="L135">    Building coverBuildingPrimary = null;</span>
+    /**
+     * Keeps track of the building that provides cover.  This is used
+     * to assign damage for shots that hit cover.  The secondary cover is used
+     * if there are two buildings that provide cover, like in the case of 75%
+     * cover or two buildings providing 25% cover for a total of horizontal 
+     * cover.  The secondary cover protects the left side.
+     */
+<span class="nc" id="L143">    Building coverBuildingSecondary = null;</span>
+    /**
+     * Keeps track of the grounded Dropship that provides cover.  This is
+     * used to assign damage for shots that hit cover. The primary cover is used 
+     * if there is a sole piece of cover (horizontal cover, 25% cover).
+     * In the case of a primary and secondary, the primary cover protects the 
+     * right side.
+     */
+<span class="nc" id="L151">    Entity coverDropshipPrimary = null;</span>
+    /**
+     * Keeps track of the grounded Dropship that provides cover.  This is
+     * used to assign damage for shots that hit cover. The secondary cover is used
+     * if there are two buildings that provide cover, like in the case of 75%
+     * cover or two buildings providing 25% cover for a total of horizontal 
+     * cover.  The secondary cover protects the left side.
+     */
+<span class="nc" id="L159">    Entity coverDropshipSecondary = null;    </span>
+    /**
+     * Stores the hex location of the primary cover.
+     */
+<span class="nc" id="L163">    Coords coverLocPrimary = null;</span>
+    /**
+     * Stores the hex location of the secondary cover.
+     */
+<span class="nc" id="L167">    Coords coverLocSecondary = null;</span>
+<span class="nc" id="L168">    int minimumWaterDepth = -1;</span>
+<span class="nc" id="L169">    boolean arcedShot = false;</span>
+
+    
+    public Coords getTargetPosition() {
+<span class="nc" id="L173">        return targetLoc;</span>
+    }
+    
+    public int getMinimumWaterDepth() {
+<span class="nc" id="L177">        return minimumWaterDepth;</span>
+    }
+
+    public void setMinimumWaterDepth(int inVal) {
+<span class="nc" id="L181">        minimumWaterDepth = inVal;</span>
+<span class="nc" id="L182">    }</span>
+
+    public void add(LosEffects other) {
+        // We need to check if we should update damagable cover
+        //  We need to update cover if it's present, but we don't want to
+        //  remove cover if no new cover is present
+        //  this assumes that LoS is being drawn from attacker to target
+<span class="nc bnc" id="L189" title="All 4 branches missed.">        if (other.damagableCoverTypePrimary != DAMAGABLE_COVER_NONE &amp;&amp; </span>
+                other.targetCover &gt;= targetCover){
+<span class="nc" id="L191">            damagableCoverTypePrimary = other.damagableCoverTypePrimary;</span>
+<span class="nc" id="L192">            coverDropshipPrimary = other.coverDropshipPrimary;</span>
+<span class="nc" id="L193">            coverBuildingPrimary = other.coverBuildingPrimary;</span>
+<span class="nc" id="L194">            coverLocPrimary = other.coverLocPrimary;</span>
+<span class="nc" id="L195">            damagableCoverTypeSecondary = other.damagableCoverTypeSecondary;            </span>
+<span class="nc" id="L196">            coverDropshipSecondary = other.coverDropshipSecondary;        </span>
+<span class="nc" id="L197">            coverBuildingSecondary = other.coverBuildingSecondary;   </span>
+<span class="nc" id="L198">            coverLocSecondary = other.coverLocSecondary;</span>
+        }           
+        
+<span class="nc" id="L201">        blocked |= other.blocked;</span>
+<span class="nc" id="L202">        infProtected |= other.infProtected;</span>
+<span class="nc" id="L203">        plantedFields += other.plantedFields;</span>
+<span class="nc" id="L204">        heavyIndustrial += other.heavyIndustrial;</span>
+<span class="nc" id="L205">        lightWoods += other.lightWoods;</span>
+<span class="nc" id="L206">        heavyWoods += other.heavyWoods;</span>
+<span class="nc" id="L207">        ultraWoods += other.ultraWoods;</span>
+<span class="nc" id="L208">        lightSmoke += other.lightSmoke;</span>
+<span class="nc" id="L209">        heavySmoke += other.heavySmoke;</span>
+<span class="nc" id="L210">        buildingLevelsOrHexes += other.buildingLevelsOrHexes;</span>
+<span class="nc" id="L211">        screen += other.screen;</span>
+<span class="nc" id="L212">        softBuildings += other.softBuildings;</span>
+<span class="nc" id="L213">        hardBuildings += other.hardBuildings;</span>
+<span class="nc" id="L214">        blockedByHill |= other.blockedByHill;</span>
+<span class="nc" id="L215">        blockedByWater |= other.blockedByWater;</span>
+<span class="nc" id="L216">        targetCover |= other.targetCover;</span>
+<span class="nc" id="L217">        attackerCover |= other.attackerCover;</span>
+<span class="nc bnc" id="L218" title="All 4 branches missed.">        if ((null != thruBldg) &amp;&amp; !thruBldg.equals(other.thruBldg)) {</span>
+<span class="nc" id="L219">            thruBldg = null;</span>
+        }     
+<span class="nc" id="L221">    }</span>
+
+    public int getPlantedFields() {
+<span class="nc" id="L224">        return plantedFields;</span>
+    }
+
+    public int getHeavyIndustrial() {
+<span class="nc" id="L228">        return heavyIndustrial;</span>
+    }
+
+    public int getLightWoods() {
+<span class="nc" id="L232">        return lightWoods;</span>
+    }
+
+    public int getHeavyWoods() {
+<span class="nc" id="L236">        return heavyWoods;</span>
+    }
+
+    public int getUltraWoods() {
+<span class="nc" id="L240">        return ultraWoods;</span>
+    }
+
+    public int getLightSmoke() {
+<span class="nc" id="L244">        return lightSmoke;</span>
+    }
+
+    public int getHeavySmoke() {
+<span class="nc" id="L248">        return heavySmoke;</span>
+    }
+
+    public int getScreen() {
+<span class="nc" id="L252">        return screen;</span>
+    }
+
+    public int getSoftBuildings() {
+<span class="nc" id="L256">        return softBuildings;</span>
+    }
+
+    public int getHardBuildings() {
+<span class="nc" id="L260">        return hardBuildings;</span>
+    }
+
+    public boolean isBlocked() {
+<span class="nc" id="L264">        return blocked;</span>
+    }
+
+    public boolean isBlockedByHill() {
+<span class="nc" id="L268">        return blockedByHill;</span>
+    }
+
+    public boolean isBlockedByWater() {
+<span class="nc" id="L272">        return blockedByWater;</span>
+    }
+
+    /**
+     * Getter for property targetCover.
+     *
+     * @return Value of property targetCover.
+     */
+    public boolean isTargetCover() {
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        return targetCover &gt;= COVER_LOWLEFT;</span>
+    }
+
+    public int getTargetCover() {
+<span class="nc" id="L285">        return targetCover;</span>
+    }
+
+    /**
+     * Setter for property targetCover.
+     *
+     * @param targetCover New value of property targetCover.
+     */
+    public void setTargetCover(int targetCover) {
+<span class="nc" id="L294">        this.targetCover = targetCover;</span>
+<span class="nc" id="L295">    }</span>
+
+    /**
+     * Getter for property attackerCover.
+     *
+     * @return Value of property attackerCover.
+     */
+    public boolean isAttackerCover() {
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        return attackerCover &gt;= COVER_LOWLEFT;</span>
+    }
+
+    public int getAttackerCover() {
+<span class="nc" id="L307">        return attackerCover;</span>
+    }
+
+    /**
+     * Setter for property attackerCover.
+     *
+     * @param attackerCover New value of property attackerCover.
+     */
+    public void setAttackerCover(int attackerCover) {
+<span class="nc" id="L316">        this.attackerCover = attackerCover;</span>
+<span class="nc" id="L317">    }</span>
+
+    /**
+     * Getter for property thruBldg.
+     *
+     * @return Value of property thruBldg.
+     */
+    public Building getThruBldg() {
+<span class="nc" id="L325">        return thruBldg;</span>
+    }
+
+    /**
+     * Setter for property thruBldg.
+     *
+     * @param thruBldg New value of property thruBldg.
+     */
+    public void setThruBldg(Building thruBldg) {
+<span class="nc" id="L334">        this.thruBldg = thruBldg;</span>
+<span class="nc" id="L335">    }</span>
+
+    /**
+     * LOS check from ae to te.
+     */
+    public boolean canSee() {
+<span class="nc" id="L341">        return hasLoS;// !blocked &amp;&amp; (lightWoods + lightSmoke) + ((heavyWoods</span>
+                        // + heavySmoke) * 2) &lt; 3;
+    }
+
+    /**
+     * Returns a LosEffects object representing the LOS effects of interveing
+     * terrain between the attacker and target. Checks to see if the attacker
+     * and target are at an angle where the LOS line will pass between two
+     * hexes. If so, calls losDivided, otherwise calls losStraight.
+     */
+    public static LosEffects calculateLos(IGame game, int attackerId,
+            Targetable target) {
+<span class="nc" id="L353">        return calculateLos(game, attackerId, target, false);</span>
+    }
+
+    public static LosEffects calculateLos(IGame game, int attackerId,
+            Targetable target, boolean spotting) {
+        //we need an extra step here, because units with secondary position can calculate LoS
+        //from hexes other than that returned from getPosition()
+<span class="nc" id="L360">        final Entity ae = game.getEntity(attackerId);</span>
+        //create a vector of attacker position and a vector of target positions - double loop through them
+        //both and select the best one
+<span class="nc" id="L363">        Vector&lt;Coords&gt; attackPos = new Vector&lt;Coords&gt;();</span>
+<span class="nc" id="L364">        attackPos.add(ae.getPosition());</span>
+<span class="nc" id="L365">        Vector&lt;Coords&gt; targetPos = new Vector&lt;Coords&gt;();</span>
+<span class="nc" id="L366">        targetPos.add(target.getPosition());</span>
+        //if a grounded dropship is the attacker, then it gets to choose the best secondary position for LoS
+<span class="nc bnc" id="L368" title="All 4 branches missed.">        if(ae instanceof Dropship &amp;&amp; !ae.getSecondaryPositions().isEmpty()) {</span>
+<span class="nc" id="L369">            attackPos = new Vector&lt;Coords&gt;();</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">            for(int key : ae.getSecondaryPositions().keySet()) {</span>
+<span class="nc" id="L371">                attackPos.add(ae.getSecondaryPositions().get(key));</span>
+<span class="nc" id="L372">            }</span>
+        }
+        //if a grounded dropship is the target, then the attacker chooses the best secondary position
+<span class="nc bnc" id="L375" title="All 4 branches missed.">        if(target instanceof Dropship &amp;&amp; !((Entity)target).getSecondaryPositions().isEmpty()) {</span>
+<span class="nc" id="L376">            targetPos = new Vector&lt;Coords&gt;();</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">            for(int key : ((Entity)target).getSecondaryPositions().keySet()) {</span>
+<span class="nc" id="L378">                targetPos.add(((Entity)target).getSecondaryPositions().get(key));</span>
+<span class="nc" id="L379">            }</span>
+        }
+<span class="nc" id="L381">        LosEffects bestLos = null;  </span>
+<span class="nc bnc" id="L382" title="All 2 branches missed.">        for(Coords apos : attackPos) {</span>
+<span class="nc bnc" id="L383" title="All 2 branches missed.">            for(Coords tpos : targetPos) {         </span>
+<span class="nc" id="L384">                LosEffects newLos = calculateLos(game, attackerId, target, apos, tpos, spotting);</span>
+                //is the new one better?
+<span class="nc bnc" id="L386" title="All 2 branches missed.">                if(null == bestLos </span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">                        || bestLos.isBlocked() </span>
+<span class="nc bnc" id="L388" title="All 2 branches missed.">                        || newLos.losModifiers(game).getValue() &lt; bestLos.losModifiers(game).getValue()) {</span>
+<span class="nc" id="L389">                    bestLos = newLos;</span>
+                }
+<span class="nc" id="L391">            }</span>
+<span class="nc" id="L392">        }</span>
+<span class="nc" id="L393">        bestLos.targetLoc = target.getPosition();</span>
+<span class="nc" id="L394">        return bestLos;</span>
+    }
+    
+
+    public static LosEffects calculateLos(IGame game, int attackerId, Targetable target,
+            Coords attackPos, Coords targetPos, boolean spotting) {
+<span class="nc" id="L400">        final Entity ae = game.getEntity(attackerId);</span>
+
+        // LOS fails if one of the entities is not deployed.
+<span class="nc bnc" id="L403" title="All 4 branches missed.">        if ((null == attackPos) || (null == targetPos)</span>
+<span class="nc bnc" id="L404" title="All 4 branches missed.">                || ae.isOffBoard() || target.isOffBoard()) {</span>
+<span class="nc" id="L405">            LosEffects los = new LosEffects();</span>
+<span class="nc" id="L406">            los.blocked = true; // TODO: come up with a better &quot;impossible&quot;</span>
+<span class="nc" id="L407">            los.hasLoS = false;</span>
+<span class="nc" id="L408">            los.targetLoc = target.getPosition();</span>
+<span class="nc" id="L409">            return los;</span>
+        }
+
+<span class="nc" id="L412">        IHex attHex = game.getBoard().getHex(attackPos);</span>
+<span class="nc" id="L413">        IHex targetHex = game.getBoard().getHex(targetPos);</span>
+<span class="nc bnc" id="L414" title="All 4 branches missed.">        if ((attHex == null) || (targetHex == null)) {</span>
+<span class="nc" id="L415">            LosEffects los = new LosEffects();</span>
+<span class="nc" id="L416">            los.blocked = true; // TODO: come up with a better &quot;impossible&quot;</span>
+<span class="nc" id="L417">            los.hasLoS = false;</span>
+<span class="nc" id="L418">            los.targetLoc = target.getPosition();</span>
+<span class="nc" id="L419">            return los;</span>
+        }
+
+        // this will adjust the effective height of a building target by 1 if the hex contains a rooftop gun emplacement
+<span class="nc bnc" id="L423" title="All 2 branches missed.">        int targetHeightAdjustment = game.hasRooftopGunEmplacement(targetHex.getCoords()) ? 1 : 0;</span>
+        
+<span class="nc" id="L425">        final AttackInfo ai = new AttackInfo();</span>
+<span class="nc" id="L426">        ai.attackerIsMech = ae instanceof Mech;</span>
+<span class="nc" id="L427">        ai.attackPos = attackPos;</span>
+<span class="nc" id="L428">        ai.attackerId = ae.getId();</span>
+<span class="nc" id="L429">        ai.targetPos = targetPos;</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">        ai.targetEntity = target.getTargetType() == Targetable.TYPE_ENTITY;</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">        if(ai.targetEntity) {</span>
+<span class="nc" id="L432">            ai.targetId = ((Entity)target).getId();</span>
+<span class="nc" id="L433">            ai.targetIsMech = target instanceof Mech;</span>
+        }else {
+<span class="nc" id="L435">            ai.targetIsMech = false;</span>
+        }
+        
+<span class="nc" id="L438">        ai.targetInfantry = target instanceof Infantry;</span>
+<span class="nc" id="L439">        ai.attackHeight = ae.getHeight();</span>
+<span class="nc" id="L440">        ai.targetHeight = target.getHeight() + targetHeightAdjustment;</span>
+
+<span class="nc" id="L442">        int attEl = ae.relHeight() + attHex.getLevel();</span>
+        // for spotting, a mast mount raises our elevation by 1
+<span class="nc bnc" id="L444" title="All 4 branches missed.">        if (spotting &amp;&amp; ae.hasWorkingMisc(MiscType.F_MAST_MOUNT, -1)) {</span>
+<span class="nc" id="L445">            attEl += 1;</span>
+        }
+<span class="nc" id="L447">        int targEl = target.relHeight() + targetHex.getLevel() + targetHeightAdjustment;</span>
+
+<span class="nc" id="L449">        ai.attackAbsHeight = attEl;</span>
+<span class="nc" id="L450">        ai.targetAbsHeight = targEl;</span>
+<span class="nc" id="L451">        boolean attOffBoard = ae.isOffBoard();</span>
+        boolean attUnderWater;
+        boolean attInWater;
+        boolean attOnLand;
+<span class="nc bnc" id="L455" title="All 2 branches missed.">        if (attOffBoard) {</span>
+<span class="nc" id="L456">            attUnderWater = true;</span>
+<span class="nc" id="L457">            attInWater = false;</span>
+<span class="nc" id="L458">            attOnLand = true;</span>
+        } else {
+<span class="nc bnc" id="L460" title="All 2 branches missed.">            attUnderWater = attHex.containsTerrain(Terrains.WATER)</span>
+<span class="nc bnc" id="L461" title="All 4 branches missed.">                    &amp;&amp; (attHex.depth() &gt; 0) &amp;&amp; (attEl &lt; attHex.surface());</span>
+<span class="nc bnc" id="L462" title="All 2 branches missed.">            attInWater = attHex.containsTerrain(Terrains.WATER)</span>
+<span class="nc bnc" id="L463" title="All 4 branches missed.">                    &amp;&amp; (attHex.depth() &gt; 0) &amp;&amp; (attEl == attHex.surface());</span>
+<span class="nc bnc" id="L464" title="All 4 branches missed.">            attOnLand = !(attUnderWater || attInWater);</span>
+        }
+
+<span class="nc" id="L467">        boolean targetOffBoard = !game.getBoard()</span>
+<span class="nc bnc" id="L468" title="All 2 branches missed.">                .contains(targetPos);</span>
+        boolean targetUnderWater;
+        boolean targetInWater;
+        boolean targetOnLand;
+<span class="nc bnc" id="L472" title="All 2 branches missed.">        if (targetOffBoard) {</span>
+<span class="nc" id="L473">            targetUnderWater = true;</span>
+<span class="nc" id="L474">            targetInWater = false;</span>
+<span class="nc" id="L475">            targetOnLand = true;</span>
+        } else {
+<span class="nc bnc" id="L477" title="All 2 branches missed.">            targetUnderWater = targetHex.containsTerrain(Terrains.WATER)</span>
+<span class="nc bnc" id="L478" title="All 4 branches missed.">                    &amp;&amp; (targetHex.depth() &gt; 0) &amp;&amp; (targEl &lt; targetHex.surface());</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">            targetInWater = targetHex.containsTerrain(Terrains.WATER)</span>
+<span class="nc bnc" id="L480" title="All 4 branches missed.">                    &amp;&amp; (targetHex.depth() &gt; 0) &amp;&amp; (targEl == targetHex.surface());</span>
+<span class="nc bnc" id="L481" title="All 4 branches missed.">            targetOnLand = !(targetUnderWater || targetInWater);</span>
+        }
+
+<span class="nc bnc" id="L484" title="All 4 branches missed.">        boolean underWaterCombat = targetUnderWater || attUnderWater;</span>
+
+<span class="nc" id="L486">        ai.attUnderWater = attUnderWater;</span>
+<span class="nc" id="L487">        ai.attInWater = attInWater;</span>
+<span class="nc" id="L488">        ai.attOnLand = attOnLand;</span>
+<span class="nc" id="L489">        ai.targetUnderWater = targetUnderWater;</span>
+<span class="nc" id="L490">        ai.targetInWater = targetInWater;</span>
+<span class="nc" id="L491">        ai.targetOnLand = targetOnLand;</span>
+<span class="nc" id="L492">        ai.underWaterCombat = underWaterCombat;</span>
+<span class="nc" id="L493">        ai.attOffBoard = attOffBoard;</span>
+        // Handle minimum water depth.
+        // Applies to Torpedos.
+<span class="nc bnc" id="L496" title="All 4 branches missed.">        if (ai.attOnLand || ai.targetOnLand) {</span>
+<span class="nc" id="L497">            ai.minimumWaterDepth = 0;</span>
+<span class="nc bnc" id="L498" title="All 4 branches missed.">        } else if (ai.attInWater || ai.targetInWater) {</span>
+<span class="nc" id="L499">            ai.minimumWaterDepth = 1;</span>
+<span class="nc bnc" id="L500" title="All 4 branches missed.">        } else if (ai.attUnderWater || ai.targetUnderWater) {</span>
+<span class="nc" id="L501">            ai.minimumWaterDepth = Math.min(</span>
+<span class="nc" id="L502">                    attHex.terrainLevel(Terrains.WATER), targetHex</span>
+<span class="nc" id="L503">                            .terrainLevel(Terrains.WATER));</span>
+        }
+
+        //if this is an air to ground or ground to air attack or a ground to air,
+        //treat the attacker's position as the same as the target's
+<span class="nc bnc" id="L508" title="All 4 branches missed.">        if(Compute.isAirToGround(ae, target) || Compute.isGroundToAir(ae, target)) {</span>
+<span class="nc" id="L509">            ai.attackPos = ai.targetPos;</span>
+        }
+
+<span class="nc" id="L512">        LosEffects finalLoS = calculateLos(game, ai);</span>
+<span class="nc" id="L513">        finalLoS.setMinimumWaterDepth(ai.minimumWaterDepth);</span>
+        
+<span class="nc" id="L515">        finalLoS.targetLoc = target.getPosition();</span>
+        
+<span class="nc bnc" id="L517" title="All 4 branches missed.">        finalLoS.targetIsOversized = ai.targetEntity &amp;&amp; ((Entity) target).hasQuirk(OptionsConstants.QUIRK_NEG_OVERSIZED);</span>
+        
+<span class="nc" id="L519">        return finalLoS;</span>
+    }
+
+    public static LosEffects calculateLos(IGame game, AttackInfo ai) {
+<span class="nc bnc" id="L523" title="All 2 branches missed.">        if (ai.attOffBoard) {</span>
+<span class="nc" id="L524">            LosEffects los = new LosEffects();</span>
+<span class="nc" id="L525">            los.blocked = true;</span>
+<span class="nc" id="L526">            los.hasLoS = false;</span>
+<span class="nc" id="L527">            los.targetLoc = ai.targetPos;</span>
+<span class="nc" id="L528">            return los;</span>
+        }
+<span class="nc bnc" id="L530" title="All 8 branches missed.">        if ((ai.attOnLand &amp;&amp; ai.targetUnderWater) || (ai.attUnderWater</span>
+                &amp;&amp; ai.targetOnLand)) {
+<span class="nc" id="L532">            LosEffects los = new LosEffects();</span>
+<span class="nc" id="L533">            los.blocked = true;</span>
+<span class="nc" id="L534">            los.hasLoS = false;</span>
+<span class="nc" id="L535">            los.blockedByWater = true;</span>
+<span class="nc" id="L536">            los.targetLoc = ai.targetPos;</span>
+<span class="nc" id="L537">            return los;</span>
+        }
+
+<span class="nc bnc" id="L540" title="All 4 branches missed.">        if(game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_DEAD_ZONES) &amp;&amp; isDeadZone(game, ai)) {</span>
+<span class="nc" id="L541">            LosEffects los = new LosEffects();</span>
+<span class="nc" id="L542">            los.blocked = true;</span>
+<span class="nc" id="L543">            los.blockedByHill = true;</span>
+<span class="nc" id="L544">            los.deadZone = true;</span>
+<span class="nc" id="L545">            los.hasLoS = false;</span>
+<span class="nc" id="L546">            los.targetLoc = ai.targetPos;</span>
+<span class="nc" id="L547">            return los;</span>
+        }
+        
+<span class="nc" id="L550">        boolean diagramLos = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_LOS1);</span>
+<span class="nc" id="L551">        boolean partialCover = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER);</span>
+<span class="nc" id="L552">        double degree = ai.attackPos.degree(ai.targetPos);</span>
+        LosEffects finalLoS;
+<span class="nc bnc" id="L554" title="All 2 branches missed.">        if (degree % 60 == 30) {</span>
+<span class="nc" id="L555">            finalLoS = LosEffects.losDivided(game, ai, diagramLos, partialCover);</span>
+        } else {
+<span class="nc" id="L557">            finalLoS = LosEffects.losStraight(game, ai, diagramLos, partialCover);</span>
+        }
+        
+<span class="nc bnc" id="L560" title="All 10 branches missed.">        finalLoS.hasLoS = !finalLoS.blocked &amp;&amp; </span>
+                            (finalLoS.screen &lt; 1) &amp;&amp; 
+                            (finalLoS.plantedFields &lt; 6) &amp;&amp; 
+                            (finalLoS.heavyIndustrial &lt; 3) &amp;&amp; 
+                           ((finalLoS.lightWoods + finalLoS.lightSmoke)
+                             + ((finalLoS.heavyWoods + finalLoS.heavySmoke) * 2)
+                             + (finalLoS.ultraWoods * 3) &lt; 3);
+        
+<span class="nc" id="L568">        finalLoS.targetLoc = ai.targetPos;</span>
+<span class="nc" id="L569">        return finalLoS;</span>
+    }
+
+    /**
+     * Returns ToHitData indicating the modifiers to fire for the specified LOS
+     * effects data.
+     */
+    public ToHitData losModifiers(IGame game) {
+<span class="nc" id="L577">        return losModifiers(game, 0, false);</span>
+    }
+    
+    public ToHitData losModifiers(IGame game, boolean underWaterWeapon) {
+<span class="nc" id="L581">        return losModifiers(game, 0, underWaterWeapon);</span>
+    }
+
+    public ToHitData losModifiers(IGame game, int eistatus, boolean underwaterWeapon) {
+<span class="nc" id="L585">        ToHitData modifiers = new ToHitData();</span>
+
+<span class="nc bnc" id="L587" title="All 2 branches missed.">        if ( arcedShot ) {</span>
+<span class="nc" id="L588">            return modifiers;</span>
+        }
+
+        /*
+        if (deadZone) {
+            return new ToHitData(TargetRoll.IMPOSSIBLE,
+                    &quot;LOS blocked by dead zone.&quot;);
+        }
+        */
+
+<span class="nc bnc" id="L598" title="All 2 branches missed.">        if (blocked) {</span>
+<span class="nc" id="L599">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;LOS blocked by terrain.&quot;);
+        }
+
+<span class="nc bnc" id="L603" title="All 2 branches missed.">        if (infProtected) {</span>
+<span class="nc" id="L604">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;Infantry protected by building.&quot;);
+        }
+
+<span class="nc bnc" id="L608" title="All 2 branches missed.">        if (buildingLevelsOrHexes &gt; 2) {</span>
+<span class="nc" id="L609">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by building hexes or levels.&quot;);</span>
+        }
+
+<span class="nc bnc" id="L612" title="All 4 branches missed.">        if ((ultraWoods &gt;= 1) || (lightWoods + (heavyWoods * 2) &gt; 2)) {</span>
+<span class="nc" id="L613">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by woods.&quot;);</span>
+        }
+
+<span class="nc bnc" id="L616" title="All 4 branches missed.">        if (!underwaterWeapon &amp;&amp; (lightSmoke + (heavySmoke * 2) &gt; 2)) {</span>
+<span class="nc" id="L617">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by smoke.&quot;);</span>
+        }
+
+<span class="nc bnc" id="L620" title="All 2 branches missed.">        if(plantedFields &gt; 5) {</span>
+<span class="nc" id="L621">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by planted fields.&quot;);</span>
+        }
+
+<span class="nc bnc" id="L624" title="All 2 branches missed.">        if(heavyIndustrial &gt; 2) {</span>
+<span class="nc" id="L625">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by heavy industrial zones.&quot;);</span>
+        }
+
+<span class="nc bnc" id="L628" title="All 2 branches missed.">        if (screen &gt; 0) {</span>
+<span class="nc" id="L629">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;LOS blocked by screen.&quot;);</span>
+        }
+
+<span class="nc bnc" id="L632" title="All 4 branches missed.">        if (!underwaterWeapon &amp;&amp; (lightSmoke + (heavySmoke * 2) + lightWoods + (heavyWoods * 2) &gt; 2)) {</span>
+<span class="nc" id="L633">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                    &quot;LOS blocked by smoke and woods.&quot;);
+        }
+
+<span class="nc bnc" id="L637" title="All 2 branches missed.">        if(plantedFields &gt; 0) {</span>
+<span class="nc" id="L638">            modifiers.addModifier((int)Math.floor(plantedFields / 2.0), plantedFields</span>
+                    + &quot; intervening planted fields&quot;);
+        }
+
+<span class="nc bnc" id="L642" title="All 2 branches missed.">        if(heavyIndustrial &gt; 0) {</span>
+<span class="nc" id="L643">            modifiers.addModifier(heavyIndustrial, heavyIndustrial</span>
+                    + &quot; intervening heavy industrial zones&quot;);
+        }
+
+<span class="nc bnc" id="L647" title="All 2 branches missed.">        if (lightWoods &gt; 0) {</span>
+<span class="nc bnc" id="L648" title="All 2 branches missed.">            if (eistatus &gt; 0) {</span>
+<span class="nc" id="L649">                modifiers.addModifier(1,</span>
+                        &quot;firing through light woods with EI system&quot;);
+            } else {
+<span class="nc" id="L652">                modifiers.addModifier(lightWoods, lightWoods</span>
+                        + &quot; intervening light woods&quot;);
+            }
+        }
+
+<span class="nc bnc" id="L657" title="All 2 branches missed.">        if (buildingLevelsOrHexes &gt; 0) {</span>
+<span class="nc bnc" id="L658" title="All 2 branches missed.">            if (eistatus &gt; 0) {</span>
+<span class="nc" id="L659">                modifiers.addModifier(1,</span>
+                        &quot;firing through building hex/level with EI system&quot;);
+            } else {
+<span class="nc" id="L662">                modifiers.addModifier(buildingLevelsOrHexes, buildingLevelsOrHexes</span>
+                        + &quot; intervening building levels or hexes&quot;);
+            }
+        }
+
+<span class="nc bnc" id="L667" title="All 2 branches missed.">        if (heavyWoods &gt; 0) {</span>
+<span class="nc bnc" id="L668" title="All 2 branches missed.">            if (eistatus &gt; 0) {</span>
+<span class="nc" id="L669">                modifiers.addModifier(heavyWoods, heavyWoods</span>
+                        + &quot; intervening heavy woods&quot;);
+            } else {
+<span class="nc" id="L672">                modifiers.addModifier(heavyWoods * 2, heavyWoods</span>
+                        + &quot; intervening heavy woods&quot;);
+            }
+        }
+
+<span class="nc bnc" id="L677" title="All 4 branches missed.">        if (lightSmoke &gt; 0 &amp;&amp; !underwaterWeapon) {</span>
+<span class="nc" id="L678">            modifiers.addModifier(lightSmoke, lightSmoke</span>
+                    + &quot; intervening light smoke&quot;);
+        }
+
+<span class="nc bnc" id="L682" title="All 4 branches missed.">        if (heavySmoke &gt; 0 &amp;&amp; !underwaterWeapon) {</span>
+<span class="nc" id="L683">            StringBuffer text = new StringBuffer(heavySmoke);</span>
+<span class="nc" id="L684">            text.append(&quot; intervening&quot;);</span>
+<span class="nc" id="L685">            text.append(&quot; heavy&quot;);</span>
+<span class="nc" id="L686">            text.append(&quot; smoke&quot;);</span>
+<span class="nc bnc" id="L687" title="All 2 branches missed.">            if (eistatus &gt; 0) {</span>
+<span class="nc" id="L688">                modifiers.addModifier(heavySmoke, text.toString());</span>
+            } else {
+<span class="nc" id="L690">                modifiers.addModifier(heavySmoke * 2, text.toString());</span>
+            }
+        }
+
+        // partial cover modifiers apply unless the target is oversized
+<span class="nc bnc" id="L695" title="All 4 branches missed.">        if ((targetCover != COVER_NONE) &amp;&amp; !targetIsOversized) {</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER)) {</span>
+<span class="nc bnc" id="L697" title="All 4 branches missed.">                if ((targetCover == COVER_75LEFT) || (targetCover == COVER_75RIGHT)) {</span>
+<span class="nc" id="L698">                    modifiers.addModifier(1, &quot;target has 75% cover&quot;);</span>
+<span class="nc bnc" id="L699" title="All 2 branches missed.">                } else if (targetCover &gt;= COVER_HORIZONTAL) {</span>
+<span class="nc" id="L700">                    modifiers.addModifier(1, &quot;target has 50% cover&quot;);</span>
+                } else {
+                    // no bth mod for 25% cover
+<span class="nc" id="L703">                    modifiers.addModifier(0, &quot;target has 25% cover&quot;);</span>
+                }
+            } else {
+<span class="nc" id="L706">                modifiers.addModifier(1, &quot;target has partial cover&quot;);</span>
+<span class="nc" id="L707">                modifiers.setHitTable(ToHitData.HIT_PARTIAL_COVER);</span>
+            }
+        }
+
+<span class="nc" id="L711">        return modifiers;</span>
+    }
+
+    /**
+     * Returns LosEffects for a line that never passes exactly between two
+     * hexes. Since intervening() returns all the coordinates, we just add the
+     * effects of all those hexes.
+     */
+    private static LosEffects losStraight(IGame game, AttackInfo ai, 
+            boolean diagramLoS, boolean partialCover) {
+<span class="nc" id="L721">        ArrayList&lt;Coords&gt; in = Coords.intervening(ai.attackPos, ai.targetPos);</span>
+<span class="nc" id="L722">        LosEffects los = new LosEffects();</span>
+<span class="nc" id="L723">        boolean targetInBuilding = false;</span>
+<span class="nc bnc" id="L724" title="All 2 branches missed.">        if (ai.targetEntity) {</span>
+<span class="nc" id="L725">            targetInBuilding = Compute.isInBuilding(game, ai.targetAbsHeight</span>
+<span class="nc" id="L726">                    - game.getBoard().getHex(ai.targetPos).surface(),</span>
+                    ai.targetPos);
+        }
+
+        // If the target and attacker are both in a
+        // building, set that as the first LOS effect.
+<span class="nc bnc" id="L732" title="All 2 branches missed.">        if (targetInBuilding</span>
+<span class="nc bnc" id="L733" title="All 2 branches missed.">                &amp;&amp; Compute.isInBuilding(game, ai.attackAbsHeight</span>
+<span class="nc" id="L734">                        - game.getBoard().getHex(ai.attackPos).surface(),</span>
+                        ai.attackPos)) {
+<span class="nc" id="L736">            los.setThruBldg(game.getBoard().getBuildingAt(in.get(0)));</span>
+            //elevation differences count as building hexes passed through
+<span class="nc" id="L738">            los.buildingLevelsOrHexes += (Math.abs((ai.attackAbsHeight-ai.attackHeight) - (ai.targetAbsHeight-ai.targetHeight)));</span>
+        }
+
+<span class="nc bnc" id="L741" title="All 2 branches missed.">        for (Coords c : in) {</span>
+<span class="nc" id="L742">            los.add(LosEffects.losForCoords(game, ai, c, los.getThruBldg(),</span>
+                    diagramLoS, partialCover));
+<span class="nc" id="L744">        }      </span>
+
+<span class="nc bnc" id="L746" title="All 4 branches missed.">        if ((ai.minimumWaterDepth &lt; 1) &amp;&amp; ai.underWaterCombat) {</span>
+<span class="nc" id="L747">            los.blocked = true;</span>
+        }
+
+        // Infantry inside a building can only be
+        // targeted by units in the same building.
+<span class="nc bnc" id="L752" title="All 6 branches missed.">        if (ai.targetInfantry &amp;&amp; targetInBuilding &amp;&amp; (null == los.getThruBldg())) {</span>
+<span class="nc" id="L753">            los.infProtected = true;</span>
+        }
+
+<span class="nc" id="L756">        return los;</span>
+    }
+
+    /**
+     * Returns LosEffects for a line that passes between two hexes at least
+     * once. The rules say that this situation is resolved in favor of the
+     * defender.
+     *
+     * The intervening() function returns both hexes in these
+     * circumstances, and, when they are in line order, it's not hard to figure
+     * out which hexes are split and which are not.
+     *
+     * The line always looks like:
+     *        ___     ___
+     *    ___/ 1 \___/...\___
+     *   / 0 \___/ 3 \___/etc\
+     *   \___/ 2 \___/...\___/
+     *       \___/   \___/
+     * We go thru and figure out the modifiers for the non-split hexes first.
+     * Then we go to each of the two split hexes and determine
+     * which gives us the bigger modifier. We use the bigger modifier.
+     *
+     * This is not perfect as it takes partial cover as soon as it can, when
+     * perhaps later might be better.
+     * Also, it doesn't account for the fact that
+     * attacker partial cover blocks leg weapons, as we want to return the same
+     * sequence regardless of what weapon is attacking.
+     */
+    private static LosEffects losDivided(IGame game, AttackInfo ai,
+            boolean diagramLoS, boolean partialCover) {
+<span class="nc" id="L786">        ArrayList&lt;Coords&gt; in = Coords.intervening(ai.attackPos, ai.targetPos,</span>
+                true);
+<span class="nc" id="L788">        LosEffects los = new LosEffects();</span>
+<span class="nc" id="L789">        boolean targetInBuilding = false;</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">        if (ai.targetEntity) {</span>
+<span class="nc" id="L791">            targetInBuilding = Compute.isInBuilding(game, ai.targetAbsHeight</span>
+<span class="nc" id="L792">                    - game.getBoard().getHex(ai.targetPos).surface(),</span>
+                    ai.targetPos);
+        }
+
+        // If the target and attacker are both in a
+        // building, set that as the first LOS effect.
+<span class="nc bnc" id="L798" title="All 2 branches missed.">        if (targetInBuilding</span>
+<span class="nc bnc" id="L799" title="All 2 branches missed.">                &amp;&amp; Compute.isInBuilding(game, ai.attackAbsHeight</span>
+<span class="nc" id="L800">                        - game.getBoard().getHex(ai.attackPos).surface(),</span>
+                        ai.attackPos)) {
+<span class="nc" id="L802">            los.setThruBldg(game.getBoard().getBuildingAt(in.get(0)));</span>
+            //elevation differences count as building hexes passed through
+<span class="nc" id="L804">            los.buildingLevelsOrHexes += (Math</span>
+<span class="nc" id="L805">                    .abs((ai.attackAbsHeight - ai.attackHeight)</span>
+                            - (ai.targetAbsHeight - ai.targetHeight)));
+        }
+
+        // add non-divided line segments
+<span class="nc bnc" id="L810" title="All 2 branches missed.">        for (int i = 3; i &lt; in.size() - 2; i += 3) {</span>
+<span class="nc" id="L811">            los.add(losForCoords(game, ai, in.get(i), los.getThruBldg(),</span>
+                    diagramLoS, partialCover));
+        }
+
+<span class="nc bnc" id="L815" title="All 4 branches missed.">        if ((ai.minimumWaterDepth &lt; 1) &amp;&amp; ai.underWaterCombat) {</span>
+<span class="nc" id="L816">            los.blocked = true;</span>
+        }
+
+        // if blocked already, return that
+<span class="nc bnc" id="L820" title="All 2 branches missed.">        if (los.losModifiers(game).getValue() == TargetRoll.IMPOSSIBLE) {</span>
+<span class="nc" id="L821">            return los;</span>
+        }
+
+        // If there src &amp; dst hexes are the same, nothing to do
+<span class="nc bnc" id="L825" title="All 2 branches missed.">        if (in.size() &lt; 2) {</span>
+<span class="nc" id="L826">            return los;</span>
+        }
+
+        // go through divided line segments
+<span class="nc" id="L830">        LosEffects totalLeftLos = new LosEffects();</span>
+<span class="nc" id="L831">        LosEffects totalRightLos = new LosEffects();</span>
+<span class="nc bnc" id="L832" title="All 2 branches missed.">        for (int i = 1; i &lt; in.size() - 2; i += 3) {</span>
+<span class="nc" id="L833">            LosEffects leftLos = losForCoords(game, ai, in.get(i), los</span>
+<span class="nc" id="L834">                    .getThruBldg(), diagramLoS, partialCover);</span>
+<span class="nc" id="L835">            LosEffects rightLos = losForCoords(game, ai, in.get(i + 1), los</span>
+<span class="nc" id="L836">                    .getThruBldg(), diagramLoS, partialCover);</span>
+
+            // Infantry inside a building can only be
+            // targeted by units in the same building.
+<span class="nc bnc" id="L840" title="All 4 branches missed.">            if (ai.targetInfantry &amp;&amp; targetInBuilding) {</span>
+<span class="nc bnc" id="L841" title="All 2 branches missed.">                if (null == leftLos.getThruBldg()) {</span>
+<span class="nc" id="L842">                    leftLos.infProtected = true;</span>
+<span class="nc bnc" id="L843" title="All 2 branches missed.">                } else if (null == rightLos.getThruBldg()) {</span>
+<span class="nc" id="L844">                    rightLos.infProtected = true;</span>
+                }
+            }
+       
+            // Check for advanced cover, only 'mechs can get partial cover
+<span class="nc bnc" id="L849" title="All 4 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER) &amp;&amp; </span>
+                    ai.targetIsMech) {
+                // 75% and vertical cover will have blocked LoS
+<span class="nc" id="L852">                boolean losBlockedByCover = false;</span>
+<span class="nc bnc" id="L853" title="All 4 branches missed.">                if(leftLos.targetCover == COVER_HORIZONTAL &amp;&amp; </span>
+                        rightLos.targetCover == COVER_NONE) {
+                    //25% cover, left
+<span class="nc" id="L856">                    leftLos.targetCover  = COVER_LOWLEFT;</span>
+<span class="nc" id="L857">                    rightLos.targetCover = COVER_LOWLEFT;</span>
+<span class="nc" id="L858">                    rightLos.setCoverBuildingPrimary(leftLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L859">                    rightLos.setCoverDropshipPrimary(leftLos.getCoverDropshipPrimary());</span>
+<span class="nc" id="L860">                    rightLos.setDamagableCoverTypePrimary(leftLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L861">                    rightLos.setCoverLocPrimary(leftLos.getCoverLocPrimary());</span>
+<span class="nc bnc" id="L862" title="All 4 branches missed.">                }else if ((leftLos.targetCover == COVER_NONE &amp;&amp; </span>
+                          rightLos.targetCover == COVER_HORIZONTAL)) {
+                    //25% cover, right
+<span class="nc" id="L865">                    leftLos.targetCover  = COVER_LOWRIGHT;</span>
+<span class="nc" id="L866">                    rightLos.targetCover = COVER_LOWRIGHT;</span>
+<span class="nc" id="L867">                    leftLos.setCoverBuildingPrimary(rightLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L868">                    leftLos.setCoverDropshipPrimary(rightLos.getCoverDropshipPrimary());</span>
+<span class="nc" id="L869">                    leftLos.setDamagableCoverTypePrimary(rightLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L870">                    leftLos.setCoverLocPrimary(rightLos.getCoverLocPrimary());</span>
+<span class="nc bnc" id="L871" title="All 4 branches missed.">                } else if(leftLos.targetCover == COVER_FULL &amp;&amp; </span>
+                         rightLos.targetCover == COVER_NONE){
+                    //vertical cover, left
+<span class="nc" id="L874">                    leftLos.targetCover  = COVER_LEFT;</span>
+<span class="nc" id="L875">                    rightLos.targetCover = COVER_LEFT;</span>
+<span class="nc" id="L876">                    rightLos.setCoverBuildingPrimary(leftLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L877">                    rightLos.setCoverDropshipPrimary(leftLos.getCoverDropshipPrimary());</span>
+<span class="nc" id="L878">                    rightLos.setDamagableCoverTypePrimary(leftLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L879">                    rightLos.setCoverLocPrimary(leftLos.getCoverLocPrimary());</span>
+<span class="nc" id="L880">                    losBlockedByCover = true;</span>
+<span class="nc bnc" id="L881" title="All 4 branches missed.">                }else if (leftLos.targetCover == COVER_NONE &amp;&amp; </span>
+                         rightLos.targetCover == COVER_FULL) {
+                    //vertical cover, right
+<span class="nc" id="L884">                    leftLos.targetCover  = COVER_RIGHT;</span>
+<span class="nc" id="L885">                    rightLos.targetCover = COVER_RIGHT;</span>
+<span class="nc" id="L886">                    leftLos.setCoverBuildingPrimary(rightLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L887">                    leftLos.setCoverDropshipPrimary(rightLos.getCoverDropshipPrimary());</span>
+<span class="nc" id="L888">                    leftLos.setDamagableCoverTypePrimary(rightLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L889">                    leftLos.setCoverLocPrimary(rightLos.getCoverLocPrimary());</span>
+<span class="nc" id="L890">                    losBlockedByCover = true;</span>
+<span class="nc bnc" id="L891" title="All 4 branches missed.">                } else if(leftLos.targetCover == COVER_FULL &amp;&amp; </span>
+                         rightLos.targetCover == COVER_HORIZONTAL){
+                    //75% cover, left
+<span class="nc" id="L894">                    leftLos.targetCover  = COVER_75LEFT;</span>
+<span class="nc" id="L895">                    rightLos.targetCover = COVER_75LEFT;</span>
+<span class="nc" id="L896">                    setSecondaryCover(leftLos,rightLos);                                       </span>
+<span class="nc" id="L897">                    losBlockedByCover = true;                    </span>
+<span class="nc bnc" id="L898" title="All 4 branches missed.">                } else if (leftLos.targetCover == COVER_HORIZONTAL &amp;&amp; </span>
+                          rightLos.targetCover == COVER_FULL) { 
+                    //75% cover, right
+<span class="nc" id="L901">                    leftLos.targetCover  = COVER_75RIGHT;</span>
+<span class="nc" id="L902">                    rightLos.targetCover = COVER_75RIGHT;</span>
+<span class="nc" id="L903">                    setSecondaryCover(leftLos,rightLos);</span>
+<span class="nc" id="L904">                    losBlockedByCover = true;</span>
+<span class="nc bnc" id="L905" title="All 4 branches missed.">                } else if (leftLos.targetCover == COVER_HORIZONTAL &amp;&amp; </span>
+                        rightLos.targetCover == COVER_HORIZONTAL) { 
+                    //50% cover
+                    //Cover will be set properly, but we need to set secondary
+                    // cover in case there are two buildings providing 25% cover
+<span class="nc" id="L910">                    setSecondaryCover(leftLos,rightLos);</span>
+                }
+                //In the case of vertical and 75% cover, LoS will be blocked.  
+                // We need to unblock it, unless Los is already blocked.
+<span class="nc bnc" id="L914" title="All 8 branches missed.">                if (!los.blocked &amp;&amp; (!leftLos.blocked || !rightLos.blocked) &amp;&amp;</span>
+                        losBlockedByCover){                   
+<span class="nc" id="L916">                    leftLos.blocked = false;</span>
+<span class="nc" id="L917">                    rightLos.blocked = false;</span>
+                }                
+            }
+            
+<span class="nc bnc" id="L921" title="All 4 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER) &amp;&amp; </span>
+                    ai.attackerIsMech) {
+                // 75% and vertical cover will have blocked LoS
+<span class="nc" id="L924">                boolean losBlockedByCover = false;</span>
+<span class="nc bnc" id="L925" title="All 4 branches missed.">                if(leftLos.attackerCover == COVER_HORIZONTAL &amp;&amp; </span>
+                        rightLos.attackerCover == COVER_NONE) {
+                    //25% cover, left
+<span class="nc" id="L928">                    leftLos.attackerCover  = COVER_LOWLEFT;</span>
+<span class="nc" id="L929">                    rightLos.attackerCover = COVER_LOWLEFT;</span>
+<span class="nc" id="L930">                    rightLos.targetCover = COVER_LOWLEFT;</span>
+<span class="nc" id="L931">                    rightLos.setCoverBuildingPrimary(leftLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L932">                    rightLos.setCoverDropshipPrimary(leftLos.getCoverDropshipPrimary());</span>
+<span class="nc" id="L933">                    rightLos.setDamagableCoverTypePrimary(leftLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L934">                    rightLos.setCoverLocPrimary(leftLos.getCoverLocPrimary());</span>
+<span class="nc bnc" id="L935" title="All 4 branches missed.">                }else if ((leftLos.attackerCover == COVER_NONE &amp;&amp; </span>
+                          rightLos.attackerCover == COVER_HORIZONTAL)) {
+                    //25% cover, right
+<span class="nc" id="L938">                    leftLos.attackerCover  = COVER_LOWRIGHT;</span>
+<span class="nc" id="L939">                    rightLos.attackerCover = COVER_LOWRIGHT;</span>
+<span class="nc" id="L940">                    leftLos.setCoverBuildingPrimary(rightLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L941">                    leftLos.setCoverDropshipPrimary(rightLos.getCoverDropshipPrimary());</span>
+<span class="nc" id="L942">                    leftLos.setDamagableCoverTypePrimary(rightLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L943">                    leftLos.setCoverLocPrimary(rightLos.getCoverLocPrimary());</span>
+<span class="nc bnc" id="L944" title="All 4 branches missed.">                } else if(leftLos.attackerCover == COVER_FULL &amp;&amp; </span>
+                         rightLos.attackerCover == COVER_NONE){
+                    //vertical cover, left
+<span class="nc" id="L947">                    leftLos.attackerCover  = COVER_LEFT;</span>
+<span class="nc" id="L948">                    rightLos.attackerCover = COVER_LEFT;</span>
+<span class="nc" id="L949">                    losBlockedByCover = true;</span>
+<span class="nc bnc" id="L950" title="All 4 branches missed.">                }else if (leftLos.attackerCover == COVER_NONE &amp;&amp; </span>
+                         rightLos.attackerCover == COVER_FULL) {
+                    //vertical cover, right
+<span class="nc" id="L953">                    leftLos.attackerCover  = COVER_RIGHT;</span>
+<span class="nc" id="L954">                    rightLos.attackerCover = COVER_RIGHT;</span>
+<span class="nc" id="L955">                    losBlockedByCover = true;</span>
+<span class="nc bnc" id="L956" title="All 4 branches missed.">                } else if(leftLos.attackerCover == COVER_FULL &amp;&amp; </span>
+                         rightLos.attackerCover == COVER_HORIZONTAL){
+                    //75% cover, left
+<span class="nc" id="L959">                    leftLos.attackerCover  = COVER_75LEFT;</span>
+<span class="nc" id="L960">                    rightLos.attackerCover = COVER_75LEFT;   </span>
+<span class="nc" id="L961">                    losBlockedByCover = true;</span>
+<span class="nc bnc" id="L962" title="All 4 branches missed.">                } else if (leftLos.attackerCover == COVER_HORIZONTAL &amp;&amp; </span>
+                          rightLos.attackerCover == COVER_FULL) { 
+                    //75% cover, right
+<span class="nc" id="L965">                    leftLos.attackerCover  = COVER_75RIGHT;</span>
+<span class="nc" id="L966">                    rightLos.attackerCover = COVER_75RIGHT;</span>
+<span class="nc" id="L967">                    losBlockedByCover = true;</span>
+                }
+                
+                //In the case of vertical and 75% cover, LoS will be blocked.  
+                // We need to unblock it, unless Los is already blocked.
+<span class="nc bnc" id="L972" title="All 8 branches missed.">                if (!los.blocked &amp;&amp; (!leftLos.blocked || !rightLos.blocked) &amp;&amp;</span>
+                        losBlockedByCover){                   
+<span class="nc" id="L974">                    leftLos.blocked = false;</span>
+<span class="nc" id="L975">                    rightLos.blocked = false;</span>
+                }                
+            }
+<span class="nc" id="L978">            totalLeftLos.add(leftLos);</span>
+<span class="nc" id="L979">            totalRightLos.add(rightLos);           </span>
+        }
+        //Determine whether left or right is worse and update los with it
+<span class="nc" id="L982">        int lVal = totalLeftLos.losModifiers(game).getValue();</span>
+<span class="nc" id="L983">        int rVal = totalRightLos.losModifiers(game).getValue();</span>
+<span class="nc bnc" id="L984" title="All 4 branches missed.">        if ((lVal &gt; rVal) || </span>
+<span class="nc bnc" id="L985" title="All 2 branches missed.">                ((lVal == rVal) &amp;&amp; totalLeftLos.isAttackerCover())) {</span>
+<span class="nc" id="L986">            los.add(totalLeftLos);</span>
+        } else {
+<span class="nc" id="L988">            los.add(totalRightLos);</span>
+        }
+<span class="nc" id="L990">        return los;</span>
+    }
+    
+    /**
+     * Convenience method for setting the secondary cover values.  The left LoS
+     * has retains it's primary cover, and its secondary cover becomes the 
+     * primary of the right los while the right los has its primary become 
+     * secondary and its primary becomes the primary of the left side.
+     * This ensures that the primary protects the left side and the secondary
+     * protects the right side which is important to determine which to pick
+     * later on when damage is handled.
+     * 
+     * @param leftLos  The left side of the line of sight for a divided hex 
+     *                  LoS computation
+     * @param rightLos The right side of the line of sight for a dividied hex
+     *                  LoS computation
+     */
+    private static void setSecondaryCover(LosEffects leftLos, LosEffects rightLos){
+        //Set left secondary to right primary
+<span class="nc" id="L1009">        leftLos.setDamagableCoverTypeSecondary(rightLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L1010">        leftLos.setCoverBuildingSecondary(rightLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L1011">        leftLos.setCoverDropshipSecondary(rightLos.getCoverDropshipPrimary());</span>
+<span class="nc" id="L1012">        leftLos.setCoverLocSecondary(rightLos.getCoverLocPrimary());        </span>
+        //Set right secondary to right primary
+<span class="nc" id="L1014">        rightLos.setDamagableCoverTypeSecondary(rightLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L1015">        rightLos.setCoverBuildingSecondary(rightLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L1016">        rightLos.setCoverDropshipSecondary(rightLos.getCoverDropshipPrimary());</span>
+<span class="nc" id="L1017">        rightLos.setCoverLocSecondary(rightLos.getCoverLocPrimary());</span>
+        //Set right primary to left primary
+<span class="nc" id="L1019">        rightLos.setDamagableCoverTypePrimary(leftLos.getDamagableCoverTypePrimary());</span>
+<span class="nc" id="L1020">        rightLos.setCoverBuildingPrimary(leftLos.getCoverBuildingPrimary());</span>
+<span class="nc" id="L1021">        rightLos.setCoverDropshipPrimary(leftLos.getCoverDropshipPrimary());        </span>
+<span class="nc" id="L1022">        rightLos.setCoverLocPrimary(leftLos.getCoverLocPrimary());</span>
+<span class="nc" id="L1023">    }</span>
+
+    /**
+     * Returns a LosEffects object representing the LOS effects of anything at
+     * the specified coordinate.
+     */
+    private static LosEffects losForCoords(IGame game, AttackInfo ai,
+            Coords coords, Building thruBldg, 
+            boolean diagramLoS, boolean partialCover) {
+<span class="nc" id="L1032">        LosEffects los = new LosEffects();</span>
+        // ignore hexes not on board
+<span class="nc bnc" id="L1034" title="All 2 branches missed.">        if (!game.getBoard().contains(coords)) {</span>
+<span class="nc" id="L1035">            return los;</span>
+        }
+
+        // Is there a building in this hex?
+<span class="nc" id="L1039">        Building bldg = game.getBoard().getBuildingAt(coords);</span>
+
+        // We're only tracing thru a single building if there
+        // is a building in this hex, and if it isn't the same
+        // building that we'be been tracing LOS thru.
+<span class="nc bnc" id="L1044" title="All 4 branches missed.">        if ((bldg != null) &amp;&amp; bldg.equals(thruBldg)) {</span>
+<span class="nc" id="L1045">            los.setThruBldg(thruBldg);</span>
+        }
+
+        // ignore hexes the attacker or target are in
+<span class="nc bnc" id="L1049" title="All 4 branches missed.">        if (coords.equals(ai.attackPos) || coords.equals(ai.targetPos)) {</span>
+<span class="nc" id="L1050">            return los;</span>
+        }
+
+        // we are an attack in a building, +1 for each building hex between the
+        // 2 units
+<span class="nc bnc" id="L1055" title="All 2 branches missed.">        if ((game.getBoard().getBuildingAt(ai.attackPos) != null)</span>
+<span class="nc bnc" id="L1056" title="All 4 branches missed.">                &amp;&amp; (game.getBoard().getBuildingAt(ai.targetPos) != null)</span>
+                &amp;&amp; (thruBldg != null)
+<span class="nc bnc" id="L1058" title="All 4 branches missed.">                &amp;&amp; game.getBoard().getBuildingAt(ai.attackPos).equals(game.getBoard().getBuildingAt(ai.targetPos))</span>
+<span class="nc bnc" id="L1059" title="All 2 branches missed.">                &amp;&amp; ai.targetEntity &amp;&amp; thruBldg.equals(game.getBoard().getBuildingAt(ai.attackPos))) {</span>
+<span class="nc" id="L1060">            los.buildingLevelsOrHexes += 1;</span>
+        }
+
+<span class="nc" id="L1063">        IHex hex = game.getBoard().getHex(coords);</span>
+<span class="nc bnc" id="L1064" title="All 2 branches missed.">        int hexEl = ai.underWaterCombat ? hex.floor() : hex.surface();</span>
+
+        // Handle minimum water depth.
+        // Applies to Torpedos.
+<span class="nc bnc" id="L1068" title="All 2 branches missed.">        if (!(hex.containsTerrain(Terrains.WATER))) {</span>
+<span class="nc" id="L1069">            ai.minimumWaterDepth = 0;</span>
+<span class="nc bnc" id="L1070" title="All 4 branches missed.">        } else if ((hex.terrainLevel(Terrains.WATER) &gt;= 0)</span>
+                &amp;&amp; ((ai.minimumWaterDepth == -1) || (hex
+<span class="nc bnc" id="L1072" title="All 2 branches missed.">                        .terrainLevel(Terrains.WATER) &lt; ai.minimumWaterDepth))) {</span>
+<span class="nc" id="L1073">            ai.minimumWaterDepth = hex.terrainLevel(Terrains.WATER);</span>
+        }
+
+        // Handle building elevation.
+        // Attacks thru a building are not blocked by that building.
+        // ASSUMPTION: bridges don't block LOS.
+<span class="nc" id="L1079">        int bldgEl = 0;</span>
+<span class="nc bnc" id="L1080" title="All 2 branches missed.">        if ((null == los.getThruBldg())</span>
+<span class="nc bnc" id="L1081" title="All 2 branches missed.">                &amp;&amp; hex.containsTerrain(Terrains.BLDG_ELEV)) {</span>
+<span class="nc" id="L1082">            bldgEl = hex.terrainLevel(Terrains.BLDG_ELEV);</span>
+        }
+        
+<span class="nc bnc" id="L1085" title="All 2 branches missed.">        if ((null == los.getThruBldg())</span>
+<span class="nc bnc" id="L1086" title="All 2 branches missed.">                &amp;&amp; hex.containsTerrain(Terrains.FUEL_TANK_ELEV)</span>
+<span class="nc bnc" id="L1087" title="All 2 branches missed.">                &amp;&amp; hex.terrainLevel(Terrains.FUEL_TANK_ELEV) &gt; bldgEl) {</span>
+<span class="nc" id="L1088">            bldgEl = hex.terrainLevel(Terrains.FUEL_TANK_ELEV);</span>
+        }
+
+<span class="nc" id="L1091">        boolean coveredByDropship = false;</span>
+<span class="nc" id="L1092">        Entity coveringDropship = null;</span>
+        //check for grounded dropships - treat like a building 10 elevations tall
+<span class="nc bnc" id="L1094" title="All 2 branches missed.">        if(bldgEl &lt; 10) {</span>
+<span class="nc bnc" id="L1095" title="All 2 branches missed.">            for (Entity inHex : game.getEntitiesVector(coords)) {</span>
+<span class="nc bnc" id="L1096" title="All 4 branches missed.">                if(ai.attackerId == inHex.getId() || ai.targetId == inHex.getId()) {</span>
+<span class="nc" id="L1097">                    continue;</span>
+                }
+<span class="nc bnc" id="L1099" title="All 6 branches missed.">                if(inHex instanceof Dropship &amp;&amp; !inHex.isAirborne() &amp;&amp; !inHex.isSpaceborne()) {</span>
+<span class="nc" id="L1100">                    bldgEl = 10;</span>
+<span class="nc" id="L1101">                    coveredByDropship = true;</span>
+<span class="nc" id="L1102">                    coveringDropship = inHex;</span>
+                }
+<span class="nc" id="L1104">            }</span>
+        }
+        
+        // check for block by terrain
+        
+        
+        // All unit heights report as 1 less in MM than what they really are 
+        // (1 for mechs, 0 for tanks...)
+        // A level 4 hill will not block a mech on a level 3 hill
+        // (height of the mech in here = 3+&quot;1&quot; = &quot;4&quot;), as 
+        // hill elevation is not &gt; unit elevation (normal LOS rules)
+        // With diagramming LOS it will block LOS as soon as the sightline
+        // drops by 0.1 to 3.9, even though that means it would be at 4.9 in
+        // &quot;real&quot; height values, so still well above the level 4 hill
+        // Therefore we need to add 1 from the diagramming LOS elevation
+        // to correct the calculation
+        // This is still hacky as Entity should simply report the real heights 
+        // and the comparison in here should follow TW/TO &quot;higher or equal&quot; rules.
+        
+        // The interpolated elevation for TacOps LOS diagramming
+<span class="nc" id="L1124">        double weightedHeight = ai.targetAbsHeight * ai.attackPos.distance(coords) </span>
+<span class="nc" id="L1125">                + ai.attackAbsHeight * ai.targetPos.distance(coords);</span>
+<span class="nc" id="L1126">        double totalDistance = ai.targetPos.distance(coords) + ai.attackPos.distance(coords);</span>
+<span class="nc" id="L1127">        double losElevation = 1 + weightedHeight / totalDistance;</span>
+        
+        // The higher of the attacker's height and defender's height
+<span class="nc" id="L1130">        int maxUnitHeight = Math.max(ai.attackAbsHeight, ai.targetAbsHeight);</span>
+<span class="nc bnc" id="L1131" title="All 2 branches missed.">        boolean attackerAdjc = ai.attackPos.distance(coords) == 1;</span>
+<span class="nc bnc" id="L1132" title="All 2 branches missed.">        boolean targetAdjc = ai.targetPos.distance(coords) == 1;</span>
+        boolean affectsLos;
+
+        // Intervening building or hill
+<span class="nc" id="L1136">        int totalEl = hexEl + bldgEl;</span>
+<span class="nc bnc" id="L1137" title="All 2 branches missed.">        if (diagramLoS) {</span>
+<span class="nc bnc" id="L1138" title="All 2 branches missed.">            affectsLos = totalEl &gt;= losElevation;</span>
+        } else {
+<span class="nc bnc" id="L1140" title="All 10 branches missed.">            affectsLos = (totalEl &gt; maxUnitHeight)</span>
+                    || ((totalEl &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+                    || ((totalEl &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc);
+        }
+<span class="nc bnc" id="L1144" title="All 2 branches missed.">        if (affectsLos) {</span>
+<span class="nc" id="L1145">            los.blocked = true;</span>
+<span class="nc bnc" id="L1146" title="All 2 branches missed.">            if (hex.terrainLevel(Terrains.BLDG_CF) &gt; 90) {</span>
+<span class="nc" id="L1147">                los.hardBuildings++;</span>
+<span class="nc bnc" id="L1148" title="All 2 branches missed.">            } else if (bldgEl &gt; 0) {</span>
+<span class="nc" id="L1149">                los.softBuildings++;</span>
+            } else {
+<span class="nc" id="L1151">                los.blockedByHill = true;</span>
+            }
+        }
+
+        // check if there's a clear hex between the targets that's higher than
+        // one of them, if we're in underwater combat
+<span class="nc bnc" id="L1157" title="All 2 branches missed.">        if (ai.underWaterCombat</span>
+<span class="nc bnc" id="L1158" title="All 6 branches missed.">                &amp;&amp; (hex.terrainLevel(Terrains.WATER) == ITerrain.LEVEL_NONE)</span>
+                &amp;&amp; ((totalEl &gt; ai.attackAbsHeight) || (totalEl &gt; ai.targetAbsHeight))) {
+<span class="nc" id="L1160">            los.blocked = true;</span>
+        }
+
+        // check for woods or smoke only if not under water
+<span class="nc bnc" id="L1164" title="All 2 branches missed.">        if (!ai.underWaterCombat) {</span>
+<span class="nc bnc" id="L1165" title="All 2 branches missed.">            if(hex.containsTerrain(Terrains.SCREEN)) {</span>
+                //number of screens doesn't matter. One is enough to block
+<span class="nc" id="L1167">                los.screen++;</span>
+            }
+            //heavy industrial zones can vary in height up to 10 levels, so lets
+            //put all of this into a for loop
+<span class="nc" id="L1171">            int industrialLevel = hex.terrainLevel(Terrains.INDUSTRIAL);</span>
+<span class="nc bnc" id="L1172" title="All 2 branches missed.">            if (industrialLevel != ITerrain.LEVEL_NONE) {</span>
+<span class="nc bnc" id="L1173" title="All 2 branches missed.">                for (int level = 1; level &lt; 11; level++) {</span>
+<span class="nc bnc" id="L1174" title="All 10 branches missed.">                    if ((hexEl + level &gt; maxUnitHeight)</span>
+                            || ((hexEl + level &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+                            || ((hexEl + level &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc)) {
+                        // check industrial zone
+<span class="nc bnc" id="L1178" title="All 2 branches missed.">                        if (industrialLevel == level) {</span>
+<span class="nc" id="L1179">                            los.heavyIndustrial++;</span>
+                        }
+                    }
+                }
+            }
+            //planted fields only rise one level above the terrain
+<span class="nc bnc" id="L1185" title="All 2 branches missed.">            if (hex.containsTerrain(Terrains.FIELDS)) {</span>
+<span class="nc bnc" id="L1186" title="All 12 branches missed.">                if (((hexEl + 1 &gt; ai.attackAbsHeight) &amp;&amp; (hexEl + 2 &gt; ai.targetAbsHeight))</span>
+                        || ((hexEl + 1 &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+                        || ((hexEl + 1 &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc)) {
+<span class="nc" id="L1189">                    los.plantedFields++;</span>
+
+                }
+            }
+            
+            // Intervening Smoke and Woods
+<span class="nc" id="L1195">            int smokeLevel = hex.terrainLevel(Terrains.SMOKE);</span>
+<span class="nc" id="L1196">            int woodsLevel = hex.terrainLevel(Terrains.WOODS);</span>
+<span class="nc" id="L1197">            int jungleLevel = hex.terrainLevel(Terrains.JUNGLE);</span>
+<span class="nc" id="L1198">            int foliageElev = hex.terrainLevel(Terrains.FOLIAGE_ELEV);</span>
+<span class="nc bnc" id="L1199" title="All 4 branches missed.">            boolean hasFoliage = (woodsLevel != ITerrain.LEVEL_NONE) || (jungleLevel != ITerrain.LEVEL_NONE);</span>
+            
+            // Check 1 level high woods and jungle
+<span class="nc bnc" id="L1202" title="All 4 branches missed.">            if (hasFoliage &amp;&amp; foliageElev == 1) {</span>
+<span class="nc" id="L1203">                int terrainEl = hexEl + 1;</span>
+<span class="nc bnc" id="L1204" title="All 2 branches missed.">                if (diagramLoS) {</span>
+<span class="nc bnc" id="L1205" title="All 2 branches missed.">                    affectsLos = terrainEl &gt;= losElevation;</span>
+                } else {
+<span class="nc bnc" id="L1207" title="All 10 branches missed.">                    affectsLos = (terrainEl &gt; maxUnitHeight)</span>
+                            || ((terrainEl &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+                            || ((terrainEl &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc);
+                }
+<span class="nc bnc" id="L1211" title="All 2 branches missed.">                if (affectsLos) {</span>
+<span class="nc bnc" id="L1212" title="All 4 branches missed.">                    if ((woodsLevel == 1) || (jungleLevel == 1)) {</span>
+<span class="nc" id="L1213">                        los.lightWoods++;</span>
+<span class="nc bnc" id="L1214" title="All 4 branches missed.">                    } else if ((woodsLevel == 2) || (jungleLevel == 2)) {</span>
+<span class="nc" id="L1215">                        los.heavyWoods++;</span>
+                    } else {
+<span class="nc" id="L1217">                        los.ultraWoods++;</span>
+                    }
+                }
+            }
+            
+            // Intervening smoke and elevation 2 light/heavy woods/jungle
+<span class="nc bnc" id="L1223" title="All 6 branches missed.">            if (smokeLevel != ITerrain.LEVEL_NONE </span>
+                    || (hasFoliage &amp;&amp; foliageElev &gt; 1)) {
+<span class="nc" id="L1225">                int terrainEl = hexEl + 2;</span>
+<span class="nc bnc" id="L1226" title="All 2 branches missed.">                if (diagramLoS) {</span>
+<span class="nc bnc" id="L1227" title="All 2 branches missed.">                    affectsLos = terrainEl &gt;= losElevation;</span>
+                } else {
+<span class="nc bnc" id="L1229" title="All 10 branches missed.">                    affectsLos = (terrainEl &gt; maxUnitHeight) </span>
+                            || ((terrainEl &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+                            || ((terrainEl &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc);
+                }
+<span class="nc bnc" id="L1233" title="All 2 branches missed.">                if (affectsLos) {</span>
+                    // smoke and woods stack for LOS so check them both
+<span class="nc bnc" id="L1235" title="All 8 branches missed.">                    if ((smokeLevel == SmokeCloud.SMOKE_LIGHT)</span>
+                            || (smokeLevel == SmokeCloud.SMOKE_LI_LIGHT)
+                            || (smokeLevel == SmokeCloud.SMOKE_LI_HEAVY)
+                            || (smokeLevel == SmokeCloud.SMOKE_CHAFF_LIGHT)) {
+<span class="nc" id="L1239">                        los.lightSmoke++;</span>
+<span class="nc bnc" id="L1240" title="All 2 branches missed.">                    } else if ((smokeLevel == SmokeCloud.SMOKE_HEAVY)) {</span>
+<span class="nc" id="L1241">                        los.heavySmoke++;</span>
+                    }
+                    // Check woods/jungle
+<span class="nc bnc" id="L1244" title="All 4 branches missed.">                    if ((woodsLevel == 1) || (jungleLevel == 1)) {</span>
+<span class="nc" id="L1245">                        los.lightWoods++;</span>
+<span class="nc bnc" id="L1246" title="All 4 branches missed.">                    } else if ((woodsLevel == 2) || (jungleLevel == 2)) {</span>
+<span class="nc" id="L1247">                        los.heavyWoods++;</span>
+                    }
+                }
+                
+                // Ultra woods/jungle rise 3 levels above the hex level
+<span class="nc" id="L1252">                terrainEl = hexEl + 3;</span>
+<span class="nc bnc" id="L1253" title="All 2 branches missed.">                if (diagramLoS) {</span>
+<span class="nc bnc" id="L1254" title="All 2 branches missed.">                    affectsLos = terrainEl &gt;= losElevation;</span>
+                } else {
+<span class="nc bnc" id="L1256" title="All 10 branches missed.">                    affectsLos = (terrainEl &gt; maxUnitHeight) </span>
+                            || ((terrainEl &gt; ai.attackAbsHeight) &amp;&amp; attackerAdjc)
+                            || ((terrainEl &gt; ai.targetAbsHeight) &amp;&amp; targetAdjc);
+                }
+<span class="nc bnc" id="L1260" title="All 2 branches missed.">                if (affectsLos) {</span>
+<span class="nc bnc" id="L1261" title="All 4 branches missed.">                    if ((woodsLevel == 3) || (jungleLevel == 3)) {</span>
+<span class="nc" id="L1262">                        los.ultraWoods++;</span>
+                    }
+                }
+            }
+        }
+
+        // Partial Cover related code        
+<span class="nc" id="L1269">        boolean potentialCover = false;</span>
+        // check for target partial cover
+<span class="nc bnc" id="L1271" title="All 4 branches missed.">        if (targetAdjc &amp;&amp; ai.targetIsMech){</span>
+<span class="nc bnc" id="L1272" title="All 4 branches missed.">            if (los.blocked &amp;&amp; partialCover) {</span>
+<span class="nc" id="L1273">                los.targetCover = COVER_FULL; </span>
+<span class="nc" id="L1274">                potentialCover = true;</span>
+<span class="nc bnc" id="L1275" title="All 6 branches missed.">            } else if  ((totalEl == ai.targetAbsHeight)</span>
+                    &amp;&amp; (ai.attackAbsHeight &lt;= ai.targetAbsHeight)
+                    &amp;&amp; (ai.targetHeight &gt; 0)) {
+<span class="nc" id="L1278">                los.targetCover |= COVER_HORIZONTAL; </span>
+<span class="nc" id="L1279">                potentialCover = true;</span>
+            }
+        }
+        // check for attacker partial (horizontal) cover
+<span class="nc bnc" id="L1283" title="All 4 branches missed.">        if (attackerAdjc &amp;&amp; ai.attackerIsMech) {</span>
+<span class="nc bnc" id="L1284" title="All 4 branches missed.">            if (los.blocked &amp;&amp; partialCover) {</span>
+<span class="nc" id="L1285">                los.attackerCover = COVER_FULL; </span>
+<span class="nc" id="L1286">                potentialCover = true;</span>
+<span class="nc bnc" id="L1287" title="All 6 branches missed.">            } else if  ((totalEl == ai.attackAbsHeight)</span>
+                    &amp;&amp; (ai.attackAbsHeight &gt;= ai.targetAbsHeight)
+                    &amp;&amp; (ai.attackHeight &gt; 0)) {
+<span class="nc" id="L1290">                los.attackerCover |= COVER_HORIZONTAL; </span>
+<span class="nc" id="L1291">                potentialCover = true;</span>
+            }
+        }    
+        
+        //If there's a partial cover situation, we may need to keep track of 
+        // damagable assets that are providing cover, so we can damage them if
+        // they block a shot.
+<span class="nc bnc" id="L1298" title="All 2 branches missed.">        if (potentialCover){</span>
+<span class="nc bnc" id="L1299" title="All 2 branches missed.">            if (coveredByDropship){</span>
+<span class="nc" id="L1300">                los.setDamagableCoverTypePrimary(DAMAGABLE_COVER_DROPSHIP);</span>
+<span class="nc" id="L1301">                los.coverDropshipPrimary = coveringDropship;</span>
+<span class="nc bnc" id="L1302" title="All 2 branches missed.">            }else if (bldg != null){</span>
+<span class="nc" id="L1303">                los.setDamagableCoverTypePrimary(DAMAGABLE_COVER_BUILDING);</span>
+<span class="nc" id="L1304">                los.coverBuildingPrimary = bldg;                    </span>
+            }
+            else {
+<span class="nc" id="L1307">                los.setDamagableCoverTypePrimary(DAMAGABLE_COVER_NONE);</span>
+            }
+<span class="nc" id="L1309">            los.coverLocPrimary = coords;</span>
+        }      
+
+<span class="nc" id="L1312">        return los;</span>
+    }
+
+    public static boolean hasFireBetween(Coords start, Coords end, IGame game) {
+
+<span class="nc" id="L1317">        ArrayList&lt;Coords&gt; in = Coords.intervening(start, end);</span>
+<span class="nc bnc" id="L1318" title="All 2 branches missed.">        for ( Coords hex : in ) {</span>
+            // ignore off-board hexes
+<span class="nc bnc" id="L1320" title="All 2 branches missed.">            if (!game.getBoard().contains(hex)) {</span>
+<span class="nc" id="L1321">                continue;</span>
+            }
+<span class="nc bnc" id="L1323" title="All 2 branches missed.">            if ( game.getBoard().getHex(hex).containsTerrain(Terrains.FIRE) ) {</span>
+<span class="nc" id="L1324">                return true;</span>
+            }
+<span class="nc" id="L1326">        }</span>
+<span class="nc" id="L1327">        return false;</span>
+    }
+
+    public void setArcedAttack(boolean attack){
+<span class="nc" id="L1331">        arcedShot = attack;</span>
+<span class="nc" id="L1332">    }</span>
+
+    /**
+     * Build line of sight effects between coordinates c1 and c2 at height h1
+     * and h2 respectivly.
+     *
+     * @param c1 the source coordiantes.
+     * @param c2 the target coordinates.
+     * @param h1 the height in the source tile that is being shot from.
+     * @param h2 the height of the target tile to shoot for.
+     * @return an attackInfo object that describes the apliable modifiers.
+     */
+    public static LosEffects.AttackInfo buildAttackInfo(Coords c1, Coords c2, int h1,
+            int h2, int h1Floor, int h2Floor) {
+<span class="nc" id="L1346">        LosEffects.AttackInfo ai = new LosEffects.AttackInfo();</span>
+<span class="nc" id="L1347">        ai.attackPos = c1;</span>
+<span class="nc" id="L1348">        ai.targetPos = c2;</span>
+<span class="nc" id="L1349">        ai.attackHeight = h1;</span>
+<span class="nc" id="L1350">        ai.targetHeight = h2;</span>
+<span class="nc" id="L1351">        ai.attackAbsHeight = h1Floor + h1;</span>
+<span class="nc" id="L1352">        ai.targetAbsHeight = h2Floor + h2;</span>
+<span class="nc" id="L1353">        return ai;</span>
+    }
+
+    /**
+     * find out if the left or right side of the divided LOS is better for the
+     * target
+     * return 0 if right is better, 1 if left is better, 2 if both are equal
+     * @param in
+     * @param game
+     * @param ai
+     * @param targetInBuilding
+     * @param los
+     */
+    public static int dividedLeftBetter(ArrayList&lt;Coords&gt; in, IGame game,
+            AttackInfo ai, boolean targetInBuilding, LosEffects los) {
+<span class="nc" id="L1368">        boolean diagramLos = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_LOS1);</span>
+<span class="nc" id="L1369">        boolean partialCover = game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_PARTIAL_COVER);</span>
+<span class="nc" id="L1370">        LosEffects leftTotal = new LosEffects();</span>
+<span class="nc" id="L1371">        LosEffects rightTotal = new LosEffects();</span>
+<span class="nc bnc" id="L1372" title="All 2 branches missed.">        for (int i = 1; i &lt; in.size() - 2; i += 3) {</span>
+            // get effects of each side
+<span class="nc" id="L1374">            LosEffects left = losForCoords(game, ai, in.get(i), los</span>
+<span class="nc" id="L1375">                    .getThruBldg(), diagramLos, partialCover);</span>
+<span class="nc" id="L1376">            LosEffects right = losForCoords(game, ai, in.get(i + 1), los</span>
+<span class="nc" id="L1377">                    .getThruBldg(), diagramLos, partialCover);</span>
+
+            // Include all previous LOS effects.
+<span class="nc" id="L1380">            left.add(los);</span>
+<span class="nc" id="L1381">            right.add(los);</span>
+
+            // Infantry inside a building can only be
+            // targeted by units in the same building.
+<span class="nc bnc" id="L1385" title="All 4 branches missed.">            if (ai.targetInfantry &amp;&amp; targetInBuilding) {</span>
+<span class="nc bnc" id="L1386" title="All 2 branches missed.">                if (null == left.getThruBldg()) {</span>
+<span class="nc" id="L1387">                    left.infProtected = true;</span>
+<span class="nc bnc" id="L1388" title="All 2 branches missed.">                } else if (null == right.getThruBldg()) {</span>
+<span class="nc" id="L1389">                    right.infProtected = true;</span>
+                }
+            }
+
+            // which is better?
+<span class="nc" id="L1394">            int lVal = left.losModifiers(game).getValue();</span>
+<span class="nc" id="L1395">            int rVal = right.losModifiers(game).getValue();</span>
+<span class="nc bnc" id="L1396" title="All 6 branches missed.">            if ((lVal &gt; rVal) || ((lVal == rVal) &amp;&amp; left.isAttackerCover())) {</span>
+<span class="nc" id="L1397">                leftTotal.add(left);</span>
+            } else {
+<span class="nc" id="L1399">                rightTotal.add(right);</span>
+            }
+        }
+<span class="nc" id="L1402">        int leftTotalValue = leftTotal.losModifiers(game).getValue();</span>
+<span class="nc" id="L1403">        int rightTotalValue = rightTotal.losModifiers(game).getValue();</span>
+<span class="nc bnc" id="L1404" title="All 2 branches missed.">        if (leftTotalValue &gt; rightTotalValue) {</span>
+<span class="nc" id="L1405">            return 1;</span>
+<span class="nc bnc" id="L1406" title="All 2 branches missed.">        } else if (leftTotalValue &lt; rightTotalValue) {</span>
+<span class="nc" id="L1407">            return 0;</span>
+        } else {
+<span class="nc" id="L1409">            return 2;</span>
+        }
+    }
+
+    private static boolean isDeadZone(IGame game, AttackInfo ai) {
+        //determine who is higher and who is lower
+<span class="nc" id="L1415">        int highElev = ai.attackAbsHeight;</span>
+<span class="nc" id="L1416">        int lowElev = ai.targetAbsHeight;</span>
+<span class="nc" id="L1417">        Coords highPos = ai.attackPos;</span>
+<span class="nc" id="L1418">        Coords lowPos = ai.targetPos;</span>
+<span class="nc bnc" id="L1419" title="All 2 branches missed.">        if(highElev &lt; lowElev) {</span>
+<span class="nc" id="L1420">            highElev = ai.targetAbsHeight;</span>
+<span class="nc" id="L1421">            lowElev = ai.attackAbsHeight;</span>
+<span class="nc" id="L1422">            highPos = ai.targetPos;</span>
+<span class="nc" id="L1423">            lowPos = ai.attackPos;</span>
+        }
+        //TODO: check if this works right for splits (thinks like expanded partial cover for example)
+<span class="nc" id="L1426">        ArrayList&lt;Coords&gt; in = Coords.intervening(lowPos, highPos, true);</span>
+<span class="nc" id="L1427">        int IntElev = lowElev;</span>
+<span class="nc" id="L1428">        Coords IntPos = lowPos;</span>
+<span class="nc bnc" id="L1429" title="All 2 branches missed.">        for(Coords c : in) {</span>
+            // ignore off-board coords
+<span class="nc bnc" id="L1431" title="All 2 branches missed.">            if (!game.getBoard().contains(c)) {</span>
+<span class="nc" id="L1432">                continue;</span>
+            }
+<span class="nc bnc" id="L1434" title="All 2 branches missed.">           if(!c.equals(lowPos)) {</span>
+<span class="nc" id="L1435">               IHex hex = game.getBoard().getHex(c);</span>
+<span class="nc bnc" id="L1436" title="All 2 branches missed.">               int hexEl = ai.underWaterCombat ? hex.floor() : hex.surface();</span>
+               // Handle building elevation.
+               // Attacks thru a building are not blocked by that building.
+               // ASSUMPTION: bridges don't block LOS.
+<span class="nc" id="L1440">               int bldgEl = 0;</span>
+<span class="nc bnc" id="L1441" title="All 2 branches missed.">               if (hex.containsTerrain(Terrains.BLDG_ELEV)) {</span>
+<span class="nc" id="L1442">                   bldgEl = hex.terrainLevel(Terrains.BLDG_ELEV);</span>
+               }
+               //check for grounded dropships - treat like a building 10 elevations tall
+<span class="nc bnc" id="L1445" title="All 2 branches missed.">               if(bldgEl &lt; 10) {</span>
+<span class="nc bnc" id="L1446" title="All 2 branches missed.">                   for (Entity inHex : game.getEntitiesVector(c)) {</span>
+<span class="nc bnc" id="L1447" title="All 4 branches missed.">                       if(ai.attackerId == inHex.getId() || ai.targetId == inHex.getId()) {</span>
+<span class="nc" id="L1448">                           continue;</span>
+                       }
+<span class="nc bnc" id="L1450" title="All 6 branches missed.">                       if(inHex instanceof Dropship &amp;&amp; !inHex.isAirborne() &amp;&amp; !inHex.isSpaceborne()) {</span>
+<span class="nc" id="L1451">                           bldgEl = 10;</span>
+                       }
+<span class="nc" id="L1453">                   }</span>
+               }
+<span class="nc" id="L1455">               int totalEl = hexEl + bldgEl;</span>
+<span class="nc bnc" id="L1456" title="All 2 branches missed.">               if(totalEl &gt; IntElev) {</span>
+<span class="nc" id="L1457">                   IntElev = totalEl;</span>
+<span class="nc" id="L1458">                   IntPos = c;</span>
+               }
+           }
+<span class="nc" id="L1461">        }</span>
+        //the intervening hex cannot be either the low or high position
+<span class="nc bnc" id="L1463" title="All 4 branches missed.">        if(!IntPos.equals(lowPos) &amp;&amp; !IntPos.equals(highPos)) {</span>
+<span class="nc bnc" id="L1464" title="All 2 branches missed.">            return  0 &lt; 2 * (2*IntElev - highElev - lowElev) + IntPos.distance(highPos) - IntPos.distance(lowPos);</span>
+        }
+<span class="nc" id="L1466">        return false;</span>
+    }
+    
+     
+    /**
+     * Returns the text name of a particular type of cover, given its id.
+     * TacOps partial cover is assigned from the perspective of the attacker,
+     * so it's possible that the sides should be switched to make sense
+     * from the perspective of the target.
+     * 
+     * @param cover  The int id that represents the cover type.
+     * @param switchSides A boolean that determines if left/right side should
+     *                     be switched.  This is useful since cover is given
+     *                     from the perspective of the attacker, and the sides
+     *                     need to be switched for the target.
+     * @return
+     */
+    static public String getCoverName(int cover, boolean switchSides){
+<span class="nc bnc" id="L1484" title="All 11 branches missed.">        switch (cover)</span>
+        {
+            case COVER_NONE:
+<span class="nc" id="L1487">                return Messages.getString(&quot;LosEffects.name_cover_none&quot;);</span>
+            case COVER_LOWLEFT:
+<span class="nc bnc" id="L1489" title="All 2 branches missed.">                if (switchSides)</span>
+<span class="nc" id="L1490">                    return Messages.getString(&quot;LosEffects.name_cover_lowright&quot;);</span>
+                else
+<span class="nc" id="L1492">                    return Messages.getString(&quot;LosEffects.name_cover_lowleft&quot;);</span>
+            case COVER_LOWRIGHT:
+<span class="nc bnc" id="L1494" title="All 2 branches missed.">                if (switchSides)</span>
+<span class="nc" id="L1495">                    return Messages.getString(&quot;LosEffects.name_cover_lowleft&quot;);</span>
+                else
+<span class="nc" id="L1497">                    return Messages.getString(&quot;LosEffects.name_cover_lowright&quot;);</span>
+            case COVER_LEFT:
+<span class="nc bnc" id="L1499" title="All 2 branches missed.">                if (switchSides)</span>
+<span class="nc" id="L1500">                    return Messages.getString(&quot;LosEffects.name_cover_right&quot;);</span>
+                else
+<span class="nc" id="L1502">                    return Messages.getString(&quot;LosEffects.name_cover_left&quot;);</span>
+            case COVER_RIGHT:
+<span class="nc bnc" id="L1504" title="All 2 branches missed.">                if (switchSides)</span>
+<span class="nc" id="L1505">                    return Messages.getString(&quot;LosEffects.name_cover_left&quot;);</span>
+                else
+<span class="nc" id="L1507">                    return Messages.getString(&quot;LosEffects.name_cover_right&quot;);</span>
+            case COVER_HORIZONTAL:
+<span class="nc" id="L1509">                return Messages.getString(&quot;LosEffects.name_cover_horizontal&quot;);</span>
+            case COVER_UPPER:
+<span class="nc" id="L1511">                return Messages.getString(&quot;LosEffects.name_cover_upper&quot;);                                                  </span>
+            case COVER_FULL:
+<span class="nc" id="L1513">                return Messages.getString(&quot;LosEffects.name_cover_full&quot;);</span>
+            case COVER_75LEFT:
+<span class="nc bnc" id="L1515" title="All 2 branches missed.">                if (switchSides)</span>
+<span class="nc" id="L1516">                    return Messages.getString(&quot;LosEffects.name_cover_75right&quot;);</span>
+                else
+<span class="nc" id="L1518">                    return Messages.getString(&quot;LosEffects.name_cover_75left&quot;);</span>
+            case COVER_75RIGHT:
+<span class="nc bnc" id="L1520" title="All 2 branches missed.">                if (switchSides)</span>
+<span class="nc" id="L1521">                    return Messages.getString(&quot;LosEffects.name_cover_75left&quot;);</span>
+                else
+<span class="nc" id="L1523">                    return Messages.getString(&quot;LosEffects.name_cover_75right&quot;);</span>
+            default:
+<span class="nc" id="L1525">                return Messages.getString(&quot;LosEffects.name_cover_unknown&quot;);</span>
+        }
+    }
+    
+    public Building getCoverBuildingPrimary() {
+<span class="nc" id="L1530">        return coverBuildingPrimary;</span>
+    }
+
+    public void setCoverBuildingPrimary(Building coverBuilding) {
+<span class="nc" id="L1534">        this.coverBuildingPrimary = coverBuilding;</span>
+<span class="nc" id="L1535">    }</span>
+
+    public Entity getCoverDropshipPrimary() {
+<span class="nc" id="L1538">        return coverDropshipPrimary;</span>
+    }
+
+    public void setCoverDropshipPrimary(Entity coverDropship) {
+<span class="nc" id="L1542">        this.coverDropshipPrimary = coverDropship;</span>
+<span class="nc" id="L1543">    }</span>
+
+    public int getDamagableCoverTypePrimary() {
+<span class="nc" id="L1546">        return damagableCoverTypePrimary;</span>
+    }
+
+    public void setDamagableCoverTypePrimary(int damagableCover) {
+<span class="nc" id="L1550">        this.damagableCoverTypePrimary = damagableCover;</span>
+<span class="nc" id="L1551">    }</span>
+
+    public Coords getCoverLocPrimary() {
+<span class="nc" id="L1554">        return coverLocPrimary;</span>
+    }
+
+    public void setCoverLocPrimary(Coords coverLoc) {
+<span class="nc" id="L1558">        this.coverLocPrimary = coverLoc;</span>
+<span class="nc" id="L1559">    }</span>
+
+    public Building getCoverBuildingSecondary() {
+<span class="nc" id="L1562">        return coverBuildingSecondary;</span>
+    }
+
+    public void setCoverBuildingSecondary(Building coverBuildingSecondary) {
+<span class="nc" id="L1566">        this.coverBuildingSecondary = coverBuildingSecondary;</span>
+<span class="nc" id="L1567">    }</span>
+
+    public Entity getCoverDropshipSecondary() {
+<span class="nc" id="L1570">        return coverDropshipSecondary;</span>
+    }
+
+    public void setCoverDropshipSecondary(Entity coverDropshipSecondary) {
+<span class="nc" id="L1574">        this.coverDropshipSecondary = coverDropshipSecondary;</span>
+<span class="nc" id="L1575">    }</span>
+
+    public int getDamagableCoverTypeSecondary() {
+<span class="nc" id="L1578">        return damagableCoverTypeSecondary;</span>
+    }
+
+    public void setDamagableCoverTypeSecondary(int damagableCoverTypeSecondary) {
+<span class="nc" id="L1582">        this.damagableCoverTypeSecondary = damagableCoverTypeSecondary;</span>
+<span class="nc" id="L1583">    }</span>
+
+    public Coords getCoverLocSecondary() {
+<span class="nc" id="L1586">        return coverLocSecondary;</span>
+    }
+
+    public void setCoverLocSecondary(Coords coverLocSecondary) {
+<span class="nc" id="L1590">        this.coverLocSecondary = coverLocSecondary;</span>
+<span class="nc" id="L1591">    }</span>
+    
+    public boolean infantryProtected() {
+<span class="nc" id="L1594">        return infProtected;</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

@@ -1,0 +1,393 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PhysicalInfo.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">PhysicalInfo.java</span></div><h1>PhysicalInfo.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.bot.princess;
+
+import megamek.client.bot.PhysicalOption;
+import megamek.common.BipedMech;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IGame;
+import megamek.common.Mech;
+import megamek.common.Targetable;
+import megamek.common.ToHitData;
+import megamek.common.TripodMech;
+import megamek.common.actions.KickAttackAction;
+import megamek.common.actions.PhysicalAttackAction;
+import megamek.common.actions.PunchAttackAction;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+
+/**
+ * @version $Id$
+ * @lastEditBy Deric &quot;Netzilla&quot; Page (deric dot page at usa dot net)
+ * @since 12/18/13 1:29 PM
+ */
+public class PhysicalInfo {
+<span class="nc" id="L38">    private static final NumberFormat LOG_PER = NumberFormat.getPercentInstance();</span>
+<span class="nc" id="L39">    private static final NumberFormat LOG_DEC = DecimalFormat.getInstance();</span>
+
+    private Entity shooter;
+    private Targetable target;
+    private PhysicalAttackAction action;
+    private PhysicalAttackType attackType;
+    private ToHitData hitData;
+    private double probabilityToHit;
+    private double maxDamage;
+    private double expectedDamageOnHit;
+    private int damageDirection; // direction damage is coming from relative to target
+    private double expectedCriticals;
+    private double killProbability; // probability to destroy CT or HEAD (ignores criticals)
+    private double utility; // filled out externally
+    private Princess owner;
+
+    /**
+     * For unit testing.
+     *
+     * @param owner
+     */
+<span class="nc" id="L60">    protected PhysicalInfo(Princess owner) {</span>
+<span class="nc" id="L61">        this.owner = owner;</span>
+<span class="nc" id="L62">    }</span>
+
+    public double getExpectedDamage() {
+<span class="nc" id="L65">        return getProbabilityToHit() * getExpectedDamageOnHit();</span>
+    }
+
+    /**
+     * Constructor including the shooter and target's state information.
+     *
+     * @param shooter            The {@link megamek.common.Entity} doing the attacking.
+     * @param shooterState       The current {@link megamek.client.bot.princess.EntityState} of the attacker.
+     * @param target             The {@link megamek.common.Targetable} of the attack.
+     * @param targetState        The current {@link megamek.client.bot.princess.EntityState} of the target.
+     * @param physicalAttackType The type of attack being made.
+     * @param game               The {@link megamek.common.IGame} in progress.
+     * @param owner              The owning {@link Princess} bot.
+     * @param guess              Set TRUE to estimate the chance to hit rather than doing the full calculation.
+     */
+    PhysicalInfo(Entity shooter, EntityState shooterState, Targetable target, EntityState targetState,
+<span class="nc" id="L81">                 PhysicalAttackType physicalAttackType, IGame game, Princess owner, boolean guess) {</span>
+
+<span class="nc" id="L83">        this.owner = owner;</span>
+
+<span class="nc" id="L85">        setShooter(shooter);</span>
+<span class="nc" id="L86">        setTarget(target);</span>
+<span class="nc" id="L87">        setAttackType(physicalAttackType);</span>
+<span class="nc" id="L88">        initDamage(physicalAttackType, shooterState, targetState, guess, game);</span>
+<span class="nc" id="L89">    }</span>
+
+    /**
+     * Builds a new {@link PhysicalAttackAction} from the given parameters.
+     *
+     * @param attackType The {@link PhysicalAttackType} of the attack.
+     * @param shooterId  The ID of the attacking unit.
+     * @param target     The unit being attacked.
+     * @return The resulting {@link PhysicalAttackType}.
+     */
+    protected PhysicalAttackAction buildAction(PhysicalAttackType attackType, int shooterId, Targetable target) {
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (attackType.isPunch()) {</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">            int armId = PhysicalAttackType.RIGHT_PUNCH == attackType ? PunchAttackAction.RIGHT : PunchAttackAction.LEFT;</span>
+<span class="nc" id="L102">            return new PunchAttackAction(shooterId, target.getTargetType(), target.getTargetId(), armId, false, false, false);</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        } else if (attackType.isKick()) {</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">            int legId = PhysicalAttackType.RIGHT_KICK == attackType ? KickAttackAction.RIGHT : KickAttackAction.LEFT;</span>
+<span class="nc" id="L105">            return new KickAttackAction(shooterId, target.getTargetType(), target.getTargetId(), legId);</span>
+        } else {
+            // todo handle other physical attack types.
+<span class="nc" id="L108">            return null;</span>
+        }
+    }
+
+    /**
+     * Basic constructor.
+     *
+     * @param shooter            The {@link megamek.common.Entity} doing the attacking.
+     * @param target             The {@link megamek.common.Targetable} of the attack.
+     * @param physicalAttackType The type of attack being made.
+     * @param game               The {@link megamek.common.IGame} in progress.
+     * @param owner              The owning {@link Princess} bot.
+     * @param guess              Set TRUE to estimate the chance to hit rather than doing the full calculation.
+     */
+    PhysicalInfo(Entity shooter, Targetable target, PhysicalAttackType physicalAttackType, IGame game, Princess owner,
+                 boolean guess) {
+<span class="nc" id="L124">        this(shooter, null, target, null, physicalAttackType, game, owner, guess);</span>
+<span class="nc" id="L125">    }</span>
+
+    /**
+     * Helper function to determine damage and criticals
+     */
+    protected void initDamage(PhysicalAttackType physicalAttackType, EntityState shooterState, EntityState targetState,
+                              boolean guess, IGame game) {
+<span class="nc" id="L132">        StringBuilder msg =</span>
+<span class="nc" id="L133">                new StringBuilder(&quot;Initializing Damage for &quot;).append(getShooter().getDisplayName())</span>
+<span class="nc" id="L134">                                                             .append(&quot; &quot;).append(physicalAttackType.toString())</span>
+<span class="nc" id="L135">                                                             .append(&quot; at &quot;).append(getTarget().getDisplayName())</span>
+<span class="nc" id="L136">                                                             .append(&quot;:&quot;);</span>
+
+        // Only mechs do physical attacks.
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (!(getShooter() instanceof Mech)) {</span>
+<span class="nc" id="L140">            owner.getLogger().warning(msg.append(&quot;\n\tNot a mech!&quot;).toString());</span>
+<span class="nc" id="L141">            setProbabilityToHit(0);</span>
+<span class="nc" id="L142">            setMaxDamage(0);</span>
+<span class="nc" id="L143">            setExpectedCriticals(0);</span>
+<span class="nc" id="L144">            setKillProbability(0);</span>
+<span class="nc" id="L145">            setExpectedDamageOnHit(0);</span>
+<span class="nc" id="L146">            return;</span>
+        }
+
+<span class="nc bnc" id="L149" title="All 2 branches missed.">        if (shooterState == null) {</span>
+<span class="nc" id="L150">            shooterState = new EntityState(getShooter());</span>
+        }
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        if (targetState == null) {</span>
+<span class="nc" id="L153">            targetState = new EntityState(getTarget());</span>
+        }
+
+        // Build the to hit data.
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        if (guess) {</span>
+<span class="nc" id="L158">            setHitData(owner.getFireControl(getShooter()).guessToHitModifierPhysical(getShooter(), shooterState, getTarget(),</span>
+<span class="nc" id="L159">                                                                         targetState, getAttackType(), game));</span>
+        } else {
+<span class="nc" id="L161">            PhysicalAttackAction action = buildAction(physicalAttackType, getShooter().getId(), getTarget());</span>
+<span class="nc" id="L162">            setAction(action);</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">            setHitData(physicalAttackType.isPunch() ?</span>
+<span class="nc" id="L164">                       ((PunchAttackAction) action).toHit(game) :</span>
+<span class="nc" id="L165">                       ((KickAttackAction) action).toHit(game));</span>
+        }
+
+        // Get the attack direction.
+<span class="nc" id="L169">        setDamageDirection(targetState, shooterState.getPosition());</span>
+
+        // If we can't hit, set all values to 0 and return.
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        if (getHitData().getValue() &gt; 12) {</span>
+<span class="nc" id="L173">            owner.getLogger().info(msg.append(&quot;\n\tImpossible toHit: &quot;).append(getHitData().getValue()).toString());</span>
+<span class="nc" id="L174">            setProbabilityToHit(0);</span>
+<span class="nc" id="L175">            setMaxDamage(0);</span>
+<span class="nc" id="L176">            setExpectedCriticals(0);</span>
+<span class="nc" id="L177">            setKillProbability(0);</span>
+<span class="nc" id="L178">            setExpectedDamageOnHit(0);</span>
+<span class="nc" id="L179">            return;</span>
+        }
+
+        // Calculate the max damage.
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        if (physicalAttackType.isPunch()) {</span>
+<span class="nc bnc" id="L184" title="All 4 branches missed.">            if ((getShooter() instanceof BipedMech) || (getShooter() instanceof TripodMech)) {</span>
+<span class="nc" id="L185">                setMaxDamage((int) Math.ceil(getShooter().getWeight() / 10.0));</span>
+            } else {
+                // Only bipeds &amp; tripods can punch.
+<span class="nc" id="L188">                owner.getLogger().warning(msg.append(&quot;\n\tnon-biped/tripod trying to punch!&quot;).toString());</span>
+<span class="nc" id="L189">                setProbabilityToHit(0);</span>
+<span class="nc" id="L190">                setMaxDamage(0);</span>
+<span class="nc" id="L191">                setExpectedCriticals(0);</span>
+<span class="nc" id="L192">                setKillProbability(0);</span>
+<span class="nc" id="L193">                setExpectedDamageOnHit(0);</span>
+<span class="nc" id="L194">                return;</span>
+            }
+        } else { // assuming kick
+<span class="nc" id="L197">            setMaxDamage((int) Math.floor(getShooter().getWeight() / 5.0));</span>
+        }
+
+<span class="nc bnc" id="L200" title="All 2 branches missed.">        if (shooterState.hasNaturalAptPiloting()) {</span>
+<span class="nc" id="L201">            msg.append(&quot;\n\tAttacker has Natural Aptitude Piloting&quot;);</span>
+        }
+<span class="nc" id="L203">        setProbabilityToHit(Compute.oddsAbove(getHitData().getValue(), shooterState.hasNaturalAptPiloting()) / 100.0);</span>
+
+<span class="nc" id="L205">        setExpectedDamageOnHit(getMaxDamage());</span>
+
+<span class="nc" id="L207">        double expectedCriticalHitCount = ProbabilityCalculator.getExpectedCriticalHitCount();</span>
+
+        // there's always the chance of rolling a '2'
+<span class="nc" id="L210">        final double ROLL_TWO = 0.028;</span>
+<span class="nc" id="L211">        setExpectedCriticals(ROLL_TWO * expectedCriticalHitCount * getProbabilityToHit());</span>
+<span class="nc" id="L212">        setKillProbability(0);</span>
+
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (!(getTarget() instanceof Mech)) {</span>
+<span class="nc" id="L215">            return;</span>
+        }
+
+        // now guess how many critical hits will be done
+<span class="nc" id="L219">        Mech targetMech = (Mech) getTarget();</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">        for (int i = 0; i &lt;= 7; i++) {</span>
+<span class="nc" id="L221">            int hitLoc = i;</span>
+<span class="nc bnc" id="L222" title="All 6 branches missed.">            while (targetMech.isLocationBad(hitLoc) &amp;&amp; (hitLoc != Mech.LOC_CT)</span>
+                    // Need to account for still-active 'Mechs with destroyed
+                    // heads so as not to spin into an endless loop.
+                    &amp;&amp; (hitLoc != Mech.LOC_HEAD)) {
+<span class="nc bnc" id="L226" title="All 2 branches missed.">                if (hitLoc &gt; 7) {</span>
+<span class="nc" id="L227">                    hitLoc = 0;</span>
+                }
+<span class="nc" id="L229">                hitLoc = Mech.getInnerLocation(hitLoc);</span>
+            }
+            double hitLocationProbability;
+<span class="nc bnc" id="L232" title="All 2 branches missed.">            if (getAttackType().isPunch()) {</span>
+<span class="nc" id="L233">                hitLocationProbability = ProbabilityCalculator.getHitProbability_Punch(getDamageDirection(), hitLoc);</span>
+            } else { // assume kick
+<span class="nc" id="L235">                hitLocationProbability = ProbabilityCalculator.getHitProbability_Kick(getDamageDirection(), hitLoc);</span>
+            }
+<span class="nc bnc" id="L237" title="All 2 branches missed.">            int targetArmor = targetMech.getArmor(hitLoc, (getDamageDirection() == 3));</span>
+<span class="nc" id="L238">            int targetInternals = targetMech.getInternal(hitLoc);</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">            if (targetArmor &lt; 0) {</span>
+<span class="nc" id="L240">                targetArmor = 0; // ignore NA or Destroyed cases</span>
+            }
+<span class="nc bnc" id="L242" title="All 2 branches missed.">            if (targetInternals &lt; 0) {</span>
+<span class="nc" id="L243">                targetInternals = 0;</span>
+            }
+
+            // If the location could be destroyed outright...
+<span class="nc bnc" id="L247" title="All 2 branches missed.">            if (getExpectedDamageOnHit() &gt; ((targetArmor + targetInternals))) {</span>
+<span class="nc" id="L248">                setExpectedCriticals(getExpectedCriticals() + hitLocationProbability * getProbabilityToHit());</span>
+<span class="nc bnc" id="L249" title="All 4 branches missed.">                if ((hitLoc == Mech.LOC_HEAD) || (hitLoc == Mech.LOC_CT)) {</span>
+<span class="nc" id="L250">                    setKillProbability(getKillProbability() + hitLocationProbability * getProbabilityToHit());</span>
+                }
+
+                // If the armor can be breached, but the location not destroyed...
+<span class="nc bnc" id="L254" title="All 2 branches missed.">            } else if (getExpectedDamageOnHit() &gt; (targetArmor)) {</span>
+<span class="nc" id="L255">                setExpectedCriticals(getExpectedCriticals() +</span>
+                                     hitLocationProbability *
+<span class="nc" id="L257">                                     ProbabilityCalculator.getExpectedCriticalHitCount() *</span>
+<span class="nc" id="L258">                                     getProbabilityToHit());</span>
+            }
+        }
+<span class="nc" id="L261">    }</span>
+
+    /**
+     * Current bot code requires physical attacks to be given as 'physical option'. This does the necessary conversion
+     */
+    public PhysicalOption getAsPhysicalOption() {
+<span class="nc" id="L267">        int optionInteger = 0;</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">        if (getAttackType() == PhysicalAttackType.RIGHT_PUNCH) {</span>
+<span class="nc" id="L269">            optionInteger = PhysicalOption.PUNCH_RIGHT;</span>
+        }
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        if (getAttackType() == PhysicalAttackType.LEFT_PUNCH) {</span>
+<span class="nc" id="L272">            optionInteger = PhysicalOption.PUNCH_LEFT;</span>
+        }
+<span class="nc bnc" id="L274" title="All 2 branches missed.">        if (getAttackType() == PhysicalAttackType.RIGHT_KICK) {</span>
+<span class="nc" id="L275">            optionInteger = PhysicalOption.KICK_RIGHT;</span>
+        }
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        if (getAttackType() == PhysicalAttackType.LEFT_KICK) {</span>
+<span class="nc" id="L278">            optionInteger = PhysicalOption.KICK_LEFT;</span>
+        }
+<span class="nc" id="L280">        return new PhysicalOption(getShooter(), getTarget(), 0, optionInteger, null);</span>
+    }
+
+    public Entity getShooter() {
+<span class="nc" id="L284">        return shooter;</span>
+    }
+
+    public void setShooter(Entity shooter) {
+<span class="nc" id="L288">        this.shooter = shooter;</span>
+<span class="nc" id="L289">    }</span>
+
+    public Targetable getTarget() {
+<span class="nc" id="L292">        return target;</span>
+    }
+
+    public void setTarget(Targetable target) {
+<span class="nc" id="L296">        this.target = target;</span>
+<span class="nc" id="L297">    }</span>
+
+    public PhysicalAttackAction getAction() {
+<span class="nc" id="L300">        return action;</span>
+    }
+
+    public void setAction(PhysicalAttackAction action) {
+<span class="nc" id="L304">        this.action = action;</span>
+<span class="nc" id="L305">    }</span>
+
+    public PhysicalAttackType getAttackType() {
+<span class="nc" id="L308">        return attackType;</span>
+    }
+
+    public void setAttackType(PhysicalAttackType attackType) {
+<span class="nc" id="L312">        this.attackType = attackType;</span>
+<span class="nc" id="L313">    }</span>
+
+    public ToHitData getHitData() {
+<span class="nc" id="L316">        return hitData;</span>
+    }
+
+    public void setHitData(ToHitData hitData) {
+<span class="nc" id="L320">        this.hitData = hitData;</span>
+<span class="nc" id="L321">    }</span>
+
+    public double getProbabilityToHit() {
+<span class="nc" id="L324">        return probabilityToHit;</span>
+    }
+
+    public void setProbabilityToHit(double probabilityToHit) {
+<span class="nc" id="L328">        this.probabilityToHit = probabilityToHit;</span>
+<span class="nc" id="L329">    }</span>
+
+    public double getMaxDamage() {
+<span class="nc" id="L332">        return maxDamage;</span>
+    }
+
+    public void setMaxDamage(double maxDamage) {
+<span class="nc" id="L336">        this.maxDamage = maxDamage;</span>
+<span class="nc" id="L337">    }</span>
+
+    public double getExpectedDamageOnHit() {
+<span class="nc" id="L340">        return expectedDamageOnHit;</span>
+    }
+
+    public void setExpectedDamageOnHit(double expectedDamageOnHit) {
+<span class="nc" id="L344">        this.expectedDamageOnHit = expectedDamageOnHit;</span>
+<span class="nc" id="L345">    }</span>
+
+    public int getDamageDirection() {
+<span class="nc" id="L348">        return damageDirection;</span>
+    }
+
+    public void setDamageDirection(int damageDirection) {
+<span class="nc" id="L352">        this.damageDirection = damageDirection;</span>
+<span class="nc" id="L353">    }</span>
+
+    protected void setDamageDirection(EntityState targetState, Coords shooterCoords) {
+<span class="nc" id="L356">        int fromDirection = targetState.getPosition().direction(shooterCoords);</span>
+<span class="nc" id="L357">        setDamageDirection(((fromDirection - targetState.getFacing()) + 6) % 6);</span>
+<span class="nc" id="L358">    }</span>
+
+    public double getExpectedCriticals() {
+<span class="nc" id="L361">        return expectedCriticals;</span>
+    }
+
+    public void setExpectedCriticals(double expectedCriticals) {
+<span class="nc" id="L365">        this.expectedCriticals = expectedCriticals;</span>
+<span class="nc" id="L366">    }</span>
+
+    public double getKillProbability() {
+<span class="nc" id="L369">        return killProbability;</span>
+    }
+
+    public void setKillProbability(double killProbability) {
+<span class="nc" id="L373">        this.killProbability = killProbability;</span>
+<span class="nc" id="L374">    }</span>
+
+    public double getUtility() {
+<span class="nc" id="L377">        return utility;</span>
+    }
+
+    public void setUtility(double utility) {
+<span class="nc" id="L381">        this.utility = utility;</span>
+<span class="nc" id="L382">    }</span>
+
+    String getDebugDescription() {
+<span class="nc" id="L385">        return getAttackType().toString() + &quot; P. Hit: &quot; + LOG_PER.format(getProbabilityToHit())</span>
+<span class="nc" id="L386">               + &quot;, Max Dam: &quot; + LOG_DEC.format(getMaxDamage())</span>
+<span class="nc" id="L387">               + &quot;, Exp. Dam: &quot; + LOG_DEC.format(getExpectedDamageOnHit())</span>
+<span class="nc" id="L388">               + &quot;, Num Crits: &quot; + LOG_DEC.format(getExpectedCriticals())</span>
+<span class="nc" id="L389">               + &quot;, Kill Prob: &quot; + LOG_PER.format(getKillProbability());</span>
+
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

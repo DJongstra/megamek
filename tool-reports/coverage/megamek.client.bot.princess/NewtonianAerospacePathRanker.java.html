@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>NewtonianAerospacePathRanker.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">NewtonianAerospacePathRanker.java</span></div><h1>NewtonianAerospacePathRanker.java</h1><pre class="source lang-java linenums">/*
+* MegaMek - Copyright (C) 2018 - The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.client.bot.princess;
+
+import java.util.Iterator;
+import java.util.List;
+import megamek.client.bot.princess.BotGeometry.ConvexBoardArea;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IAero;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.LosEffects;
+import megamek.common.MovePath;
+import megamek.common.OffBoardDirection;
+import megamek.common.actions.WeaponAttackAction;
+import megamek.common.options.OptionsConstants;
+
+public class NewtonianAerospacePathRanker extends BasicPathRanker implements IPathRanker {
+
+    public static final int REMAINS_ON_BOARD = -1;
+
+    public NewtonianAerospacePathRanker(Princess owningPrincess) {
+<span class="nc" id="L37">        super(owningPrincess);</span>
+<span class="nc" id="L38">    }</span>
+
+    /**
+     * Find the closest enemy to a unit with a path that ends at the given position.
+     */
+    @Override
+    public Entity findClosestEnemy(Entity me, Coords position, IGame game) {
+<span class="nc" id="L45">        int range = 9999;</span>
+<span class="nc" id="L46">        Entity closest = null;</span>
+<span class="nc" id="L47">        List&lt;Entity&gt; enemies = getOwner().getEnemyEntities();</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">        for (Entity e : enemies) {</span>
+            // Also, skip withdrawing enemy bot units, to avoid humping disabled tanks and ejected mechwarriors
+<span class="nc bnc" id="L50" title="All 2 branches missed.">            if (getOwner().getHonorUtil().isEnemyBroken(e.getTargetId(), e.getOwnerId(), getOwner().getForcedWithdrawal())) {</span>
+<span class="nc" id="L51">                continue;</span>
+            }
+
+            // If a unit has not moved, assume it will move away from me.
+<span class="nc" id="L55">            int unmovedDistMod = 0;</span>
+<span class="nc bnc" id="L56" title="All 4 branches missed.">            if (e.isSelectableThisTurn() &amp;&amp; !e.isImmobile()) {</span>
+<span class="nc" id="L57">                unmovedDistMod = e.getWalkMP(true, false, false);</span>
+            }
+
+<span class="nc bnc" id="L60" title="All 2 branches missed.">            if ((position.distance(e.getPosition()) + unmovedDistMod) &lt; range) {</span>
+<span class="nc" id="L61">                range = position.distance(e.getPosition());</span>
+<span class="nc" id="L62">                closest = e;</span>
+            }
+<span class="nc" id="L64">        }</span>
+<span class="nc" id="L65">        return closest;</span>
+    }
+
+    /**
+     * Calculate the damage potential
+     */
+    @Override
+    double calculateMyDamagePotential(MovePath path, Entity enemy,
+            int distance, IGame game) {
+<span class="nc" id="L74">        Entity me = path.getEntity();</span>
+
+<span class="nc" id="L76">        int maxRange = getOwner().getMaxWeaponRange(me, enemy.isAirborne());</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        if (distance &gt; maxRange) {</span>
+<span class="nc" id="L78">            return 0;</span>
+        }
+
+        // If I don't have LoS, I can't do damage. We're on a space map so this probably is unnecessary.
+<span class="nc" id="L82">        LosEffects losEffects =</span>
+<span class="nc" id="L83">        LosEffects.calculateLos(game, me.getId(), enemy, path.getFinalCoords(), enemy.getPosition(), false);</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">        if (!losEffects.canSee()) {</span>
+<span class="nc" id="L85">            return 0;</span>
+        }
+
+        FiringPlan myFiringPlan;
+
+<span class="nc" id="L90">        FiringPlanCalculationParameters guess =</span>
+        new FiringPlanCalculationParameters.Builder()
+<span class="nc" id="L92">          .buildGuess(path.getEntity(),</span>
+                      new EntityState(path),
+                      enemy,
+                      null,
+                      Entity.DOES_NOT_TRACK_HEAT,
+                      null);
+<span class="nc" id="L98">        myFiringPlan = getFireControl(path.getEntity()).determineBestFiringPlan(guess);</span>
+
+<span class="nc" id="L100">        return myFiringPlan.getUtility();</span>
+    }
+
+    /**
+     * Guesses a number of things about an enemy that has not yet moved
+     */
+    EntityEvaluationResponse evaluateUnmovedEnemy(Entity enemy, MovePath path,
+                                                  boolean useExtremeRange,
+                                                  boolean useLOSRange) {
+<span class="nc" id="L109">        EntityEvaluationResponse returnResponse =</span>
+                    new EntityEvaluationResponse();
+
+<span class="nc" id="L112">        Coords finalCoords = path.getFinalCoords();</span>
+<span class="nc" id="L113">        Coords closest = getClosestCoordsTo(enemy.getId(), finalCoords);</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (closest == null) {</span>
+<span class="nc" id="L115">            return returnResponse;</span>
+        }
+<span class="nc" id="L117">        int range = closest.distance(finalCoords);</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if(range == 0) {</span>
+<span class="nc" id="L119">            range = 1;</span>
+        }
+
+
+        // placeholder logic:
+        // if we are a spheroid, we can fire viably in any direction
+        // if we are a fighter or aerodyne dropship, our most effective arc is forward
+        // larger craft are usually bristling with weapons all around
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        int arcToUse = ((IAero) path.getEntity()).isSpheroid() ? Compute.ARC_360 : Compute.ARC_NOSE;</span>
+<span class="nc" id="L128">        double vertexCoverage = 1.0;</span>
+
+        // the idea here is that, if we have a limited firing arc, the target
+        // will likely make an effort to move out of the arc, so it reduces our expected damage
+        // we calculate the proportion by looking at the number of &quot;enemy movable area&quot; vertices
+        // that are in our main firing arc, compared to the max (6).
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        if(arcToUse != Compute.ARC_360) {</span>
+<span class="nc" id="L135">            int inArcVertexCount = 0;</span>
+<span class="nc" id="L136">            ConvexBoardArea movableArea = getPathEnumerator().getUnitMovableAreas().get(enemy.getId());</span>
+
+<span class="nc bnc" id="L138" title="All 2 branches missed.">            for(int vertexNum = 0; vertexNum &lt; 6; vertexNum++) {</span>
+<span class="nc" id="L139">                Coords vertex = movableArea.getVertexNum(vertexNum);</span>
+
+<span class="nc bnc" id="L141" title="All 4 branches missed.">                if(vertex != null &amp;&amp; Compute.isInArc(finalCoords, path.getFinalFacing(), vertex, arcToUse)) {</span>
+<span class="nc" id="L142">                    inArcVertexCount++;</span>
+                }
+            }
+
+<span class="nc" id="L146">            vertexCoverage = inArcVertexCount / 6;</span>
+        }
+
+<span class="nc" id="L149">        double myDamageDiscount = Compute.oddsAbove(path.getEntity().getCrew().getGunnery()) / 100 * vertexCoverage;</span>
+
+        // my estimated damage is my max damage at the
+<span class="nc" id="L152">        returnResponse.addToMyEstimatedDamage(</span>
+<span class="nc" id="L153">                    getMaxDamageAtRange(getFireControl(path.getEntity()),</span>
+<span class="nc" id="L154">                                        path.getEntity(),</span>
+                                        range,
+                                        useExtremeRange,
+                                        useLOSRange) * myDamageDiscount);
+
+<span class="nc" id="L159">        int sensorShadowMod = calculateSensorShadowMod(path);</span>
+<span class="nc" id="L160">        double enemyDamageDiscount = Compute.oddsAbove(enemy.getCrew().getGunnery() + sensorShadowMod) / 100;</span>
+        //in general if an enemy can end its position in range, it can hit me
+<span class="nc" id="L162">        returnResponse.addToEstimatedEnemyDamage(</span>
+<span class="nc" id="L163">                getMaxDamageAtRange(getFireControl(enemy),</span>
+                                    enemy,
+                                    range,
+                                    useExtremeRange,
+                                    useLOSRange) * enemyDamageDiscount);
+
+<span class="nc" id="L169">        return returnResponse;</span>
+    }
+
+    /**
+     * Estimates the sensor shadow modifier for a given path.
+     * Only checks adjacent hexes and doesn't attempt to count intervening craft
+     * also only counts friendly entites that have already moved
+     * @param path The path to check
+     * @return 0 if there's no
+     */
+    int calculateSensorShadowMod(MovePath path) {
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        if(!path.getGame().getOptions().booleanOption(OptionsConstants.ADVAERORULES_STRATOPS_SENSOR_SHADOW)) {</span>
+<span class="nc" id="L181">            return 0;</span>
+        }
+
+<span class="nc" id="L184">        int sensorShadowMod = 0;</span>
+<span class="nc" id="L185">        List&lt;Coords&gt; coordsToCheck = path.getFinalCoords().allAdjacent();</span>
+<span class="nc" id="L186">        coordsToCheck.add(path.getFinalCoords());</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">        for(Coords coords : coordsToCheck) {</span>
+            // if the coordinate contains a large craft within a certain mass of me, it will generate a sensor shadow
+<span class="nc" id="L189">            Iterator&lt;Entity&gt; potentialShadowIter = path.getGame().getFriendlyEntities(coords, path.getEntity());</span>
+
+<span class="nc bnc" id="L191" title="All 4 branches missed.">            while(potentialShadowIter.hasNext() &amp;&amp; sensorShadowMod == 0) {</span>
+<span class="nc" id="L192">                Entity potentialShadow = potentialShadowIter.next();</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                if(potentialShadow.isDone() &amp;&amp;</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">                        potentialShadow.isLargeCraft() &amp;&amp;</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">                        (potentialShadow.getWeight() - path.getEntity().getWeight() &gt;= -WeaponAttackAction.STRATOPS_SENSOR_SHADOW_WEIGHT_DIFF)) {</span>
+<span class="nc" id="L196">                    sensorShadowMod = 1;</span>
+                }
+<span class="nc" id="L198">            }</span>
+
+<span class="nc bnc" id="L200" title="All 2 branches missed.">            if(sensorShadowMod == 1) {</span>
+<span class="nc" id="L201">                break;</span>
+            }
+<span class="nc" id="L203">        }</span>
+
+<span class="nc" id="L205">        return sensorShadowMod;</span>
+    }
+
+    /**
+     * Tells me whether this path will result in me flying to a location
+     * from which there is absolutely no way to remain on the board the following turn.
+     *
+     * We also take into account the possibility that we are intentionally trying to
+     * a) retreat
+     * b) fly off a particular edge
+     * @param path The path to examine
+     * @return 0 if we are A-Ok with it, .5 (maybe tune this) if we aren't looking to go off board
+     */
+    @Override
+    protected double calculateOffBoardMod(MovePath path) {
+        // step one: project given path's vector over the next turn.
+<span class="nc" id="L221">        OffBoardDirection offBoardDirection = calculateOffBoardDirection(path.getEntity(), path.getFinalCoords(), path.getFinalVectors());</span>
+
+        // if we want to flee the board from the edge in question, we're ok
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        if(getOwner().isFallingBack(path.getEntity()) &amp;&amp;</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">                (getOwner().getHomeEdge(path.getEntity()) == CardinalEdge.getCardinalEdge(offBoardDirection.getValue()))) {</span>
+<span class="nc" id="L226">            return 0.0;</span>
+        }
+
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if(offBoardDirection == OffBoardDirection.NONE) {</span>
+<span class="nc" id="L230">            return 0.0;</span>
+        }
+
+<span class="nc" id="L233">        return .5;</span>
+    }
+
+    /**
+     * Worker function that determines the direction in which the given entity will go off board
+     * if it starts at the given coordinates with the given vectors.
+     * @param entity Entity to examine
+     * @param startingCoords Starting coordinates
+     * @param vectors Starting velocity vector
+     * @return Flight direction. OffBoardDirection.NONE if the given entity will be able to remain on board.
+     */
+    private static OffBoardDirection calculateOffBoardDirection(Entity entity, Coords startingCoords, int[] vectors) {
+<span class="nc" id="L245">        Coords nextCoords = Compute.getFinalPosition(startingCoords, vectors);</span>
+<span class="nc" id="L246">        int availableThrust = entity.getRunMP();</span>
+<span class="nc" id="L247">        IBoard board = entity.getGame().getBoard();</span>
+<span class="nc" id="L248">        OffBoardDirection offBoardDirection = OffBoardDirection.NONE;</span>
+
+        // step one: check if the position is out of bounds by more than the unit has available thrust
+<span class="nc bnc" id="L251" title="All 2 branches missed.">        if(nextCoords.getX() &lt; -availableThrust) {</span>
+<span class="nc" id="L252">            offBoardDirection = OffBoardDirection.WEST;</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">        } else if (nextCoords.getX() &gt; board.getWidth() + availableThrust) {</span>
+<span class="nc" id="L254">            offBoardDirection = OffBoardDirection.EAST;</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">        } else if (nextCoords.getY() &lt; -availableThrust) {</span>
+<span class="nc" id="L256">            offBoardDirection = OffBoardDirection.NORTH;</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">        } else if(nextCoords.getY() &gt; board.getHeight() + availableThrust) {</span>
+<span class="nc" id="L258">            offBoardDirection = OffBoardDirection.SOUTH;</span>
+        }
+
+<span class="nc" id="L261">        return offBoardDirection;</span>
+    }
+
+    /**
+     * Whether entity will go off board if it starts at the given coordinates with the given vectors.
+     * @param entity Entity to examine
+     * @param coords Starting coordinates
+     * @return Whether the entity will go off board or not.
+     */
+    public static boolean willFlyOffBoard(Entity entity, Coords coords) {
+<span class="nc" id="L271">        OffBoardDirection offBoardDirection = calculateOffBoardDirection(entity, coords, entity.getVectors());</span>
+
+<span class="nc bnc" id="L273" title="All 2 branches missed.">        if(offBoardDirection == OffBoardDirection.NONE) {</span>
+<span class="nc" id="L274">            return false;</span>
+        }
+
+<span class="nc" id="L277">        return true;</span>
+    }
+
+    /**
+     * Worker function that determines if a given enemy entity should be evaluated as if it has moved.
+     */
+    @Override
+    protected boolean evaluateAsMoved(Entity enemy) {
+<span class="nc bnc" id="L285" title="All 4 branches missed.">        return !enemy.isSelectableThisTurn() || enemy.isImmobile();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

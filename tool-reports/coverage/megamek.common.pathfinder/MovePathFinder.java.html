@@ -1,0 +1,388 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MovePathFinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">MovePathFinder.java</span></div><h1>MovePathFinder.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2014 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.pathfinder;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.EntityMovementType;
+import megamek.common.Facing;
+import megamek.common.IGame;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.MoveStep;
+import megamek.common.Tank;
+
+/**
+ * Generic implementation of AbstractPathFinder when we restrict graph nodes to
+ * (coordinates x facing) and edges to MovePaths. Provides useful
+ * implementations of functional interfaces defined in AbstractPathFinder.
+ *
+ * @param &lt;C&gt;
+ */
+public class MovePathFinder&lt;C&gt; extends AbstractPathFinder&lt;MovePathFinder.CoordsWithFacing, C, MovePath&gt; {
+
+    /**
+     * Node defined by coordinates and unit facing.
+     *
+     */
+    /**
+     * @author Saginatio
+     */
+    public static class CoordsWithFacing {
+        /**
+         * Returns a list containing six instances of CoordsWithFacing, one for
+         * each facing.
+         *
+         * @param c
+         */
+        public static List&lt;CoordsWithFacing&gt; getAllFacingsAt(Coords c) {
+<span class="nc" id="L63">            List&lt;ShortestPathFinder.CoordsWithFacing&gt; allFacings = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">            for (int f = 0; f &lt; 6; f++) {</span>
+<span class="nc" id="L65">                allFacings.add(new ShortestPathFinder.CoordsWithFacing(c, f));</span>
+            }
+<span class="nc" id="L67">            return allFacings;</span>
+        }
+
+        final private Coords coords;
+
+        final private int facing;
+
+<span class="nc" id="L74">        public CoordsWithFacing(Coords c, int facing) {</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">            if (c == null) {</span>
+<span class="nc" id="L76">                throw new NullPointerException();</span>
+            }
+<span class="nc" id="L78">            this.coords = c;</span>
+<span class="nc" id="L79">            this.facing = facing;</span>
+<span class="nc" id="L80">        }</span>
+
+        public CoordsWithFacing(MovePath mp) {
+<span class="nc" id="L83">            this(mp.getFinalCoords(), mp.getFinalFacing());</span>
+<span class="nc" id="L84">        }</span>
+
+        @Override
+        public boolean equals(Object obj) {
+<span class="nc bnc" id="L88" title="All 2 branches missed.">            if (!(obj instanceof CoordsWithFacing)) {</span>
+<span class="nc" id="L89">                return false;</span>
+            }
+<span class="nc" id="L91">            CoordsWithFacing t = (CoordsWithFacing) obj;</span>
+<span class="nc bnc" id="L92" title="All 4 branches missed.">            return (facing == t.facing) &amp;&amp; Objects.equals(coords, t.coords);</span>
+        }
+
+        public Coords getCoords() {
+<span class="nc" id="L96">            return coords;</span>
+        }
+
+        public int getFacing() {
+<span class="nc" id="L100">            return facing;</span>
+        }
+
+        @Override
+        public int hashCode() {
+<span class="nc" id="L105">            return facing + 7 * coords.hashCode();</span>
+        }
+
+        @Override
+        public String toString() {
+<span class="nc" id="L110">            return String.format(&quot;%s f:%d&quot;, coords, facing);  //$NON-NLS-1$</span>
+        }
+    }
+
+    /**
+     * Filters MovePaths that are forcing PSR.
+     * &lt;p/&gt;
+     * Current implementation uses MoveStep.isDanger(). This implementation is
+     * broken :( It does not work properly for movement paths that use running
+     * mp.
+     */
+<span class="nc" id="L121">    public static class MovePathRiskFilter extends AbstractPathFinder.Filter&lt;MovePath&gt; {</span>
+        @Override
+        public boolean shouldStay(MovePath mp) {
+<span class="nc" id="L124">            MoveStep step = mp.getLastStep();</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">            if (step == null) {</span>
+<span class="nc" id="L126">                return true;</span>
+            }
+<span class="nc bnc" id="L128" title="All 2 branches missed.">            return !step.isDanger();</span>
+        }
+    }
+
+    /**
+     * Returns the final CoordsWithFacing for a given MovePath.
+     */
+<span class="nc" id="L135">    public static class MovePathDestinationMap</span>
+            implements AbstractPathFinder.DestinationMap&lt;CoordsWithFacing, MovePath&gt; {
+        @Override
+        public CoordsWithFacing getDestination(MovePath e) {
+<span class="nc" id="L139">            MoveStep lastStep = e.getLastStep();</span>
+
+            /*
+             * entity moving backwards is like entity with an opposite facing
+             * moving forwards :) NOOOT
+             */
+            CoordsWithFacing cfw;
+<span class="nc bnc" id="L146" title="All 4 branches missed.">            if (lastStep != null &amp;&amp; lastStep.isThisStepBackwards()) {</span>
+<span class="nc" id="L147">                Facing f = Facing.valueOfInt(e.getFinalFacing());</span>
+<span class="nc" id="L148">                cfw = new CoordsWithFacing(e.getFinalCoords(), f.getOpposite().getIntValue());</span>
+<span class="nc" id="L149">            } else {</span>
+<span class="nc" id="L150">                cfw = new CoordsWithFacing(e);</span>
+            }
+<span class="nc" id="L152">            return cfw;</span>
+        }
+
+        ;
+    }
+
+    /**
+     * Filters edges that are illegal.
+     * &lt;p/&gt;
+     * Current implementation uses MoveStep.isMovementPossible() to verify
+     * legality.
+     */
+    public static class MovePathLegalityFilter extends AbstractPathFinder.Filter&lt;MovePath&gt; {
+        IGame game;
+
+<span class="nc" id="L167">        public MovePathLegalityFilter(IGame game) {</span>
+<span class="nc" id="L168">            this.game = game;</span>
+<span class="nc" id="L169">        }</span>
+
+        @Override
+        public boolean shouldStay(MovePath edge) {
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            if (edge.getEntity().isAero()) {</span>
+                /*
+                 * isMovemementPossible is currently not working for aero units,
+                 * so we have to use a substitute.
+                 */
+<span class="nc bnc" id="L178" title="All 2 branches missed.">                if (edge.length() == 0) {</span>
+<span class="nc" id="L179">                    return true;</span>
+                } else {
+<span class="nc" id="L181">                    MoveStep lastStep = edge.getLastStep();</span>
+<span class="nc bnc" id="L182" title="All 4 branches missed.">                    return (lastStep == null) || lastStep.getMovementType(true) != EntityMovementType.MOVE_ILLEGAL;</span>
+                }
+            }
+            Coords previousPosition;
+            int previousElevation;
+<span class="nc bnc" id="L187" title="All 2 branches missed.">            if (edge.length() &gt; 1) {</span>
+<span class="nc" id="L188">                MoveStep previousStep = edge.getSecondLastStep();</span>
+<span class="nc" id="L189">                previousElevation = previousStep.getElevation();</span>
+<span class="nc" id="L190">                previousPosition = previousStep.getPosition();</span>
+<span class="nc" id="L191">            } else {</span>
+<span class="nc" id="L192">                Entity entity = edge.getEntity();</span>
+<span class="nc" id="L193">                previousElevation = entity.getElevation();</span>
+<span class="nc" id="L194">                previousPosition = entity.getPosition();</span>
+            }
+<span class="nc" id="L196">            return (edge.getLastStep().isMovementPossible(</span>
+<span class="nc" id="L197">                    game, previousPosition, previousElevation, edge.getCachedEntityState()));</span>
+        }
+    }
+
+    /**
+     * This filter removes MovePaths that need more movement points than
+     * specified in constructor invocation.
+     */
+    public static class MovePathLengthFilter extends Filter&lt;MovePath&gt; {
+        private final int maxMP;
+
+<span class="nc" id="L208">        public MovePathLengthFilter(int maxMP) {</span>
+<span class="nc" id="L209">            this.maxMP = maxMP;</span>
+<span class="nc" id="L210">        }</span>
+
+        @Override
+        public boolean shouldStay(MovePath mp) {
+<span class="nc bnc" id="L214" title="All 2 branches missed.">            return (mp.getMpUsed() &lt;= maxMP);</span>
+
+        }
+    }
+
+    /**
+     * A MovePath comparator that compares movement points spent.
+     *
+     * Order paths with fewer used MP first.
+     */
+<span class="nc" id="L224">    public static class MovePathMPCostComparator implements Comparator&lt;MovePath&gt; {</span>
+        @Override
+        public int compare(final MovePath first, final MovePath second) {
+<span class="nc" id="L227">            final int firstDist = first.getMpUsed();</span>
+<span class="nc" id="L228">            final int secondDist = second.getMpUsed();</span>
+<span class="nc" id="L229">            return firstDist - secondDist;</span>
+        }
+    }
+
+    /**
+     * A MovePath comparator that compares number of steps. Generally used for
+     * spheroids, which don't have the same velocity expenditure restrictions as
+     * Aerodynes, however they can't compare based on MP like ground units.
+     * Spheroids should be able to safely compare based upon path length.
+     *
+     * Order paths with fewer steps first.
+     */
+<span class="nc" id="L241">    public static class MovePathLengthComparator implements</span>
+            Comparator&lt;MovePath&gt; {
+        @Override
+        public int compare(final MovePath first, final MovePath second) {
+<span class="nc" id="L245">            final int firstSteps = first.getStepVector().size();</span>
+<span class="nc" id="L246">            final int secondSteps = second.getStepVector().size();</span>
+<span class="nc" id="L247">            return firstSteps - secondSteps;</span>
+        }
+    }
+
+    /**
+     * Functional Interface for {@link #getAdjacent(MovePath)}
+     */
+    public static class NextStepsAdjacencyMap implements AdjacencyMap&lt;MovePath&gt; {
+        protected final MoveStepType stepType;
+        protected final boolean backwardsStep;
+
+        /**
+         * @param stepType
+         */
+<span class="nc" id="L261">        public NextStepsAdjacencyMap(MoveStepType stepType) {</span>
+<span class="nc" id="L262">            this.stepType = stepType;</span>
+<span class="nc bnc" id="L263" title="All 2 branches missed.">            backwardsStep = stepType == MoveStepType.BACKWARDS;</span>
+<span class="nc" id="L264">        }</span>
+
+        /**
+         * Produces set of MovePaths by extending MovePath mp with MoveSteps.
+         * The set of extending steps include {F, L, R, UP, ShL, ShR} if
+         * applicable. If stepType is equal to MoveStepType.BACKWARDS then
+         * extending steps include also {B, ShBL, ShBR}. If stepType is equal to
+         * MoveStep.DFA or MoveStep.CHARGE then it is added to the resulting
+         * set.
+         *
+         * @param mp the MovePath to be extended
+         * @see AbstractPathFinder.AdjacencyMap
+         */
+        @Override
+        public Collection&lt;MovePath&gt; getAdjacent(MovePath mp) {
+<span class="nc" id="L279">            final MoveStep last = mp.getLastStep();</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            final MoveStepType lType = (last == null) ? null : last.getType();</span>
+<span class="nc" id="L281">            final Entity entity = mp.getEntity();</span>
+
+<span class="nc" id="L283">            final ArrayList&lt;MovePath&gt; result = new ArrayList&lt;MovePath&gt;();</span>
+
+<span class="nc bnc" id="L285" title="All 2 branches missed.">            if (lType != MoveStepType.TURN_LEFT) {</span>
+<span class="nc" id="L286">                result.add(mp.clone().addStep(MoveStepType.TURN_RIGHT));</span>
+            }
+<span class="nc bnc" id="L288" title="All 2 branches missed.">            if (lType != MoveStepType.TURN_RIGHT) {</span>
+<span class="nc" id="L289">                result.add(mp.clone().addStep(MoveStepType.TURN_LEFT));</span>
+            }
+
+
+            /*
+             * If the unit is prone or hull-down it limits movement options,
+             * such units can only turn or get up. (unless it's a tank; tanks
+             * can just drive out of hull-down and they cannot be prone)
+             */
+<span class="nc bnc" id="L298" title="All 6 branches missed.">            if (mp.getFinalProne() || (mp.getFinalHullDown() &amp;&amp; !(entity instanceof Tank))) {</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">                if (entity.isCarefulStand()) {</span>
+<span class="nc" id="L300">                    result.add(mp.clone().addStep(MoveStepType.CAREFUL_STAND));</span>
+                } else {
+<span class="nc" id="L302">                    result.add(mp.clone().addStep(MoveStepType.GET_UP));</span>
+                }
+<span class="nc" id="L304">                return result;</span>
+            }
+
+<span class="nc bnc" id="L307" title="All 2 branches missed.">            if (mp.canShift()) {</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">                if (backwardsStep) {</span>
+<span class="nc" id="L309">                    result.add(mp.clone().addStep(MoveStepType.LATERAL_RIGHT_BACKWARDS));</span>
+<span class="nc" id="L310">                    result.add(mp.clone().addStep(MoveStepType.LATERAL_LEFT_BACKWARDS));</span>
+                } else {
+<span class="nc" id="L312">                    result.add(mp.clone().addStep(MoveStepType.LATERAL_RIGHT));</span>
+<span class="nc" id="L313">                    result.add(mp.clone().addStep(MoveStepType.LATERAL_LEFT));</span>
+                }
+            }
+
+<span class="nc bnc" id="L317" title="All 2 branches missed.">            if (backwardsStep &amp;&amp;</span>
+<span class="nc bnc" id="L318" title="All 2 branches missed.">                    mp.getGame().getBoard().contains(mp.getFinalCoords().translated((mp.getFinalFacing() + 3) % 6))) {</span>
+<span class="nc" id="L319">                MovePath newPath = mp.clone();</span>
+<span class="nc" id="L320">                PathDecorator.AdjustElevationForForwardMovement(newPath);</span>
+<span class="nc" id="L321">                result.add(newPath.addStep(MoveStepType.BACKWARDS));</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">            } else if(mp.getGame().getBoard().contains(mp.getFinalCoords().translated(mp.getFinalFacing()))) {</span>
+<span class="nc" id="L323">                MovePath newPath = mp.clone();</span>
+<span class="nc" id="L324">                PathDecorator.AdjustElevationForForwardMovement(newPath);</span>
+<span class="nc" id="L325">                result.add(newPath.addStep(MoveStepType.FORWARDS));</span>
+            }
+
+<span class="nc" id="L328">            return result;</span>
+        }
+    }
+
+     /**
+     * Creates a new instance of MovePathFinder. Sets DestinationMap to
+     * {@link MovePathDestinationMap} and adds {@link MovePathLegalityFilter}.
+     * Rest of the methods needed by AbstractPathFinder have to be passed as a
+     * parameter.
+     */
+    public MovePathFinder(EdgeRelaxer&lt;C, MovePath&gt; edgeRelaxer,
+                          AdjacencyMap&lt;MovePath&gt; edgeAdjacencyMap,
+                          Comparator&lt;MovePath&gt; comparator,
+                          IGame game) {
+<span class="nc" id="L342">        super(new MovePathDestinationMap(),</span>
+              edgeRelaxer,
+              edgeAdjacencyMap,
+              comparator);
+<span class="nc" id="L346">    }</span>
+
+    /**
+     * Returns a map of all computed shortest paths
+     */
+    protected Map&lt;Coords, C&gt; getAllComputedCosts(Comparator&lt;C&gt; comp) {
+<span class="nc" id="L352">        Set&lt;Coords&gt; computedCoords = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L353">        Map&lt;ShortestPathFinder.CoordsWithFacing, C&gt; nodes = getPathCostMap();</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">        for (ShortestPathFinder.CoordsWithFacing cf : nodes.keySet()) {</span>
+<span class="nc" id="L355">            computedCoords.add(cf.getCoords());</span>
+<span class="nc" id="L356">        }</span>
+
+<span class="nc" id="L358">        Map&lt;Coords, C&gt; pathsMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L359" title="All 2 branches missed.">        for (Coords coords : computedCoords) {</span>
+<span class="nc" id="L360">            pathsMap.put(coords, getCost(coords, comp));</span>
+<span class="nc" id="L361">        }</span>
+<span class="nc" id="L362">        return pathsMap;</span>
+    }
+
+    /**
+     * Returns computed cost to reach the hex at c coordinates. If multiple path
+     * are present with different final facings, the one minimal one is chosen.
+     * If none paths are present then {@code null} is returned.
+     *
+     * @param coords
+     * @param comp - comparator used if multiple paths are present
+     * @return shortest path to the hex at c coordinates or {@code null}
+     */
+    protected C getCost(Coords coords, Comparator&lt;C&gt; comp) {
+<span class="nc" id="L375">        List&lt;CoordsWithFacing&gt; allFacings = CoordsWithFacing.getAllFacingsAt(coords);</span>
+<span class="nc" id="L376">        List&lt;C&gt; paths = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">        for (ShortestPathFinder.CoordsWithFacing n : allFacings) {</span>
+<span class="nc" id="L378">            C cost = getCostOf(n);</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">            if (cost != null) {</span>
+<span class="nc" id="L380">                paths.add(cost);</span>
+            }
+<span class="nc" id="L382">        }</span>
+
+<span class="nc bnc" id="L384" title="All 2 branches missed.">        return paths.size() &gt; 0 ? Collections.min(paths, comp) : null;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

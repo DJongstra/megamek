@@ -1,0 +1,406 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GAAttack.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot</a> &gt; <span class="el_source">GAAttack.java</span></div><h1>GAAttack.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2003 Ben Mazur (bmazur@sev.org)
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ */
+package megamek.client.bot;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+
+import megamek.client.bot.ga.Chromosome;
+import megamek.client.bot.ga.GA;
+import megamek.common.Compute;
+import megamek.common.Entity;
+import megamek.common.IGame;
+import megamek.common.Mech;
+import megamek.common.Terrains;
+import megamek.common.ToHitData;
+
+/**
+ * Need to test the function that moves all firing to a single target
+ */
+public class GAAttack extends GA {
+
+    protected ArrayList&lt;ArrayList&lt;AttackOption&gt;&gt; attack;
+    protected CEntity attacker;
+    protected IGame game;
+    protected CEntity.Table targets;
+<span class="nc" id="L37">    protected ArrayList&lt;Entity&gt; target_array = null;</span>
+<span class="nc" id="L38">    protected ArrayList&lt;Integer&gt; valid_target_indexes = null;</span>
+<span class="nc" id="L39">    protected boolean overheat_eligible = false;</span>
+<span class="nc" id="L40">    protected int firing_arc = 0;</span>
+<span class="nc" id="L41">    double[] damages = null;</span>
+
+    public GAAttack(TestBot tb, CEntity attacker,
+            ArrayList&lt;ArrayList&lt;AttackOption&gt;&gt; attack, int population,
+            int generations, boolean isEnemy) {
+<span class="nc" id="L46">        super(attack.size() + 1, population, .7, .05, generations, .4);</span>
+<span class="nc" id="L47">        this.attack = attack;</span>
+<span class="nc" id="L48">        this.attacker = attacker;</span>
+<span class="nc" id="L49">        game = tb.getGame();</span>
+<span class="nc" id="L50">        target_array = new ArrayList&lt;Entity&gt;(game.getEntitiesVector());</span>
+<span class="nc" id="L51">        ArrayList&lt;Integer&gt; temp = new ArrayList&lt;Integer&gt;();</span>
+<span class="nc bnc" id="L52" title="All 2 branches missed.">        for (int i = 0; i &lt; target_array.size(); i++) {</span>
+<span class="nc" id="L53">            Entity entity = target_array.get(i);</span>
+<span class="nc bnc" id="L54" title="All 4 branches missed.">            if (entity.isEnemyOf(attacker.entity) &amp;&amp; entity.isDeployed()) {</span>
+<span class="nc" id="L55">                temp.add(Integer.valueOf(i));</span>
+            }
+        }
+<span class="nc" id="L58">        targets = new CEntity.Table(tb);</span>
+<span class="nc" id="L59">        valid_target_indexes = temp;</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">        if (attacker.tsm_offset) {</span>
+<span class="nc" id="L61">            overheat_eligible = true;</span>
+        }
+<span class="nc bnc" id="L63" title="All 8 branches missed.">        if (isEnemy</span>
+                || ((attacker.last != null) &amp;&amp; (!attacker.last.inDanger || attacker.last.doomed))) {
+<span class="nc" id="L65">            overheat_eligible = true;</span>
+        }
+<span class="nc" id="L67">    }</span>
+
+    public int[] getResultChromosome() {
+<span class="nc" id="L70">        return ((chromosomes[populationDim - 1]).genes);</span>
+    }
+
+    public double getDamageUtility(CEntity to) {
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (damages == null) {</span>
+<span class="nc" id="L75">            damages = getDamageUtilities();</span>
+        }
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        for (int k = 0; k &lt; target_array.size(); k++) {</span>
+<span class="nc" id="L78">            Entity enemy = target_array.get(k);</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">            if (enemy.getId() == to.entity.getId()) {</span>
+<span class="nc" id="L80">                return damages[k];</span>
+            }
+        }
+<span class="nc" id="L83">        return 0;</span>
+    }
+
+    public double[] getDamageUtilities() {
+<span class="nc" id="L87">        int iChromIndex = populationDim - 1;</span>
+<span class="nc" id="L88">        targets.clear(); // could use ArrayList and not hashtable</span>
+<span class="nc" id="L89">        double[] result = new double[target_array.size()];</span>
+<span class="nc" id="L90">        Chromosome chromArrayList = chromosomes[iChromIndex];</span>
+        // TODO should account for high heat?
+        @SuppressWarnings(&quot;unused&quot;)
+<span class="nc" id="L93">        int heat_total = 0;</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if (chromArrayList.genes[chromosomeDim - 1] &gt;= target_array.size()) {</span>
+<span class="nc" id="L95">            chromArrayList.genes[chromosomeDim - 1] = valid_target_indexes.get(</span>
+<span class="nc" id="L96">                    0).intValue();</span>
+        }
+<span class="nc" id="L98">        Entity target = target_array</span>
+<span class="nc" id="L99">                .get(chromArrayList.genes[chromosomeDim - 1]);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        for (int iGene = 0; iGene &lt; (chromosomeDim - 1); iGene++) {</span>
+<span class="nc" id="L101">            AttackOption a = attack.get(iGene).get(chromArrayList.genes[iGene]);</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">            if (a.target != null) { // if not the no fire option</span>
+<span class="nc" id="L103">                targets.put(a.target);</span>
+<span class="nc" id="L104">                double mod = 1;</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">                if (a.target.entity.getId() == target.getId()) {</span>
+<span class="nc" id="L106">                    a.target.possible_damage[a.toHit.getSideTable()] += mod</span>
+                            * a.primary_expected;
+                } else {
+<span class="nc" id="L109">                    a.target.possible_damage[a.toHit.getSideTable()] += mod</span>
+                            * a.expected;
+                }
+<span class="nc" id="L112">                heat_total += a.heat;</span>
+            }
+        }
+
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        for (int k = 0; k &lt; target_array.size(); k++) {</span>
+<span class="nc" id="L117">            Entity en = target_array.get(k);</span>
+<span class="nc" id="L118">            CEntity enemy = null;</span>
+<span class="nc" id="L119">            result[k] = 0;</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">            if ((enemy = targets.get(Integer.valueOf(en.getId()))) != null) {</span>
+<span class="nc" id="L121">                result[k] = getThreadUtility(enemy);</span>
+<span class="nc" id="L122">                enemy.resetPossibleDamage();</span>
+            }
+        }
+<span class="nc" id="L125">        return result;</span>
+    }
+
+    private double getThreadUtility(CEntity enemy) {
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        if (enemy.possible_damage[ToHitData.SIDE_FRONT] &gt; 0) {</span>
+<span class="nc" id="L130">            return enemy.getThreatUtility(</span>
+                    enemy.possible_damage[ToHitData.SIDE_FRONT],
+                    ToHitData.SIDE_FRONT);
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        } else if (enemy.possible_damage[ToHitData.SIDE_REAR] &gt; 0) {</span>
+<span class="nc" id="L134">            return enemy.getThreatUtility(</span>
+                    enemy.possible_damage[ToHitData.SIDE_REAR],
+                    ToHitData.SIDE_REAR);
+<span class="nc bnc" id="L137" title="All 2 branches missed.">        } else if (enemy.possible_damage[ToHitData.SIDE_LEFT] &gt; 0) {</span>
+<span class="nc" id="L138">            return enemy.getThreatUtility(</span>
+                    enemy.possible_damage[ToHitData.SIDE_LEFT],
+                    ToHitData.SIDE_LEFT);
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        } else if (enemy.possible_damage[ToHitData.SIDE_RIGHT] &gt; 0) {</span>
+<span class="nc" id="L142">            return enemy.getThreatUtility(</span>
+                    enemy.possible_damage[ToHitData.SIDE_RIGHT],
+                    ToHitData.SIDE_RIGHT);
+        }
+<span class="nc" id="L146">        return 0;</span>
+    }
+
+    @Override
+    protected double getFitness(int iChromIndex) {
+<span class="nc" id="L151">        return this.getFitness(chromosomes[iChromIndex]);</span>
+    }
+
+    protected double getFitness(Chromosome chromArrayList) {
+<span class="nc" id="L155">        targets.clear(); // could use ArrayList and not hashtable</span>
+<span class="nc" id="L156">        int heat_total = 0;</span>
+<span class="nc" id="L157">        Entity target = null;</span>
+        try {
+<span class="nc" id="L159">            target = target_array.get(chromArrayList.genes[chromosomeDim - 1]);</span>
+<span class="nc" id="L160">        } catch (Exception e) {</span>
+<span class="nc" id="L161">            System.out.println(chromosomeDim</span>
+                    + &quot; &quot; + chromArrayList.genes.length); //$NON-NLS-1$
+<span class="nc" id="L163">            System.out.println(target_array.size());</span>
+<span class="nc" id="L164">            target = target_array.get(valid_target_indexes.get(0).intValue());</span>
+<span class="nc" id="L165">        }</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        for (int iGene = 0; iGene &lt; (chromosomeDim - 1); iGene++) {</span>
+<span class="nc" id="L167">            final int[] genes = chromArrayList.genes;</span>
+<span class="nc" id="L168">            AttackOption a = attack.get(iGene).get(genes[iGene]);</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">            if (a.target != null) { // if not the no fire option</span>
+<span class="nc" id="L170">                targets.put(a.target);</span>
+<span class="nc" id="L171">                double mod = 1;</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">                if (a.primary_odds &lt;= 0) {</span>
+<span class="nc" id="L173">                    mod = 0; // If there's no chance to hit at all...</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">                } else if (a.ammoLeft != -1) {</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">                    if (attacker.overall_armor_percent &lt; .5) {</span>
+<span class="nc" id="L176">                        mod = 1.5; // get rid of it</span>
+<span class="nc bnc" id="L177" title="All 4 branches missed.">                    } else if ((a.ammoLeft &lt; 12)</span>
+                            &amp;&amp; (attacker.overall_armor_percent &gt; .75)) {
+<span class="nc bnc" id="L179" title="All 2 branches missed.">                        if (a.primary_odds &lt; .1) {</span>
+<span class="nc" id="L180">                            mod = 0;</span>
+<span class="nc bnc" id="L181" title="All 4 branches missed.">                        } else if ((a.ammoLeft &lt; 6) &amp;&amp; (a.primary_odds &lt; .25)) {</span>
+<span class="nc" id="L182">                            mod = 0;</span>
+                        } else {
+<span class="nc" id="L184">                            mod = a.primary_odds; // low percentage shots will</span>
+                            // be frowned upon
+                        }
+                    }
+                }
+<span class="nc bnc" id="L189" title="All 2 branches missed.">                if (a.target.entity.getId() == target.getId()) {</span>
+<span class="nc" id="L190">                    a.target.possible_damage[a.toHit.getSideTable()] += mod</span>
+                            * a.primary_expected;
+                } else {
+<span class="nc" id="L193">                    a.target.possible_damage[a.toHit.getSideTable()] += mod</span>
+                            * a.expected;
+                }
+<span class="nc" id="L196">                heat_total += a.heat;</span>
+            }
+        }
+<span class="nc" id="L199">        double total_utility = 0;</span>
+<span class="nc" id="L200">        Iterator&lt;CEntity&gt; j = targets.values().iterator();</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        while (j.hasNext()) {</span>
+<span class="nc" id="L202">            CEntity enemy = j.next();</span>
+<span class="nc" id="L203">            total_utility += getThreadUtility(enemy);</span>
+<span class="nc" id="L204">            enemy.resetPossibleDamage();</span>
+<span class="nc" id="L205">        }</span>
+        // should be moved
+<span class="nc" id="L207">        int capacity = attacker.entity.getHeatCapacityWithWater();</span>
+<span class="nc" id="L208">        int currentHeat = attacker.entity.heatBuildup + attacker.entity.heat;</span>
+<span class="nc" id="L209">        int overheat = (currentHeat + heat_total) - capacity;</span>
+        // Don't forget heat from stealth armor...
+<span class="nc bnc" id="L211" title="All 2 branches missed.">        if ((attacker.entity instanceof Mech)</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">                &amp;&amp; (attacker.entity.isStealthActive()</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">                        || attacker.entity.isNullSigActive() || attacker.entity</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">                        .isVoidSigActive())) {</span>
+<span class="nc" id="L215">            overheat += 10;</span>
+        }
+        // ... or chameleon lps...
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        if ((attacker.entity instanceof Mech)</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">                &amp;&amp; attacker.entity.isChameleonShieldActive()) {</span>
+<span class="nc" id="L220">            overheat += 6;</span>
+        }
+        // ... or infernos...
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        if (attacker.entity.infernos.isStillBurning()) {</span>
+<span class="nc" id="L224">            overheat += 6;</span>
+        }
+        // ... or standing in fire...
+<span class="nc bnc" id="L227" title="All 2 branches missed.">        if (game.getBoard().getHex(attacker.entity.getPosition()) != null) {</span>
+<span class="nc" id="L228">            if (game.getBoard().getHex(attacker.entity.getPosition())</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">                    .containsTerrain(Terrains.FIRE)</span>
+<span class="nc" id="L230">                    &amp;&amp; (game.getBoard().getHex(attacker.entity.getPosition())</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">                            .getFireTurn() &gt; 0)) {</span>
+<span class="nc" id="L232">                overheat += 5;</span>
+            }
+        }
+        // ... or from engine hits
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        if (attacker.entity instanceof Mech) {</span>
+<span class="nc" id="L237">            overheat += attacker.entity.getEngineCritHeat();</span>
+        }
+        // ... or ambient temperature
+<span class="nc" id="L240">        overheat += game.getPlanetaryConditions().getTemperatureDifference(50,</span>
+                -30);
+<span class="nc bnc" id="L242" title="All 4 branches missed.">        if ((attacker.entity.heat &gt; 0) &amp;&amp; (overheat &lt; 0)) {</span>
+            // always perfer smaller heat numbers
+<span class="nc" id="L244">            total_utility -= (attacker.bv / 1000) * overheat;</span>
+            // but add clear deliniations at the breaks
+<span class="nc bnc" id="L246" title="All 2 branches missed.">            if (attacker.entity.heat &gt; 4) {</span>
+<span class="nc" id="L247">                total_utility *= 1.2;</span>
+            }
+<span class="nc bnc" id="L249" title="All 2 branches missed.">            if (attacker.entity.heat &gt; 7) {</span>
+<span class="nc" id="L250">                total_utility += attacker.bv / 50;</span>
+            }
+<span class="nc bnc" id="L252" title="All 2 branches missed.">            if (attacker.tsm_offset) {</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">                if (attacker.entity.heat == 9) {</span>
+<span class="nc" id="L254">                    total_utility -= attacker.bv / 10;</span>
+                }
+<span class="nc bnc" id="L256" title="All 4 branches missed.">                if ((attacker.entity.heat &lt; 12) &amp;&amp; (attacker.entity.heat &gt; 9)) {</span>
+<span class="nc" id="L257">                    total_utility -= attacker.bv / 20;</span>
+                }
+            }
+<span class="nc bnc" id="L260" title="All 2 branches missed.">            if (attacker.entity.heat &gt; 12) {</span>
+<span class="nc" id="L261">                total_utility += attacker.bv / 20;</span>
+            }
+<span class="nc bnc" id="L263" title="All 2 branches missed.">            if (attacker.entity.heat &gt; 16) {</span>
+<span class="nc" id="L264">                total_utility += attacker.bv / 10;</span>
+            }
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        } else if (overheat &gt; 0) {</span>
+<span class="nc bnc" id="L267" title="All 4 branches missed.">            if ((overheat &gt; 4) &amp;&amp; !attacker.tsm_offset) {</span>
+<span class="nc bnc" id="L268" title="All 4 branches missed.">                total_utility *= (overheat_eligible &amp;&amp; (attacker.jumpMP &gt; 2)) ? .9</span>
+<span class="nc" id="L269">                        : .85;</span>
+            }
+<span class="nc bnc" id="L271" title="All 4 branches missed.">            if ((overheat &gt; 7) &amp;&amp; !attacker.tsm_offset) {</span>
+<span class="nc bnc" id="L272" title="All 4 branches missed.">                double mod = overheat_eligible ? +((attacker.jumpMP &gt; 2) ? 0</span>
+<span class="nc" id="L273">                        : 10) : 40;</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">                if (attacker.overheat &gt; CEntity.OVERHEAT_LOW) {</span>
+<span class="nc" id="L275">                    total_utility -= attacker.bv / mod;</span>
+                } else {
+<span class="nc" id="L277">                    total_utility -= attacker.bv / (mod + 10);</span>
+                }
+            }
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            if (attacker.tsm_offset) {</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">                if (overheat == 9) {</span>
+<span class="nc" id="L282">                    total_utility += attacker.bv / 10;</span>
+                }
+<span class="nc bnc" id="L284" title="All 4 branches missed.">                if ((attacker.entity.heat &lt; 12) &amp;&amp; (attacker.entity.heat &gt; 9)) {</span>
+<span class="nc" id="L285">                    total_utility += attacker.bv / 20;</span>
+                }
+            }
+<span class="nc bnc" id="L288" title="All 2 branches missed.">            if (overheat &gt; 12) {</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">                total_utility -= attacker.bv / (overheat_eligible ? 45 : 30);</span>
+            }
+<span class="nc bnc" id="L291" title="All 2 branches missed.">            if (overheat &gt; 16) {</span>
+                // only if I am going to die?
+<span class="nc" id="L293">                total_utility -= attacker.bv / 5;</span>
+            }
+<span class="nc" id="L295">            total_utility -= overheat / 100; // small preference for less</span>
+            // overheat opposed to more
+        }
+<span class="nc" id="L298">        return total_utility;</span>
+    }
+
+    /**
+     * since the low fitness members have the least chance of getting selected,
+     * but the highest chance of mutation, this is where we use the primary
+     * target heuristic to drive convergence
+     */
+    @Override
+    protected void doRandomMutation(int iChromIndex) {
+<span class="nc" id="L308">        Chromosome c1 = chromosomes[iChromIndex];</span>
+        // skip if it's an empty chromosome
+<span class="nc bnc" id="L310" title="All 2 branches missed.">        if (c1.genes.length &lt; 1) {</span>
+<span class="nc" id="L311">            return;</span>
+        }
+<span class="nc bnc" id="L313" title="All 2 branches missed.">        int r1 = (c1.genes.length &gt; 2) ? Compute.randomInt(c1.genes.length - 1)</span>
+<span class="nc" id="L314">                : 0;</span>
+<span class="nc" id="L315">        CEntity target = null;</span>
+<span class="nc" id="L316">        boolean done = false;</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">        if ((r1 % 2) == 1) {</span>
+<span class="nc" id="L318">            c1.genes[r1]--;</span>
+<span class="nc bnc" id="L319" title="All 4 branches missed.">            if ((c1.genes[r1] &lt; 0) &amp;&amp; (attack.size() &gt; r1)) {</span>
+<span class="nc" id="L320">                c1.genes[r1] = attack.get(r1).size() - 1;</span>
+            } else {
+<span class="nc" id="L322">                c1.genes[r1] = 0; // TODO : what is a good value here?</span>
+            }
+<span class="nc" id="L324">            return;</span>
+        }
+        // else try to move all to one target
+<span class="nc bnc" id="L327" title="All 4 branches missed.">        for (int i = 0; (i &lt; (c1.genes.length - 1)) &amp;&amp; !done; i++) {</span>
+<span class="nc" id="L328">            int iGene = (i + r1) % (c1.genes.length - 1);</span>
+<span class="nc" id="L329">            AttackOption a = attack.get(iGene).get(c1.genes[iGene]);</span>
+<span class="nc bnc" id="L330" title="All 2 branches missed.">            if (a.target != null) {</span>
+<span class="nc" id="L331">                target = a.target;</span>
+<span class="nc" id="L332">                done = true;</span>
+            }
+        }
+<span class="nc bnc" id="L335" title="All 2 branches missed.">        if (target == null) { // then not shooting, so shoot something</span>
+<span class="nc bnc" id="L336" title="All 4 branches missed.">            if ((attack.size() &gt; r1) &amp;&amp; (r1 &gt; 1)) {</span>
+<span class="nc" id="L337">                c1.genes[r1] = Compute.randomInt(attack.get(r1).size() - 1);</span>
+            } else {
+                // TODO : Is this the correct action to take?
+<span class="nc" id="L340">                c1.genes[r1] = Compute.randomInt(attack.get(0).size() - 1);</span>
+            }
+<span class="nc" id="L342">            AttackOption a = attack.get(r1).get(c1.genes[r1]);</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">            if (a.target != null) {</span>
+<span class="nc" id="L344">                c1.genes[c1.genes.length - 1] = a.target.enemy_num;</span>
+            }
+<span class="nc" id="L346">        } else { // let's switch as many attacks as we can to this guy</span>
+<span class="nc bnc" id="L347" title="All 4 branches missed.">            for (int i = 0; (i &lt; (c1.genes.length - 1)) &amp;&amp; (i &lt; attack.size()); i++) {</span>
+<span class="nc" id="L348">                Object[] weapon = attack.get(i).toArray();</span>
+<span class="nc bnc" id="L349" title="All 2 branches missed.">                if (c1.genes[i] != (weapon.length - 1)) {</span>
+<span class="nc" id="L350">                    done = false;</span>
+<span class="nc bnc" id="L351" title="All 4 branches missed.">                    for (int w = 0; (w &lt; (weapon.length - 1)) &amp;&amp; !done; w++) {</span>
+<span class="nc" id="L352">                        AttackOption a = (AttackOption) weapon[w];</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">                        if (a.target.enemy_num == target.enemy_num) {</span>
+<span class="nc" id="L354">                            c1.genes[i] = w;</span>
+<span class="nc" id="L355">                            done = true;</span>
+                        }
+                    }
+                }
+            }
+<span class="nc" id="L360">            (chromosomes[0]).genes[chromosomeDim - 1] = target.enemy_num;</span>
+        }
+<span class="nc" id="L362">    }</span>
+
+    @Override
+    protected void initPopulation() {
+        // promote max
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        for (int iGene = 0; iGene &lt; (chromosomeDim - 1); iGene++) {</span>
+<span class="nc" id="L368">            (chromosomes[0]).genes[iGene] = 0;</span>
+        }
+
+        // use first weapon target as primary, not smart but good enough...
+<span class="nc" id="L372">        AttackOption a = attack.get(0).get(0);</span>
+<span class="nc" id="L373">        (chromosomes[0]).genes[chromosomeDim - 1] = a.target.enemy_num;</span>
+
+<span class="nc bnc" id="L375" title="All 2 branches missed.">        for (int i = 1; i &lt; populationDim; i++) {</span>
+<span class="nc" id="L376">            Chromosome cv = chromosomes[i];</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">            for (int iGene = 0; iGene &lt; (chromosomeDim - 1); iGene++) {</span>
+<span class="nc" id="L378">                cv.genes[iGene] = Compute.randomInt(attack.get(iGene).size());</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">                if (i &lt;= attack.size()) {</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">                    if ((iGene + 1) == i) {</span>
+<span class="nc" id="L381">                        cv.genes[iGene] = 0; // fire</span>
+                    } else {
+<span class="nc" id="L383">                        cv.genes[iGene] = attack.get(iGene).size() - 1;</span>
+                    }
+                }
+            }
+<span class="nc" id="L387">            cv.genes[chromosomeDim - 1] = valid_target_indexes.get(</span>
+<span class="nc" id="L388">                    Compute.randomInt(valid_target_indexes.size())).intValue();</span>
+<span class="nc" id="L389">            chromosomes[i].fitness = getFitness(i);</span>
+        }
+<span class="nc" id="L391">    }</span>
+
+    public int getFiringArc() {
+<span class="nc" id="L394">        return firing_arc;</span>
+    }
+
+    public void setFiringArc(int firing_arc) {
+<span class="nc" id="L398">        this.firing_arc = firing_arc;</span>
+<span class="nc" id="L399">    }</span>
+
+    public ArrayList&lt;ArrayList&lt;AttackOption&gt;&gt; getAttack() {
+<span class="nc" id="L402">        return attack;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

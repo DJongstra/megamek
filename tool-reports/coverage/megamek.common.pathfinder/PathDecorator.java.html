@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PathDecorator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">PathDecorator.java</span></div><h1>PathDecorator.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2020 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.pathfinder;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import megamek.common.BulldozerMovePath;
+import megamek.common.Coords;
+import megamek.common.EntityMovementMode;
+import megamek.common.IHex;
+import megamek.common.MovePath;
+import megamek.common.Terrains;
+import megamek.common.MovePath.MoveStepType;
+
+/**
+ * This class contains functionality that takes a given path
+ * and generates a list of child paths that go up to walk/run/run+masc/sprint/sprint+masc MP usage.
+ * @author NickAragua
+ */
+<span class="nc" id="L36">public class PathDecorator {</span>
+    
+    public static Set&lt;MovePath&gt; decoratePath(BulldozerMovePath source) {
+<span class="nc" id="L39">        Set&lt;MovePath&gt; result = new HashSet&lt;&gt;();</span>
+        
+        // paths that aren't on the ground require separate and special logic
+<span class="nc bnc" id="L42" title="All 2 branches missed.">        if (source.isJumping()) {</span>
+<span class="nc" id="L43">            result.addAll(decorateJumpPath(source));</span>
+<span class="nc bnc" id="L44" title="All 2 branches missed.">        } else if (source.getEntity().isAirborne()) {</span>
+<span class="nc" id="L45">            result.add(source);</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">        } else if (source.getGame().useVectorMove()) {</span>
+<span class="nc" id="L47">            result.add(source);</span>
+        } else {
+<span class="nc" id="L49">            result.addAll(decorateGroundPath(source));</span>
+        }
+        
+<span class="nc" id="L52">        return result;</span>
+    }
+    
+    /**
+     * Takes a given (jumping) path and returns a list of child paths that lead up to max jump MP or
+     * max jump MP without gravity.
+     */
+    public static Set&lt;MovePath&gt; decorateJumpPath(BulldozerMovePath source) {
+<span class="nc" id="L60">        Set&lt;MovePath&gt; retVal = new HashSet&lt;&gt;();</span>
+        
+<span class="nc" id="L62">        MovePath clippedSource = source.clone();</span>
+<span class="nc" id="L63">        clippedSource.clipToPossible();</span>
+        
+        // jumping move paths are pretty easy to clip
+        // there are two interesting MP amounts - current jump MP and jump MP without &quot;bonus&quot; for low gravity.
+<span class="nc" id="L67">        Set&lt;Integer&gt; desiredMPs = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L68">        desiredMPs.add(source.getCachedEntityState().getJumpMP());</span>
+<span class="nc" id="L69">        desiredMPs.add(source.getCachedEntityState().getJumpMPNoGravity());</span>
+        
+<span class="nc bnc" id="L71" title="All 2 branches missed.">        for (int desiredMP : desiredMPs) {</span>
+<span class="nc" id="L72">            List&lt;MovePath&gt; clippedPaths = clipToDesiredMP(clippedSource, desiredMP);</span>
+<span class="nc" id="L73">            retVal.addAll(clippedPaths);</span>
+<span class="nc" id="L74">        }</span>
+        
+        // if there is a bad guy in the last step, clip to one step short and see if we can't get around.
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        if ((clippedSource.getLastStep() != null) &amp;&amp;</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">            clippedSource.getGame().getFirstEnemyEntity(clippedSource.getLastStep().getPosition(), clippedSource.getEntity()) != null) {</span>
+<span class="nc" id="L79">            clippedSource.removeLastStep();</span>
+            
+<span class="nc bnc" id="L81" title="All 2 branches missed.">            for (int desiredMP : desiredMPs) {</span>
+<span class="nc" id="L82">                List&lt;MovePath&gt; clippedPaths = clipToDesiredMP(clippedSource, desiredMP);</span>
+<span class="nc" id="L83">                retVal.addAll(clippedPaths);</span>
+<span class="nc" id="L84">            }</span>
+        }
+        
+<span class="nc" id="L87">        return retVal;</span>
+    }
+    
+    /**
+     * Takes the given path and returns a list of child paths that go up to walk/run/run+masc/sprint/sprint+masc MP usage.
+     */
+    public static Set&lt;MovePath&gt; decorateGroundPath(BulldozerMovePath source) {
+<span class="nc" id="L94">        Set&lt;MovePath&gt; retVal = new HashSet&lt;&gt;();</span>
+     
+        // we want to generate the following paths and decorations:
+        // a &quot;walking&quot; path
+        // a &quot;running&quot; path
+        // a &quot;running masc&quot; path
+        // a &quot;sprinting&quot; path
+        // a &quot;sprint with masc&quot; path
+        // decorations are movement possibilities that &quot;fill up&quot; any remaining MP with turns and unrelated moves
+        
+<span class="nc" id="L104">        MovePath clippedSource = source.clone();</span>
+<span class="nc" id="L105">        clippedSource.clipToPossible();</span>
+        
+<span class="nc" id="L107">        Set&lt;Integer&gt; desiredMPs = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L108">        desiredMPs.add(source.getCachedEntityState().getSprintMP());</span>
+<span class="nc" id="L109">        desiredMPs.add(source.getCachedEntityState().getSprintMPwithoutMASC());</span>
+<span class="nc" id="L110">        desiredMPs.add(source.getCachedEntityState().getRunMP());</span>
+<span class="nc" id="L111">        desiredMPs.add(source.getCachedEntityState().getRunMPwithoutMASC());</span>
+<span class="nc" id="L112">        desiredMPs.add(source.getCachedEntityState().getRunMPNoGravity());</span>
+<span class="nc" id="L113">        desiredMPs.add(source.getCachedEntityState().getWalkMP());</span>
+        
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        for(int desiredMP : desiredMPs) {</span>
+<span class="nc" id="L116">            List&lt;MovePath&gt; clippedPaths = clipToDesiredMP(clippedSource, desiredMP);</span>
+<span class="nc" id="L117">            retVal.addAll(clippedPaths);</span>
+<span class="nc" id="L118">        }</span>
+        
+        // if there is a bad guy in the last step, clip to one step short and see if we can't get around.
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        if ((clippedSource.getLastStep() != null) &amp;&amp;</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        	clippedSource.getGame().getFirstEnemyEntity(clippedSource.getLastStep().getPosition(), clippedSource.getEntity()) != null) {</span>
+<span class="nc" id="L123">            clippedSource.removeLastStep();</span>
+            
+<span class="nc bnc" id="L125" title="All 2 branches missed.">            for (int desiredMP : desiredMPs) {</span>
+<span class="nc" id="L126">                List&lt;MovePath&gt; clippedPaths = clipToDesiredMP(clippedSource, desiredMP);</span>
+<span class="nc" id="L127">                retVal.addAll(clippedPaths);</span>
+<span class="nc" id="L128">            }</span>
+        }
+        
+<span class="nc" id="L131">        return retVal;</span>
+    }
+    
+    /**
+     * Clips the given path until it only uses the desired MP or less.
+     */
+    public static List&lt;MovePath&gt; clipToDesiredMP(MovePath source, int desiredMP) {
+<span class="nc" id="L138">        MovePath newPath = source.clone();</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        while(newPath.getMpUsed() &gt; desiredMP) {</span>
+<span class="nc" id="L140">            newPath.removeLastStep();</span>
+        }
+        
+<span class="nc" id="L143">        List&lt;MovePath&gt; clippedPaths = generatePossiblePaths(newPath, desiredMP);</span>
+        
+<span class="nc" id="L145">        return clippedPaths;</span>
+    }
+    
+    /**
+     * Uses the LongestPathFinder to generate all paths possible from a starting path,
+     * up to the desired MP
+     */
+    public static List&lt;MovePath&gt; generatePossiblePaths(MovePath source, int desiredMP) {
+<span class="nc" id="L153">        List&lt;MovePath&gt; turnPaths = new ArrayList&lt;&gt;();</span>
+        
+<span class="nc" id="L155">        LongestPathFinder lpf = LongestPathFinder</span>
+<span class="nc" id="L156">                .newInstanceOfLongestPath(desiredMP,</span>
+<span class="nc" id="L157">                        MoveStepType.FORWARDS, source.getGame());</span>
+<span class="nc" id="L158">        lpf.run(source);</span>
+<span class="nc" id="L159">        turnPaths.addAll(lpf.getLongestComputedPaths());</span>
+        
+<span class="nc" id="L161">        return turnPaths;</span>
+    }
+    
+    /**
+     * For units using VTOL movement, add &quot;UP&quot; steps to the end of the MovePath source 
+     * so that a forward movement can pass over intervening terrain
+     */
+    public static void AdjustElevationForForwardMovement(MovePath source) {
+        // Do this only for VTOLs
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (source.getEntity().getMovementMode() != EntityMovementMode.VTOL) {</span>
+<span class="nc" id="L171">            return;</span>
+        }
+        
+        // get the hex that is in the direction we're facing
+<span class="nc" id="L175">        Coords destinationCoords = source.getFinalCoords().translated(source.getFinalFacing());</span>
+<span class="nc" id="L176">        IHex destHex = source.getGame().getBoard().getHex(destinationCoords);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">        if (destHex == null) {</span>
+<span class="nc" id="L178">            return;</span>
+        }
+        
+        // If the unit cannot go up in it's current hex, nothing can be done
+<span class="nc" id="L182">        int entityElevation = source.getFinalElevation();</span>
+<span class="nc" id="L183">        boolean canGoUp = source.getEntity().canGoUp(entityElevation, source.getFinalCoords());</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if (!canGoUp) {</span>
+<span class="nc" id="L185">            return;</span>
+        }
+        
+<span class="nc" id="L188">        IHex srcHex = source.getGame().getBoard().getHex(source.getFinalCoords());</span>
+<span class="nc" id="L189">        int absHeight = srcHex.getLevel() + entityElevation;  </span>
+<span class="nc" id="L190">        int destElevation = absHeight - destHex.getLevel();</span>
+<span class="nc" id="L191">        int safeElevation = destHex.maxTerrainFeatureElevation(false);</span>
+        
+        // Add as many UP steps as MP will allow, until able to move forward 
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        while (destElevation &lt;= safeElevation) {</span>
+            // Do not go up if the unit can go forward before rising above the 
+            // maximum terrain elevation, e.g. under a bridge
+            // VTOLs shouldn't land in this way, however.
+<span class="nc bnc" id="L198" title="All 2 branches missed.">            boolean noLanding = (destElevation &gt;= 1);</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">            if (destHex.containsTerrain(Terrains.BLDG_ELEV)) {</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">                noLanding &amp;= destElevation &gt; (destHex.terrainLevel(Terrains.BLDG_ELEV) - destHex.depth());</span>
+            }
+<span class="nc bnc" id="L202" title="All 2 branches missed.">            if (destHex.containsTerrain(Terrains.BRIDGE_ELEV)) {</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">                noLanding &amp;= destElevation != destHex.terrainLevel(Terrains.BRIDGE_ELEV);</span>
+            }
+<span class="nc bnc" id="L205" title="All 4 branches missed.">            if (source.getEntity().isElevationValid(destElevation, destHex) &amp;&amp; noLanding) {</span>
+<span class="nc" id="L206">                return;</span>
+            }   
+
+<span class="nc" id="L209">            source.addStep(MoveStepType.UP);</span>
+
+<span class="nc bnc" id="L211" title="All 2 branches missed.">            if(!source.isMoveLegal()) {</span>
+<span class="nc" id="L212">                source.removeLastStep();</span>
+<span class="nc" id="L213">                return;</span>
+            }
+            
+<span class="nc" id="L216">            destElevation++;</span>
+<span class="nc" id="L217">        }</span>
+<span class="nc" id="L218">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

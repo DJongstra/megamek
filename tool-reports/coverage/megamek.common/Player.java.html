@@ -1,0 +1,591 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Player.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">Player.java</span></div><h1>Player.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000,2001,2002,2003,2004 Ben Mazur (bmazur@sev.org)
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ * for more details.
+ */
+package megamek.common;
+
+import java.util.Enumeration;
+import java.util.Iterator;
+import java.util.Objects;
+import java.util.Vector;
+
+import megamek.client.ui.swing.util.PlayerColour;
+import megamek.common.event.GamePlayerChangeEvent;
+import megamek.common.icons.Camouflage;
+import megamek.common.options.OptionsConstants;
+
+/**
+ * Represents a player in the game.
+ */
+public final class Player extends TurnOrdered implements IPlayer {
+    private static final long serialVersionUID = 6828849559007455760L;
+
+    private transient IGame game;
+
+    private String name;
+    private int id;
+
+<span class="fc" id="L37">    private int team = TEAM_NONE;</span>
+
+<span class="fc" id="L39">    private boolean done = false; // done with phase</span>
+<span class="fc" id="L40">    private boolean ghost = false; // disconnected player</span>
+<span class="fc" id="L41">    private boolean observer = false;</span>
+
+<span class="fc" id="L43">    private boolean see_entire_board = false; // Player can observe double blind games</span>
+
+    // these are game-specific, and maybe should be separate from the player object
+<span class="fc" id="L46">    private int startingPos = Board.START_ANY;</span>
+
+    // number of minefields
+<span class="fc" id="L49">    private int num_mf_conv = 0;</span>
+<span class="fc" id="L50">    private int num_mf_cmd = 0;</span>
+<span class="fc" id="L51">    private int num_mf_vibra = 0;</span>
+<span class="fc" id="L52">    private int num_mf_active = 0;</span>
+<span class="fc" id="L53">    private int num_mf_inferno = 0;</span>
+
+    // hexes that are automatically hit by artillery
+<span class="fc" id="L56">    private Vector&lt;Coords&gt; artyAutoHitHexes = new Vector&lt;&gt;();</span>
+
+    private int initialBV;
+
+    // initiative bonuses go here because we don't know if teams are rolling
+    // initiative collectively
+    // if they are then we pick the best non-zero bonuses
+<span class="fc" id="L63">    private int constantInitBonus = 0;</span>
+<span class="fc" id="L64">    private int streakCompensationBonus = 0;</span>
+
+<span class="fc" id="L66">    private String camoCategory = Camouflage.COLOUR_CAMOUFLAGE;</span>
+<span class="fc" id="L67">    private String camoFileName = PlayerColour.BLUE.name();</span>
+<span class="fc" id="L68">    private PlayerColour colour = PlayerColour.BLUE;</span>
+
+<span class="fc" id="L70">    private Vector&lt;Minefield&gt; visibleMinefields = new Vector&lt;&gt;();</span>
+
+<span class="fc" id="L72">    private boolean admitsDefeat = false;</span>
+    
+    /**
+     * Boolean that keeps track of whether a player has accepted another 
+     * player's request to chang teams.
+     */
+<span class="fc" id="L78">    private boolean allowingTeamChange = false;</span>
+
+    @Override
+    public Vector&lt;Minefield&gt; getMinefields() {
+<span class="fc" id="L82">        return visibleMinefields;</span>
+    }
+
+    @Override
+    public void addMinefield(Minefield mf) {
+<span class="fc" id="L87">        visibleMinefields.addElement(mf);</span>
+<span class="fc" id="L88">    }</span>
+
+    @Override
+    public void addMinefields(Vector&lt;Minefield&gt; minefields) {
+<span class="fc bfc" id="L92" title="All 2 branches covered.">        for (int i = 0; i &lt; minefields.size(); i++) {</span>
+<span class="fc" id="L93">            visibleMinefields.addElement(minefields.elementAt(i));</span>
+        }
+<span class="fc" id="L95">    }</span>
+
+    @Override
+    public void removeMinefield(Minefield mf) {
+<span class="fc" id="L99">        visibleMinefields.removeElement(mf);</span>
+<span class="fc" id="L100">    }</span>
+
+    @Override
+    public void removeMinefields() {
+<span class="fc" id="L104">        visibleMinefields.removeAllElements();</span>
+<span class="fc" id="L105">    }</span>
+
+
+
+    @Override
+    public boolean containsMinefield(Minefield mf) {
+<span class="fc" id="L111">        return visibleMinefields.contains(mf);</span>
+    }
+
+    @Override
+    public boolean hasMinefields() {
+<span class="pc bpc" id="L116" title="1 of 10 branches missed.">        return (num_mf_cmd &gt; 0) || (num_mf_conv &gt; 0) || (num_mf_vibra &gt; 0) || (num_mf_active &gt; 0) || (num_mf_inferno &gt; 0);</span>
+    }
+
+    @Override
+    public void setNbrMFConventional(int nbrMF) {
+<span class="fc" id="L121">        num_mf_conv = nbrMF;</span>
+<span class="fc" id="L122">    }</span>
+
+    @Override
+    public void setNbrMFCommand(int nbrMF) {
+<span class="fc" id="L126">        num_mf_cmd = nbrMF;</span>
+<span class="fc" id="L127">    }</span>
+
+    @Override
+    public void setNbrMFVibra(int nbrMF) {
+<span class="fc" id="L131">        num_mf_vibra = nbrMF;</span>
+<span class="fc" id="L132">    }</span>
+
+    @Override
+    public void setNbrMFActive(int nbrMF) {
+<span class="fc" id="L136">        num_mf_active = nbrMF;</span>
+<span class="fc" id="L137">    }</span>
+
+    @Override
+    public void setNbrMFInferno(int nbrMF) {
+<span class="fc" id="L141">        num_mf_inferno = nbrMF;</span>
+<span class="fc" id="L142">    }</span>
+
+    @Override
+    public int getNbrMFConventional() {
+<span class="fc" id="L146">        return num_mf_conv;</span>
+    }
+
+    @Override
+    public int getNbrMFCommand() {
+<span class="fc" id="L151">        return num_mf_cmd;</span>
+    }
+
+    @Override
+    public int getNbrMFVibra() {
+<span class="fc" id="L156">        return num_mf_vibra;</span>
+    }
+
+    @Override
+    public int getNbrMFActive() {
+<span class="fc" id="L161">        return num_mf_active;</span>
+    }
+
+    @Override
+    public int getNbrMFInferno() {
+<span class="fc" id="L166">        return num_mf_inferno;</span>
+    }
+
+    @Override
+    public Camouflage getCamouflage() {
+<span class="fc" id="L171">        return new Camouflage(getCamoCategory(), getCamoFileName());</span>
+    }
+
+    @Override
+    public void setCamoCategory(String name) {
+<span class="fc" id="L176">        camoCategory = name;</span>
+<span class="fc" id="L177">    }</span>
+
+    @Override
+    public String getCamoCategory() {
+<span class="fc" id="L181">        return camoCategory;</span>
+    }
+
+    @Override
+    public void setCamoFileName(String name) {
+<span class="fc" id="L186">        camoFileName = name;</span>
+<span class="fc" id="L187">    }</span>
+
+    @Override
+    public String getCamoFileName() {
+<span class="fc" id="L191">        return camoFileName;</span>
+    }
+
+<span class="fc" id="L194">    public Player(int id, String name) {</span>
+<span class="fc" id="L195">        this.name = name;</span>
+<span class="fc" id="L196">        this.id = id;</span>
+<span class="fc" id="L197">    }</span>
+
+    @Override
+    public void setGame(IGame game) {
+<span class="fc" id="L201">        this.game = game;</span>
+<span class="fc" id="L202">    }</span>
+
+    @Override
+    public String getName() {
+<span class="fc" id="L206">        return name;</span>
+    }
+
+    @Override
+    public void setName(String name) {
+<span class="fc" id="L211">        this.name = name;</span>
+<span class="fc" id="L212">    }</span>
+
+    @Override
+    public int getId() {
+<span class="fc" id="L216">        return id;</span>
+    }
+
+    @Override
+    public int getTeam() {
+<span class="fc" id="L221">        return team;</span>
+    }
+
+    @Override
+    public void setTeam(int team) {
+<span class="fc" id="L226">        this.team = team;</span>
+<span class="fc" id="L227">    }</span>
+
+    @Override
+    public boolean isDone() {
+<span class="fc" id="L231">        return done;</span>
+    }
+
+    @Override
+    public void setDone(boolean done) {
+<span class="fc" id="L236">        this.done = done;</span>
+<span class="fc" id="L237">        game.processGameEvent(new GamePlayerChangeEvent(this, this));</span>
+<span class="fc" id="L238">    }</span>
+
+    @Override
+    public boolean isGhost() {
+<span class="fc" id="L242">        return ghost;</span>
+    }
+
+    @Override
+    public void setGhost(boolean ghost) {
+<span class="fc" id="L247">        this.ghost = ghost;</span>
+<span class="fc" id="L248">    }</span>
+
+    @Override
+    public boolean isObserver() {
+<span class="pc bpc" id="L252" title="1 of 4 branches missed.">        if ((game != null) &amp;&amp; (game.getPhase() == IGame.Phase.PHASE_VICTORY)) {</span>
+<span class="fc" id="L253">            return false;</span>
+        }
+<span class="fc" id="L255">        return observer;</span>
+    }
+
+    @Override
+    public void setSeeAll(boolean see_all) {
+<span class="fc" id="L260">        see_entire_board = see_all;</span>
+<span class="fc" id="L261">    }</span>
+
+    // This simply returns the value, without checking the observer flag
+    @Override
+    public boolean getSeeAll() {
+<span class="fc" id="L266">        return see_entire_board;</span>
+    }
+
+    // If observer is false, see_entire_board does nothing
+    @Override
+    public boolean canSeeAll() {
+<span class="pc bpc" id="L272" title="1 of 4 branches missed.">        return (observer &amp;&amp; see_entire_board);</span>
+    }
+
+    @Override
+    public void setObserver(boolean observer) {
+<span class="fc" id="L277">        this.observer = observer;</span>
+        // If not an observer, clear the set see all flag
+<span class="fc bfc" id="L279" title="All 2 branches covered.">        if (!observer) {</span>
+<span class="fc" id="L280">            setSeeAll(false);</span>
+        }
+<span class="pc bpc" id="L282" title="1 of 4 branches missed.">        if (game != null &amp;&amp; game.getTeamForPlayer(this) != null) {</span>
+<span class="fc" id="L283">            game.getTeamForPlayer(this).cacheObversverStatus();</span>
+        }
+<span class="fc" id="L285">    }</span>
+
+    @Override
+    public PlayerColour getColour() {
+<span class="fc" id="L289">        return colour;</span>
+    }
+
+    @Override
+    public void setColour(PlayerColour colour) {
+<span class="fc" id="L294">        this.colour = Objects.requireNonNull(colour, &quot;Colour cannot be set to null&quot;);</span>
+<span class="fc" id="L295">    }</span>
+
+    @Override
+    public int getStartingPos() {
+<span class="fc" id="L299">        return startingPos;</span>
+    }
+
+    @Override
+    public void setStartingPos(int startingPos) {
+<span class="fc" id="L304">        this.startingPos = startingPos;</span>
+<span class="fc" id="L305">    }</span>
+
+    /**
+     * Set deployment zone to edge of board for reinforcements
+     */
+    @Override
+    public void adjustStartingPosForReinforcements() {
+<span class="fc bfc" id="L312" title="All 2 branches covered.">        if (startingPos &gt; 10) {</span>
+<span class="fc" id="L313">            startingPos -= 10; // deep deploy change to standard</span>
+        }
+<span class="fc bfc" id="L315" title="All 2 branches covered.">        if (startingPos == Board.START_CENTER) {</span>
+<span class="fc" id="L316">            startingPos = Board.START_ANY; // center changes to any</span>
+        }
+<span class="fc" id="L318">    }</span>
+
+    @Override
+    public boolean isEnemyOf(IPlayer other) {
+<span class="fc bfc" id="L322" title="All 2 branches covered.">        if(null == other) {</span>
+<span class="fc" id="L323">            return true;</span>
+        }
+<span class="pc bpc" id="L325" title="1 of 6 branches missed.">        return (id != other.getId()) </span>
+<span class="pc bpc" id="L326" title="1 of 2 branches missed.">            &amp;&amp; ((team == TEAM_NONE) || (team == TEAM_UNASSIGNED) || (team != other.getTeam()));</span>
+    }
+
+    /**
+     * Two players are equal if their ids are equal
+     */
+    @Override
+    public boolean equals(Object object) {
+<span class="fc bfc" id="L334" title="All 2 branches covered.">        if(this == object) {</span>
+<span class="fc" id="L335">            return true;</span>
+        }
+<span class="fc bfc" id="L337" title="All 4 branches covered.">        if((null == object) || (getClass() != object.getClass())) {</span>
+<span class="fc" id="L338">            return false;</span>
+        }
+<span class="fc" id="L340">        final Player other = (Player) object;</span>
+<span class="fc bfc" id="L341" title="All 2 branches covered.">        return other.id == id;</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="fc" id="L346">        return id;</span>
+    }
+
+    @Override
+    public void setAdmitsDefeat(boolean admitsDefeat) {
+<span class="fc" id="L351">        this.admitsDefeat = admitsDefeat;</span>
+<span class="fc" id="L352">    }</span>
+
+    @Override
+    public boolean admitsDefeat() {
+<span class="fc" id="L356">        return admitsDefeat;</span>
+    }
+    
+    @Override
+    public void setAllowTeamChange(boolean allowChange){
+<span class="fc" id="L361">        allowingTeamChange = allowChange;</span>
+<span class="fc" id="L362">    }</span>
+    
+    @Override
+    public boolean isAllowingTeamChange(){
+<span class="fc" id="L366">        return allowingTeamChange;</span>
+    }
+
+    @Override
+    public void removeArtyAutoHitHexes() {
+<span class="fc" id="L371">        artyAutoHitHexes.removeAllElements();</span>
+<span class="fc" id="L372">    }</span>
+
+    @Override
+    public void setArtyAutoHitHexes(Vector&lt;Coords&gt; artyAutoHitHexes) {
+<span class="fc" id="L376">        this.artyAutoHitHexes = artyAutoHitHexes;</span>
+<span class="fc" id="L377">    }</span>
+
+    @Override
+    public Vector&lt;Coords&gt; getArtyAutoHitHexes() {
+<span class="fc" id="L381">        return artyAutoHitHexes;</span>
+    }
+
+    @Override
+    public void addArtyAutoHitHex(Coords c) {
+<span class="fc" id="L386">        artyAutoHitHexes.add(c);</span>
+<span class="fc" id="L387">    }</span>
+
+    @Override
+    public boolean hasTAG() {
+<span class="nc" id="L391">        for (Iterator&lt;Entity&gt; e = game</span>
+<span class="nc" id="L392">                .getSelectedEntities(new EntitySelector() {</span>
+<span class="nc" id="L393">                    private final int ownerId = getId();</span>
+
+                    public boolean accept(Entity entity) {
+<span class="nc bnc" id="L396" title="All 2 branches missed.">                        if (entity.getOwner() == null) {</span>
+<span class="nc" id="L397">                            return false;</span>
+                        }
+<span class="nc bnc" id="L399" title="All 2 branches missed.">                        if (ownerId == entity.getOwner().getId()) {</span>
+<span class="nc" id="L400">                            return true;</span>
+                        }
+<span class="nc" id="L402">                        return false;</span>
+                    }
+<span class="nc bnc" id="L404" title="All 2 branches missed.">                }); e.hasNext(); ) {</span>
+<span class="nc" id="L405">            Entity m = e.next();</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">            if (m.hasTAG()) {</span>
+<span class="nc" id="L407">                return true;</span>
+            }
+            // A player can't be on two teams.
+<span class="nc" id="L410">        }</span>
+<span class="nc" id="L411">        return false;</span>
+    }
+
+    /**
+     * @return The combined Battle Value of all the player's current assets.
+     */
+    @Override
+    public int getBV() {
+<span class="nc" id="L419">        int bv = 0;</span>
+
+<span class="nc bnc" id="L421" title="All 2 branches missed.">        for (Entity entity : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L422" title="All 4 branches missed.">            if (equals(entity.getOwner()) &amp;&amp; !entity.isDestroyed()</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">                    &amp;&amp; !entity.isTrapped()) {</span>
+<span class="nc" id="L424">                bv += entity.calculateBattleValue();</span>
+            }
+<span class="nc" id="L426">        }</span>
+<span class="nc" id="L427">        return bv;</span>
+    }
+
+    /**
+     * get the total BV (unmodified by force size mod) for the units of this
+     * player that have fled the field
+     *
+     * @return the BV
+     */
+    @Override
+    public int getFledBV() {
+<span class="nc" id="L438">        Enumeration&lt;Entity&gt; fledUnits = game.getRetreatedEntities();</span>
+<span class="nc" id="L439">        int bv = 0;</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">        while (fledUnits.hasMoreElements()) {</span>
+<span class="nc" id="L441">            Entity entity = fledUnits.nextElement();</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">            if (entity.getOwner().equals(this)) {</span>
+<span class="nc" id="L443">                bv += entity.calculateBattleValue();</span>
+            }
+<span class="nc" id="L445">        }</span>
+<span class="nc" id="L446">        return bv;</span>
+    }
+
+    @Override
+    public void setInitialBV() {
+<span class="nc" id="L451">        initialBV = getBV();</span>
+<span class="nc" id="L452">    }</span>
+
+    @Override
+    public void increaseInitialBV(int bv) {
+<span class="nc" id="L456">        initialBV += bv;</span>
+<span class="nc" id="L457">    }</span>
+
+    @Override
+    public int getInitialBV() {
+<span class="nc" id="L461">        return initialBV;</span>
+    }
+
+    @Override
+    public void setInitCompensationBonus(int newBonus) {
+<span class="nc" id="L466">        streakCompensationBonus = newBonus;</span>
+<span class="nc" id="L467">    }</span>
+
+    @Override
+    public int getInitCompensationBonus() {
+<span class="nc" id="L471">        return streakCompensationBonus;</span>
+    }
+
+    @Override
+    public void setConstantInitBonus(int b) {
+<span class="nc" id="L476">        constantInitBonus = b;</span>
+<span class="nc" id="L477">    }</span>
+
+    @Override
+    public int getConstantInitBonus() {
+<span class="nc" id="L481">        return constantInitBonus;</span>
+    }
+
+    /**
+     * @return the bonus to this player's initiative rolls granted by his units
+     */
+    @Override
+    public int getTurnInitBonus() {
+<span class="nc" id="L489">        int bonusHQ = 0;</span>
+<span class="nc" id="L490">        int bonusMD = 0;</span>
+<span class="nc" id="L491">        int bonusQ = 0;</span>
+<span class="nc bnc" id="L492" title="All 2 branches missed.">        if (game == null) {</span>
+<span class="nc" id="L493">            return 0;</span>
+        }
+<span class="nc bnc" id="L495" title="All 2 branches missed.">        if (game.getEntitiesVector() == null) {</span>
+<span class="nc" id="L496">            return 0;</span>
+        }
+<span class="nc bnc" id="L498" title="All 2 branches missed.">        for (Entity entity : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L499" title="All 2 branches missed.">            if (entity.getOwner().equals(this)) {</span>
+<span class="nc bnc" id="L500" title="All 4 branches missed.">                if (game.getOptions().booleanOption(OptionsConstants.ADVANCED_TACOPS_MOBILE_HQS)</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">                    &amp;&amp; (bonusHQ == 0) &amp;&amp; (entity.getHQIniBonus() &gt; 0)) {</span>
+<span class="nc" id="L502">                    bonusHQ = entity.getHQIniBonus();</span>
+                }
+                
+				/*
+				 * REMOVED IN IO. 
+				 * if (game.getOptions().booleanOption(OptionsConstants.
+				 * RPG_MANEI_DOMINI) &amp;&amp; (bonusMD == 0) &amp;&amp;
+				 * (entity.getMDIniBonus() &gt; 0)) { bonusMD =
+				 * entity.getMDIniBonus(); }
+				 */
+<span class="nc bnc" id="L512" title="All 2 branches missed.">                if (entity.getQuirkIniBonus() &gt; bonusQ) {</span>
+                    //TODO: I am assuming that the quirk initiative bonuses go to the highest,
+                    //rather than being cumulative
+                    //http://www.classicbattletech.com/forums/index.php/topic,52903.new.html#new
+<span class="nc" id="L516">                    bonusQ = entity.getQuirkIniBonus();</span>
+                }
+            }
+<span class="nc" id="L519">        }</span>
+<span class="nc" id="L520">        return bonusHQ + bonusMD + bonusQ;</span>
+    }
+
+    /**
+     * @return the bonus to this player's initiative rolls for
+     *         the highest value initiative (i.e. the 'commander')
+     */
+    @Override
+    public int getCommandBonus() {
+<span class="nc" id="L529">        int commandb = 0;</span>
+        
+<span class="nc bnc" id="L531" title="All 2 branches missed.">        if (game == null) {</span>
+<span class="nc" id="L532">            return 0;</span>
+        }
+        
+<span class="nc bnc" id="L535" title="All 2 branches missed.">        for (Entity entity : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L536" title="All 2 branches missed.">            if ((null != entity.getOwner())</span>
+<span class="nc bnc" id="L537" title="All 2 branches missed.">                    &amp;&amp; entity.getOwner().equals(this)</span>
+<span class="nc bnc" id="L538" title="All 2 branches missed.">                    &amp;&amp; !entity.isDestroyed()</span>
+<span class="nc bnc" id="L539" title="All 2 branches missed.">                    &amp;&amp; entity.isDeployed()</span>
+<span class="nc bnc" id="L540" title="All 2 branches missed.">                    &amp;&amp; !entity.isOffBoard()</span>
+<span class="nc bnc" id="L541" title="All 2 branches missed.">                    &amp;&amp; entity.getCrew().isActive()</span>
+<span class="nc bnc" id="L542" title="All 4 branches missed.">                    &amp;&amp; !entity.isCaptured()</span>
+                    &amp;&amp; !(entity instanceof MechWarrior)) {
+<span class="nc" id="L544">                int bonus = 0;</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">                if (game.getOptions().booleanOption(OptionsConstants.RPG_COMMAND_INIT)) {</span>
+<span class="nc" id="L546">                    bonus = entity.getCrew().getCommandBonus();</span>
+                }
+                //Even if the RPG option is not enabled, we still get the command bonus provided by special equipment.
+                //Since we are not designating a single force commander at this point, we assume a superheavy tripod
+                //is the force commander if that gives the highest bonus.
+<span class="nc bnc" id="L551" title="All 4 branches missed.">                if (entity.hasCommandConsoleBonus() || entity.getCrew().hasActiveTechOfficer()) {</span>
+<span class="nc" id="L552">                    bonus += 2;</span>
+                }
+                //Once we've gotten the status of the command console (if any), reset the flag that tracks
+                //the previous turn's action.
+<span class="nc bnc" id="L556" title="All 2 branches missed.">                if (bonus &gt; commandb) {</span>
+<span class="nc" id="L557">                    commandb = bonus;</span>
+                }
+            }
+<span class="nc" id="L560">        }</span>
+<span class="nc" id="L561">        return commandb;</span>
+    }
+
+    /**
+     * cycle through entities on team and collect all the airborne VTOL/WIGE
+     *
+     * @return a vector of relevant entity ids
+     */
+    @Override
+    public Vector&lt;Integer&gt; getAirborneVTOL() {
+
+        //a vector of unit ids
+<span class="nc" id="L573">        Vector&lt;Integer&gt; units = new Vector&lt;Integer&gt;();</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">        for (Entity entity : game.getEntitiesVector()) {</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">            if (entity.getOwner().equals(this)) {</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">                if (((entity instanceof VTOL)</span>
+<span class="nc bnc" id="L577" title="All 2 branches missed.">                     || (entity.getMovementMode() == EntityMovementMode.WIGE)) &amp;&amp;</span>
+<span class="nc bnc" id="L578" title="All 2 branches missed.">                    (!entity.isDestroyed()) &amp;&amp;</span>
+<span class="nc bnc" id="L579" title="All 2 branches missed.">                    (entity.getElevation() &gt; 0)) {</span>
+<span class="nc" id="L580">                    units.add(entity.getId());</span>
+                }
+            }
+<span class="nc" id="L583">        }</span>
+<span class="nc" id="L584">        return units;</span>
+    }
+    
+    public String toString() {
+<span class="nc" id="L588">        return &quot;Player &quot; + getId() + &quot; (&quot; + getName() + &quot;)&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

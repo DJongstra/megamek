@@ -1,0 +1,2119 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FormationType.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ratgenerator</a> &gt; <span class="el_source">FormationType.java</span></div><h1>FormationType.java</h1><pre class="source lang-java linenums">/**
+ * 
+ */
+package megamek.client.ratgenerator;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.EnumSet;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.IntSummaryStatistics;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+import megamek.common.AmmoType;
+import megamek.common.Compute;
+import megamek.common.EntityMovementMode;
+import megamek.common.EntityWeightClass;
+import megamek.common.EquipmentMode;
+import megamek.common.EquipmentType;
+import megamek.common.MechSummary;
+import megamek.common.MiscType;
+import megamek.common.UnitRole;
+import megamek.common.UnitRoleHandler;
+import megamek.common.UnitType;
+import megamek.common.WeaponType;
+import megamek.common.weapons.artillery.ArtilleryWeapon;
+import megamek.common.weapons.autocannons.ACWeapon;
+import megamek.common.weapons.autocannons.LBXACWeapon;
+import megamek.common.weapons.autocannons.UACWeapon;
+import megamek.common.weapons.lrms.LRMWeapon;
+import megamek.common.weapons.srms.SRMWeapon;
+import megamek.common.weapons.tag.TAGWeapon;
+
+/**
+ * Campaign Operations rules for force generation.
+ * 
+ * @author Neoancient
+ *
+ */
+public class FormationType {
+    
+    public static final int FLAG_MEK = 1 &lt;&lt; UnitType.MEK;
+    public static final int FLAG_TANK = 1 &lt;&lt; UnitType.TANK;
+    public static final int FLAG_BATTLE_ARMOR = 1 &lt;&lt; UnitType.BATTLE_ARMOR;
+    public static final int FLAG_INFANTRY = 1 &lt;&lt; UnitType.INFANTRY;
+    public static final int FLAG_PROTOMEK = 1 &lt;&lt; UnitType.PROTOMEK;
+    public static final int FLAG_VTOL = 1 &lt;&lt; UnitType.VTOL;
+    public static final int FLAG_NAVAL = 1 &lt;&lt; UnitType.NAVAL;
+    
+    public static final int FLAG_CONV_FIGHTER = 1 &lt;&lt; UnitType.CONV_FIGHTER;
+    public static final int FLAG_AERO = 1 &lt;&lt; UnitType.AERO;
+    public static final int FLAG_SMALL_CRAFT = 1 &lt;&lt; UnitType.SMALL_CRAFT;
+    public static final int FLAG_DROPSHIP = 1 &lt;&lt; UnitType.DROPSHIP;
+
+    public static final int FLAG_GROUND = FLAG_MEK | FLAG_TANK | FLAG_BATTLE_ARMOR | FLAG_INFANTRY
+            | FLAG_PROTOMEK | FLAG_VTOL | FLAG_NAVAL;
+    public static final int FLAG_GROUND_NO_LIGHT = FLAG_MEK | FLAG_TANK | FLAG_BATTLE_ARMOR
+            | FLAG_PROTOMEK | FLAG_NAVAL;
+    public static final int FLAG_FIGHTER = FLAG_CONV_FIGHTER | FLAG_AERO;
+    public static final int FLAG_AIR = FLAG_CONV_FIGHTER | FLAG_AERO | FLAG_SMALL_CRAFT
+            | FLAG_DROPSHIP;
+    public static final int FLAG_VEHICLE = FLAG_TANK | FLAG_NAVAL | FLAG_VTOL;
+    public static final int FLAG_ALL = FLAG_GROUND | FLAG_AIR;
+    
+<span class="nc" id="L76">    private static HashMap&lt;String,FormationType&gt; allFormationTypes = null;</span>
+    public static FormationType getFormationType(String key) {
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (allFormationTypes == null) {</span>
+<span class="nc" id="L79">            createFormationTypes();</span>
+        }
+<span class="nc" id="L81">        return allFormationTypes.get(key);</span>
+    }
+    
+    public static Collection&lt;FormationType&gt; getAllFormations() {
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (allFormationTypes == null) {</span>
+<span class="nc" id="L86">            createFormationTypes();</span>
+        }
+<span class="nc" id="L88">        return allFormationTypes.values();</span>
+    }
+    
+    protected FormationType(String name) {
+<span class="nc" id="L92">        this(name, name);</span>
+<span class="nc" id="L93">    }</span>
+    
+<span class="nc" id="L95">    protected FormationType(String name, String category) {</span>
+<span class="nc" id="L96">        this.name = name;</span>
+<span class="nc" id="L97">        this.category = category;</span>
+<span class="nc" id="L98">    }</span>
+    
+<span class="nc" id="L100">    private String name = &quot;Support&quot;;</span>
+<span class="nc" id="L101">    private String category = null;</span>
+<span class="nc" id="L102">    private int allowedUnitTypes = FLAG_GROUND;</span>
+    // Some formation types allow units not normally generated for general combat roles (e.g. artillery, cargo)  
+<span class="nc" id="L104">    private EnumSet&lt;MissionRole&gt; missionRoles = EnumSet.noneOf(MissionRole.class);</span>
+    // If all units in the force have this role, other constraints can be ignored.
+<span class="nc" id="L106">    private UnitRole idealRole = UnitRole.UNDETERMINED;</span>
+<span class="nc" id="L107">    private String exclusiveFaction = null;</span>
+    
+<span class="nc" id="L109">    private int minWeightClass = 0;</span>
+<span class="nc" id="L110">    private int maxWeightClass = EntityWeightClass.WEIGHT_COLOSSAL;</span>
+    // Used as a filter when generating units
+<span class="nc" id="L112">    private Predicate&lt;MechSummary&gt; mainCriteria = ms -&gt; true;</span>
+    // Additional criteria that have to be fulfilled by a portion of the force
+<span class="nc" id="L114">    private List&lt;Constraint&gt; otherCriteria = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L115">    private GroupingConstraint groupingCriteria = null;</span>
+    
+    // Provide values for the various criteria for reporting purposes
+<span class="nc" id="L118">    private String mainDescription = null;</span>
+<span class="nc" id="L119">    private Map&lt;String,Function&lt;MechSummary,?&gt;&gt; reportMetrics = new HashMap&lt;&gt;();</span>
+    
+    public String getName() {
+<span class="nc" id="L122">        return name;</span>
+    }
+    
+    public String getCategory() {
+<span class="nc" id="L126">        return category;</span>
+    }
+    
+    public int getAllowedUnitTypes() {
+<span class="nc" id="L130">        return allowedUnitTypes;</span>
+    }
+    
+    public boolean isAllowedUnitType(int ut) {
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        return (allowedUnitTypes &amp; (1 &lt;&lt; ut)) != 0;</span>
+    }
+    
+    public boolean isGround() {
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        return (allowedUnitTypes &amp; FLAG_AERO) == 0;</span>
+    }
+    
+    public UnitRole getIdealRole() {
+<span class="nc" id="L142">        return idealRole;</span>
+    }
+    
+    public String getExclusiveFaction() {
+<span class="nc" id="L146">        return exclusiveFaction;</span>
+    }
+    
+    public String getNameWithFaction() {
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        return exclusiveFaction == null? name : name + &quot; (&quot; + exclusiveFaction + &quot;)&quot;;</span>
+    }
+
+    public int getMinWeightClass() {
+<span class="nc" id="L154">        return minWeightClass;</span>
+    }
+
+    public int getMaxWeightClass() {
+<span class="nc" id="L158">        return maxWeightClass;</span>
+    }
+    
+    public Set&lt;MissionRole&gt; getMissionRoles() {
+<span class="nc" id="L162">        return missionRoles;</span>
+    }
+    
+    public Predicate&lt;MechSummary&gt; getMainCriteria() {
+<span class="nc" id="L166">        return mainCriteria;</span>
+    }
+    
+    public String getMainDescription() {
+<span class="nc" id="L170">        return mainDescription;</span>
+    }
+    
+    public Iterator&lt;Constraint&gt; getOtherCriteria() {
+<span class="nc" id="L174">        return otherCriteria.iterator();</span>
+    }
+    
+    public int getOtherCriteriaCount() {
+<span class="nc" id="L178">        return otherCriteria.size();</span>
+    }
+    
+    public Constraint getConstraint(int index) {
+<span class="nc" id="L182">        return otherCriteria.get(index);</span>
+    }
+    
+    public GroupingConstraint getGroupingCriteria() {
+<span class="nc" id="L186">        return groupingCriteria;</span>
+    }
+    
+    public int getReportMetricsSize() {
+<span class="nc" id="L190">        return reportMetrics.size();</span>
+    }
+    
+    public Iterator&lt;String&gt; getReportMetricKeys() {
+<span class="nc" id="L194">        return reportMetrics.keySet().iterator();</span>
+    }
+    
+    public Function&lt;MechSummary,?&gt; getReportMetric(String key) {
+<span class="nc" id="L198">        return reportMetrics.get(key);</span>
+    }
+    
+    private static Set&lt;MissionRole&gt; getMissionRoles(MechSummary ms) {
+<span class="nc" id="L202">        ModelRecord mRec = RATGenerator.getInstance().getModelRecord(ms.getName());</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">        return mRec == null? EnumSet.noneOf(MissionRole.class) : mRec.getRoles();</span>
+    }
+    
+    private static IntSummaryStatistics damageAtRangeStats(MechSummary ms, int range) {
+<span class="nc" id="L207">        List&lt;Integer&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        for (int i = 0; i &lt; ms.getEquipmentNames().size(); i++) {</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">            if (EquipmentType.get(ms.getEquipmentNames().get(i)) instanceof WeaponType) {</span>
+<span class="nc" id="L210">                final WeaponType weapon = (WeaponType)EquipmentType.get(ms.getEquipmentNames().get(i));</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">                if (weapon.getLongRange() &lt; range) {</span>
+<span class="nc" id="L212">                    continue;</span>
+                }
+<span class="nc" id="L214">                int damage = 0;</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">                if (weapon.getAmmoType() != AmmoType.T_NA) {</span>
+<span class="nc" id="L216">                    Optional&lt;EquipmentType&gt; ammo = ms.getEquipmentNames().stream()</span>
+<span class="nc" id="L217">                        .map(name -&gt; EquipmentType.get(name))</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">                        .filter(eq -&gt; eq instanceof AmmoType</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">                                &amp;&amp; ((AmmoType)eq).getAmmoType() == weapon.getAmmoType()</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">                                &amp;&amp; ((AmmoType)eq).getRackSize() == weapon.getRackSize())</span>
+<span class="nc" id="L221">                        .findFirst();</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">                    if (ammo.isPresent()) {</span>
+<span class="nc" id="L223">                        damage = ((AmmoType)ammo.get()).getDamagePerShot()</span>
+<span class="nc" id="L224">                                * Math.max(1, ((AmmoType)ammo.get()).getRackSize());</span>
+                    }
+<span class="nc" id="L226">                } else {</span>
+<span class="nc" id="L227">                    damage = weapon.getDamage(range);</span>
+                }
+<span class="nc bnc" id="L229" title="All 2 branches missed.">                if (damage &gt; 0) {</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">                    for (int j = 0; j &lt; ms.getEquipmentQuantities().get(i); j++) {</span>
+<span class="nc" id="L231">                        retVal.add(damage);</span>
+                    }
+                }
+            }
+        }
+<span class="nc" id="L236">        return retVal.stream().mapToInt(Integer::intValue).summaryStatistics();</span>
+    }
+    
+    private static long getDamageAtRange(MechSummary ms, int range) {
+<span class="nc" id="L240">        return Math.max(0, damageAtRangeStats(ms, range).getSum());</span>
+    }
+    
+    private static long getSingleWeaponDamageAtRange(MechSummary ms, int range) {
+<span class="nc" id="L244">        return Math.max(0, damageAtRangeStats(ms, range).getMax());</span>
+    }
+    
+    private static int getNetworkMask(MechSummary ms) {
+<span class="nc" id="L248">        ModelRecord mRec = RATGenerator.getInstance().getModelRecord(ms.getName());</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">        return mRec == null? ModelRecord.NETWORK_NONE : mRec.getNetworkMask();</span>
+    }
+    
+    public List&lt;MechSummary&gt; generateFormation(UnitTable.Parameters params, int numUnits,
+            int networkMask, boolean bestEffort) {
+<span class="nc" id="L254">        List&lt;UnitTable.Parameters&gt; p = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L255">        p.add(params);</span>
+<span class="nc" id="L256">        List&lt;Integer&gt; n = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L257">        n.add(numUnits);</span>
+<span class="nc" id="L258">        return generateFormation(p, n, networkMask, bestEffort, -1, -1);</span>
+    }
+    
+    public List&lt;MechSummary&gt; generateFormation(List&lt;UnitTable.Parameters&gt; params, List&lt;Integer&gt; numUnits,
+            int networkMask, boolean bestEffort) {
+<span class="nc" id="L263">        return generateFormation(params, numUnits, networkMask, bestEffort, -1, -1);</span>
+    }
+    
+    public List&lt;MechSummary&gt; generateFormation(List&lt;UnitTable.Parameters&gt; params, List&lt;Integer&gt; numUnits,
+            int networkMask, boolean bestEffort, int groupSize, int nGroups) {
+<span class="nc bnc" id="L268" title="All 4 branches missed.">        if (params.size() != numUnits.size() || params.isEmpty()) {</span>
+<span class="nc" id="L269">            throw new IllegalArgumentException(&quot;Formation parameter list and numUnit list must have the same number of elements.&quot;);</span>
+        }
+        final GroupingConstraint useGrouping;
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (null == groupingCriteria) {</span>
+<span class="nc" id="L273">            useGrouping = null;</span>
+        } else {
+<span class="nc" id="L275">            useGrouping = groupingCriteria.copy();</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">            if (groupSize &gt; 0) {</span>
+<span class="nc" id="L277">                useGrouping.groupSize = groupSize;</span>
+<span class="nc" id="L278">                useGrouping.numGroups = 0;</span>
+            }
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            if (nGroups &gt; 0) {</span>
+<span class="nc" id="L281">                useGrouping.numGroups =  nGroups;</span>
+<span class="nc" id="L282">                useGrouping.groupSize = 0;</span>
+            }
+        }
+        
+<span class="nc" id="L286">        List&lt;Integer&gt; wcs = IntStream.rangeClosed(minWeightClass,</span>
+<span class="nc" id="L287">                Math.min(maxWeightClass, EntityWeightClass.WEIGHT_SUPER_HEAVY))</span>
+<span class="nc" id="L288">                .mapToObj(Integer::valueOf)</span>
+<span class="nc" id="L289">                .collect(Collectors.toList());</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">        List&lt;Integer&gt; airWcs = wcs.stream().filter(wc -&gt; wc &lt; EntityWeightClass.WEIGHT_ASSAULT)</span>
+<span class="nc" id="L291">                .collect(Collectors.toList()); </span>
+<span class="nc" id="L292">        params.forEach(p -&gt; {</span>
+<span class="nc" id="L293">            p.getRoles().addAll(missionRoles);</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">            p.setWeightClasses(p.getUnitType() &lt; UnitType.CONV_FIGHTER ? wcs : airWcs);</span>
+<span class="nc" id="L295">        });</span>
+<span class="nc" id="L296">        List&lt;UnitTable&gt; tables = params.stream().map(UnitTable::findTable).collect(Collectors.toList());</span>
+        //If there are any parameter sets that cannot generate a table, return an empty list. 
+<span class="nc bnc" id="L298" title="All 4 branches missed.">        if (!tables.stream().allMatch(UnitTable::hasUnits) &amp;&amp; !bestEffort) {</span>
+<span class="nc" id="L299">            return new ArrayList&lt;&gt;();</span>
+        }
+        
+        /* Check whether we have vees or infantry that do not have the movement mode(s) set. If so,
+         * we will attempt to conform them to a single type. Any that are set are ignored;
+         * there is no attempt to conform to mode already in the force. If they are intended
+         * to conform, they ought to be set.
+         */
+<span class="nc" id="L307">        List&lt;Integer&gt; undeterminedVees = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L308">        List&lt;Integer&gt; undeterminedInfantry = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">        for (int i = 0; i &lt; params.size(); i++) {</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">            if (params.get(i).getMovementModes().isEmpty()) {</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">                if (params.get(i).getUnitType() == UnitType.TANK) {</span>
+<span class="nc" id="L312">                    undeterminedVees.add(i);</span>
+                }
+<span class="nc bnc" id="L314" title="All 2 branches missed.">                if (params.get(i).getUnitType() == UnitType.INFANTRY) {</span>
+<span class="nc" id="L315">                    undeterminedInfantry.add(i);</span>
+                }
+            }
+        }
+        /* Look at the table for each group of parameters and determine the motive type
+         * ratio, then weight those values according to the number of units using those
+         * parameters.
+         */
+<span class="nc" id="L323">        Map&lt;String,Integer&gt; veeMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L324">        Map&lt;String,Integer&gt; infMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">        for (int i = 0; i &lt; undeterminedVees.size(); i++) {</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">            for (int j = 0; j &lt; tables.get(i).getNumEntries(); j++) {</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">                if (tables.get(i).getMechSummary(j) != null) {</span>
+<span class="nc" id="L328">                    veeMap.merge(tables.get(i).getMechSummary(j).getUnitSubType(),</span>
+<span class="nc" id="L329">                            tables.get(i).getEntryWeight(j) * numUnits.get(i), Integer::sum);</span>
+                }
+            }
+        }
+<span class="nc bnc" id="L333" title="All 2 branches missed.">        for (int i = 0; i &lt; undeterminedInfantry.size(); i++) {</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">            for (int j = 0; j &lt; tables.get(i).getNumEntries(); j++) {</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">                if (tables.get(i).getMechSummary(j) != null) {</span>
+<span class="nc" id="L336">                    infMap.merge(tables.get(i).getMechSummary(j).getUnitSubType(),</span>
+<span class="nc" id="L337">                            tables.get(i).getEntryWeight(j) * numUnits.get(i), Integer::sum);</span>
+                }
+            }
+        }
+        
+        /* Order modes in a way that those modes that are better represented are more likely to
+         * be attempted first.
+         */
+<span class="nc" id="L345">        List&lt;String&gt; veeModeAttemptOrder = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L346">        List&lt;String&gt; infModeAttemptOrder = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        while (!veeMap.isEmpty()) {</span>
+<span class="nc" id="L348">            int total = veeMap.values().stream().mapToInt(Integer::intValue).sum();</span>
+<span class="nc" id="L349">            int r = Compute.randomInt(total);</span>
+<span class="nc" id="L350">            String mode = &quot;Tracked&quot;;</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">            for (String m : veeMap.keySet()) {</span>
+<span class="nc bnc" id="L352" title="All 2 branches missed.">                if (r &lt; veeMap.get(m)) {</span>
+<span class="nc" id="L353">                    mode = m;</span>
+<span class="nc" id="L354">                    break;</span>
+                } else {
+<span class="nc" id="L356">                    r -= veeMap.get(m);</span>
+                }
+<span class="nc" id="L358">            }</span>
+<span class="nc" id="L359">            veeModeAttemptOrder.add(mode);</span>
+<span class="nc" id="L360">            veeMap.remove(mode);</span>
+<span class="nc" id="L361">        }</span>
+<span class="nc bnc" id="L362" title="All 2 branches missed.">        while (!infMap.isEmpty()) {</span>
+<span class="nc" id="L363">            int total = infMap.values().stream().mapToInt(Integer::intValue).sum();</span>
+<span class="nc" id="L364">            int r = Compute.randomInt(total);</span>
+<span class="nc" id="L365">            String mode = &quot;Leg&quot;;</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">            for (String m : infMap.keySet()) {</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">                if (r &lt; infMap.get(m)) {</span>
+<span class="nc" id="L368">                    mode = m;</span>
+<span class="nc" id="L369">                    break;</span>
+                } else {
+<span class="nc" id="L371">                    r -= infMap.get(m);</span>
+                }
+<span class="nc" id="L373">            }</span>
+<span class="nc" id="L374">            infModeAttemptOrder.add(mode);</span>
+<span class="nc" id="L375">            infMap.remove(mode);</span>
+<span class="nc" id="L376">        }</span>
+
+        /* if there are no units of a given type, we want to make sure we have at least one iteration */
+<span class="nc bnc" id="L379" title="All 4 branches missed.">        if (veeModeAttemptOrder.isEmpty() &amp;&amp; !infModeAttemptOrder.isEmpty()) {</span>
+<span class="nc" id="L380">            veeModeAttemptOrder.add(&quot;Tracked&quot;);</span>
+        }
+<span class="nc bnc" id="L382" title="All 4 branches missed.">        if (infModeAttemptOrder.isEmpty() &amp;&amp; !veeModeAttemptOrder.isEmpty()) {</span>
+<span class="nc" id="L383">            infModeAttemptOrder.add(&quot;Leg&quot;);</span>
+        }
+<span class="nc bnc" id="L385" title="All 2 branches missed.">        for (String veeMode : veeModeAttemptOrder) {</span>
+<span class="nc bnc" id="L386" title="All 2 branches missed.">            for (String infMode : infModeAttemptOrder) {</span>
+<span class="nc" id="L387">                List&lt;UnitTable.Parameters&gt; tempParams = params.stream().map(UnitTable.Parameters::copy)</span>
+<span class="nc" id="L388">                        .collect(Collectors.toList());</span>
+<span class="nc bnc" id="L389" title="All 2 branches missed.">                for (int index : undeterminedVees) {</span>
+<span class="nc" id="L390">                    tempParams.get(index).getMovementModes().add(EntityMovementMode.getMode(veeMode));</span>
+<span class="nc" id="L391">                }</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">                for (int index : undeterminedInfantry) {</span>
+<span class="nc" id="L393">                    tempParams.get(index).getMovementModes().add(EntityMovementMode.getMode(infMode));</span>
+<span class="nc" id="L394">                }</span>
+<span class="nc" id="L395">                List&lt;MechSummary&gt; list = generateFormation(tempParams, numUnits, networkMask, false);</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">                if (!list.isEmpty()) {</span>
+<span class="nc" id="L397">                    return list;</span>
+                }
+<span class="nc" id="L399">            }</span>
+<span class="nc" id="L400">        }</span>
+        /* If we cannot meet all criteria with a specific motive type, try without respect to motive type */
+        
+<span class="nc" id="L403">        int cUnits = (int)numUnits.stream().mapToInt(Integer::intValue).sum();</span>
+
+        /* Simple case: all units have the same requirements. */
+<span class="nc bnc" id="L406" title="All 6 branches missed.">        if (otherCriteria.isEmpty() &amp;&amp; useGrouping == null</span>
+                &amp;&amp; networkMask == ModelRecord.NETWORK_NONE) {
+<span class="nc" id="L408">            List&lt;MechSummary&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">            for (int i = 0; i &lt; params.size(); i++) {</span>
+<span class="nc" id="L410">                retVal.addAll(tables.get(i).generateUnits(numUnits.get(i),</span>
+<span class="nc" id="L411">                        ms -&gt; mainCriteria.test(ms)));</span>
+            }
+<span class="nc bnc" id="L413" title="All 2 branches missed.">            if (retVal.size() &lt; cUnits) {</span>
+<span class="nc" id="L414">                List&lt;MechSummary&gt; matchRole = tryIdealRole(params, numUnits);</span>
+<span class="nc bnc" id="L415" title="All 2 branches missed.">                if (matchRole != null) {</span>
+<span class="nc" id="L416">                    return matchRole;</span>
+                }
+            }
+<span class="nc" id="L419">            return retVal;</span>
+        }
+        
+        /* Simple case: single set of parameters and single additional criterion. */
+<span class="nc bnc" id="L423" title="All 8 branches missed.">        if (params.size() == 1 &amp;&amp; otherCriteria.size() == 1 &amp;&amp; useGrouping == null</span>
+                &amp;&amp; networkMask == ModelRecord.NETWORK_NONE) {
+<span class="nc" id="L425">            List&lt;MechSummary&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L426">            retVal.addAll(tables.get(0).generateUnits(otherCriteria.get(0).getMinimum(numUnits.get(0)),</span>
+<span class="nc bnc" id="L427" title="All 4 branches missed.">                    ms -&gt; mainCriteria.test(ms) &amp;&amp; otherCriteria.get(0).criterion.test(ms)));</span>
+<span class="nc bnc" id="L428" title="All 2 branches missed.">            if (retVal.size() &lt; otherCriteria.get(0).getMinimum(numUnits.get(0))) {</span>
+<span class="nc" id="L429">                List&lt;MechSummary&gt; onRole = tryIdealRole(params, numUnits);</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">                if (onRole != null) {</span>
+<span class="nc" id="L431">                    return onRole;</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">                } else if (!bestEffort) {</span>
+<span class="nc" id="L433">                    return new ArrayList&lt;&gt;();</span>
+                }
+            }
+<span class="nc bnc" id="L436" title="All 4 branches missed.">            if (retVal.size() &gt;= otherCriteria.get(0).getMinimum(numUnits.get(0)) || bestEffort) {</span>
+<span class="nc" id="L437">                retVal.addAll(tables.get(0).generateUnits(numUnits.get(0) - retVal.size(),</span>
+<span class="nc" id="L438">                        ms -&gt; mainCriteria.test(ms)));</span>
+            }
+<span class="nc" id="L440">            return retVal;</span>
+        }
+        
+        /* If a network is indicated, we decide which units are part of the network (usually
+         * all, but not necessarily) and which combination to use, then assign one of them
+         * to the master role if any. A company command lance has two configuration options:
+         * a unit with two masters, or two master and two slaves.
+         */
+<span class="nc" id="L448">        int numNetworked = 0;</span>
+<span class="nc" id="L449">        int numMasters = 0;</span>
+<span class="nc" id="L450">        int altNumMasters = 0;</span>
+<span class="nc" id="L451">        int masterType = ModelRecord.NETWORK_NONE;</span>
+<span class="nc" id="L452">        int slaveType = ModelRecord.NETWORK_NONE;</span>
+<span class="nc" id="L453">        int validNetworkUnits = FLAG_MEK | FLAG_VEHICLE | FLAG_BATTLE_ARMOR;</span>
+        
+<span class="nc bnc" id="L455" title="All 2 branches missed.">        if ((networkMask &amp; ModelRecord.NETWORK_C3_MASTER) != 0) {</span>
+<span class="nc" id="L456">            numNetworked = 4;</span>
+<span class="nc" id="L457">            numMasters = 1;</span>
+<span class="nc" id="L458">            masterType = networkMask | (networkMask &amp; ModelRecord.NETWORK_BOOSTED);</span>
+<span class="nc" id="L459">            slaveType = ModelRecord.NETWORK_C3_SLAVE | (networkMask &amp; ModelRecord.NETWORK_BOOSTED);</span>
+<span class="nc bnc" id="L460" title="All 2 branches missed.">            if ((networkMask &amp; ModelRecord.NETWORK_COMPANY_COMMAND) != 0) {</span>
+<span class="nc" id="L461">                altNumMasters = 2;</span>
+            }
+<span class="nc bnc" id="L463" title="All 2 branches missed.">        } else if ((networkMask &amp; ModelRecord.NETWORK_C3I) != 0) {</span>
+<span class="nc" id="L464">            numNetworked = 6;</span>
+<span class="nc" id="L465">            numMasters = 0;</span>
+<span class="nc" id="L466">            slaveType = ModelRecord.NETWORK_C3I;</span>
+            /* This mask is also used for naval C3 */
+<span class="nc" id="L468">            validNetworkUnits |= FLAG_SMALL_CRAFT | FLAG_DROPSHIP;</span>
+<span class="nc bnc" id="L469" title="All 2 branches missed.">        } else if ((networkMask &amp; ModelRecord.NETWORK_NOVA) != 0) {</span>
+<span class="nc" id="L470">            numNetworked = 3;</span>
+<span class="nc" id="L471">            numMasters = 0;</span>
+<span class="nc" id="L472">            slaveType = ModelRecord.NETWORK_NOVA;</span>
+        }
+<span class="nc" id="L474">        int networkEligible = 0;</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">        for (int i = 0; i &lt; params.size(); i++) {</span>
+<span class="nc bnc" id="L476" title="All 2 branches missed.">        	if ((validNetworkUnits &amp; (1 &lt;&lt; params.get(i).getUnitType())) != 0) {</span>
+<span class="nc" id="L477">        		networkEligible += numUnits.get(i);</span>
+        	}
+        }
+<span class="nc bnc" id="L480" title="All 2 branches missed.">        if (numNetworked &gt; networkEligible) {</span>
+<span class="nc" id="L481">        	numNetworked = networkEligible;</span>
+        }
+        
+        /* General case:
+         * Select randomly from all unique combinations of the various criteria. Each combination
+         * is represented by a Map&lt;Integer,Integer in which the various criteria are encoded as the keys
+         * and the value mapped to the index is the number of units that must fulfill those criteria.
+         * The lowest order bits map to otherCriteria, one bit for each constraint. These are built
+         * by shifting left for each new one added, so the one at index 0 is the leftmost bit of this
+         * section. A 1 indicates that the number of units at that index must meet the constraint, while
+         * a 0 means the constraint is not tested, and a unit may or may not fulfill it.
+         * Example: if otherCriteria.size() == 3, then the value of combinations[6] is the number of
+         * units that must meet the first two constraints (110), while combinations[7] must meet all
+         * three and combinations[0] need not meet any.
+         * 
+         * The next three bits indicate C3 network requirements. The lowest order is the number that
+         * must have a C3 slave, C3i, NC3, or Nova, depending on the value of networkMask. The middle bit
+         * is the number of required C3 masters, and the highest bit is the number of dual-C3M units.
+         * Note that only one of these three bits can be set; while a unit can have a C3M and a C3S,
+         * only one can fulfill its role in the network.
+         * 
+         *  The highest order section is the unit type. Each element of the params list has one
+         *  bit, beginning with the lowest order bit at index 0. As with networks, only one 
+         *  bit in this section can be set.
+         */
+        
+        do {
+	        List&lt;Map&lt;Integer,Integer&gt;&gt; combinations;
+	        /* We can get here with an empty otherCriteria if there is a groupingConstraint,
+	         * which is the case with the Order formation.
+	         */
+<span class="nc bnc" id="L512" title="All 2 branches missed.">	        if (otherCriteria.isEmpty()) {</span>
+<span class="nc" id="L513">	        	Map&lt;Integer,Integer&gt; combo = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L514">	        	combo.put(0, cUnits);</span>
+<span class="nc" id="L515">	        	combinations = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L516">	        	combinations.add(combo);</span>
+<span class="nc" id="L517">	        } else {</span>
+<span class="nc" id="L518">	        	combinations = findCombinations(cUnits);</span>
+	        }
+	        //Group units by param index so they can be returned in the order requested.
+<span class="nc" id="L521">	        Map&lt;Integer,List&lt;MechSummary&gt;&gt; list = new TreeMap&lt;&gt;();</span>
+<span class="nc" id="L522">	        final int POS_C3S = 0;</span>
+<span class="nc" id="L523">	        final int POS_C3M = 1;</span>
+<span class="nc" id="L524">	        final int POS_C3MM = 2;</span>
+<span class="nc" id="L525">	        final int POS_C3_NUM = 3;</span>
+<span class="nc bnc" id="L526" title="All 2 branches missed.">	        while (combinations.size() &gt; 0) {</span>
+<span class="nc" id="L527">	        	int index = Compute.randomInt(combinations.size());</span>
+<span class="nc" id="L528">	        	Map&lt;Integer,Integer&gt; baseCombo = combinations.get(index);</span>
+	
+<span class="nc" id="L530">	        	int[] networkGroups = new int[POS_C3_NUM];</span>
+<span class="nc" id="L531">	        	networkGroups[POS_C3S] = Math.max(0, numNetworked - numMasters);</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">	        	if ((networkMask &amp; ModelRecord.NETWORK_COMPANY_COMMAND) == 0) {</span>
+<span class="nc" id="L533">	        		networkGroups[POS_C3M] = Math.max(0, numMasters);</span>
+	        	} else {
+<span class="nc" id="L535">	        		networkGroups[POS_C3MM] = Math.max(0, numMasters);</span>
+	        	}
+<span class="nc" id="L537">	        	List&lt;Map&lt;Integer,Integer&gt;&gt; networkGroupings = findGroups(baseCombo, networkGroups,</span>
+<span class="nc" id="L538">	        			otherCriteria.size());</span>
+<span class="nc bnc" id="L539" title="All 2 branches missed.">	        	if (altNumMasters &gt; 0) {</span>
+<span class="nc" id="L540">	        		networkGroups[POS_C3S] = Math.max(0, numNetworked - altNumMasters);</span>
+<span class="nc" id="L541">	        		networkGroups[POS_C3M] = Math.max(0, altNumMasters);</span>
+<span class="nc" id="L542">	        		networkGroups[POS_C3MM] = 0;</span>
+<span class="nc" id="L543">	            	networkGroupings.addAll(findGroups(baseCombo, networkGroups, otherCriteria.size()));</span>
+	        	}
+<span class="nc bnc" id="L545" title="All 2 branches missed.">	        	while (networkGroupings.size() &gt; 0) {</span>
+<span class="nc" id="L546">	        		list.clear();</span>
+<span class="nc" id="L547">	        		int networkIndex = Compute.randomInt(networkGroupings.size());</span>
+<span class="nc" id="L548">	        		Map&lt;Integer,Integer&gt; combo = networkGroupings.get(networkIndex);</span>
+	
+<span class="nc" id="L550">	        		int[] unitsPerGroup = new int[params.size()];</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">	        		for (int i = 0; i &lt; numUnits.size(); i++) {</span>
+<span class="nc" id="L552">	        			unitsPerGroup[i] = numUnits.get(i);</span>
+	        		}
+<span class="nc" id="L554">	        		List&lt;Map&lt;Integer,Integer&gt;&gt; unitTypeGroupings = findGroups(combo, unitsPerGroup,</span>
+<span class="nc" id="L555">	        				otherCriteria.size() + POS_C3_NUM);</span>
+<span class="nc bnc" id="L556" title="All 2 branches missed.">	        		while (unitTypeGroupings.size() &gt; 0) {</span>
+<span class="nc" id="L557">	        			list.clear();</span>
+<span class="nc" id="L558">	        			int utIndex = Compute.randomInt(unitTypeGroupings.size());</span>
+<span class="nc" id="L559">	        			combo = unitTypeGroupings.get(utIndex);</span>
+	
+<span class="nc bnc" id="L561" title="All 2 branches missed.">	        			if (useGrouping != null</span>
+<span class="nc bnc" id="L562" title="All 2 branches missed.">	        					&amp;&amp; params.stream().anyMatch(p -&gt; useGrouping.appliesTo(p.getUnitType()))) {</span>
+	        				/* Create a temporary map that only includes units that have a grouping criterion */
+<span class="nc" id="L564">	        				Map&lt;Integer,Integer&gt; groupedUnits = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L565" title="All 2 branches missed.">	        				for (int p = 0; p &lt; params.size(); p++) {</span>
+<span class="nc bnc" id="L566" title="All 2 branches missed.">	        					if (useGrouping.appliesTo(params.get(p).getUnitType())) {</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">	        						for (Integer i : combo.keySet()) {</span>
+<span class="nc bnc" id="L568" title="All 2 branches missed.">	        							if ((i &amp; (1 &lt;&lt; (p + otherCriteria.size() + POS_C3_NUM))) != 0) {</span>
+<span class="nc" id="L569">	        								groupedUnits.merge(i, combo.get(i), Integer::sum);</span>
+	        							}
+<span class="nc" id="L571">	        						}</span>
+	    						}
+	    					}
+<span class="nc" id="L574">	    					List&lt;List&lt;Map&lt;Integer,Integer&gt;&gt;&gt; groups = findMatchedGroups(groupedUnits, useGrouping);</span>
+	
+<span class="nc bnc" id="L576" title="All 2 branches missed.">	    					while (groups.size() &gt; 0) {</span>
+<span class="nc" id="L577">	    						int gIndex = Compute.randomInt(groups.size());</span>
+<span class="nc" id="L578">	    						list.clear();</span>
+<span class="nc" id="L579">    							Map&lt;Integer,List&lt;MechSummary&gt;&gt; found = new TreeMap&lt;&gt;();</span>
+<span class="nc" id="L580">	    						Map&lt;Integer,Integer&gt; workingCombo = new HashMap&lt;&gt;(combo);</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">	    						for (Map&lt;Integer,Integer&gt; g : groups.get(gIndex)) {</span>
+	    							/* The first unit selected may lead to a dead end, if the constraints
+	    							 * for the other group members cannot be met in a unit that matches the
+	    							 * base. To deal with this we make a second attempt if necessary
+	    							 * subjecting all members of the group to all constraints assigned
+	    							 * to any group member. */
+<span class="nc" id="L587">	    							int extraCriteria = 0;</span>
+<span class="nc" id="L588">	    							int attempts = 0;</span>
+<span class="nc bnc" id="L589" title="All 2 branches missed.">	    							while (attempts &lt; 2) {</span>
+<span class="nc" id="L590">	    								found.clear();</span>
+<span class="nc" id="L591">		    							MechSummary base = null;</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">		    							for (int i : combo.keySet()) {</span>
+<span class="nc bnc" id="L593" title="All 2 branches missed.">		    								if (g.containsKey(i)) {</span>
+		    									// Decode unit type
+<span class="nc" id="L595">		    									int tableIndex = 0;</span>
+<span class="nc bnc" id="L596" title="All 2 branches missed.">		    									if (params.size() &gt; 0) {</span>
+<span class="nc" id="L597">		    										int tmp = i &gt;&gt; (otherCriteria.size() + POS_C3_NUM);</span>
+<span class="nc bnc" id="L598" title="All 4 branches missed.">		    										while (tmp != 0 &amp;&amp; (tmp &amp; 1) == 0) {</span>
+<span class="nc" id="L599">		    											tableIndex++;</span>
+<span class="nc" id="L600">		    											tmp &gt;&gt;= 1;</span>
+		    										}
+		    									}
+<span class="nc" id="L603">		    									final Predicate&lt;MechSummary&gt; filter = getFilterFromIndex(i | extraCriteria,</span>
+		    											slaveType, masterType);
+<span class="nc bnc" id="L605" title="All 2 branches missed.">		    									for (int j = 0; j &lt; g.get(i); j++) {</span>
+<span class="nc bnc" id="L606" title="All 2 branches missed.">		    										if (base == null) {</span>
+<span class="nc" id="L607">		    											base = tables.get(tableIndex).generateUnit(ms -&gt; filter.test(ms));</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">		    											if (base != null) {</span>
+<span class="nc" id="L609">                                                            found.putIfAbsent(tableIndex, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L610">                                                            found.get(tableIndex).add(base);</span>
+		    											}
+		    										} else {
+<span class="nc" id="L613">		    											final MechSummary b = base;</span>
+<span class="nc bnc" id="L614" title="All 2 branches missed.">		    											MechSummary unit = tables.get(tableIndex).generateUnit(ms -&gt; filter.test(ms)</span>
+<span class="nc bnc" id="L615" title="All 2 branches missed.">		    													&amp;&amp; useGrouping.matches(ms, b));</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">		    											if (unit != null) {</span>
+<span class="nc" id="L617">		    											    found.putIfAbsent(tableIndex, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L618">                                                            found.get(tableIndex).add(unit);</span>
+		    											}
+		    										}
+		    									}
+		    								}
+<span class="nc" id="L623">		    							}</span>
+<span class="nc" id="L624">		    							if (found.values().stream().mapToInt(List::size).sum()</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">		    							        &lt; g.values().stream().mapToInt(Integer::intValue).sum()) {</span>
+<span class="nc" id="L626">		    								found.clear();</span>
+<span class="nc" id="L627">		    								base = null;</span>
+<span class="nc" id="L628">		    								int mask = (1 &lt;&lt; otherCriteria.size()) - 1;</span>
+<span class="nc" id="L629">		    								extraCriteria = 0;</span>
+<span class="nc bnc" id="L630" title="All 2 branches missed.">		    								for (int k : g.keySet()) {</span>
+<span class="nc" id="L631">		    									extraCriteria |= k &amp; mask;</span>
+<span class="nc" id="L632">		    								}</span>
+<span class="nc" id="L633">		    								attempts++;</span>
+		    							} else {
+		    								break;
+		    							}
+<span class="nc" id="L637">	    							}</span>
+<span class="nc bnc" id="L638" title="All 2 branches missed.">	    							for (Map.Entry&lt;Integer, List&lt;MechSummary&gt;&gt; e : found.entrySet()) {</span>
+<span class="nc" id="L639">	    							    list.putIfAbsent(e.getKey(), new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L640">	    							    list.get(e.getKey()).addAll(e.getValue());</span>
+<span class="nc" id="L641">	    							}</span>
+<span class="nc bnc" id="L642" title="All 2 branches missed.">		    						for (Integer k : g.keySet()) {</span>
+<span class="nc" id="L643">		    							workingCombo.merge(k, -g.get(k), Integer::sum);</span>
+<span class="nc" id="L644">		    						}</span>
+<span class="nc" id="L645">	    						}</span>
+<span class="nc bnc" id="L646" title="All 2 branches missed.">	    						for (int i : workingCombo.keySet()) {</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">	    							if (workingCombo.get(i) &gt; 0) {</span>
+	    								// Decode unit type
+<span class="nc" id="L649">	    								int tableIndex = 0;</span>
+<span class="nc bnc" id="L650" title="All 2 branches missed.">	    								if (params.size() &gt; 0) {</span>
+<span class="nc" id="L651">											int tmp = i &gt;&gt; (otherCriteria.size() + POS_C3_NUM);</span>
+<span class="nc bnc" id="L652" title="All 4 branches missed.">	        								while (tmp != 0 &amp;&amp; (tmp &amp; 1) == 0) {</span>
+<span class="nc" id="L653">	        									tableIndex++;</span>
+<span class="nc" id="L654">	        									tmp &gt;&gt;= 1;</span>
+	        								}
+	    								}
+<span class="nc" id="L657">	    								final Predicate&lt;MechSummary&gt; filter = getFilterFromIndex(i, slaveType, masterType);</span>
+<span class="nc bnc" id="L658" title="All 2 branches missed.">	    								for (int j = 0; j &lt; workingCombo.get(i); j++) {</span>
+<span class="nc" id="L659">	    									MechSummary unit = tables.get(tableIndex).generateUnit(ms -&gt; filter.test(ms));</span>
+<span class="nc bnc" id="L660" title="All 2 branches missed.">	    									if (unit != null) {</span>
+<span class="nc" id="L661">	    									    list.putIfAbsent(tableIndex, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L662">	    										list.get(tableIndex).add(unit);</span>
+	    									}
+	    								}
+	    							}
+<span class="nc" id="L666">	    						}</span>
+<span class="nc" id="L667">	    						List&lt;MechSummary&gt; retVal = list.values().stream()</span>
+<span class="nc" id="L668">	    						        .flatMap(l -&gt; l.stream()).collect(Collectors.toList());</span>
+<span class="nc bnc" id="L669" title="All 2 branches missed.">	    						if (retVal.size() &lt; cUnits) {</span>
+<span class="nc" id="L670">	    							groups.remove(gIndex);</span>
+	    						} else {
+<span class="nc" id="L672">	    							return retVal;</span>
+	    						}
+<span class="nc" id="L674">	    					}</span>
+<span class="nc" id="L675">	    				} else {</span>
+<span class="nc bnc" id="L676" title="All 2 branches missed.">	    					for (int i : combo.keySet()) {</span>
+    							// Decode unit type
+<span class="nc" id="L678">    							int tableIndex = 0;</span>
+<span class="nc bnc" id="L679" title="All 2 branches missed.">    							if (params.size() &gt; 0) {</span>
+<span class="nc" id="L680">									int tmp = i &gt;&gt; (otherCriteria.size() + POS_C3_NUM);</span>
+<span class="nc bnc" id="L681" title="All 4 branches missed.">    								while (tmp != 0 &amp;&amp; (tmp &amp; 1) == 0) {</span>
+<span class="nc" id="L682">    									tableIndex++;</span>
+<span class="nc" id="L683">    									tmp &gt;&gt;= 1;</span>
+    								}
+    							}
+<span class="nc" id="L686">    							final Predicate&lt;MechSummary&gt;filter = getFilterFromIndex(i, slaveType, masterType);</span>
+<span class="nc bnc" id="L687" title="All 2 branches missed.">    							for (int j = 0; j &lt; combo.get(i); j++) {</span>
+<span class="nc" id="L688">    								MechSummary unit = tables.get(tableIndex).generateUnit(ms -&gt; filter.test(ms));</span>
+<span class="nc bnc" id="L689" title="All 2 branches missed.">    								if (unit != null) {</span>
+<span class="nc" id="L690">    								    list.putIfAbsent(tableIndex, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L691">    									list.get(tableIndex).add(unit);</span>
+    								}
+    							}
+<span class="nc" id="L694">	    					}</span>
+	    				}
+<span class="nc" id="L696">                        List&lt;MechSummary&gt; retVal = list.values().stream()</span>
+<span class="nc" id="L697">                                .flatMap(l -&gt; l.stream()).collect(Collectors.toList());</span>
+<span class="nc bnc" id="L698" title="All 2 branches missed.">                        if (retVal.size() &lt; cUnits) {</span>
+<span class="nc" id="L699">                            unitTypeGroupings.remove(utIndex);</span>
+                        } else {
+<span class="nc" id="L701">                            return retVal;</span>
+                        }
+<span class="nc" id="L703">	    			}</span>
+<span class="nc" id="L704">                    List&lt;MechSummary&gt; retVal = list.values().stream()</span>
+<span class="nc" id="L705">                            .flatMap(l -&gt; l.stream()).collect(Collectors.toList());</span>
+<span class="nc bnc" id="L706" title="All 2 branches missed.">                    if (retVal.size() &lt; cUnits) {</span>
+<span class="nc" id="L707">						networkGroupings.remove(networkIndex);</span>
+					} else {
+<span class="nc" id="L709">						return retVal;</span>
+					}
+<span class="nc" id="L711">	    		}</span>
+<span class="nc" id="L712">	    		combinations.remove(index);</span>
+<span class="nc" id="L713">	        }</span>
+<span class="nc" id="L714">	        numNetworked--;</span>
+<span class="nc bnc" id="L715" title="All 2 branches missed.">        } while (numNetworked &gt;= 0);        </span>
+        
+<span class="nc" id="L717">        List&lt;MechSummary&gt; onRole = tryIdealRole(params, numUnits);</span>
+<span class="nc bnc" id="L718" title="All 2 branches missed.">        if (onRole != null) {</span>
+<span class="nc" id="L719">            return onRole;</span>
+        }
+<span class="nc" id="L721">        return new ArrayList&lt;&gt;();</span>
+    }
+    
+    private Predicate&lt;MechSummary&gt; getFilterFromIndex(int index, int slaveType, int masterType) {
+<span class="nc" id="L725">    	Predicate&lt;MechSummary&gt; retVal = mainCriteria;</span>
+<span class="nc" id="L726">    	int mask = 1 &lt;&lt; (otherCriteria.size() - 1);</span>
+<span class="nc bnc" id="L727" title="All 2 branches missed.">    	for (Constraint c : otherCriteria) {</span>
+<span class="nc bnc" id="L728" title="All 2 branches missed.">    		if ((index &amp; mask) != 0) {</span>
+<span class="nc" id="L729">    			retVal = retVal.and(c.criterion);</span>
+    		}
+<span class="nc" id="L731">    		mask &gt;&gt;= 1;</span>
+<span class="nc" id="L732">    	}</span>
+<span class="nc" id="L733">    	mask = 1 &lt;&lt; otherCriteria.size();</span>
+<span class="nc bnc" id="L734" title="All 4 branches missed.">    	if (slaveType &gt; 0 &amp;&amp; (mask &amp; index) != 0) {</span>
+<span class="nc bnc" id="L735" title="All 2 branches missed.">    		retVal = retVal.and(ms -&gt; (getNetworkMask(ms) &amp; slaveType) != 0);</span>
+    	}
+<span class="nc" id="L737">    	mask &lt;&lt;= 1;</span>
+<span class="nc bnc" id="L738" title="All 4 branches missed.">	    if (masterType &gt; 0 &amp;&amp; (mask &amp; index) != 0) {</span>
+<span class="nc bnc" id="L739" title="All 2 branches missed.">	    	retVal = retVal.and(ms -&gt; (getNetworkMask(ms) &amp; masterType) != 0);</span>
+	    }
+<span class="nc" id="L741">	    mask &lt;&lt;= 1;</span>
+<span class="nc bnc" id="L742" title="All 4 branches missed.">	    if (masterType &gt; 0 &amp;&amp; (mask &amp; index) != 0) {</span>
+<span class="nc bnc" id="L743" title="All 2 branches missed.">	    	retVal = retVal.and(ms -&gt; (getNetworkMask(ms)</span>
+	    			&amp; (masterType | ModelRecord.NETWORK_COMPANY_COMMAND)) != 0);
+	    }
+<span class="nc" id="L746">    	return retVal;</span>
+    }
+    
+    /**
+     * Attempts to build unit entirely on ideal role. Returns null if unsuccessful.
+     */
+    private List&lt;MechSummary&gt; tryIdealRole(List&lt;UnitTable.Parameters&gt; params, List&lt;Integer&gt; numUnits) {
+<span class="nc bnc" id="L753" title="All 2 branches missed.">        if (idealRole.equals(UnitRole.UNDETERMINED)) {</span>
+<span class="nc" id="L754">            return null;</span>
+        }
+<span class="nc" id="L756">        List&lt;UnitTable.Parameters&gt; tmpParams = params.stream()</span>
+<span class="nc" id="L757">                .map(p -&gt; p.copy()).collect(Collectors.toList());</span>
+<span class="nc" id="L758">        tmpParams.forEach(p -&gt; p.getWeightClasses().clear());</span>
+<span class="nc" id="L759">        List&lt;MechSummary&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L760" title="All 2 branches missed.">        for (int i = 0; i &lt; tmpParams.size(); i++) {</span>
+<span class="nc" id="L761">            UnitTable t = UnitTable.findTable(tmpParams.get(i));</span>
+<span class="nc" id="L762">            List&lt;MechSummary&gt; units = t.generateUnits(numUnits.get(i),</span>
+<span class="nc" id="L763">                    ms -&gt; UnitRoleHandler.getRoleFor(ms).equals(idealRole));</span>
+<span class="nc bnc" id="L764" title="All 2 branches missed.">            if (units.size() &lt; numUnits.get(i)) {</span>
+<span class="nc" id="L765">                return null;</span>
+            }
+        }
+<span class="nc" id="L768">        return retVal;</span>
+    }
+
+    /**
+     * Finds all unique distributions of constraints among the units that fulfills the minimum
+     * number for each constraint. The map keys indicate a combination of constraints, with the
+     * highest order bit being the first constraint in the list, and the value mapped to that key being
+     * the number of units that must meet the constraint.
+     */
+    private List&lt;Map&lt;Integer,Integer&gt;&gt; findCombinations(int numUnits) {
+    	/* This list is remade with each additional constraint, building on the previous values */
+<span class="nc" id="L779">    	List&lt;Map&lt;Integer,Integer&gt;&gt; frequencies = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L781" title="All 2 branches missed.">    	for (Constraint c : otherCriteria) {</span>
+<span class="nc" id="L782">    		int req = c.getMinimum(numUnits);</span>
+    		/* If this is the first pass, we simply need to initialize the frequencies list */
+<span class="nc bnc" id="L784" title="All 2 branches missed.">    		if (frequencies.isEmpty()) {</span>
+<span class="nc" id="L785">    			Map&lt;Integer,Integer&gt; freq = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L786">    			freq.put(0, numUnits - req);</span>
+<span class="nc" id="L787">    			freq.put(1, req);</span>
+<span class="nc" id="L788">    			frequencies.add(freq);</span>
+<span class="nc" id="L789">    		} else {</span>
+    			/* Create a new list to hold the values built off the previous one */
+<span class="nc" id="L791">    			List&lt;Map&lt;Integer,Integer&gt;&gt; newFrequencies = new ArrayList&lt;&gt;();</span>
+    			/* Iterate through all the values from the previous pass and extend them */
+<span class="nc bnc" id="L793" title="All 2 branches missed.">    			for (Map&lt;Integer,Integer&gt; freq : frequencies) {</span>
+    				/* We need to be able to access the keys by position */
+<span class="nc" id="L795">    				List&lt;Integer&gt; keyList = new ArrayList&lt;&gt;(freq.keySet());</span>
+    				/* For each position, note how many total slots there are in later positions */
+<span class="nc" id="L797">    				int[] remaining = new int[freq.size()];</span>
+<span class="nc" id="L798">    				int rem = 0;</span>
+<span class="nc bnc" id="L799" title="All 2 branches missed.">    				for (int i = keyList.size() - 1; i &gt;= 0; i--) {</span>
+<span class="nc" id="L800">    					rem += freq.get(keyList.get(i));</span>
+<span class="nc" id="L801">    					remaining[i] = rem;</span>
+    				}
+<span class="nc" id="L803">    				int index = 0;</span>
+<span class="nc" id="L804">    				int toAllocate = req;</span>
+    				/* current holds the number of units at each index of the previous iteration
+    				 * that will meet the current constraint */
+<span class="nc" id="L807">    				int[] current = new int[keyList.size()];</span>
+<span class="nc bnc" id="L808" title="All 2 branches missed.">    				outer: while (remaining[index] &gt;= toAllocate) {</span>
+<span class="nc" id="L809">    					current[index] = Math.min(freq.get(keyList.get(index)), toAllocate);</span>
+<span class="nc" id="L810">    					toAllocate -= current[index];</span>
+<span class="nc" id="L811">    					index++;</span>
+<span class="nc bnc" id="L812" title="All 2 branches missed.">    					if (index == keyList.size()) {</span>
+<span class="nc bnc" id="L813" title="All 2 branches missed.">    						if (c.isPairedWithPrevious()) {</span>
+<span class="nc" id="L814">    							Map&lt;Integer,Integer&gt; prevValues = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L815" title="All 2 branches missed.">    							for (int i : freq.keySet()) {</span>
+<span class="nc" id="L816">    								prevValues.put(i &lt;&lt; 1, freq.get(i));</span>
+<span class="nc" id="L817">    							}</span>
+<span class="nc" id="L818">    							newFrequencies.add(prevValues);</span>
+    						}
+<span class="nc" id="L820">    						Map&lt;Integer,Integer&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L821" title="All 2 branches missed.">    						for (int i = 0; i &lt; current.length; i++) {</span>
+<span class="nc" id="L822">    							int key = keyList.get(i);</span>
+<span class="nc bnc" id="L823" title="All 2 branches missed.">    							if (c.isPairedWithPrevious()) {</span>
+<span class="nc" id="L824">    								key &amp;= ~1;</span>
+    							}
+<span class="nc bnc" id="L826" title="All 2 branches missed.">    							if (freq.get(keyList.get(i)) &gt; current[i]) {</span>
+<span class="nc" id="L827">    								result.merge(key &lt;&lt; 1, freq.get(keyList.get(i)) - current[i], Integer::sum);</span>
+    							}
+<span class="nc bnc" id="L829" title="All 2 branches missed.">    							if (current[i] &gt; 0) {</span>
+<span class="nc" id="L830">    								result.merge((key &lt;&lt; 1) + 1, current[i], Integer::sum);</span>
+    							}
+    						}
+<span class="nc" id="L833">    						newFrequencies.add(result);</span>
+<span class="nc" id="L834">    						index--;</span>
+    						/* Keep backing up until we find one we can decrease or we reach the beginning.
+    						 * We can decrease if the current value is &gt; 0 and the remaining slots are
+    						 * big enough to hold toAllocate + 1.
+    						 */
+<span class="nc bnc" id="L839" title="All 2 branches missed.">    						while (index &gt;= 0) {</span>
+<span class="nc bnc" id="L840" title="All 6 branches missed.">    							if (current[index] == 0 || index + 1 == current.length</span>
+    									|| remaining[index + 1] &lt;= toAllocate
+    									) {
+<span class="nc" id="L843">        							toAllocate += current[index];</span>
+<span class="nc" id="L844">        							index--;    								</span>
+    							} else {
+<span class="nc" id="L846">    								current[index]--;</span>
+<span class="nc" id="L847">    								toAllocate++;</span>
+<span class="nc" id="L848">    								index++;</span>
+<span class="nc" id="L849">    								continue outer;</span>
+    							}
+    						}
+    						break outer;
+    					}
+    				}
+<span class="nc" id="L855">    			}</span>
+<span class="nc" id="L856">	    		frequencies = newFrequencies;</span>
+    		}
+<span class="nc" id="L858">    	}</span>
+<span class="nc" id="L859">    	return frequencies;</span>
+    }    
+    
+    /**
+     * Finds all possible ways to distribute criteria beyond the general formation criteria in
+     * which the groups are mutually exclusive; that is, a unit can only qualify for one
+     * of the criteria in the set. This is used for mixed unit types and C3 networks. While a single
+     * unit could fulfill the requirements for speed and weight class, it could not function
+     * as both a C3 slave and a C3 master or be both a Mek and a Tank.
+     *  
+     * @param combination	The current criteria distribution as generated by &lt;code&gt;findCombinations&lt;/code&gt;
+     * @param itemsPerGroup	Array with length equal to number of groups and each value indicates
+     * 						the number of units in that group.
+     * @return	A map the same format as &lt;code&gt;combination&lt;/code&gt; in which higher order bits
+     * 			in the key indicate a group. For example: in a formation with two criteria, 
+	 *			&lt;code&gt;combination.length&lt;/code&gt; == 2^2. If there are three additional groups,
+	 *			the return value will be 2 ^ (2+3). The value mapped to 11 (== 01011) will be the
+	 *			number of units that are in the second group and fulfill both formation criteria.
+     */
+    private List&lt;Map&lt;Integer,Integer&gt;&gt; findGroups(Map&lt;Integer,Integer&gt; combination, int[] itemsPerGroup, int indexBits) {
+<span class="nc" id="L879">    	List&lt;Integer&gt; keyList = new ArrayList&lt;&gt;(combination.keySet());</span>
+    	
+<span class="nc" id="L881">    	List&lt;int[][]&gt; list = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L882">    	int[][] initialVal = new int[1][keyList.size()];</span>
+<span class="nc" id="L883">    	list.add(initialVal);</span>
+    	
+    	/* Compute distribution for each group sequentially, building on previously calculated
+    	 * distributions for each successive group. */
+<span class="nc bnc" id="L887" title="All 2 branches missed.">    	for (int group = 0; group &lt; itemsPerGroup.length; group++) {</span>
+    		/* Create a new list that we will fill out by copying the current values and adding
+    		 * the next group calculated during this iteration. */
+<span class="nc" id="L890">    		List&lt;int[][]&gt; newList = new ArrayList&lt;&gt;();</span>
+    		/* Cycle through all previous combinations and add all combinations for current group */
+<span class="nc bnc" id="L892" title="All 2 branches missed.">    		for (int[][] prev : list) {</span>
+    			/* Initialize array with the number of units at each position that have already been
+    			 * assigned to groups. */
+<span class="nc" id="L895">    			int[] total = new int[keyList.size()];</span>
+<span class="nc bnc" id="L896" title="All 2 branches missed.">    			for (int g = 0; g &lt; prev.length; g++) {</span>
+<span class="nc bnc" id="L897" title="All 2 branches missed.">    				for (int p = 0; p &lt; prev[g].length; p++) {</span>
+<span class="nc" id="L898">    					total[p] += prev[g][p];</span>
+    				}
+    			}
+    			/* Create an array to track attempted distribution of the current group */
+<span class="nc" id="L902">    			int[] dist = new int[keyList.size()];</span>
+<span class="nc" id="L903">    			dist[0] = itemsPerGroup[group];</span>
+    			/* Shift values through the array until they are all in the final position */
+<span class="nc bnc" id="L905" title="All 2 branches missed.">    			while (dist[dist.length - 1] &lt;= itemsPerGroup[group]) {</span>
+    				/* Test whether there is room for the current distribution, and if so add it to
+    				 * the list */
+<span class="nc" id="L908">    				boolean hasRoom = true;</span>
+<span class="nc bnc" id="L909" title="All 2 branches missed.">    				for (int i = 0; i &lt; dist.length; i++) {</span>
+<span class="nc bnc" id="L910" title="All 2 branches missed.">    					if (total[i] + dist[i] &gt; combination.get(keyList.get(i))) {</span>
+<span class="nc" id="L911">    						hasRoom = false;</span>
+<span class="nc" id="L912">    						break;</span>
+    					}
+    				}
+<span class="nc bnc" id="L915" title="All 2 branches missed.">    				if (hasRoom) {</span>
+<span class="nc" id="L916">    					int[][] newVal = new int[group + 1][];</span>
+<span class="nc bnc" id="L917" title="All 2 branches missed.">    					for (int j = 0; j &lt; group; j++) {</span>
+<span class="nc" id="L918">    						newVal[j] = prev[j];</span>
+    					}
+<span class="nc" id="L920">    					newVal[group] = new int[dist.length];</span>
+<span class="nc" id="L921">    					System.arraycopy(dist, 0, newVal[group], 0, dist.length);</span>
+<span class="nc" id="L922">    					newList.add(newVal);</span>
+    				}
+    				/* Shift the values in the current distribution. Find the value &gt; 0 closest to the
+    				 * end (not counting the final position), decrease it by 1, and set the value in
+    				 * the next position to 1 plus whatever was in the tail position (which becomes 0
+    				 * prior to incrementing */
+<span class="nc bnc" id="L928" title="All 2 branches missed.">    				if (dist[dist.length - 1] == itemsPerGroup[group]) {</span>
+<span class="nc" id="L929">    					break;</span>
+    				}
+<span class="nc" id="L931">    				int tail = dist[dist.length - 1];</span>
+<span class="nc" id="L932">    				dist[dist.length - 1] = 0;</span>
+<span class="nc bnc" id="L933" title="All 2 branches missed.">    				for (int i = dist.length - 2; i &gt;= 0; i--) {</span>
+<span class="nc bnc" id="L934" title="All 2 branches missed.">    					if (dist[i] &gt; 0) {</span>
+<span class="nc" id="L935">    						dist[i]--;</span>
+<span class="nc" id="L936">    						dist[i + 1] = tail + 1;</span>
+<span class="nc" id="L937">    						break;</span>
+    					}
+    				}
+<span class="nc" id="L940">    			}</span>
+<span class="nc" id="L941">	    	}</span>
+    		/* Replace the old list with one from this iteration */
+<span class="nc" id="L943">        	list = newList;</span>
+    	}
+    	/* Use generated distributions to produce a new combination list */
+<span class="nc" id="L946">    	List&lt;Map&lt;Integer,Integer&gt;&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L947" title="All 2 branches missed.">    	for (int[][] val : list) {</span>
+<span class="nc" id="L948">    		Map&lt;Integer,Integer&gt; newVal = new LinkedHashMap&lt;&gt;(combination);</span>
+<span class="nc bnc" id="L949" title="All 2 branches missed.">    		for (int g = 0; g &lt; val.length; g++) {</span>
+<span class="nc bnc" id="L950" title="All 2 branches missed.">    			for (int i = 0; i &lt; val[g].length; i++) {</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">    				if (val[g][i] &gt; 0) {</span>
+<span class="nc" id="L952">    					newVal.put((1 &lt;&lt; (g + indexBits)) + keyList.get(i), val[g][i]);</span>
+<span class="nc" id="L953">    					newVal.merge(keyList.get(i), - val[g][i], Integer::sum);</span>
+<span class="nc bnc" id="L954" title="All 2 branches missed.">    					if (newVal.get(keyList.get(i)) &lt;= 0) {</span>
+<span class="nc" id="L955">    						newVal.remove(keyList.get(i));</span>
+    					}
+    				}
+    			}
+    		}
+<span class="nc" id="L960">    		retVal.add(newVal);</span>
+<span class="nc" id="L961">    	}</span>
+<span class="nc" id="L962">    	return retVal;</span>
+    }
+    
+    /**
+     * Special case version of &lt;code&gt;findGroups&lt;/code&gt; for matched units (such as paired ASFs).
+     * Because each group has identical criteria the number of possible results can be reduced.
+     *  
+     * @param combination	The current criteria distribution as generated by &lt;code&gt;findCombinations&lt;/code&gt;
+     * @return	A list of possible groupings. Each entry is a list of size() equal to numGroups.
+     * 			The entry for each group is a map of the same format as &lt;code&gt;combination&lt;/code&gt;. 
+     */
+    private List&lt;List&lt;Map&lt;Integer,Integer&gt;&gt;&gt; findMatchedGroups(Map&lt;Integer,Integer&gt; combination,
+            GroupingConstraint groupingCriteria) {
+<span class="nc" id="L975">    	int numUnits = combination.values().stream().mapToInt(Integer::intValue).sum();</span>
+<span class="nc" id="L976">        int size = Math.min(groupingCriteria.getGroupSize(), numUnits);</span>
+<span class="nc" id="L977">    	int numGroups = Math.max(groupingCriteria.getNumGroups(), 1);</span>
+<span class="nc bnc" id="L978" title="All 4 branches missed.">    	if (groupingCriteria.getGroupSize() == 0 &amp;&amp; groupingCriteria.getNumGroups() &gt; 0) {</span>
+<span class="nc" id="L979">    	    numGroups = groupingCriteria.getNumGroups();</span>
+<span class="nc" id="L980">    	    size = Math.max(1, numUnits / numGroups);</span>
+<span class="nc bnc" id="L981" title="All 4 branches missed.">    	} else if (groupingCriteria.getNumGroups() == 0 &amp;&amp; groupingCriteria.getGroupSize() &gt; 0) {</span>
+<span class="nc" id="L982">            size = groupingCriteria.getGroupSize();</span>
+<span class="nc" id="L983">            numGroups = Math.max(1, numUnits / size);</span>
+    	}
+<span class="nc" id="L985">    	List&lt;Integer&gt; keyList = new ArrayList&lt;&gt;(combination.keySet());</span>
+    	
+<span class="nc" id="L987">    	List&lt;int[][]&gt; list = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L988">    	int[][] initialVal = new int[1][keyList.size()];</span>
+<span class="nc" id="L989">    	list.add(initialVal);</span>
+    	
+    	/* Compute distribution for each group sequentially, building on previously calculated
+    	 * distributions for each successive group. */
+<span class="nc bnc" id="L993" title="All 2 branches missed.">    	for (int group = 0; group &lt; numGroups; group++) {</span>
+    		/* Create a new list that we will fill out by copying the current values and adding
+    		 * the next group calculated during this iteration. */
+<span class="nc" id="L996">    		List&lt;int[][]&gt; newList = new ArrayList&lt;&gt;();</span>
+    		/* Cycle through all previous combinations and add all combinations for current group */
+<span class="nc bnc" id="L998" title="All 2 branches missed.">    		for (int[][] prev : list) {</span>
+    			/* Initialize array with the number of units at each position that have already been
+    			 * assigned to groups. */
+<span class="nc" id="L1001">    			int[] total = new int[keyList.size()];</span>
+<span class="nc bnc" id="L1002" title="All 2 branches missed.">    			for (int g = 0; g &lt; prev.length; g++) {</span>
+<span class="nc bnc" id="L1003" title="All 2 branches missed.">    				for (int p = 0; p &lt; prev[g].length; p++) {</span>
+<span class="nc" id="L1004">    					total[p] += prev[g][p];</span>
+    				}
+    			}
+    			/* Find the starting position for the current group. We don't want to start earlier
+    			 * that the first position that has been assigned to a group; that will be a permutation
+    			 * of a result that has already been calculated. */
+
+<span class="nc" id="L1011">    			int startPos = -1;</span>
+<span class="nc bnc" id="L1012" title="All 2 branches missed.">    			for (int i = 0; i &lt; total.length; i++) {</span>
+<span class="nc bnc" id="L1013" title="All 2 branches missed.">    				if (total[i] &gt; 0) {</span>
+<span class="nc" id="L1014">    					startPos = i;</span>
+<span class="nc" id="L1015">    					break;</span>
+    				}
+    			}
+<span class="nc" id="L1018">    			startPos = Math.max(0, startPos);</span>
+    			
+    			/* Create an array to track attempted distribution of the current group */
+<span class="nc" id="L1021">    			int[] dist = new int[keyList.size()];</span>
+<span class="nc" id="L1022">    			dist[startPos] = size;</span>
+    			/* Shift values through the array until they are all in the final position */
+<span class="nc bnc" id="L1024" title="All 2 branches missed.">    			while (dist[dist.length - 1] &lt;= size) {</span>
+    				/* Test whether there is room for the current distribution, and if so add it to
+    				 * the list */
+<span class="nc" id="L1027">    				boolean hasRoom = true;</span>
+<span class="nc bnc" id="L1028" title="All 2 branches missed.">    				for (int i = 0; i &lt; dist.length; i++) {</span>
+<span class="nc bnc" id="L1029" title="All 2 branches missed.">    					if (total[i] + dist[i] &gt; combination.get(keyList.get(i))) {</span>
+<span class="nc" id="L1030">    						hasRoom = false;</span>
+<span class="nc" id="L1031">    						break;</span>
+    					}
+    				}
+<span class="nc bnc" id="L1034" title="All 2 branches missed.">    				if (hasRoom) {</span>
+<span class="nc" id="L1035">    					int[][] newVal = new int[group + 1][];</span>
+<span class="nc bnc" id="L1036" title="All 2 branches missed.">    					for (int j = 0; j &lt; group; j++) {</span>
+<span class="nc" id="L1037">    						newVal[j] = prev[j];</span>
+    					}
+<span class="nc" id="L1039">    					newVal[group] = new int[dist.length];</span>
+<span class="nc" id="L1040">    					System.arraycopy(dist, 0, newVal[group], 0, dist.length);</span>
+<span class="nc" id="L1041">    					newList.add(newVal);</span>
+    				}
+    				/* Shift the values in the current distribution. Find the value &gt; 0 closest to the
+    				 * end (not counting the final position), decrease it by 1, and set the value in
+    				 * the next position to 1 plus whatever was in the tail position (which becomes 0
+    				 * prior to incrementing */
+<span class="nc bnc" id="L1047" title="All 2 branches missed.">    				if (dist[dist.length - 1] == size) {</span>
+<span class="nc" id="L1048">    					break;</span>
+    				}
+<span class="nc" id="L1050">    				int tail = dist[dist.length - 1];</span>
+<span class="nc" id="L1051">    				dist[dist.length - 1] = 0;</span>
+<span class="nc bnc" id="L1052" title="All 2 branches missed.">    				for (int i = dist.length - 2; i &gt;= 0; i--) {</span>
+<span class="nc bnc" id="L1053" title="All 2 branches missed.">    					if (dist[i] &gt; 0) {</span>
+<span class="nc" id="L1054">    						dist[i]--;</span>
+<span class="nc" id="L1055">    						dist[i + 1] = tail + 1;</span>
+<span class="nc" id="L1056">    						break;</span>
+    					}
+    				}
+<span class="nc" id="L1059">    			}</span>
+<span class="nc" id="L1060">	    	}</span>
+    		/* Replace the old list with one from this iteration */
+<span class="nc" id="L1062">        	list = newList;</span>
+    	}
+<span class="nc" id="L1064">    	List&lt;List&lt;Map&lt;Integer,Integer&gt;&gt;&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1065" title="All 2 branches missed.">    	for (int[][] grouping : list) {</span>
+<span class="nc" id="L1066">    		List&lt;Map&lt;Integer,Integer&gt;&gt; newGrouping = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1067" title="All 2 branches missed.">    		for (int g = 0; g &lt; grouping.length; g++) {</span>
+<span class="nc" id="L1068">    			Map&lt;Integer,Integer&gt; map = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1069" title="All 2 branches missed.">    			for (int p = 0; p &lt; grouping[g].length; p++) {</span>
+<span class="nc" id="L1070">    				map.put(keyList.get(p), grouping[g][p]);</span>
+    			}
+<span class="nc" id="L1072">    			newGrouping.add(map);</span>
+    		}
+<span class="nc" id="L1074">    		retVal.add(newGrouping);</span>
+<span class="nc" id="L1075">    	}</span>
+    	
+<span class="nc" id="L1077">    	return retVal;</span>
+    }
+    
+    /**
+     * Tests whether a list of units qualifies for the formation type. Note that unit roles are
+     * not available for all units.
+     * @param units	A list of units to test
+     * @return		Whether the list of units meets the qualifications for this formation.
+     */
+    public boolean qualifies(List&lt;MechSummary&gt; units) {
+<span class="nc bnc" id="L1087" title="All 4 branches missed.">    	if (units.stream().anyMatch(ms -&gt; !isAllowedUnitType(ModelRecord.parseUnitType(ms.getUnitType())))) {</span>
+<span class="nc" id="L1088">    		return false;</span>
+    	}
+<span class="nc bnc" id="L1090" title="All 2 branches missed.">    	if (!idealRole.equals(UnitRole.UNDETERMINED)) {</span>
+<span class="nc bnc" id="L1091" title="All 2 branches missed.">    		if (units.stream().allMatch(ms -&gt; idealRole.equals(UnitRoleHandler.getRoleFor(ms)))) {</span>
+<span class="nc" id="L1092">    			return true;</span>
+    		}
+    	}
+<span class="nc bnc" id="L1095" title="All 2 branches missed.">    	for (MechSummary ms : units) {</span>
+<span class="nc bnc" id="L1096" title="All 2 branches missed.">    		if (!mainCriteria.test(ms)</span>
+<span class="nc bnc" id="L1097" title="All 2 branches missed.">    				|| ms.getWeightClass() &lt; minWeightClass</span>
+<span class="nc bnc" id="L1098" title="All 2 branches missed.">    				|| ms.getWeightClass() &gt; maxWeightClass) {</span>
+<span class="nc" id="L1099">    			return false;</span>
+    		}
+<span class="nc" id="L1101">    	}</span>
+<span class="nc bnc" id="L1102" title="All 2 branches missed.">    	for (int i = 0; i &lt; otherCriteria.size(); i++) {</span>
+<span class="nc" id="L1103">    		final Constraint c = otherCriteria.get(i);</span>
+<span class="nc bnc" id="L1104" title="All 2 branches missed.">    		if (c.isPairedWithPrevious()) {</span>
+<span class="nc" id="L1105">    			continue;</span>
+    		}
+<span class="nc" id="L1107">			long matches = units.stream().filter(ms -&gt; c.matches(ms)).count();</span>
+<span class="nc bnc" id="L1108" title="All 2 branches missed.">			if (matches &lt; c.getMinimum(units.size())) {</span>
+<span class="nc bnc" id="L1109" title="All 4 branches missed.">				if (c.isPairedWithNext() &amp;&amp; i + 1 &lt; otherCriteria.size()) {</span>
+<span class="nc" id="L1110">					i++;</span>
+				} else {
+<span class="nc" id="L1112">					return false;</span>
+				}
+			}
+    	}
+<span class="nc bnc" id="L1116" title="All 2 branches missed.">		if (groupingCriteria != null) {</span>
+			/* First group by chassis, then test whether each group fulfills the requirement.
+			 * If not, regroup by name. */
+<span class="nc" id="L1119">			List&lt;MechSummary&gt; groupedUnits = units.stream()</span>
+<span class="nc" id="L1120">					.filter(ms -&gt; groupingCriteria.appliesTo(ModelRecord.parseUnitType(ms.getUnitType())))</span>
+<span class="nc" id="L1121">					.collect(Collectors.toList());</span>
+<span class="nc bnc" id="L1122" title="All 2 branches missed.">			if (groupedUnits.size() &gt; 0) {</span>
+<span class="nc" id="L1123">				Map&lt;String,List&lt;MechSummary&gt;&gt; groups = groupedUnits.stream()</span>
+<span class="nc" id="L1124">						.collect(Collectors.groupingBy(ms -&gt; ms.getChassis()));</span>
+<span class="nc bnc" id="L1125" title="All 2 branches missed.">				GROUP_LOOP: for (List&lt;MechSummary&gt; group : groups.values()) {</span>
+<span class="nc bnc" id="L1126" title="All 2 branches missed.">					for (int i = 0; i &lt; group.size() - 1; i++) {</span>
+<span class="nc bnc" id="L1127" title="All 2 branches missed.">						for (int j = i + 1; j &lt; group.size(); j++) {</span>
+<span class="nc bnc" id="L1128" title="All 2 branches missed.">							if (!groupingCriteria.matches(group.get(i), group.get(j))) {</span>
+<span class="nc" id="L1129">								groups = groupedUnits.stream()</span>
+<span class="nc" id="L1130">										.collect(Collectors.groupingBy(ms -&gt; ms.getName()));</span>
+<span class="nc" id="L1131">								break GROUP_LOOP;</span>
+							}
+						}
+					}
+<span class="nc" id="L1135">				}</span>
+<span class="nc" id="L1136">				int groupSize = Math.min(groupingCriteria.getGroupSize(), groupedUnits.size());</span>
+<span class="nc" id="L1137">		    	int numGroups = Math.min(groupingCriteria.getNumGroups(), groupedUnits.size() / groupSize);</span>
+		    	/* Allow for the possibility that two or more groups may be identical */
+<span class="nc" id="L1139">		    	int groupCount = 0;</span>
+<span class="nc bnc" id="L1140" title="All 2 branches missed.">		    	for (List&lt;MechSummary&gt; g : groups.values()) {</span>
+<span class="nc" id="L1141">		    		groupCount += g.size() / groupSize;</span>
+<span class="nc" id="L1142">		    	}</span>
+<span class="nc bnc" id="L1143" title="All 2 branches missed.">		    	return groupCount &gt;= numGroups;</span>
+			}
+		}
+<span class="nc" id="L1146">		return true;    	</span>
+    }
+    
+    /**
+     * Tests whether a list of units qualifies for the formation type. Note that unit roles are
+     * not available for all units.
+     * @param units	A list of units to test
+     * @return		Whether the list of units meets the qualifications for this formation.
+     */
+    public String qualificationReport(List&lt;MechSummary&gt; units) {
+<span class="nc" id="L1156">    	List&lt;MechSummary&gt; wrongUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1157">    	List&lt;MechSummary&gt; ideal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1158">    	List&lt;MechSummary&gt; weight = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1159">    	List&lt;MechSummary&gt; main = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1160">    	List&lt;List&lt;MechSummary&gt;&gt; other = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1161" title="All 2 branches missed.">    	for (int i = 0; i &lt; otherCriteria.size(); i++) {</span>
+<span class="nc" id="L1162">    		other.add(new ArrayList&lt;&gt;());</span>
+    	}
+    			
+<span class="nc bnc" id="L1165" title="All 2 branches missed.">    	for (MechSummary ms : units) {</span>
+<span class="nc bnc" id="L1166" title="All 2 branches missed.">    		if (!isAllowedUnitType(ModelRecord.parseUnitType(ms.getUnitType()))) {</span>
+<span class="nc" id="L1167">    			wrongUnits.add(ms);</span>
+    		}
+<span class="nc bnc" id="L1169" title="All 2 branches missed.">    		if (!idealRole.equals(UnitRole.UNDETERMINED)</span>
+<span class="nc bnc" id="L1170" title="All 2 branches missed.">    				&amp;&amp; idealRole.equals(UnitRoleHandler.getRoleFor(ms))) {</span>
+<span class="nc" id="L1171">    			ideal.add(ms);</span>
+    		}
+<span class="nc bnc" id="L1173" title="All 2 branches missed.">    		if (ms.getWeightClass() &gt;= minWeightClass</span>
+<span class="nc bnc" id="L1174" title="All 2 branches missed.">    				&amp;&amp; ms.getWeightClass() &lt;= maxWeightClass) {</span>
+<span class="nc" id="L1175">    			weight.add(ms);</span>
+    		}
+<span class="nc bnc" id="L1177" title="All 2 branches missed.">    		if (mainCriteria.test(ms)) {</span>
+<span class="nc" id="L1178">    			main.add(ms);</span>
+    		}
+<span class="nc bnc" id="L1180" title="All 2 branches missed.">    		for (int i = 0; i &lt; otherCriteria.size(); i++) {</span>
+<span class="nc bnc" id="L1181" title="All 2 branches missed.">    			if (otherCriteria.get(i).matches(ms)) {</span>
+<span class="nc" id="L1182">    				other.get(i).add(ms);</span>
+    			}
+    		}
+<span class="nc" id="L1185">    	}</span>
+<span class="nc" id="L1186">    	StringBuilder sb = new StringBuilder(&quot;&lt;html&gt;&quot;);</span>
+<span class="nc bnc" id="L1187" title="All 2 branches missed.">    	if (wrongUnits.size() &gt; 0) {</span>
+<span class="nc" id="L1188">    		sb.append(&quot;&lt;font color='red'&gt;Wrong unit type:&lt;/font&gt;\n\t&quot;);</span>
+<span class="nc" id="L1189">    		sb.append(wrongUnits.stream().map(ms -&gt; ms.getName()).collect(Collectors.joining(&quot;\n\t&quot;)))</span>
+<span class="nc" id="L1190">    			.append(&quot;&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+    	}
+<span class="nc" id="L1192">    	sb.append(&quot;Unit Roles:&lt;br/&gt;\n&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;);</span>
+<span class="nc" id="L1193">    	sb.append(units.stream().map(ms -&gt; ms.getName() + &quot;: &quot; + UnitRoleHandler.getRoleFor(ms))</span>
+<span class="nc" id="L1194">    		.collect(Collectors.joining(&quot;&lt;br/&gt;\n&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;))).append(&quot;&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+<span class="nc bnc" id="L1195" title="All 2 branches missed.">    	if (!idealRole.equals(UnitRole.UNDETERMINED)) {</span>
+<span class="nc" id="L1196">    		sb.append(&quot;Ideal role: &quot;).append(idealRole.toString()).append(&quot;&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+    	}
+<span class="nc bnc" id="L1198" title="All 2 branches missed.">    	if (weight.size() &lt; units.size()) {</span>
+<span class="nc" id="L1199">    		sb.append(&quot;&lt;font color='red'&gt;&quot;);</span>
+    	}
+<span class="nc" id="L1201">    	sb.append(&quot;Weight class &quot;)</span>
+<span class="nc" id="L1202">    		.append(EntityWeightClass.getClassName(Math.max(minWeightClass, EntityWeightClass.WEIGHT_LIGHT)))</span>
+<span class="nc" id="L1203">    		.append(&quot;-&quot;)</span>
+<span class="nc" id="L1204">    		.append(EntityWeightClass.getClassName(Math.min(maxWeightClass, EntityWeightClass.WEIGHT_ASSAULT)))</span>
+<span class="nc" id="L1205">    		.append(&quot;&lt;br/&gt;\n&quot;);</span>
+<span class="nc bnc" id="L1206" title="All 2 branches missed.">    	if (weight.size() &lt; units.size()) {</span>
+<span class="nc" id="L1207">    		sb.append(&quot;&lt;/font&gt;&quot;);</span>
+    	}
+<span class="nc bnc" id="L1209" title="All 2 branches missed.">    	if (weight.size() &gt; 0) {</span>
+<span class="nc" id="L1210">    		sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;).append(weight.stream().map(ms -&gt; ms.getName() + &quot;: &quot;</span>
+<span class="nc" id="L1211">    				+ EntityWeightClass.getClassName(ms.getWeightClass()))</span>
+<span class="nc" id="L1212">    				.collect(Collectors.joining(&quot;&lt;br/&gt;\n&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;))).append(&quot;&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+    	} else {
+<span class="nc" id="L1214">    		sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;None&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+    	}
+<span class="nc bnc" id="L1216" title="All 2 branches missed.">    	if (mainDescription != null) {</span>
+<span class="nc bnc" id="L1217" title="All 2 branches missed.">        	if (main.size() &lt; units.size()) {</span>
+<span class="nc" id="L1218">        		sb.append(&quot;&lt;font color='red'&gt;&quot;);</span>
+        	}
+<span class="nc" id="L1220">        	sb.append(mainDescription).append(&quot; (&quot;).append(units.size()).append(&quot;)&lt;br/&gt;\n&quot;);</span>
+<span class="nc bnc" id="L1221" title="All 2 branches missed.">        	if (main.size() &lt; units.size()) {</span>
+<span class="nc" id="L1222">        		sb.append(&quot;&lt;/font&gt;&quot;);</span>
+        	}
+<span class="nc bnc" id="L1224" title="All 2 branches missed.">        	if (main.size() &gt; 0) {</span>
+<span class="nc" id="L1225">        		sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;).append(&quot;\t&quot;).append(main.stream().map(ms -&gt; ms.getName())</span>
+<span class="nc" id="L1226">        				.collect(Collectors.joining(&quot;&lt;br/&gt;\n&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;))).append(&quot;&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+        	} else {
+<span class="nc" id="L1228">        		sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;None&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+        	}
+    	}
+<span class="nc bnc" id="L1231" title="All 2 branches missed.">    	for (int i = 0; i &lt; otherCriteria.size(); i++) {</span>
+<span class="nc" id="L1232">    		boolean isShort = false;</span>
+<span class="nc bnc" id="L1233" title="All 2 branches missed.">    		if (other.get(i).size() &lt; otherCriteria.get(i).getMinimum(units.size())) {</span>
+<span class="nc bnc" id="L1234" title="All 2 branches missed.">    			if (otherCriteria.get(i).isPairedWithNext()) {</span>
+<span class="nc bnc" id="L1235" title="All 2 branches missed.">    				isShort = i + 1 &lt; otherCriteria.size()</span>
+<span class="nc bnc" id="L1236" title="All 2 branches missed.">    						&amp;&amp; other.get(i + 1).size() &lt; otherCriteria.get(i + 1).getMinimum(units.size());</span>
+<span class="nc bnc" id="L1237" title="All 2 branches missed.">    			} else if (otherCriteria.get(i).isPairedWithPrevious()) {</span>
+<span class="nc bnc" id="L1238" title="All 2 branches missed.">    				isShort = i - 1 &gt; 0</span>
+<span class="nc bnc" id="L1239" title="All 2 branches missed.">    						&amp;&amp; other.get(i - 1).size() &lt; otherCriteria.get(i - 1).getMinimum(units.size());</span>
+    			} else {
+<span class="nc" id="L1241">    				isShort = true;</span>
+    			}
+    		}
+<span class="nc bnc" id="L1244" title="All 2 branches missed.">        	if (isShort) {</span>
+<span class="nc" id="L1245">        		sb.append(&quot;&lt;font color='red'&gt;&quot;);</span>
+        	}
+<span class="nc bnc" id="L1247" title="All 2 branches missed.">        	if (otherCriteria.get(i).isPairedWithPrevious()) {</span>
+<span class="nc" id="L1248">        		sb.append(&quot;&lt;b&gt;or&lt;/b&gt; &quot;);</span>
+        	}
+<span class="nc" id="L1250">    		sb.append(otherCriteria.get(i).description).append(&quot; (&quot;)</span>
+<span class="nc" id="L1251">    			.append(otherCriteria.get(i).getMinimum(units.size())).append(&quot;)&quot;);</span>
+<span class="nc" id="L1252">    		sb.append(&quot;&lt;br /&gt;\n&quot;);</span>
+<span class="nc bnc" id="L1253" title="All 2 branches missed.">        	if (isShort) {</span>
+<span class="nc" id="L1254">        		sb.append(&quot;&lt;/font&gt;&quot;);</span>
+        	}
+<span class="nc bnc" id="L1256" title="All 2 branches missed.">        	if (other.get(i).size() &gt; 0) {</span>
+<span class="nc" id="L1257">        		sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;).append(other.get(i).stream().map(ms -&gt; ms.getName())</span>
+<span class="nc" id="L1258">        				.collect(Collectors.joining(&quot;&lt;br/&gt;\n&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;))).append(&quot;&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+        	} else {
+<span class="nc" id="L1260">        		sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;None&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+        	}
+    	}
+<span class="nc bnc" id="L1263" title="All 2 branches missed.">    	if (groupingCriteria != null) {</span>
+<span class="nc" id="L1264">			List&lt;MechSummary&gt; groupedUnits = units.stream()</span>
+<span class="nc" id="L1265">					.filter(ms -&gt; groupingCriteria.appliesTo(ModelRecord.parseUnitType(ms.getUnitType())))</span>
+<span class="nc" id="L1266">					.collect(Collectors.toList());</span>
+<span class="nc bnc" id="L1267" title="All 2 branches missed.">			if (groupedUnits.size() &gt; 0) {</span>
+<span class="nc" id="L1268">				Map&lt;String,List&lt;MechSummary&gt;&gt; groups = groupedUnits.stream()</span>
+<span class="nc" id="L1269">						.collect(Collectors.groupingBy(ms -&gt; ms.getChassis()));</span>
+<span class="nc bnc" id="L1270" title="All 2 branches missed.">				GROUP_LOOP: for (List&lt;MechSummary&gt; group : groups.values()) {</span>
+<span class="nc bnc" id="L1271" title="All 2 branches missed.">					for (int i = 0; i &lt; group.size() - 1; i++) {</span>
+<span class="nc bnc" id="L1272" title="All 2 branches missed.">						for (int j = i + 1; j &lt; group.size(); j++) {</span>
+<span class="nc bnc" id="L1273" title="All 2 branches missed.">							if (!groupingCriteria.matches(group.get(i), group.get(j))) {</span>
+<span class="nc" id="L1274">								groups = groupedUnits.stream()</span>
+<span class="nc" id="L1275">										.collect(Collectors.groupingBy(ms -&gt; ms.getName()));</span>
+<span class="nc" id="L1276">								break GROUP_LOOP;</span>
+							}
+						}
+					}
+<span class="nc" id="L1280">				}</span>
+<span class="nc" id="L1281">				int groupSize = Math.min(groupingCriteria.getGroupSize(), groupedUnits.size());</span>
+<span class="nc" id="L1282">		    	int numGroups = Math.min(groupingCriteria.getNumGroups(), groupedUnits.size() / groupSize);</span>
+		    	/* Allow for the possibility that two or more groups may be identical */
+<span class="nc" id="L1284">		    	int groupCount = 0;</span>
+<span class="nc bnc" id="L1285" title="All 2 branches missed.">		    	for (List&lt;MechSummary&gt; g : groups.values()) {</span>
+<span class="nc" id="L1286">		    		groupCount += g.size() / groupSize;</span>
+<span class="nc" id="L1287">		    	}</span>
+<span class="nc bnc" id="L1288" title="All 2 branches missed.">		    	if (groupCount &lt; numGroups) {</span>
+<span class="nc" id="L1289">		    		sb.append(&quot;&lt;font color='red'&gt;&quot;);</span>
+		    	}
+<span class="nc" id="L1291">		    	sb.append(groupingCriteria.getDescription()).append(&quot; (&quot;).append(numGroups)</span>
+<span class="nc" id="L1292">		    		.append(&quot;x&quot;).append(groupSize).append(&quot;)&quot;);</span>
+<span class="nc bnc" id="L1293" title="All 2 branches missed.">		    	if (groupCount &lt; numGroups) {</span>
+<span class="nc" id="L1294">		    		sb.append(&quot;&lt;/font&gt;&quot;);</span>
+		    	}
+<span class="nc" id="L1296">		    	sb.append(&quot;&lt;br/&gt;\n&quot;);</span>
+<span class="nc bnc" id="L1297" title="All 2 branches missed.">		    	if (groupCount &gt; 0) {</span>
+<span class="nc bnc" id="L1298" title="All 2 branches missed.">			    	for (String groupName : groups.keySet()) {</span>
+<span class="nc" id="L1299">			    		int size = groups.get(groupName).size();</span>
+<span class="nc bnc" id="L1300" title="All 2 branches missed.">			    		while (size &gt;= groupSize) {</span>
+<span class="nc" id="L1301">			    			sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;).append(groupName)</span>
+<span class="nc" id="L1302">			    				.append(&quot; (&quot;).append(groupSize).append(&quot;)&lt;br/&gt;\n&quot;);</span>
+<span class="nc" id="L1303">			    			size -= groupSize;</span>
+			    		}
+<span class="nc" id="L1305">			    	}</span>
+	        	} else {
+<span class="nc" id="L1307">	        		sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;None&lt;br/&gt;&lt;br/&gt;\n&quot;);</span>
+		    	}
+			}
+    	}
+<span class="nc" id="L1311">    	sb.append(&quot;&lt;/html&gt;&quot;);</span>
+<span class="nc" id="L1312">    	return sb.toString();</span>
+    }
+
+    public static void createFormationTypes() {
+<span class="nc" id="L1316">        allFormationTypes = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L1317">        createAntiMekLance();</span>
+<span class="nc" id="L1318">        createAssaultLance();</span>
+<span class="nc" id="L1319">        createAnvilLance();</span>
+<span class="nc" id="L1320">        createFastAssaultLance();</span>
+<span class="nc" id="L1321">        createHunterLance();</span>
+<span class="nc" id="L1322">        createBattleLance();</span>
+<span class="nc" id="L1323">        createLightBattleLance();</span>
+<span class="nc" id="L1324">        createMediumBattleLance();</span>
+<span class="nc" id="L1325">        createHeavyBattleLance();</span>
+<span class="nc" id="L1326">        createRifleLance();</span>
+<span class="nc" id="L1327">        createBerserkerLance();</span>
+<span class="nc" id="L1328">        createCommandLance();</span>
+<span class="nc" id="L1329">        createOrderLance();</span>
+<span class="nc" id="L1330">        createVehicleCommandLance();</span>
+<span class="nc" id="L1331">        createFireLance();</span>
+<span class="nc" id="L1332">        createAntiAirLance();</span>
+<span class="nc" id="L1333">        createArtilleryFireLance();</span>
+<span class="nc" id="L1334">        createDirectFireLance();</span>
+<span class="nc" id="L1335">        createFireSupportLance();</span>
+<span class="nc" id="L1336">        createLightFireLance();</span>
+<span class="nc" id="L1337">        createPursuitLance();</span>
+<span class="nc" id="L1338">        createProbeLance();</span>
+<span class="nc" id="L1339">        createSweepLance();</span>
+<span class="nc" id="L1340">        createReconLance();</span>
+<span class="nc" id="L1341">        createHeavyReconLance();</span>
+<span class="nc" id="L1342">        createLightReconLance();</span>
+<span class="nc" id="L1343">        createSecurityLance();</span>
+<span class="nc" id="L1344">        createStrikerCavalryLance();</span>
+<span class="nc" id="L1345">        createHammerLance();</span>
+<span class="nc" id="L1346">        createHeavyStrikerCavalryLance();</span>
+<span class="nc" id="L1347">        createHordeLance();</span>
+<span class="nc" id="L1348">        createLightStrikerCavalryLance();</span>
+<span class="nc" id="L1349">        createRangerLance();</span>
+<span class="nc" id="L1350">        createUrbanLance();</span>
+<span class="nc" id="L1351">        createAerospaceSuperioritySquadron();</span>
+<span class="nc" id="L1352">        createEWSquadron();</span>
+<span class="nc" id="L1353">        createFireSupportSquadron();</span>
+<span class="nc" id="L1354">        createInterceptorSquadron();</span>
+<span class="nc" id="L1355">        createStrikeSquadron();</span>
+<span class="nc" id="L1356">        createTransportSquadron();</span>
+<span class="nc" id="L1357">    }</span>
+    
+    private static void createAntiMekLance() {
+<span class="nc" id="L1360">        FormationType ft = new FormationType(&quot;Anti-Mek&quot;);</span>
+<span class="nc" id="L1361">        ft.allowedUnitTypes = FLAG_INFANTRY | FLAG_BATTLE_ARMOR;</span>
+<span class="nc" id="L1362">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1363">    }</span>
+    
+    private static void createAssaultLance() {
+<span class="nc" id="L1366">        FormationType ft = new FormationType(&quot;Assault&quot;);</span>
+<span class="nc" id="L1367">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc" id="L1368">        ft.idealRole = UnitRole.JUGGERNAUT;</span>
+<span class="nc" id="L1369">        ft.minWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc bnc" id="L1370" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getTotalArmor() &gt;= 135;</span>
+<span class="nc" id="L1371">        ft.mainDescription = &quot;Armor 135+&quot;;</span>
+<span class="nc" id="L1372">        ft.otherCriteria.add(new PercentConstraint(0.75,</span>
+<span class="nc bnc" id="L1373" title="All 2 branches missed.">                ms -&gt; getDamageAtRange(ms, 7) &gt;= 25,</span>
+                &quot;25 damage at range 7&quot;));
+<span class="nc" id="L1375">        ft.otherCriteria.add(new CountConstraint(3,</span>
+<span class="nc bnc" id="L1376" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Heavy+&quot;));
+<span class="nc" id="L1378">        Constraint c = new CountConstraint(1, ms -&gt; UnitRoleHandler.getRoleFor(ms).equals(UnitRole.JUGGERNAUT),</span>
+                &quot;Juggernaut&quot;);
+<span class="nc" id="L1380">        c.setPairedWithNext(true);</span>
+<span class="nc" id="L1381">        ft.otherCriteria.add(c);</span>
+<span class="nc" id="L1382">        c = new CountConstraint(2, ms -&gt; UnitRoleHandler.getRoleFor(ms).equals(UnitRole.SNIPER),</span>
+        		&quot;Sniper&quot;);
+<span class="nc" id="L1384">        c.setPairedWithPrevious(true);</span>
+<span class="nc" id="L1385">        ft.otherCriteria.add(c);</span>
+<span class="nc" id="L1386">        ft.reportMetrics.put(&quot;Armor&quot;, ms -&gt; ms.getTotalArmor());</span>
+<span class="nc" id="L1387">        ft.reportMetrics.put(&quot;Damage @ 7&quot;, ms -&gt; getDamageAtRange(ms, 7));</span>
+<span class="nc" id="L1388">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1389">    }</span>
+    
+    private static void createAnvilLance() {
+<span class="nc" id="L1392">        FormationType ft = new FormationType(&quot;Anvil&quot;, &quot;Assault&quot;);</span>
+<span class="nc" id="L1393">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc" id="L1394">        ft.exclusiveFaction = &quot;FWL&quot;;</span>
+<span class="nc" id="L1395">        ft.minWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc bnc" id="L1396" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getTotalArmor() &gt;= 40;</span>
+<span class="nc" id="L1397">        ft.mainDescription = &quot;Armor 40+&quot;;</span>
+<span class="nc" id="L1398">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc" id="L1399">                ms -&gt; ms.getEquipmentNames().stream().map(name -&gt; EquipmentType.get(name))</span>
+<span class="nc bnc" id="L1400" title="All 10 branches missed.">                    .anyMatch(eq -&gt; eq instanceof ACWeapon</span>
+                            || eq instanceof LBXACWeapon
+                            || eq instanceof UACWeapon
+                            || eq instanceof SRMWeapon
+                            || eq instanceof LRMWeapon),
+                &quot;AC, SRM, or LRM&quot;));
+<span class="nc" id="L1406">        ft.reportMetrics.put(&quot;AC/SRM/LRM&quot;, ms -&gt; ft.otherCriteria.get(0).criterion.test(ms));</span>
+<span class="nc" id="L1407">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1408">    }</span>
+    
+    private static void createFastAssaultLance() {
+<span class="nc" id="L1411">        FormationType ft = new FormationType(&quot;Fast Assault&quot;, &quot;Assault&quot;);</span>
+<span class="nc" id="L1412">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc" id="L1413">        ft.minWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc bnc" id="L1414" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getTotalArmor() &gt;= 135</span>
+<span class="nc bnc" id="L1415" title="All 4 branches missed.">                &amp;&amp; (ms.getWalkMp() &gt;= 5 || ms.getJumpMp() &gt; 0);</span>
+<span class="nc" id="L1416">        ft.mainDescription = &quot;Walk 5+ or Jump 1+&quot;;</span>
+<span class="nc" id="L1417">        ft.otherCriteria.add(new PercentConstraint(0.75,</span>
+<span class="nc bnc" id="L1418" title="All 2 branches missed.">                ms -&gt; getDamageAtRange(ms, 7) &gt;= 25,</span>
+                &quot;Damage 25+ at range 7&quot;));
+<span class="nc" id="L1420">        ft.otherCriteria.add(new CountConstraint(3,</span>
+<span class="nc bnc" id="L1421" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Heavy+&quot;));
+        //FIXME: The actual requirement is one juggernaut or two snipers; there needs to be
+        // a way to combine constraints with ||.
+<span class="nc" id="L1425">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc" id="L1426">                ms -&gt; EnumSet.of(UnitRole.JUGGERNAUT, UnitRole.SNIPER).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Juggernaut or Sniper&quot;));
+<span class="nc" id="L1428">        ft.reportMetrics.put(&quot;Damage @ 7&quot;, ms -&gt; getDamageAtRange(ms, 7));</span>
+<span class="nc" id="L1429">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1430">    }</span>
+    
+    private static void createHunterLance() {
+<span class="nc" id="L1433">        FormationType ft = new FormationType(&quot;Hunter&quot;, &quot;Assault&quot;);</span>
+<span class="nc" id="L1434">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1435">        ft.idealRole = UnitRole.AMBUSHER;</span>
+<span class="nc" id="L1436">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc" id="L1437">                ms -&gt; EnumSet.of(UnitRole.JUGGERNAUT, UnitRole.AMBUSHER).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Juggernaut or Ambusher&quot;));
+<span class="nc" id="L1439">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1440">    }</span>
+        
+    private static void createBattleLance() {
+<span class="nc" id="L1443">        FormationType ft = new FormationType(&quot;Battle&quot;);</span>
+<span class="nc" id="L1444">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc" id="L1445">        ft.idealRole = UnitRole.BRAWLER;</span>
+<span class="nc" id="L1446">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc bnc" id="L1447" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Heavy+&quot;));
+<span class="nc" id="L1449">        ft.otherCriteria.add(new CountConstraint(3,</span>
+<span class="nc" id="L1450">                ms -&gt; EnumSet.of(UnitRole.BRAWLER, UnitRole.SNIPER, UnitRole.SKIRMISHER)</span>
+<span class="nc" id="L1451">                    .contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                    &quot;Brawler, Sniper, Skirmisher&quot;));
+<span class="nc" id="L1453">        ft.groupingCriteria = new GroupingConstraint(FLAG_VEHICLE, 2, 2,</span>
+<span class="nc bnc" id="L1454" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() == EntityWeightClass.WEIGHT_HEAVY,</span>
+                FormationType::checkUnitMatch,
+                &quot;Same model, Heavy&quot;);
+<span class="nc" id="L1457">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1458">    }</span>
+
+    private static void createLightBattleLance() {
+<span class="nc" id="L1461">        FormationType ft = new FormationType(&quot;Light Battle&quot;, &quot;Battle&quot;);</span>
+<span class="nc" id="L1462">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1463">        ft.maxWeightClass = EntityWeightClass.WEIGHT_HEAVY;</span>
+<span class="nc" id="L1464">        ft.otherCriteria.add(new PercentConstraint(0.75,</span>
+<span class="nc bnc" id="L1465" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() == EntityWeightClass.WEIGHT_LIGHT,</span>
+                &quot;Light&quot;));
+<span class="nc" id="L1467">        ft.otherCriteria.add(new CountConstraint(1,</span>
+<span class="nc" id="L1468">                ms -&gt; UnitRoleHandler.getRoleFor(ms).equals(UnitRole.SCOUT),</span>
+                &quot;Scout&quot;));
+<span class="nc" id="L1470">        ft.groupingCriteria = new GroupingConstraint(FLAG_VEHICLE, 2, 2,</span>
+<span class="nc bnc" id="L1471" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() == EntityWeightClass.WEIGHT_LIGHT,</span>
+                FormationType::checkUnitMatch, &quot;Same model, Light&quot;);
+<span class="nc" id="L1473">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1474">    }</span>
+    
+    private static void createMediumBattleLance() {
+<span class="nc" id="L1477">        FormationType ft = new FormationType(&quot;Medium Battle&quot;, &quot;Battle&quot;);</span>
+<span class="nc" id="L1478">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc" id="L1479">        ft.maxWeightClass = EntityWeightClass.WEIGHT_HEAVY;</span>
+<span class="nc" id="L1480">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc bnc" id="L1481" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() == EntityWeightClass.WEIGHT_MEDIUM,</span>
+                &quot;Medium&quot;));
+<span class="nc" id="L1483">        ft.groupingCriteria = new GroupingConstraint(FLAG_VEHICLE, 2, 2,</span>
+<span class="nc bnc" id="L1484" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() == EntityWeightClass.WEIGHT_MEDIUM,</span>
+                FormationType::checkUnitMatch, &quot;Same model, Medium&quot;);
+<span class="nc" id="L1486">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1487">    }</span>
+    
+    private static void createHeavyBattleLance() {
+<span class="nc" id="L1490">        FormationType ft = new FormationType(&quot;Heavy Battle&quot;, &quot;Battle&quot;);</span>
+<span class="nc" id="L1491">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc" id="L1492">        ft.minWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc" id="L1493">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc bnc" id="L1494" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Heavy+&quot;));
+<span class="nc" id="L1496">        ft.groupingCriteria = new GroupingConstraint(FLAG_VEHICLE, 2, 2,</span>
+<span class="nc bnc" id="L1497" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                FormationType::checkUnitMatch, &quot;Same model, Heavy+&quot;);
+<span class="nc" id="L1499">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1500">    }</span>
+    
+    private static void createRifleLance() {
+<span class="nc" id="L1503">        FormationType ft = new FormationType(&quot;Rifle&quot;, &quot;Battle&quot;);</span>
+<span class="nc" id="L1504">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc" id="L1505">        ft.exclusiveFaction = &quot;FS&quot;;</span>
+<span class="nc" id="L1506">        ft.minWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc bnc" id="L1507" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 4;</span>
+<span class="nc" id="L1508">        ft.mainDescription = &quot;Walk/Cruise 4+&quot;;</span>
+<span class="nc" id="L1509">        ft.otherCriteria.add(new PercentConstraint(0.75,</span>
+<span class="nc bnc" id="L1510" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &lt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Medium, Heavy&quot;));
+<span class="nc" id="L1512">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc" id="L1513">                ms -&gt; ms.getEquipmentNames().stream().map(name -&gt; EquipmentType.get(name))</span>
+<span class="nc bnc" id="L1514" title="All 6 branches missed.">                    .anyMatch(eq -&gt; eq instanceof ACWeapon</span>
+                            || eq instanceof LBXACWeapon
+                            || eq instanceof UACWeapon), //UAC includes RAC
+                &quot;AC weapon&quot;));
+<span class="nc" id="L1518">        ft.reportMetrics.put(&quot;AC&quot;, ms -&gt; ft.otherCriteria.get(1).criterion.test(ms));</span>
+<span class="nc" id="L1519">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1520">    }</span>
+    
+    private static void createBerserkerLance() {
+<span class="nc" id="L1523">        FormationType ft = new FormationType(&quot;Berserker/Close&quot;, &quot;Battle&quot;);</span>
+<span class="nc" id="L1524">        ft.allowedUnitTypes = FLAG_MEK | FLAG_PROTOMEK;</span>
+<span class="nc" id="L1525">        ft.idealRole = UnitRole.BRAWLER;</span>
+<span class="nc" id="L1526">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc bnc" id="L1527" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Heavy+&quot;));
+<span class="nc" id="L1529">        ft.otherCriteria.add(new CountConstraint(3,</span>
+<span class="nc" id="L1530">                ms -&gt; EnumSet.of(UnitRole.BRAWLER, UnitRole.SNIPER, UnitRole.SKIRMISHER)</span>
+<span class="nc" id="L1531">                    .contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Brawler, Sniper, Skirmisher&quot;));
+<span class="nc" id="L1533">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1534">    }</span>
+    
+    private static void createCommandLance() {
+<span class="nc" id="L1537">        FormationType ft = new FormationType(&quot;Command&quot;, &quot;Command&quot;);</span>
+<span class="nc" id="L1538">        ft.allowedUnitTypes = FLAG_MEK | FLAG_PROTOMEK;</span>
+<span class="nc" id="L1539">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc" id="L1540">                ms -&gt; EnumSet.of(UnitRole.SNIPER, UnitRole.MISSILE_BOAT, UnitRole.SKIRMISHER,</span>
+                        UnitRole.JUGGERNAUT)
+<span class="nc" id="L1542">                    .contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Sniper, Missile Boat, Skirmisher, Juggernaught&quot;));
+<span class="nc" id="L1544">        ft.otherCriteria.add(new CountConstraint(1,</span>
+<span class="nc" id="L1545">                ms -&gt; EnumSet.of(UnitRole.BRAWLER, UnitRole.STRIKER, UnitRole.SCOUT)</span>
+<span class="nc" id="L1546">                    .contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Brawler, Striker, Scout&quot;));
+<span class="nc" id="L1548">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1549">    }</span>
+    
+    private static void createOrderLance() {
+<span class="nc" id="L1552">        FormationType ft = new FormationType(&quot;Order&quot;, &quot;Command&quot;);</span>
+<span class="nc" id="L1553">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1554">        ft.exclusiveFaction = &quot;DC&quot;;</span>
+<span class="nc" id="L1555">        ft.groupingCriteria = new GroupingConstraint(FLAG_GROUND, 0, 1,</span>
+<span class="nc" id="L1556">                ms -&gt; true, FormationType::checkUnitMatch, &quot;Same model&quot;);</span>
+<span class="nc" id="L1557">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1558">    }</span>
+    
+    private static void createVehicleCommandLance() {
+<span class="nc" id="L1561">        FormationType ft = new FormationType(&quot;Vehicle Command&quot;, &quot;Command&quot;);</span>
+<span class="nc" id="L1562">        ft.allowedUnitTypes = FLAG_TANK | FLAG_VTOL | FLAG_NAVAL;</span>
+<span class="nc" id="L1563">        ft.otherCriteria.add(new CountConstraint(1,</span>
+<span class="nc" id="L1564">                ms -&gt; EnumSet.of(UnitRole.BRAWLER, UnitRole.STRIKER, UnitRole.SCOUT)</span>
+<span class="nc" id="L1565">                    .contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Brawler, Striker, Scout&quot;));
+        /* The description does not state how many pairs there need to be, but the reference to
+         * &quot;one of the pairs&quot; implies there need to be at least two.
+         */
+<span class="nc" id="L1570">        ft.groupingCriteria = new GroupingConstraint(FLAG_VEHICLE, 2, 2,</span>
+<span class="nc" id="L1571">                ms -&gt; EnumSet.of(UnitRole.SNIPER, UnitRole.MISSILE_BOAT, UnitRole.SKIRMISHER,</span>
+                        UnitRole.JUGGERNAUT)
+<span class="nc" id="L1573">                    .contains(UnitRoleHandler.getRoleFor(ms)),</span>
+<span class="nc" id="L1574">                    (ms0, ms1) -&gt; ms0.getName().equals(ms1.getName()),</span>
+                &quot;Same model&quot;);
+<span class="nc" id="L1576">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1577">    }</span>
+    
+    private static void createFireLance() {
+<span class="nc" id="L1580">        FormationType ft = new FormationType(&quot;Fire&quot;);</span>
+<span class="nc" id="L1581">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1582">        ft.idealRole = UnitRole.MISSILE_BOAT;</span>
+<span class="nc" id="L1583">        ft.otherCriteria.add(new PercentConstraint(0.75,</span>
+<span class="nc" id="L1584">                ms -&gt; EnumSet.of(UnitRole.SNIPER, UnitRole.MISSILE_BOAT).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Sniper, Missile Boat&quot;));
+<span class="nc" id="L1586">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1587">    }</span>
+    
+    private static void createAntiAirLance() {
+<span class="nc" id="L1590">        FormationType ft = new FormationType(&quot;Anti-Air&quot;, &quot;Fire&quot;);</span>
+<span class="nc" id="L1591">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1592">        ft.missionRoles.add(MissionRole.MIXED_ARTILLERY);</span>
+<span class="nc" id="L1593">        ft.otherCriteria.add(new PercentConstraint(0.75,</span>
+<span class="nc" id="L1594">                ms -&gt; EnumSet.of(UnitRole.SNIPER, UnitRole.MISSILE_BOAT).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Sniper, Missile Boat&quot;));
+<span class="nc" id="L1596">        ft.otherCriteria.add(new CountConstraint(2,</span>
+                // should indicate it has anti-aircraft targeting quirk without having to load all entities
+<span class="nc bnc" id="L1598" title="All 2 branches missed.">                ms -&gt; getMissionRoles(ms).contains(MissionRole.ANTI_AIRCRAFT) </span>
+<span class="nc" id="L1599">                || ms.getEquipmentNames().stream().map(name -&gt; EquipmentType.get(name))</span>
+<span class="nc bnc" id="L1600" title="All 8 branches missed.">                    .anyMatch(eq -&gt; eq instanceof ACWeapon</span>
+                            || eq instanceof LBXACWeapon
+                            || eq instanceof ArtilleryWeapon),
+                &quot;Standard AC, LBX, Artillery weapon, Anti-Air targeting quirk&quot;));
+<span class="nc" id="L1604">        ft.reportMetrics.put(&quot;AC/LBX/Artillery/AA Quirk&quot;, ms -&gt; ft.otherCriteria.get(1).criterion.test(ms));</span>
+<span class="nc" id="L1605">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1606">    }</span>
+    
+    private static void createArtilleryFireLance() {
+<span class="nc" id="L1609">        FormationType ft = new FormationType(&quot;Artillery Fire&quot;, &quot;Fire&quot;);</span>
+<span class="nc" id="L1610">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1611">        ft.missionRoles.add(MissionRole.MIXED_ARTILLERY);</span>
+<span class="nc" id="L1612">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc" id="L1613">                ms -&gt; ms.getEquipmentNames().stream().map(name -&gt; EquipmentType.get(name))</span>
+<span class="nc" id="L1614">                    .anyMatch(eq -&gt; eq instanceof ArtilleryWeapon),</span>
+                &quot;Artillery&quot;));
+<span class="nc" id="L1616">        ft.reportMetrics.put(&quot;Artillery&quot;, ms -&gt; ft.otherCriteria.get(0).criterion.test(ms));</span>
+<span class="nc" id="L1617">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1618">    }</span>
+    
+    private static void createDirectFireLance() {
+<span class="nc" id="L1621">        FormationType ft = new FormationType(&quot;Direct Fire&quot;, &quot;Fire&quot;);</span>
+<span class="nc" id="L1622">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc bnc" id="L1623" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; getDamageAtRange(ms, 18) &gt;= 10;</span>
+<span class="nc" id="L1624">        ft.mainDescription = &quot;Damage 10 at range 18&quot;;</span>
+<span class="nc" id="L1625">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc bnc" id="L1626" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Heavy+&quot;));
+<span class="nc" id="L1628">        ft.reportMetrics.put(&quot;Damage @ 18&quot;, ms -&gt; getDamageAtRange(ms, 18));</span>
+<span class="nc" id="L1629">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1630">    }</span>
+    
+    private static void createFireSupportLance() {
+<span class="nc" id="L1633">        FormationType ft = new FormationType(&quot;Fire Support&quot;, &quot;Fire&quot;);</span>
+<span class="nc" id="L1634">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1635">        ft.otherCriteria.add(new CountConstraint(3, ms -&gt; ms.getEquipmentNames().stream()</span>
+<span class="nc" id="L1636">                .map(name -&gt; EquipmentType.get(name))</span>
+<span class="nc bnc" id="L1637" title="All 4 branches missed.">                .filter(eq -&gt; eq instanceof WeaponType &amp;&amp; eq.hasModes())</span>
+<span class="nc" id="L1638">                .anyMatch(eq -&gt; {</span>
+<span class="nc bnc" id="L1639" title="All 2 branches missed.">                    for (Enumeration&lt;EquipmentMode&gt; e = eq.getModes(); e.hasMoreElements();) {</span>
+<span class="nc bnc" id="L1640" title="All 2 branches missed.">                        if (e.nextElement().toString().equals(&quot;Indirect&quot;)) {</span>
+<span class="nc" id="L1641">                            return true;</span>
+                        }
+                    }
+<span class="nc" id="L1644">                    return false;</span>
+                }),
+                &quot;Indirect fire weapon&quot;));
+<span class="nc" id="L1647">        ft.reportMetrics.put(&quot;Indirect&quot;, ms -&gt; ft.otherCriteria.get(0).criterion.test(ms));</span>
+<span class="nc" id="L1648">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1649">    }</span>
+    
+    private static void createLightFireLance() {
+<span class="nc" id="L1652">        FormationType ft = new FormationType(&quot;Light Fire&quot;, &quot;Fire&quot;);</span>
+<span class="nc" id="L1653">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1654">        ft.maxWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc" id="L1655">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1656">    }</span>
+    
+    private static void createPursuitLance() {
+<span class="nc" id="L1659">        FormationType ft = new FormationType(&quot;Pursuit&quot;);</span>
+<span class="nc" id="L1660">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1661">        ft.maxWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc" id="L1662">        ft.otherCriteria.add(new PercentConstraint(0.75,</span>
+<span class="nc bnc" id="L1663" title="All 2 branches missed.">                ms -&gt; ms.getWalkMp() &gt;= 6,</span>
+                &quot;Walk/Cruise 6+&quot;));
+<span class="nc" id="L1665">        ft.otherCriteria.add(new CountConstraint(1,</span>
+<span class="nc bnc" id="L1666" title="All 2 branches missed.">                ms -&gt; getSingleWeaponDamageAtRange(ms, 15) &gt;= 5,</span>
+                &quot;Weapon with damage 5+ at range 15&quot;));
+<span class="nc" id="L1668">        ft.reportMetrics.put(&quot;Damage @ 15&quot;, ms -&gt; getSingleWeaponDamageAtRange(ms, 15));</span>
+<span class="nc" id="L1669">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1670">    }</span>
+
+    private static void createProbeLance() {
+<span class="nc" id="L1673">        FormationType ft = new FormationType(&quot;Probe&quot;, &quot;Pursuit&quot;);</span>
+<span class="nc" id="L1674">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1675">        ft.maxWeightClass = EntityWeightClass.WEIGHT_HEAVY;</span>
+<span class="nc bnc" id="L1676" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; getDamageAtRange(ms, 9) &gt;= 10;</span>
+<span class="nc" id="L1677">        ft.mainDescription = &quot;Damage 10+ at range 9&quot;;</span>
+<span class="nc" id="L1678">        ft.otherCriteria.add(new PercentConstraint(0.75,</span>
+<span class="nc bnc" id="L1679" title="All 2 branches missed.">                ms -&gt; ms.getWalkMp() &gt;= 6,</span>
+                &quot;Walk/Cruise 6+&quot;));
+<span class="nc" id="L1681">        ft.reportMetrics.put(&quot;Damage @ 9&quot;, ms -&gt; getDamageAtRange(ms, 9));</span>
+<span class="nc" id="L1682">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1683">    }</span>
+
+    private static void createSweepLance() {
+<span class="nc" id="L1686">        FormationType ft = new FormationType(&quot;Sweep&quot;, &quot;Pursuit&quot;);</span>
+<span class="nc" id="L1687">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1688">        ft.maxWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc bnc" id="L1689" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 5</span>
+<span class="nc bnc" id="L1690" title="All 2 branches missed.">                &amp;&amp; getDamageAtRange(ms, 6) &gt;= 10;</span>
+<span class="nc" id="L1691">        ft.mainDescription = &quot;Walk/Cruise 5+, Damage 10+ at range 6&quot;;</span>
+<span class="nc" id="L1692">        ft.reportMetrics.put(&quot;Damage @ 6&quot;, ms -&gt; getDamageAtRange(ms, 6));</span>
+<span class="nc" id="L1693">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1694">    }</span>
+    
+    private static void createReconLance() {
+<span class="nc" id="L1697">        FormationType ft = new FormationType(&quot;Recon&quot;);</span>
+<span class="nc" id="L1698">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1699">        ft.idealRole = UnitRole.SCOUT;</span>
+<span class="nc bnc" id="L1700" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 5;        </span>
+<span class="nc" id="L1701">        ft.mainDescription = &quot;Walk/Cruise 5+&quot;;</span>
+<span class="nc" id="L1702">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc" id="L1703">                ms -&gt; EnumSet.of(UnitRole.SCOUT, UnitRole.STRIKER).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Scout, Striker&quot;));
+<span class="nc" id="L1705">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1706">    }</span>
+
+    private static void createHeavyReconLance() {
+<span class="nc" id="L1709">        FormationType ft = new FormationType(&quot;Heavy Recon&quot;, &quot;Recon&quot;);</span>
+<span class="nc" id="L1710">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc bnc" id="L1711" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 4;        </span>
+<span class="nc" id="L1712">        ft.mainDescription = &quot;Walk/Cruise 4+&quot;;</span>
+<span class="nc" id="L1713">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc bnc" id="L1714" title="All 2 branches missed.">                ms -&gt; ms.getWalkMp() &gt;= 5,</span>
+                &quot;Walk/Cruise 5+&quot;));
+<span class="nc" id="L1716">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc" id="L1717">                ms -&gt; UnitRoleHandler.getRoleFor(ms).equals(UnitRole.SCOUT),</span>
+                &quot;Scout&quot;));
+<span class="nc" id="L1719">        ft.otherCriteria.add(new CountConstraint(1,</span>
+<span class="nc bnc" id="L1720" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Heavy+&quot;));
+<span class="nc" id="L1722">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1723">    }</span>
+
+    private static void createLightReconLance() {
+<span class="nc" id="L1726">        FormationType ft = new FormationType(&quot;Light Recon&quot;, &quot;Recon&quot;);</span>
+<span class="nc" id="L1727">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1728">        ft.maxWeightClass = EntityWeightClass.WEIGHT_LIGHT;</span>
+<span class="nc bnc" id="L1729" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 6</span>
+<span class="nc bnc" id="L1730" title="All 2 branches missed.">                &amp;&amp; UnitRoleHandler.getRoleFor(ms).equals(UnitRole.SCOUT);</span>
+<span class="nc" id="L1731">        ft.mainDescription = &quot;Walk/Cruise 6+, Scout&quot;;</span>
+<span class="nc" id="L1732">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1733">    }</span>
+    
+    private static void createSecurityLance() {
+<span class="nc" id="L1736">        FormationType ft = new FormationType(&quot;Security&quot;);</span>
+<span class="nc" id="L1737">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1738">        ft.otherCriteria.add(new CountConstraint(1,</span>
+<span class="nc" id="L1739">                ms -&gt; EnumSet.of(UnitRole.SCOUT, UnitRole.STRIKER).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Scout, Striker&quot;));
+<span class="nc" id="L1741">        ft.otherCriteria.add(new CountConstraint(1,</span>
+<span class="nc" id="L1742">                ms -&gt; EnumSet.of(UnitRole.SNIPER, UnitRole.MISSILE_BOAT).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Sniper, Missile Boat&quot;));
+<span class="nc" id="L1744">        ft.otherCriteria.add(new MaxCountConstraint(1,</span>
+<span class="nc bnc" id="L1745" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_ASSAULT,</span>
+                &quot;Not assault&quot;));
+<span class="nc" id="L1747">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1748">    }</span>
+
+    private static void createStrikerCavalryLance() {
+<span class="nc" id="L1751">        FormationType ft = new FormationType(&quot;Striker/Cavalry&quot;);</span>
+<span class="nc" id="L1752">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1753">        ft.idealRole = UnitRole.STRIKER;</span>
+<span class="nc" id="L1754">        ft.maxWeightClass = EntityWeightClass.WEIGHT_HEAVY;</span>
+<span class="nc bnc" id="L1755" title="All 4 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 5 || ms.getJumpMp() &gt;= 4;</span>
+<span class="nc" id="L1756">        ft.mainDescription = &quot;Walk/Cruise 5+ or Jump 4+&quot;;</span>
+<span class="nc" id="L1757">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc" id="L1758">                ms -&gt; EnumSet.of(UnitRole.STRIKER, UnitRole.SKIRMISHER).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Striker, Skirmisher&quot;));
+<span class="nc" id="L1760">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1761">    }</span>
+
+    private static void createHammerLance() {
+<span class="nc" id="L1764">        FormationType ft = new FormationType(&quot;Hammer&quot;, &quot;Striker/Cavalry&quot;);</span>
+<span class="nc" id="L1765">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1766">        ft.exclusiveFaction = &quot;FWL&quot;;</span>
+<span class="nc" id="L1767">        ft.idealRole = UnitRole.STRIKER;</span>
+<span class="nc bnc" id="L1768" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 5;</span>
+<span class="nc" id="L1769">        ft.mainDescription = &quot;Walk/Cruise 5+&quot;;</span>
+<span class="nc" id="L1770">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1771">    }</span>
+
+    private static void createHeavyStrikerCavalryLance() {
+<span class="nc" id="L1774">        FormationType ft = new FormationType(&quot;Heavy Striker/Cavalry&quot;, &quot;Striker/Cavalry&quot;);</span>
+<span class="nc" id="L1775">        ft.allowedUnitTypes = FLAG_GROUND_NO_LIGHT;</span>
+<span class="nc" id="L1776">        ft.minWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc bnc" id="L1777" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 4;</span>
+<span class="nc" id="L1778">        ft.mainDescription = &quot;Walk/Cruise 4+&quot;;</span>
+<span class="nc" id="L1779">        ft.otherCriteria.add(new CountConstraint(3,</span>
+<span class="nc bnc" id="L1780" title="All 2 branches missed.">                ms -&gt; ms.getWeightClass() &gt;= EntityWeightClass.WEIGHT_HEAVY,</span>
+                &quot;Heavy+&quot;));
+<span class="nc" id="L1782">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc" id="L1783">                ms -&gt; EnumSet.of(UnitRole.STRIKER, UnitRole.SKIRMISHER).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Striker, Skirmisher&quot;));
+<span class="nc" id="L1785">        ft.otherCriteria.add(new CountConstraint(1,</span>
+<span class="nc bnc" id="L1786" title="All 2 branches missed.">                ms -&gt; getSingleWeaponDamageAtRange(ms, 18) &gt;= 5,</span>
+                &quot;Weapon with damage 5+ at range 18&quot;));
+<span class="nc" id="L1788">        ft.reportMetrics.put(&quot;Damage @ 18&quot;, ms -&gt; getSingleWeaponDamageAtRange(ms, 18));</span>
+<span class="nc" id="L1789">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1790">    }</span>
+
+    private static void createHordeLance() {
+<span class="nc" id="L1793">        FormationType ft = new FormationType(&quot;Horde&quot;, &quot;Striker/Cavalry&quot;);</span>
+<span class="nc" id="L1794">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1795">        ft.maxWeightClass = EntityWeightClass.WEIGHT_LIGHT;</span>
+<span class="nc bnc" id="L1796" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; getDamageAtRange(ms, 9) &lt;= 10;</span>
+<span class="nc" id="L1797">        ft.mainDescription = &quot;Damage &lt;= 10 at range 9&quot;;</span>
+<span class="nc" id="L1798">        ft.reportMetrics.put(&quot;Damage @ 9&quot;, ms -&gt; getDamageAtRange(ms, 9));</span>
+<span class="nc" id="L1799">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1800">    }</span>
+
+    private static void createLightStrikerCavalryLance() {
+<span class="nc" id="L1803">        FormationType ft = new FormationType(&quot;Light Striker/Cavalry&quot;, &quot;Striker/Cavalry&quot;);</span>
+<span class="nc" id="L1804">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1805">        ft.maxWeightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc bnc" id="L1806" title="All 2 branches missed.">        ft.mainCriteria = ms -&gt; ms.getWalkMp() &gt;= 5;</span>
+<span class="nc" id="L1807">        ft.mainDescription = &quot;Walk/Cruise 5+&quot;;</span>
+<span class="nc" id="L1808">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc bnc" id="L1809" title="All 2 branches missed.">                ms -&gt; getSingleWeaponDamageAtRange(ms, 18) &gt;= 5,</span>
+                &quot;Weapon with damage 5+ at range 18&quot;));
+<span class="nc" id="L1811">        ft.otherCriteria.add(new CountConstraint(2,</span>
+<span class="nc" id="L1812">                ms -&gt; EnumSet.of(UnitRole.STRIKER, UnitRole.SKIRMISHER).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Striker, Skirmisher&quot;));
+<span class="nc" id="L1814">        ft.reportMetrics.put(&quot;Damage @ 18&quot;, ms -&gt; getSingleWeaponDamageAtRange(ms, 18));</span>
+<span class="nc" id="L1815">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1816">    }</span>
+
+    private static void createRangerLance() {
+<span class="nc" id="L1819">        FormationType ft = new FormationType(&quot;Ranger&quot;, &quot;Striker/Cavalry&quot;);</span>
+<span class="nc" id="L1820">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1821">        ft.maxWeightClass = EntityWeightClass.WEIGHT_HEAVY;</span>
+<span class="nc" id="L1822">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1823">    }</span>
+
+    private static void createUrbanLance() {
+<span class="nc" id="L1826">        FormationType ft = new FormationType(&quot;Urban&quot;);</span>
+<span class="nc" id="L1827">        ft.allowedUnitTypes = FLAG_GROUND;</span>
+<span class="nc" id="L1828">        ft.idealRole = UnitRole.AMBUSHER;</span>
+<span class="nc" id="L1829">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc bnc" id="L1830" title="All 2 branches missed.">                ms -&gt; ms.getJumpMp() &gt; 0</span>
+<span class="nc bnc" id="L1831" title="All 2 branches missed.">                    || ms.getUnitType().equals(UnitType.getTypeName(UnitType.INFANTRY))</span>
+<span class="nc bnc" id="L1832" title="All 2 branches missed.">                    || ms.getUnitType().equals(UnitType.getTypeName(UnitType.BATTLE_ARMOR)),</span>
+                &quot;Jump 1+ or Infantry/BA&quot;));
+<span class="nc" id="L1834">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc bnc" id="L1835" title="All 2 branches missed.">                ms -&gt; ms.getWalkMp() &lt;= 4,</span>
+                &quot;Walk/Cruise &lt;= 4&quot;));
+<span class="nc" id="L1837">        allFormationTypes.put(ft.name, ft);        </span>
+<span class="nc" id="L1838">    }</span>
+    
+    private static void createAerospaceSuperioritySquadron() {
+<span class="nc" id="L1841">        FormationType ft = new FormationType(&quot;Aerospace Superiority Squadron&quot;);</span>
+<span class="nc" id="L1842">        ft.allowedUnitTypes = FLAG_FIGHTER;</span>
+<span class="nc" id="L1843">        ft.otherCriteria.add(new PercentConstraint(0.51,</span>
+<span class="nc" id="L1844">                ms -&gt; EnumSet.of(UnitRole.INTERCEPTOR, UnitRole.FAST_DOGFIGHTER).contains(UnitRoleHandler.getRoleFor(ms)),</span>
+                &quot;Interceptor/Fast Dogfighter&quot;));
+<span class="nc" id="L1846">        ft.groupingCriteria = new GroupingConstraint(FLAG_FIGHTER, 2, 0,</span>
+<span class="nc" id="L1847">                ms -&gt; true,</span>
+<span class="nc" id="L1848">                (ms0, ms1) -&gt; ms0.getChassis().equals(ms1.getChassis()),</span>
+                &quot;Same chassis&quot;);
+<span class="nc" id="L1850">        allFormationTypes.put(ft.name, ft);</span>
+<span class="nc" id="L1851">    }</span>
+
+    private static void createEWSquadron() {
+<span class="nc" id="L1854">        FormationType ft = new FormationType(&quot;Electronic Warfare Squadron&quot;);</span>
+<span class="nc" id="L1855">        ft.allowedUnitTypes = FLAG_FIGHTER;</span>
+<span class="nc" id="L1856">        ft.otherCriteria.add(new PercentConstraint(0.51,</span>
+<span class="nc" id="L1857">                ms -&gt; ms.getEquipmentNames().stream().map(en -&gt; EquipmentType.get(en))</span>
+<span class="nc bnc" id="L1858" title="All 4 branches missed.">                .anyMatch(et -&gt; et instanceof TAGWeapon ||  </span>
+                        (et instanceof MiscType &amp;&amp;
+<span class="nc bnc" id="L1860" title="All 2 branches missed.">                            (((MiscType)et).hasFlag(MiscType.F_BAP)</span>
+<span class="nc bnc" id="L1861" title="All 2 branches missed.">                            || ((MiscType)et).hasFlag(MiscType.F_ECM)))),</span>
+                &quot;Probe, ECM, TAG&quot;));
+<span class="nc" id="L1863">        ft.groupingCriteria = new GroupingConstraint(FLAG_FIGHTER, 2, 0,</span>
+<span class="nc" id="L1864">                ms -&gt; true,</span>
+<span class="nc" id="L1865">                (ms0, ms1) -&gt; ms0.getChassis().equals(ms1.getChassis()),</span>
+                &quot;Same chassis&quot;);
+<span class="nc" id="L1867">        ft.reportMetrics.put(&quot;Probe/ECM/TAG&quot;, ms -&gt; ft.otherCriteria.get(0).criterion.test(ms));</span>
+<span class="nc" id="L1868">        allFormationTypes.put(ft.name, ft);                </span>
+<span class="nc" id="L1869">    }</span>
+
+    private static void createFireSupportSquadron() {
+<span class="nc" id="L1872">        FormationType ft = new FormationType(&quot;Fire Support Squadron&quot;);</span>
+<span class="nc" id="L1873">        ft.allowedUnitTypes = FLAG_FIGHTER;</span>
+<span class="nc" id="L1874">        ft.mainCriteria = ms -&gt; EnumSet.of(UnitRole.FIRE_SUPPORT,</span>
+<span class="nc" id="L1875">                UnitRole.DOGFIGHTER).contains(UnitRoleHandler.getRoleFor(ms));</span>
+<span class="nc" id="L1876">        ft.mainDescription = &quot;Fire Support, Dogfighter&quot;;</span>
+<span class="nc" id="L1877">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc" id="L1878">                ms -&gt; UnitRoleHandler.getRoleFor(ms).equals(UnitRole.FIRE_SUPPORT),</span>
+                &quot;Fire Support&quot;));
+<span class="nc" id="L1880">        ft.groupingCriteria = new GroupingConstraint(FLAG_FIGHTER, 2, 0,</span>
+<span class="nc" id="L1881">                ms -&gt; true,</span>
+<span class="nc" id="L1882">                (ms0, ms1) -&gt; ms0.getChassis().equals(ms1.getChassis()),</span>
+                &quot;Same chassis&quot;);
+<span class="nc" id="L1884">        allFormationTypes.put(ft.name, ft);                </span>
+<span class="nc" id="L1885">    }</span>
+
+    private static void createInterceptorSquadron() {
+<span class="nc" id="L1888">        FormationType ft = new FormationType(&quot;Interceptor Squadron&quot;);</span>
+<span class="nc" id="L1889">        ft.allowedUnitTypes = FLAG_FIGHTER;</span>
+<span class="nc" id="L1890">        ft.otherCriteria.add(new PercentConstraint(0.51,</span>
+<span class="nc" id="L1891">                ms -&gt; UnitRoleHandler.getRoleFor(ms).equals(UnitRole.INTERCEPTOR),</span>
+                &quot;Interceptor&quot;));
+<span class="nc" id="L1893">        ft.groupingCriteria = new GroupingConstraint(FLAG_FIGHTER, 2, 0,</span>
+<span class="nc" id="L1894">                ms -&gt; true,</span>
+<span class="nc" id="L1895">                (ms0, ms1) -&gt; ms0.getChassis().equals(ms1.getChassis()),</span>
+                &quot;Same chassis&quot;);
+<span class="nc" id="L1897">        allFormationTypes.put(ft.name, ft);                </span>
+<span class="nc" id="L1898">    }</span>
+
+    private static void createStrikeSquadron() {
+<span class="nc" id="L1901">        FormationType ft = new FormationType(&quot;Strike Squadron&quot;);</span>
+<span class="nc" id="L1902">        ft.allowedUnitTypes = FLAG_FIGHTER;</span>
+<span class="nc" id="L1903">        ft.otherCriteria.add(new PercentConstraint(0.51,</span>
+<span class="nc" id="L1904">                ms -&gt; EnumSet.of(UnitRole.ATTACK_FIGHTER,</span>
+<span class="nc" id="L1905">                        UnitRole.DOGFIGHTER).contains(UnitRoleHandler.getRoleFor(ms)), &quot;Attack, Dogfighter&quot;));</span>
+<span class="nc" id="L1906">        ft.groupingCriteria = new GroupingConstraint(FLAG_FIGHTER, 2, 0,</span>
+<span class="nc" id="L1907">                ms -&gt; true,</span>
+<span class="nc" id="L1908">                (ms0, ms1) -&gt; ms0.getChassis().equals(ms1.getChassis()),</span>
+                &quot;Same chassis&quot;);
+<span class="nc" id="L1910">        allFormationTypes.put(ft.name, ft);                </span>
+<span class="nc" id="L1911">    }</span>
+
+    private static void createTransportSquadron() {
+<span class="nc" id="L1914">        FormationType ft = new FormationType(&quot;Transport Squadron&quot;);</span>
+<span class="nc" id="L1915">        ft.allowedUnitTypes = FLAG_FIGHTER | FLAG_SMALL_CRAFT | FLAG_DROPSHIP;</span>
+<span class="nc" id="L1916">        ft.otherCriteria.add(new PercentConstraint(0.5,</span>
+<span class="nc" id="L1917">                ms -&gt; UnitRoleHandler.getRoleFor(ms).equals(UnitRole.TRANSPORT), &quot;Transport&quot;));</span>
+<span class="nc" id="L1918">        ft.groupingCriteria = new GroupingConstraint(FLAG_FIGHTER, 2, Integer.MAX_VALUE,</span>
+<span class="nc" id="L1919">                ms -&gt; true,</span>
+<span class="nc" id="L1920">                (ms0, ms1) -&gt; ms0.getChassis().equals(ms1.getChassis()),</span>
+                &quot;Same chassis&quot;);
+<span class="nc" id="L1922">        allFormationTypes.put(ft.name, ft);                </span>
+<span class="nc" id="L1923">    }</span>
+
+    /**
+     * Helper function used by some grouping constraints to compare units. Units are considered to match
+     * if they are the same model, but omnis can match with different configurations. This is used primarily
+     * for ground units; aerospace units match based on chassis.
+     * 
+     * @param ms0
+     * @param ms1
+     * @return    Whether the two units are considered the same for grouping considerations.
+     */
+    private static boolean checkUnitMatch(final MechSummary ms0, final MechSummary ms1) {
+<span class="nc" id="L1935">        final ModelRecord mRec = RATGenerator.getInstance().getModelRecord(ms0.getName());</span>
+<span class="nc bnc" id="L1936" title="All 4 branches missed.">        if (null != mRec &amp;&amp; mRec.isOmni()) {</span>
+<span class="nc" id="L1937">            return ms0.getChassis().equals(ms1.getChassis());</span>
+        } else {
+<span class="nc" id="L1939">            return ms0.getName().equals(ms1.getName());</span>
+        }
+    }
+    
+    /**
+     * base class for limitations on formation type 
+     */
+    public static abstract class Constraint {
+        Predicate&lt;MechSummary&gt; criterion;
+        String description;
+        boolean pairedWithNext;
+        boolean pairedWithPrevious;
+        
+<span class="nc" id="L1952">        protected Constraint(Predicate&lt;MechSummary&gt; criterion, String description) {</span>
+<span class="nc" id="L1953">            this.criterion = criterion;</span>
+<span class="nc" id="L1954">            this.description = description;</span>
+<span class="nc" id="L1955">        }</span>
+        
+        public abstract int getMinimum(int unitSize);
+        
+        public String getDescription() {
+<span class="nc" id="L1960">            return description;</span>
+        }
+        public boolean matches(MechSummary ms) {
+<span class="nc" id="L1963">            return criterion.test(ms);</span>
+        }
+        
+        /* In cases where a constraint has multiple possible fulfillments requiring different
+         * numbers of units (e.g. Assault requires one juggernaut or two snipers), they must
+         * be assigned to separate Constraints consecutively in the list and marked with the
+         * appropriate flag.
+         */
+        public boolean isPairedWithPrevious() {
+<span class="nc" id="L1972">        	return pairedWithPrevious;</span>
+        }
+        
+        public void setPairedWithPrevious(boolean paired) {
+<span class="nc" id="L1976">        	pairedWithPrevious = paired;</span>
+<span class="nc" id="L1977">        }</span>
+
+        public boolean isPairedWithNext() {
+<span class="nc" id="L1980">        	return pairedWithNext;</span>
+        }
+        
+        public void setPairedWithNext(boolean paired) {
+<span class="nc" id="L1984">        	pairedWithNext = paired;</span>
+<span class="nc" id="L1985">        }</span>
+    }
+    
+    public static class CountConstraint extends Constraint {
+        int count;
+        
+        public CountConstraint(int min, Predicate&lt;MechSummary&gt; criterion, String description) {
+<span class="nc" id="L1992">            super(criterion, description);</span>
+<span class="nc" id="L1993">            count = min;</span>
+<span class="nc" id="L1994">        }</span>
+        
+        @Override
+        public int getMinimum(int unitSize) {
+<span class="nc" id="L1998">            return count;</span>
+        }
+    }
+    
+    private static class MaxCountConstraint extends CountConstraint {
+        
+        public MaxCountConstraint(int max, Predicate&lt;MechSummary&gt; criterion, String description) {
+<span class="nc bnc" id="L2005" title="All 2 branches missed.">            super(max, ms -&gt; !criterion.test(ms), description);</span>
+<span class="nc" id="L2006">        }</span>
+        
+        @Override
+        public int getMinimum(int unitSize) {
+<span class="nc" id="L2010">            return unitSize - count;</span>
+        }
+    }
+    
+    private static class PercentConstraint extends Constraint {
+        double pct;
+        
+        public PercentConstraint(double min, Predicate&lt;MechSummary&gt; criterion, String description) {
+<span class="nc" id="L2018">            super(criterion, description);</span>
+<span class="nc" id="L2019">            pct = min;</span>
+<span class="nc" id="L2020">        }</span>
+        
+        @Override
+        public int getMinimum(int unitSize) {
+<span class="nc" id="L2024">            return (int)Math.ceil(pct * unitSize);</span>
+        }
+    }
+    
+    @SuppressWarnings(&quot;unused&quot;)
+    private static class MaxPercentConstraint extends PercentConstraint {
+        
+        public MaxPercentConstraint(double max, Predicate&lt;MechSummary&gt; criterion,
+                String description) {
+<span class="nc bnc" id="L2033" title="All 2 branches missed.">            super(max, ms -&gt; !criterion.test(ms), description);</span>
+<span class="nc" id="L2034">        }</span>
+        
+        @Override
+        public int getMinimum(int unitSize) {
+<span class="nc" id="L2038">            return unitSize - (int)Math.ceil(pct * unitSize);</span>
+        }
+    }
+    
+    /*
+     * Permits additional constraints applied to a specific subset of the units.
+     * Used to force pairs (or larger groups) of units that are identical or have the same base
+     * chassis.
+     */
+    public static class GroupingConstraint extends Constraint {
+<span class="nc" id="L2048">        int unitTypes = FLAG_ALL;</span>
+<span class="nc" id="L2049">        int groupSize = 2;</span>
+<span class="nc" id="L2050">        int numGroups = 1;</span>
+        BiFunction&lt;MechSummary,MechSummary,Boolean&gt; groupConstraint;
+        String description;
+        
+        public GroupingConstraint(Predicate&lt;MechSummary&gt; generalConstraint,
+                BiFunction&lt;MechSummary,MechSummary,Boolean&gt; groupConstraint,
+                String description) {
+<span class="nc" id="L2057">            super(generalConstraint, description);</span>
+<span class="nc" id="L2058">            this.groupConstraint = groupConstraint;</span>
+<span class="nc" id="L2059">        }</span>
+        
+        public GroupingConstraint(int unitTypes,
+                Predicate&lt;MechSummary&gt; generalConstraint,
+                BiFunction&lt;MechSummary,MechSummary,Boolean&gt; groupConstraint,
+                String description) {
+<span class="nc" id="L2065">            this(generalConstraint, groupConstraint, description);</span>
+<span class="nc" id="L2066">            this.unitTypes = unitTypes;</span>
+<span class="nc" id="L2067">        }</span>
+        
+        public GroupingConstraint(int unitTypes, int groupSize, int numGroups,
+                Predicate&lt;MechSummary&gt; generalConstraint,
+                BiFunction&lt;MechSummary,MechSummary,Boolean&gt; groupConstraint,
+                String description) {
+<span class="nc" id="L2073">            this(generalConstraint, groupConstraint, description);</span>
+<span class="nc" id="L2074">            this.unitTypes = unitTypes;</span>
+<span class="nc" id="L2075">            this.groupSize = groupSize;</span>
+<span class="nc" id="L2076">            this.numGroups = numGroups;</span>
+<span class="nc" id="L2077">        }</span>
+        
+        public boolean appliesTo(int unitType) {
+<span class="nc bnc" id="L2080" title="All 2 branches missed.">            return ((1 &lt;&lt; unitType) &amp; unitTypes) != 0;</span>
+        }
+
+        public int getNumGroups() {
+<span class="nc" id="L2084">            return numGroups;</span>
+        }
+        
+        public int getGroupSize() {
+<span class="nc" id="L2088">            return groupSize;</span>
+        }
+        
+        public boolean matches(MechSummary ms) {
+<span class="nc bnc" id="L2092" title="All 4 branches missed.">            return criterion == null || criterion.test(ms);</span>
+        }
+        
+        public boolean matches(MechSummary ms1, MechSummary ms2) {
+<span class="nc" id="L2096">            return groupConstraint.apply(ms1,  ms2);</span>
+        }
+
+        @Override
+        public int getMinimum(int unitSize) {
+<span class="nc" id="L2101">            int gs = Math.min(groupSize, unitSize);</span>
+<span class="nc" id="L2102">            int ng = numGroups;</span>
+<span class="nc bnc" id="L2103" title="All 2 branches missed.">            if (gs &gt; 0) {</span>
+<span class="nc" id="L2104">                ng = Math.min(ng, unitSize / gs);</span>
+            }
+<span class="nc" id="L2106">            return gs * ng;</span>
+        }
+        
+        public boolean hasGeneralCriteria() {
+<span class="nc bnc" id="L2110" title="All 2 branches missed.">            return criterion != null;</span>
+        }
+        
+        public GroupingConstraint copy() {
+<span class="nc" id="L2114">            return new GroupingConstraint(this.unitTypes, this.groupSize, this.numGroups,</span>
+                this.criterion, this.groupConstraint, this.description);
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

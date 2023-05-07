@@ -1,0 +1,631 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Report.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">Report.java</span></div><h1>Report.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek -
+ * Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ * for more details.
+ */
+package megamek.common;
+
+import java.io.Serializable;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import java.util.Vector;
+
+/**
+ * This class defines a single server report. It holds information such as the
+ * report ID, who the report is about, who should see the report, and some
+ * formatting information.
+ * &lt;p&gt;
+ * Typically, the report will be created by the relevant section in the
+ * &lt;code&gt;Server&lt;/code&gt;, and added to the phase report vector. The actual text
+ * of the report must also be added to the &lt;i&gt;report-messages.properties&lt;/i&gt;
+ * file.
+ * &lt;p&gt;
+ * Example:
+ * &lt;p&gt;
+ * &lt;code&gt;Report r = new Report(3455);\n
+ * r.subject = entity.getId();\n
+ * r.indent();\n
+ * r.addDesc(entity);\n
+ * r.add(6);\n
+ * r.choose(true);\n
+ * vPhaseReport.addElement(r);&lt;/code&gt;
+ * &lt;p&gt;
+ * Then the following line would be added to &lt;i&gt;report-messages.properties&lt;/i&gt;:
+ * &lt;p&gt;
+ * 3455::&amp;lt;data&amp;gt; (&amp;lt;data&amp;gt;) does &amp;lt;data&amp;gt; damage to the
+ * &amp;lt;msg:3456,3457&amp;gt;.\n
+ * 3456::tank\n
+ * 3457::building
+ * &lt;p&gt;
+ * When the client parses the report, it will fill in the &amp;lt;data&amp;gt; tags with
+ * the values that were given to the &lt;code&gt;add&lt;/code&gt; methods called on the
+ * report object.
+ * &lt;p&gt;
+ * The example above might produce a report such as this when the
+ * &lt;code&gt;getText&lt;/code&gt; method was called:
+ * &lt;p&gt; &quot; Crusader (Bob) does 6 damage to the tank.&quot;
+ *
+ * @author Ryan McConnell (oscarmm)
+ * @version $Revision$
+ * @since 0.30
+ */
+public class Report implements Serializable {
+    /*
+     * Note: some fields are marked transient because they are only used by the
+     * server (or only the client). This shaves a few bytes off the packet size,
+     * helping the dial-up people :)
+     */
+
+    private static final long serialVersionUID = -5586008091586682078L;
+        
+    private static final int MESSAGE_NONE = -1;
+    
+    /** Report Type: visible to all players. */
+    public static final int PUBLIC = 0;
+    
+    /**
+     * Report Type: visible to all players, but all data marked for obscuration
+     * remains hidden. Note: Not used at this time, since all reports are
+     * considered &lt;code&gt;obscured&lt;/code&gt; unless explicitly marked
+     * &lt;code&gt;public&lt;/code&gt;.
+     */
+    public static final int OBSCURED = 1;
+    
+    /**
+     * Report is only visible to those players who can see the subject. Note:
+     * Not used at this time, since all reports are considered
+     * &lt;code&gt;obscured&lt;/code&gt; unless explicitly marked &lt;code&gt;public&lt;/code&gt;.
+     */
+    public static final int HIDDEN = 2;
+    
+    /** Testing only - remove me later. */
+    public static final int TESTING = 3;
+    
+    /**
+     * Messages which should be sent only to the player indicated by &quot;player&quot;
+     */
+    public static final int PLAYER = 4;
+
+    /**
+     * The string that appears in the report to obscure certain information.
+     */
+    public static final String OBSCURED_STRING = &quot;????&quot;;
+
+    /** Number of spaces to use per indentation level. */
+    private static final int DEFAULT_INDENTATION = 4;
+    
+    /** Required - associates this object with its text. */
+<span class="nc" id="L107">    public int messageId = Report.MESSAGE_NONE;</span>
+    
+    /** The number of spaces this report should be indented. */
+<span class="nc" id="L110">    private int indentation = 0;</span>
+
+    /**
+     * The number of newlines to add at the end of this report. Defaults to one.
+     */
+<span class="nc" id="L115">    public int newlines = 1;</span>
+
+    /** The data values to fill in the report with. */
+<span class="nc" id="L118">    private Vector&lt;String&gt; tagData = new Vector&lt;String&gt;();</span>
+
+    /** How to translate the tagData or not at all. */
+<span class="nc" id="L121">    private String tagTranslate = null;</span>
+
+    /**
+     * How this report is handled when double-blind play is in effect. See
+     * constants below for more details.
+     */
+<span class="nc" id="L127">    public transient int type = Report.HIDDEN;</span>
+
+    /**
+     * The entity this report concerns, if applicable. If this is left blank,
+     * then the report will be considered &lt;code&gt;public&lt;/code&gt;.
+     */
+<span class="nc" id="L133">    public transient int subject = Entity.NONE;</span>
+    
+    /**
+     * The player this report concerns, if applicable. This should be filled in
+     * if this report is not public and still does not belong to a specific
+     * visible entity
+     */
+<span class="nc" id="L140">    public transient int player = IPlayer.PLAYER_NONE;</span>
+
+    /**
+     * This hash table will store the tagData Vector indexes that are supposed
+     * to be obscured before sending to clients. This only applies when the
+     * report type is &quot;obscured&quot;.
+     */
+<span class="nc" id="L147">    private Hashtable&lt;Integer, Boolean&gt; obscuredIndexes = </span>
+            new Hashtable&lt;Integer, Boolean&gt;();
+
+    /**
+     * Vector to store the player names of those who received an obscured
+     * version of this report. Used to reconstruct individual client's reports
+     * from the master copy stored by the server.
+     */
+<span class="nc" id="L155">    private Vector&lt;String&gt; obscuredRecipients = new Vector&lt;String&gt;();</span>
+
+    /** Keep track of what data we have already substituted for tags. */
+<span class="nc" id="L158">    private transient int tagCounter = 0;</span>
+
+    /** bool for determining when code should be used to show image. */
+<span class="nc" id="L161">    private transient boolean showImage = false;</span>
+
+    /** string to add to reports to show sprites **/
+<span class="nc" id="L164">    private String imageCode = &quot;&quot;;</span>
+
+    /**
+     * Default constructor, note that using this means the
+     * &lt;code&gt;messageId&lt;/code&gt; field must be explicitly set.
+     */
+<span class="nc" id="L170">    public Report() {</span>
+<span class="nc" id="L171">    }</span>
+
+    /**
+     * Create a new report associated with the given report text.
+     *
+     * @param id the int value of the report from &lt;i&gt;report-messages.properties
+     * &lt;/i&gt;
+     */
+<span class="nc" id="L179">    public Report(int id) {</span>
+<span class="nc" id="L180">        messageId = id;</span>
+<span class="nc" id="L181">    }</span>
+
+    /**
+     * Create a new report associated with the given report text and having the
+     * given type.
+     *
+     * @param id the int value of the report from &lt;i&gt;report-messages.properties
+     *  &lt;/i&gt;
+     * @param type the constant specifying the visibility of the report (PUBLIC,
+     *            OBSCURED, or HIDDEN)
+     */
+<span class="nc" id="L192">    public Report(int id, int type) {</span>
+<span class="nc" id="L193">        messageId = id;</span>
+<span class="nc" id="L194">        this.type = type;</span>
+<span class="nc" id="L195">    }</span>
+
+    /**
+     * Create a new report which is an exact copy of the given report.
+     *
+     * @param r the report to be copied
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L203">    public Report(Report r) {</span>
+<span class="nc" id="L204">        messageId = r.messageId;</span>
+<span class="nc" id="L205">        indentation = r.indentation;</span>
+<span class="nc" id="L206">        newlines = r.newlines;</span>
+<span class="nc" id="L207">        tagData = (Vector&lt;String&gt;) r.tagData.clone();</span>
+<span class="nc" id="L208">        tagTranslate = r.tagTranslate;</span>
+<span class="nc" id="L209">        type = r.type;</span>
+<span class="nc" id="L210">        subject = r.subject;</span>
+<span class="nc" id="L211">        obscuredIndexes = (Hashtable&lt;Integer, Boolean&gt;) r.obscuredIndexes</span>
+<span class="nc" id="L212">                .clone();</span>
+<span class="nc" id="L213">        obscuredRecipients = (Vector&lt;String&gt;) r.obscuredRecipients.clone();</span>
+<span class="nc" id="L214">        tagCounter = r.tagCounter;</span>
+<span class="nc" id="L215">    }</span>
+
+    /**
+     * Add the given int to the list of data that will be substituted for the
+     * &amp;lt;data&amp;gt; tags in the report. The order in which items are added must
+     * match the order of the tags in the report text.
+     *
+     * @param data the int to be substituted
+     */
+    public void add(int data) {
+<span class="nc" id="L225">        add(data, true);</span>
+<span class="nc" id="L226">    }</span>
+
+    /**
+     * Add the given int to the list of data that will be substituted for the
+     * &amp;lt;data&amp;gt; tags in the report, and mark it as double-blind sensitive
+     * information if &lt;code&gt;obscure&lt;/code&gt; is true. The order in which items
+     * are added must match the order of the tags in the report text.
+     *
+     * @param data the int to be substituted
+     * @param obscure boolean indicating whether the data is double-blind
+     *            sensitive
+     */
+    public void add(int data, boolean obscure) {
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (obscure) {</span>
+<span class="nc" id="L240">            obscuredIndexes.put(Integer.valueOf(tagData.size()),</span>
+<span class="nc" id="L241">                    Boolean.valueOf(true));</span>
+        }
+<span class="nc" id="L243">        tagData.addElement(String.valueOf(data));</span>
+<span class="nc" id="L244">    }</span>
+
+    /**
+     * Add the given String to the list of data that will be substituted for the
+     * &amp;lt;data&amp;gt; tags in the report. The order in which items are added must
+     * match the order of the tags in the report text.
+     *
+     * @param data the String to be substituted
+     */
+    public void add(String data) {
+<span class="nc" id="L254">        add(data, true);</span>
+<span class="nc" id="L255">        tagTranslate = null;</span>
+<span class="nc" id="L256">    }</span>
+
+    /**
+     * Add the given string to the list of data that will be substituted for the
+     * &amp;lt;data&amp;gt; tags in the report. The order in which items are added must
+     * match the order of the tags in the report text. The second string
+     * argument sets the translation flag to the string value.
+     *
+     * @param data the String to be substituted
+     * @param translate the common Resource Bundle to be used for translation
+     */
+    public void add(String data, String translate) {
+<span class="nc" id="L268">        add(data, true);</span>
+<span class="nc" id="L269">        tagTranslate = translate;</span>
+<span class="nc" id="L270">    }</span>
+
+    /**
+     * Add the given String to the list of data that will be substituted for the
+     * &amp;lt;data&amp;gt; tags in the report, and mark it as double-blind sensitive
+     * information if &lt;code&gt;obscure&lt;/code&gt; is true. The order in which items
+     * are added must match the order of the tags in the report text.
+     *
+     * @param data the String to be substituted
+     * @param obscure boolean indicating whether the data is double-blind
+     *            sensitive
+     */
+    public void add(String data, boolean obscure) {
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        if (obscure) {</span>
+<span class="nc" id="L284">            obscuredIndexes.put(Integer.valueOf(tagData.size()),</span>
+<span class="nc" id="L285">                    Boolean.valueOf(true));</span>
+        }
+<span class="nc" id="L287">        tagData.addElement(data);</span>
+<span class="nc" id="L288">    }</span>
+
+    /**
+     * Indicate which of two possible messages should be substituted for the
+     * &lt;code&gt;&amp;lt;msg:&lt;i&gt;n&lt;/i&gt;,&lt;i&gt;m&lt;/i&gt;&amp;gt; tag.  An argument of
+     * &lt;code&gt;true&lt;/code&gt; would select message &lt;i&gt;n&lt;/i&gt; while an
+     * argument of &lt;code&gt;false&lt;/code&gt; would select &lt;i&gt;m&lt;/i&gt;.  In the
+     * future, this capability may be expanded to support more than
+     * two choices.
+     *
+     * @param choice boolean indicating which message to substitute
+     */
+    public void choose(boolean choice) {
+<span class="nc" id="L301">        tagData.addElement(String.valueOf(choice));</span>
+<span class="nc" id="L302">    }</span>
+
+    /**
+     * Shortcut method for adding entity name and owner data at the same time.
+     * Assumes that the entity name should be obscured, but the owner should
+     * not.
+     *
+     * @param entity the entity you wish to add
+     */
+    public void addDesc(Entity entity) {
+<span class="nc bnc" id="L312" title="All 2 branches missed.">        if (entity != null) {</span>
+<span class="nc bnc" id="L313" title="All 4 branches missed.">            if ((indentation &lt;= Report.DEFAULT_INDENTATION) || showImage) {</span>
+<span class="nc" id="L314">                imageCode = &quot;&lt;span id='&quot; + entity.getId() + &quot;'&gt;&lt;/span&gt;&quot;;</span>
+            }
+<span class="nc" id="L316">            add(&quot;&lt;font color='0xffffff'&gt;&lt;a href=\&quot;#entity:&quot; + entity.getId()</span>
+<span class="nc" id="L317">                    + &quot;\&quot;&gt;&quot; + entity.getShortName() + &quot;&lt;/a&gt;&lt;/font&gt;&quot;, true);</span>
+<span class="nc" id="L318">            add(&quot;&lt;B&gt;&lt;font color='&quot; + entity.getOwner().getColour().getHexString(0x00F0F0F0) + &quot;'&gt;&quot;</span>
+<span class="nc" id="L319">                    + entity.getOwner().getName() + &quot;&lt;/font&gt;&lt;/B&gt;&quot;);</span>
+        }
+<span class="nc" id="L321">    }</span>
+
+    /**
+     * Manually Toggle if the report should show an image of the entity
+    */
+    public void setShowImage(boolean showImage){
+<span class="nc" id="L327">        this.showImage = showImage;</span>
+<span class="nc" id="L328">    }</span>
+
+    /**
+     * Internal method. Not for typical use.
+     * &lt;p&gt;
+     * Tests wheter the data value at the given index has been marked as
+     * obscured.
+     *
+     * @param index position of data value (indexes are chronological and start
+     *            at zero)
+     * @return true if the data value was marked obscured
+     */
+    public boolean isValueObscured(int index) {
+<span class="nc bnc" id="L341" title="All 2 branches missed.">        if (obscuredIndexes.get(Integer.valueOf(index)) == null) {</span>
+<span class="nc" id="L342">            return false;</span>
+        }
+<span class="nc" id="L344">        return true;</span>
+    }
+
+    /**
+     * Internal method. Not for typical use.
+     * &lt;p&gt;
+     * Remove the data value from the report. This operation is irreversible.
+     *
+     * @param index position of data value (indexes are chronological and start
+     *            at zero
+     */
+    public void hideData(int index) {
+<span class="nc" id="L356">        tagData.setElementAt(null, index);</span>
+<span class="nc" id="L357">    }</span>
+
+    /**
+     * Indent the report.
+     */
+    public void indent() {
+<span class="nc" id="L363">        indent(1);</span>
+<span class="nc" id="L364">    }</span>
+
+    /**
+     * Indent the report &lt;i&gt;n&lt;/i&gt; times.
+     *
+     * @param n the number of times to indent the report
+     */
+    public void indent(int n) {
+<span class="nc" id="L372">        indentation += (n * Report.DEFAULT_INDENTATION);</span>
+<span class="nc" id="L373">    }</span>
+
+    /**
+     * Internal method. Not for typical use.
+     * &lt;p&gt;
+     * Get the total number of data values associated with this report. Note
+     * that this includes the &lt;code&gt;true/false&lt;/code&gt; values added for
+     * &amp;lt;msg&amp;gt; tags as well.
+     *
+     * @return the number of data values
+     */
+    public int dataCount() {
+<span class="nc" id="L385">        return tagData.size();</span>
+    }
+
+    private String getTag() {
+<span class="nc" id="L389">        return getTag(tagCounter);</span>
+    }
+
+    private String getTag(int index) {
+        try {
+<span class="nc" id="L394">            String value = tagData.elementAt(index);</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">            if (value == null) {</span>
+<span class="nc" id="L396">                return Report.OBSCURED_STRING;</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">            } else if (tagTranslate != null) {</span>
+                // Each common Resource Bundle is found below
+<span class="nc bnc" id="L399" title="All 2 branches missed.">                if (tagTranslate.equals(&quot;Messages&quot;)) {</span>
+<span class="nc" id="L400">                    return Messages.getString(value);</span>
+                // Others ifs will be here.
+                }
+            }
+<span class="nc" id="L404">            return value;</span>
+<span class="nc" id="L405">        } catch (ArrayIndexOutOfBoundsException e) {</span>
+<span class="nc" id="L406">            System.out.println(&quot;Error: Report#getText --&gt; Array Index out of &quot;</span>
+                    + &quot;Bounds Exception (index: &quot; + index
+                    + &quot;) for a report with ID &quot; + messageId
+                    + &quot;.  Maybe Report#add wasn't called enough &quot;
+                    + &quot;times for the amount of tags in the message?&quot;);
+<span class="nc" id="L411">            return &quot;[Reporting Error: see megameklog.txt for details]&quot;;</span>
+        }
+    }
+
+    /**
+     * Get the report in its final form, with all the necessary substitutions
+     * made.
+     *
+     * @return a String with the final report
+     */
+    public String getText() {
+        // The raw text of the message, with tags.
+<span class="nc" id="L423">        String raw = ReportMessages.getString(String.valueOf(messageId));</span>
+
+        // This will be the finished product, with data substituted for tags.
+<span class="nc" id="L426">        StringBuffer text = new StringBuffer();</span>
+
+<span class="nc bnc" id="L428" title="All 2 branches missed.">        if (raw == null) {</span>
+            // Should we handle this better? Check alternate language files?
+<span class="nc" id="L430">            System.out.println(&quot;Error: No message found for ID &quot;</span>
+                    + messageId);
+<span class="nc" id="L432">            text.append(&quot;[Reporting Error for message ID &quot;).append(</span>
+<span class="nc" id="L433">                    messageId).append(&quot;]&quot;);</span>
+        } else {
+<span class="nc" id="L435">            int i = 0;</span>
+<span class="nc" id="L436">            int mark = 0;</span>
+<span class="nc bnc" id="L437" title="All 2 branches missed.">            while (i &lt; raw.length()) {</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">                if (raw.charAt(i) == '&lt;') {</span>
+                    // find end of tag
+<span class="nc" id="L440">                    int endTagIdx = raw.indexOf('&gt;', i);</span>
+<span class="nc bnc" id="L441" title="All 2 branches missed.">                    if ((raw.indexOf('&lt;', i + 1) != -1)</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">                            &amp;&amp; (raw.indexOf('&lt;', i + 1) &lt; endTagIdx)) {</span>
+                        // hmm...this must be a literal '&lt;' character
+<span class="nc" id="L444">                        i++;</span>
+<span class="nc" id="L445">                        continue;</span>
+                    }
+                    // copy the preceeding characters into the buffer
+<span class="nc" id="L448">                    text.append(raw.substring(mark, i));</span>
+<span class="nc bnc" id="L449" title="All 2 branches missed.">                    if (raw.substring(i + 1, endTagIdx).equals(&quot;data&quot;)) {</span>
+<span class="nc" id="L450">                        text.append(getTag());</span>
+                        // System.out.println(&quot;Report--&gt;getText(): &quot; +
+                        // this.tagData.elementAt(this.tagCounter));
+<span class="nc" id="L453">                        tagCounter++;</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">                    } else if (raw.substring(i + 1, endTagIdx).equals(&quot;list&quot;)) {</span>
+<span class="nc bnc" id="L455" title="All 2 branches missed.">                        for (int j = tagCounter; j &lt; tagData.size(); j++) {</span>
+<span class="nc" id="L456">                            text.append(getTag(j)).append(&quot;, &quot;);</span>
+                        }
+<span class="nc" id="L458">                        text.setLength(text.length() - 2); // trim last comma</span>
+<span class="nc bnc" id="L459" title="All 2 branches missed.">                    } else if (raw.substring(i + 1, endTagIdx).startsWith(</span>
+                            &quot;msg:&quot;)) {
+<span class="nc" id="L461">                        boolean selector = Boolean.valueOf(getTag())</span>
+<span class="nc" id="L462">                                .booleanValue();</span>
+<span class="nc bnc" id="L463" title="All 2 branches missed.">                        if (selector) {</span>
+<span class="nc" id="L464">                            text.append(ReportMessages.getString(raw.substring(</span>
+<span class="nc" id="L465">                                    i + 5, raw.indexOf(',', i))));</span>
+                        } else {
+<span class="nc" id="L467">                            text.append(ReportMessages.getString(raw.substring(</span>
+<span class="nc" id="L468">                                    raw.indexOf(',', i) + 1, endTagIdx)));</span>
+                        }
+<span class="nc" id="L470">                        tagCounter++;</span>
+<span class="nc" id="L471">                    } else if (raw.substring(i + 1, endTagIdx)</span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">                            .equals(&quot;newline&quot;)) {</span>
+<span class="nc" id="L473">                        text.append(&quot;\n&quot;);</span>
+                    } else {
+                        // not a special tag, so treat as literal text
+<span class="nc" id="L476">                        text.append(raw.substring(i, endTagIdx + 1));</span>
+                    }
+<span class="nc" id="L478">                    mark = endTagIdx + 1;</span>
+<span class="nc" id="L479">                    i = endTagIdx;</span>
+                }
+<span class="nc" id="L481">                i++;</span>
+            }
+            //add the sprite code at the beginning of the line
+<span class="nc bnc" id="L484" title="All 4 branches missed.">            if (imageCode != null &amp;&amp; !imageCode.isEmpty()) {</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">                if (text.toString().startsWith(&quot;\n&quot;)) {</span>
+<span class="nc" id="L486">                    text.insert(1, imageCode);</span>
+                }
+                else {
+<span class="nc" id="L489">                    text.insert(0, imageCode);</span>
+                }
+            }
+<span class="nc" id="L492">            text.append(raw.substring(mark));</span>
+<span class="nc" id="L493">            handleIndentation(text);</span>
+<span class="nc" id="L494">            text.append(getNewlines());</span>
+        }
+<span class="nc" id="L496">        tagCounter = 0;</span>
+        // debugReport
+<span class="nc bnc" id="L498" title="All 2 branches missed.">        if (type == Report.TESTING) {</span>
+<span class="nc" id="L499">            Report.mark(text);</span>
+        }
+<span class="nc" id="L501">        return text.toString();</span>
+    }
+
+    private void handleIndentation(StringBuffer sb) {
+<span class="nc bnc" id="L505" title="All 4 branches missed.">        if ((indentation == 0) || (sb.length() == 0)) {</span>
+<span class="nc" id="L506">            return;</span>
+        }
+<span class="nc" id="L508">        int i = 0;</span>
+<span class="nc bnc" id="L509" title="All 2 branches missed.">        while (sb.substring(i, i+4).equals(&quot;\n&quot;)) {</span>
+<span class="nc" id="L510">            i+=4;</span>
+<span class="nc bnc" id="L511" title="All 2 branches missed.">            if (i == sb.length()) {</span>
+<span class="nc" id="L512">                continue;</span>
+            }
+        }
+<span class="nc" id="L515">        sb.insert(i, getSpaces());</span>
+<span class="nc" id="L516">    }</span>
+
+    private String getSpaces() {
+<span class="nc" id="L519">        StringBuffer spaces = new StringBuffer();</span>
+<span class="nc bnc" id="L520" title="All 2 branches missed.">        for (int i = 0; i &lt; indentation; i++) {</span>
+<span class="nc" id="L521">            spaces.append(&quot;&amp;nbsp;&quot;);</span>
+        }
+<span class="nc" id="L523">        return spaces.toString();</span>
+    }
+
+    private String getNewlines() {
+<span class="nc" id="L527">        StringBuffer sbNewlines = new StringBuffer();</span>
+<span class="nc bnc" id="L528" title="All 2 branches missed.">        for (int i = 0; i &lt; newlines; i++) {</span>
+<span class="nc" id="L529">            sbNewlines.append(&quot;\n&quot;);</span>
+        }
+<span class="nc" id="L531">        return sbNewlines.toString();</span>
+    }
+
+    /**
+     * Adds a newline to the last report in the given Vector.
+     *
+     * @param v a Vector of Report objects
+     */
+    public static void addNewline(Vector&lt;Report&gt; v) {
+        try {
+<span class="nc" id="L541">            v.elementAt(v.size() - 1).newlines++;</span>
+        }
+<span class="nc" id="L543">        catch (ArrayIndexOutOfBoundsException ex) {</span>
+<span class="nc" id="L544">            System.err.println(&quot;Report.addNewline failed, array index out &quot; +</span>
+                    &quot;of bounds&quot;);
+<span class="nc" id="L546">        }</span>
+<span class="nc" id="L547">    }</span>
+
+    /**
+     * Internal method. Not for typical use.
+     * &lt;p&gt;
+     * Adds the given player name to the report's list of players who received
+     * an obscured version of this report from the server at some time in the
+     * past.
+     *
+     * @param playerName the String containing the player's name
+     */
+    public void addObscuredRecipient(String playerName) {
+<span class="nc" id="L559">        obscuredRecipients.addElement(playerName);</span>
+<span class="nc" id="L560">    }</span>
+
+    /**
+     * Internal method. Not for typical use.
+     * &lt;p&gt;
+     * Tests whether the given player name is on the report's list of players
+     * who received an obscured version of this report from the server at some
+     * time in the past.
+     *
+     * @param playerName the String containing the player's name
+     * @return true if the player was sent an obscured version of this report
+     */
+    public boolean isObscuredRecipient(String playerName) {
+<span class="nc bnc" id="L573" title="All 2 branches missed.">        for (int i = 0; i &lt; obscuredRecipients.size(); i++) {</span>
+<span class="nc" id="L574">            String s = obscuredRecipients.elementAt(i);</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">            if (s.equals(playerName)) {</span>
+<span class="nc" id="L576">                return true;</span>
+            }
+        }
+<span class="nc" id="L579">        return false;</span>
+    }
+
+    /**
+     * Useful for debugging purposes.
+     *
+     * @return a String of the form &quot;Report(messageId=n)&quot;
+     */
+    @Override
+    public String toString() {
+<span class="nc" id="L589">        String val = new String();</span>
+<span class="nc" id="L590">        val = &quot;Report(messageId=&quot;;</span>
+<span class="nc" id="L591">        val += messageId;</span>
+<span class="nc" id="L592">        val += &quot;)&quot;;</span>
+<span class="nc" id="L593">        return val;</span>
+    }
+
+    /**
+     * DEBUG method - do not use
+     */
+    // debugReport method
+    public void markForTesting() {
+<span class="nc" id="L601">        type = Report.TESTING;</span>
+<span class="nc" id="L602">    }</span>
+
+    // debugReport method
+    private static StringBuffer mark(StringBuffer sb) {
+<span class="nc" id="L606">        sb.insert(0, &quot;&lt;hidden&gt;&quot;);</span>
+<span class="nc" id="L607">        int i = sb.length() - 1;</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">        while (sb.charAt(i) == '\n') {</span>
+<span class="nc" id="L609">            i--;</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">            if (i == 0) {</span>
+<span class="nc" id="L611">                continue;</span>
+            }
+        }
+<span class="nc" id="L614">        sb.insert(i + 1, &quot;&lt;/hidden&gt;&quot;);</span>
+<span class="nc" id="L615">        return sb;</span>
+    }
+
+    public static void indentAll(Vector&lt;Report&gt; vDesc, int amount) {
+        // Just avoid an error condition.
+<span class="nc bnc" id="L620" title="All 2 branches missed.">        if (vDesc == null) {</span>
+<span class="nc" id="L621">            return;</span>
+        }
+
+<span class="nc" id="L624">        Enumeration&lt;Report&gt; x = vDesc.elements();</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">        while (x.hasMoreElements()) {</span>
+<span class="nc" id="L626">            Report r = x.nextElement();</span>
+<span class="nc" id="L627">            r.indent(amount);</span>
+<span class="nc" id="L628">        }</span>
+<span class="nc" id="L629">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

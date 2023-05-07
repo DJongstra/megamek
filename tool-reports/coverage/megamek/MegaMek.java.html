@@ -1,0 +1,837 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MegaMek.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek</a> &gt; <span class="el_source">MegaMek.java</span></div><h1>MegaMek.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2005, 2006 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek;
+
+import java.io.*;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.text.NumberFormat;
+import java.time.LocalDate;
+import java.util.Date;
+import java.util.Properties;
+import java.util.Vector;
+
+import megamek.client.ui.IMegaMekGUI;
+import megamek.client.ui.swing.ButtonOrderPreferences;
+import megamek.common.Aero;
+import megamek.common.AlphaStrikeElement;
+import megamek.common.BattleArmor;
+import megamek.common.BattleForceElement;
+import megamek.common.Configuration;
+import megamek.common.Entity;
+import megamek.common.GunEmplacement;
+import megamek.common.Mech;
+import megamek.common.MechFileParser;
+import megamek.common.MechSummary;
+import megamek.common.MechSummaryCache;
+import megamek.common.MechView;
+import megamek.common.Tank;
+import megamek.common.TechConstants;
+import megamek.common.annotations.Nullable;
+import megamek.common.logging.DefaultMmLogger;
+import megamek.common.logging.LogConfig;
+import megamek.common.logging.MMLogger;
+import megamek.common.preference.PreferenceManager;
+import megamek.common.util.AbstractCommandLineParser;
+import megamek.common.util.fileUtils.MegaMekFile;
+import megamek.common.verifier.EntityVerifier;
+import megamek.common.verifier.TestAero;
+import megamek.common.verifier.TestBattleArmor;
+import megamek.common.verifier.TestEntity;
+import megamek.common.verifier.TestMech;
+import megamek.common.verifier.TestSupportVehicle;
+import megamek.common.verifier.TestTank;
+import megamek.server.DedicatedServer;
+import megamek.utils.RATGeneratorEditor;
+
+/**
+ * @author mev This is the class where the execution of the megamek game starts.
+ */
+<span class="nc" id="L63">public class MegaMek {</span>
+<span class="nc" id="L64">    private static MMLogger logger = null;</span>
+
+<span class="nc" id="L66">    public static String VERSION = &quot;0.48.0&quot;;</span>
+<span class="nc" id="L67">    public static long TIMESTAMP = new File(PreferenceManager.getClientPreferences().getLogDirectory()</span>
+<span class="nc" id="L68">            + File.separator + &quot;timestamp&quot;).lastModified();</span>
+
+<span class="nc" id="L70">    private static final NumberFormat commafy = NumberFormat.getInstance();</span>
+    private static final String INCORRECT_ARGUMENTS_MESSAGE = &quot;Incorrect arguments:&quot;;
+    private static final String ARGUMENTS_DESCRIPTION_MESSAGE = &quot;Arguments syntax:\n\t MegaMek &quot;
+            + &quot;[-log &lt;logfile&gt;] [(-gui &lt;guiname&gt;)|(-dedicated)|(-validate)|(-export)|(-eqdb)|&quot;
+            + &quot;(-eqedb) (-oul)] [&lt;args&gt;]&quot;;
+    private static final String UNKNOWN_GUI_MESSAGE = &quot;Unknown GUI:&quot;;
+    private static final String GUI_CLASS_NOT_FOUND_MESSAGE = &quot;Couldn't find the GUI Class:&quot;;
+    public static final String DEFAULT_LOG_FILE_NAME = &quot;megameklog.txt&quot;;
+
+    public static void main(String[] args) {
+<span class="nc" id="L80">        String logFileName = DEFAULT_LOG_FILE_NAME;</span>
+<span class="nc" id="L81">        CommandLineParser cp = new CommandLineParser(args);</span>
+
+        try {
+<span class="nc" id="L84">            cp.parse();</span>
+<span class="nc" id="L85">            String lf = cp.getLogFilename();</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">            if (lf != null) {</span>
+<span class="nc bnc" id="L87" title="All 4 branches missed.">                if (lf.equals(&quot;none&quot;) || lf.equals(&quot;off&quot;)) {</span>
+<span class="nc" id="L88">                    logFileName = null;</span>
+                } else {
+<span class="nc" id="L90">                    logFileName = lf;</span>
+                }
+            }
+
+<span class="nc" id="L94">            configureLogging(logFileName);</span>
+
+<span class="nc" id="L96">            MegaMek.showInfo();</span>
+
+<span class="nc" id="L98">            String[] restArgs = cp.getRestArgs();</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">            if (cp.dedicatedServer()) {</span>
+<span class="nc" id="L100">                MegaMek.startDedicatedServer(restArgs);</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">            } else if (cp.ratGenEditor()) {</span>
+<span class="nc" id="L102">                RATGeneratorEditor.main(restArgs);</span>
+            } else {
+                // Load button ordering
+<span class="nc" id="L105">                ButtonOrderPreferences.getInstance().setButtonPriorities();</span>
+
+<span class="nc" id="L107">                String interfaceName = cp.getGuiName();</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">                if (interfaceName == null) {</span>
+<span class="nc" id="L109">                    interfaceName = PreferenceManager.getClientPreferences().getGUIName();</span>
+                }
+<span class="nc" id="L111">                MegaMek.startGUI(interfaceName, restArgs);</span>
+            }
+<span class="nc" id="L113">        } catch (CommandLineParser.ParseException e) {</span>
+<span class="nc" id="L114">            String message = INCORRECT_ARGUMENTS_MESSAGE + e.getMessage() + '\n'</span>
+                    + ARGUMENTS_DESCRIPTION_MESSAGE;
+<span class="nc" id="L116">            getLogger().fatal(message);</span>
+<span class="nc" id="L117">            System.exit(1);</span>
+<span class="nc" id="L118">        }</span>
+<span class="nc" id="L119">    }</span>
+
+    private static void configureLegacyLogging(@Nullable final String logFileName) {
+        // Redirect output to log files, unless turned off.
+<span class="nc bnc" id="L123" title="All 2 branches missed.">        if (logFileName == null) {</span>
+<span class="nc" id="L124">            return;</span>
+        }
+<span class="nc" id="L126">        MegaMek.redirectOutput(logFileName);</span>
+<span class="nc" id="L127">    }</span>
+
+    private static void configureLog4j(@Nullable final String logFileName) {
+<span class="nc bnc" id="L130" title="All 2 branches missed.">        if (null == logFileName) {</span>
+<span class="nc" id="L131">            LogConfig.getInstance().disableAll();</span>
+<span class="nc" id="L132">            return;</span>
+        }
+<span class="nc" id="L134">        LogConfig.getInstance().enableSimplifiedLogging();</span>
+<span class="nc" id="L135">    }</span>
+
+    /**
+     * This needs to be done as we are currently using two different loggers.
+     * Both loggers must be set to append in order to prevent them from over-
+     * writing each other.  So, in order to get a clean log file each run,
+     * the existing log file must be cleared.
+     * &lt;p&gt;Alternatively, consider rolling the log file over instead.&lt;/p&gt;
+     * If we ever manage to completely get rid of the legacy logger, we can
+     * get rid of this method.
+     *
+     * @param logFileName The name of the log file to reset.
+     */
+    public static void resetLogFile(@Nullable final String logFileName) {
+<span class="nc bnc" id="L149" title="All 2 branches missed.">        if (null == logFileName) {</span>
+<span class="nc" id="L150">            return;</span>
+        }
+<span class="nc" id="L152">        File file = new File(logFileName);</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (file.exists()) {</span>
+<span class="nc" id="L154">            try (PrintWriter writer = new PrintWriter(file)) {</span>
+<span class="nc" id="L155">                writer.print(&quot;&quot;);</span>
+<span class="nc" id="L156">            } catch (FileNotFoundException e) {</span>
+<span class="nc" id="L157">                getLogger().error(e);</span>
+<span class="nc" id="L158">            }</span>
+        }
+<span class="nc" id="L160">    }</span>
+
+    private static void configureLogging(@Nullable final String logFileName) {
+<span class="nc" id="L163">        final String qualifiedLogFilename = PreferenceManager.getClientPreferences().getLogDirectory()</span>
+                + File.separator + logFileName;
+<span class="nc" id="L165">        resetLogFile(qualifiedLogFilename);</span>
+<span class="nc" id="L166">        configureLegacyLogging(logFileName);</span>
+<span class="nc" id="L167">        configureLog4j(logFileName);</span>
+<span class="nc" id="L168">    }</span>
+
+    /**
+     * @param logger The logger to be used.
+     */
+    public static void setLogger(final MMLogger logger) {
+<span class="nc" id="L174">        MegaMek.logger = logger;</span>
+<span class="nc" id="L175">    }</span>
+
+    /**
+     * @return The logger that will handle log file output.  Will return the
+     * {@link DefaultMmLogger} if a different logger has not been set.
+     */
+    public static MMLogger getLogger() {
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (null == logger) {</span>
+<span class="nc" id="L183">            logger = DefaultMmLogger.getInstance();</span>
+        }
+<span class="nc" id="L185">        return logger;</span>
+    }
+
+    /**
+     * Calculates the SHA-256 hash of the MegaMek.jar file
+     * Used primarily for purposes of checksum comparison when
+     * connecting a new client.
+     * @return String representing the SHA-256 hash
+     */
+    public static String getMegaMekSHA256() {
+<span class="nc" id="L195">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L196">        byte[] buffer = new byte[8192];</span>
+
+        // Assume UNIX/Linux, which has the jar in the root folder
+<span class="nc" id="L199">        String filename = &quot;MegaMek.jar&quot;;</span>
+        // If it isn't UNIX/Linux, maybe it's Windows where we've stashed it in the lib folder
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        if (new File(&quot;lib/&quot; + filename).exists()) {</span>
+<span class="nc" id="L202">            filename = &quot;lib/&quot; + filename;</span>
+            // And if it isn't either UNIX/Linux or Windows it's got to be Mac, where it's buried inside the app
+<span class="nc bnc" id="L204" title="All 2 branches missed.">        } else if (new File(&quot;MegaMek.app/Contents/Resources/Java/&quot; + filename).exists()) {</span>
+<span class="nc" id="L205">            filename = &quot;MegaMek.app/Contents/Resources/Java/&quot; + filename;</span>
+        }
+
+        MessageDigest md;
+        // Calculate the digest for the given file.
+        try {
+<span class="nc" id="L211">            md = MessageDigest.getInstance(&quot;SHA-256&quot;);</span>
+<span class="nc" id="L212">        } catch (NoSuchAlgorithmException e) {</span>
+<span class="nc" id="L213">            getLogger().error(e);</span>
+<span class="nc" id="L214">            return null;</span>
+<span class="nc" id="L215">        }</span>
+<span class="nc" id="L216">        try (InputStream is = new FileInputStream(filename);</span>
+<span class="nc" id="L217">             InputStream dis = new DigestInputStream(is, md)) {</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">            while (0 &lt; dis.read(buffer)) { }</span>
+            // gets digest
+<span class="nc" id="L220">            byte[] digest = md.digest();</span>
+            // convert the byte to hex format
+<span class="nc bnc" id="L222" title="All 2 branches missed.">            for (byte d : digest) {</span>
+<span class="nc" id="L223">                sb.append(String.format(&quot;%02x&quot;, d));</span>
+            }
+<span class="nc" id="L225">        } catch (IOException e) {</span>
+<span class="nc" id="L226">            getLogger().error(e);</span>
+<span class="nc" id="L227">            return null;</span>
+<span class="nc" id="L228">        }</span>
+<span class="nc" id="L229">        return sb.toString();</span>
+    }
+
+    /**
+     * This function returns the memory used in the heap (heap memory - free
+     * memory).
+     *
+     * @return memory used in kB
+     */
+    public static String getMemoryUsed() {
+<span class="nc" id="L239">        long heap = Runtime.getRuntime().totalMemory();</span>
+<span class="nc" id="L240">        long free = Runtime.getRuntime().freeMemory();</span>
+<span class="nc" id="L241">        return commafy.format((heap - free) / 1024) + &quot; kB&quot;;</span>
+    }
+
+    /**
+     * This function redirects the standard error and output streams to the
+     * given File name.
+     *
+     * @param logFileName The file name to redirect to.
+     */
+    private static void redirectOutput(String logFileName) {
+<span class="nc" id="L251">        getLogger().info(&quot;Redirecting output to &quot; + logFileName);</span>
+<span class="nc" id="L252">        String sLogDir = PreferenceManager.getClientPreferences().getLogDirectory();</span>
+<span class="nc" id="L253">        File logDir = new File(sLogDir);</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">        if (!logDir.exists()) {</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">            if (!logDir.mkdir()) {</span>
+<span class="nc" id="L256">                getLogger().error(&quot;Error in creating directory ./logs. We know this is annoying, and apologise. &quot;</span>
+                                + &quot;Please submit a bug report at https://github.com/MegaMek/megamek/issues &quot;
+                                + &quot; and we will try to resolve your issue.&quot;);
+            }
+        }
+        try {
+<span class="nc" id="L262">            PrintStream ps = new PrintStream(</span>
+                    new BufferedOutputStream(new FileOutputStream(sLogDir
+<span class="nc" id="L264">                            + File.separator + logFileName, true) {</span>
+                        @Override
+                        public void flush() throws IOException {
+<span class="nc" id="L267">                            super.flush();</span>
+<span class="nc" id="L268">                            getFD().sync();</span>
+<span class="nc" id="L269">                        }</span>
+                    }, 64));
+<span class="nc" id="L271">            System.setOut(ps);</span>
+<span class="nc" id="L272">            System.setErr(ps);</span>
+<span class="nc" id="L273">        } catch (Exception e) {</span>
+<span class="nc" id="L274">            getLogger().error(&quot;Unable to redirect output to &quot; + logFileName, e);</span>
+<span class="nc" id="L275">        }</span>
+<span class="nc" id="L276">    }</span>
+
+    /**
+     * Starts a dedicated server with the arguments in args. See
+     * {@link megamek.server.DedicatedServer#start(String[])} for more
+     * information.
+     *
+     * @param args the arguments to the dedicated server.
+     */
+    private static void startDedicatedServer(String[] args) {
+<span class="nc" id="L286">        StringBuffer message = new StringBuffer(&quot;Starting Dedicated Server. &quot;);</span>
+<span class="nc" id="L287">        MegaMek.dumpArgs(message, args);</span>
+<span class="nc" id="L288">        getLogger().info(message.toString());</span>
+<span class="nc" id="L289">        DedicatedServer.start(args);</span>
+<span class="nc" id="L290">    }</span>
+
+    /**
+     * Attempts to start the GUI with the given name. If the GUI is unknown the
+     * program will exit.
+     *
+     * @param guiName The name of the GUI, usually AWT or swing
+     * @param args    The arguments to be passed onto the GUI.
+     */
+    private static void startGUI(String guiName, String[] args) {
+<span class="nc bnc" id="L300" title="All 2 branches missed.">        if (null == guiName) {</span>
+<span class="nc" id="L301">            getLogger().error(&quot;guiName must be non-null&quot;);</span>
+<span class="nc" id="L302">            return;</span>
+        }
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        if (null == args) {</span>
+<span class="nc" id="L305">            getLogger().error(&quot;args must be non-null&quot;);</span>
+<span class="nc" id="L306">            return;</span>
+        }
+<span class="nc" id="L308">        IMegaMekGUI mainGui = MegaMek.getGui(guiName);</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">        if (mainGui == null) {</span>
+<span class="nc" id="L310">            getLogger().fatal(UNKNOWN_GUI_MESSAGE + guiName);</span>
+<span class="nc" id="L311">            System.exit(1);</span>
+        } else {
+<span class="nc" id="L313">            StringBuffer message = new StringBuffer(&quot;Starting GUI &quot;);</span>
+<span class="nc" id="L314">            message.append(guiName).append(&quot;. &quot;);</span>
+<span class="nc" id="L315">            MegaMek.dumpArgs(message, args);</span>
+<span class="nc" id="L316">            getLogger().info(message.toString());</span>
+<span class="nc" id="L317">            mainGui.start(args);</span>
+        }
+<span class="nc" id="L319">    }</span>
+
+    /**
+     * Return the Interface to the GUI specified by the name in guiName.
+     *
+     * @param guiName the name of the GUI, will be passed on to
+     *                {@link #getGUIClassName(String)}.
+     * @return An that can start a GUI such as {@link IMegaMekGUI}.
+     */
+    @SuppressWarnings({ &quot;rawtypes&quot; })
+    private static IMegaMekGUI getGui(String guiName) {
+<span class="nc bnc" id="L330" title="All 2 branches missed.">        assert (guiName != null) : &quot;guiName must be non-null&quot;;</span>
+<span class="nc" id="L331">        String guiClassName = MegaMek.getGUIClassName(guiName);</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">        if (guiClassName != null) {</span>
+            try {
+<span class="nc" id="L334">                Class guiClass = Class.forName(guiClassName);</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">                if (IMegaMekGUI.class.isAssignableFrom(guiClass)) {</span>
+<span class="nc" id="L336">                    return (IMegaMekGUI) guiClass.newInstance();</span>
+                }
+<span class="nc" id="L338">            } catch (Exception e) {</span>
+<span class="nc" id="L339">                getLogger().info(GUI_CLASS_NOT_FOUND_MESSAGE + guiClassName);</span>
+<span class="nc" id="L340">            }</span>
+        }
+<span class="nc" id="L342">        return null;</span>
+    }
+
+    private static String getGUIClassName(String guiName) {
+<span class="nc bnc" id="L346" title="All 2 branches missed.">        assert (guiName != null) : &quot;guiName must be non-null&quot;;</span>
+<span class="nc" id="L347">        Properties p = new Properties();</span>
+<span class="nc" id="L348">        String key = &quot;gui.&quot; + guiName;</span>
+<span class="nc" id="L349">        final String PROPERTIES_FILE = &quot;megamek/MegaMek.properties&quot;;</span>
+<span class="nc" id="L350">        try (InputStream is = MegaMek.class.getClassLoader().getResourceAsStream(PROPERTIES_FILE)) {</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">            if (is != null) {</span>
+<span class="nc" id="L352">                p.load(is);</span>
+<span class="nc" id="L353">                return p.getProperty(key);</span>
+            }
+<span class="nc bnc" id="L355" title="All 2 branches missed.">        } catch (IOException e) {</span>
+<span class="nc" id="L356">            getLogger().info(&quot;Property file load failed.&quot;);</span>
+<span class="nc" id="L357">        }</span>
+<span class="nc" id="L358">        return null;</span>
+    }
+
+    /**
+     * This function appends 'args: []', to the buffer, with a space separated
+     * list of args[] elements between the brackets.
+     *
+     * @param buffer the buffer to append the list to.
+     * @param args   the array of strings to copy into a space separated list.
+     */
+    private static void dumpArgs(StringBuffer buffer, String[] args) {
+<span class="nc bnc" id="L369" title="All 2 branches missed.">        assert (buffer != null) : &quot;buffer must be non-null&quot;;</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">        assert (args != null) : &quot;args must be non-null&quot;;</span>
+<span class="nc" id="L371">        buffer.append(&quot;args: [&quot;);</span>
+<span class="nc bnc" id="L372" title="All 2 branches missed.">        for (int i = 0, e = args.length; i &lt; e; i++) {</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">            if (i != 0) {</span>
+<span class="nc" id="L374">                buffer.append(' ');</span>
+            }
+<span class="nc" id="L376">            buffer.append(args[i]);</span>
+        }
+<span class="nc" id="L378">        buffer.append(&quot;]&quot;);</span>
+<span class="nc" id="L379">    }</span>
+
+    /**
+     * Prints some information about MegaMek. Used in log files to figure out the JVM and
+     * version of MegaMek.
+     */
+    private static void showInfo() {
+        // echo some useful stuff
+<span class="nc" id="L387">        String msg = &quot;Starting MegaMek v&quot; + VERSION + &quot; ...&quot; + &quot;\n\tCompiled on &quot; +</span>
+<span class="nc" id="L388">                new Date(TIMESTAMP).toString() + &quot;\n\tToday is &quot; + LocalDate.now().toString() +</span>
+<span class="nc" id="L389">                &quot;\n\tJava vendor &quot; + System.getProperty(&quot;java.vendor&quot;) + &quot;\n\tJava version &quot;</span>
+<span class="nc" id="L390">                + System.getProperty(&quot;java.version&quot;) + &quot;\n\tPlatform &quot; + System.getProperty(&quot;os.name&quot;)</span>
+<span class="nc" id="L391">                + &quot; &quot; + System.getProperty(&quot;os.version&quot;) + &quot; (&quot; + System.getProperty(&quot;os.arch&quot;) + &quot;)&quot;</span>
+                + &quot;\n\tTotal memory available to MegaMek: &quot;
+<span class="nc" id="L393">                + MegaMek.commafy.format(Runtime.getRuntime().maxMemory() / 1024) + &quot; kB&quot;;</span>
+<span class="nc" id="L394">        getLogger().info(msg);</span>
+<span class="nc" id="L395">    }</span>
+
+    /**
+     * Returns the version of Megamek
+     *
+     * @return the version of Megamek as a string.
+     */
+    public static String getVersion() {
+<span class="nc" id="L403">        return VERSION;</span>
+    }
+
+    /**
+     * This class parses the options passed into to MegaMek from the command line.
+     */
+    private static class CommandLineParser extends AbstractCommandLineParser {
+        private String logFilename;
+        private String guiName;
+<span class="nc" id="L412">        private boolean dedicatedServer = false;</span>
+<span class="nc" id="L413">        private boolean ratGenEditor = false;</span>
+<span class="nc" id="L414">        private String[] restArgs = new String[0];</span>
+
+        // Options
+        private static final String OPTION_DEDICATED = &quot;dedicated&quot;;
+        private static final String OPTION_GUI = &quot;gui&quot;;
+        private static final String OPTION_LOG = &quot;log&quot;;
+        private static final String OPTION_EQUIPMENT_DB = &quot;eqdb&quot;;
+        private static final String OPTION_EQUIPMENT_EXTENDED_DB = &quot;eqedb&quot;;
+        private static final String OPTION_UNIT_VALIDATOR = &quot;validate&quot;;
+        private static final String OPTION_UNIT_EXPORT = &quot;export&quot;;
+        private static final String OPTION_OFFICAL_UNIT_LIST = &quot;oul&quot;;
+        private static final String OPTION_UNIT_BATTLEFORCE_CONVERSION = &quot;bfc&quot;;
+        private static final String OPTION_UNIT_ALPHASTRIKE_CONVERSION = &quot;asc&quot;;
+        private static final String OPTION_DATADIR = &quot;data&quot;;
+        private static final String OPTION_RATGEN_EDIT = &quot;editratgen&quot;;
+
+        CommandLineParser(String[] args) {
+<span class="nc" id="L431">            super(args);</span>
+<span class="nc" id="L432">        }</span>
+
+        /**
+         * Returns &lt;code&gt;true&lt;/code&gt; if the dedicated server option was found
+         *
+         * @return true iff this is a dedicated server.
+         */
+        boolean dedicatedServer() {
+<span class="nc" id="L440">            return dedicatedServer;</span>
+        }
+
+        /**
+         * Flag that indicates the option for the RAT Generator editor
+         * @return Whether the RAT Generator editor should be invoked
+         */
+        boolean ratGenEditor() {
+<span class="nc" id="L448">            return ratGenEditor;</span>
+        }
+
+        /**
+         * Returns the GUI Name option value or &lt;code&gt;null&lt;/code&gt; if it wasn't set
+         *
+         * @return GUI Name option value or &lt;code&gt;null&lt;/code&gt; if it wasn't set
+         */
+        String getGuiName() {
+<span class="nc" id="L457">            return guiName;</span>
+        }
+
+        /**
+         * Returns the log file name option value or &lt;code&gt;null&lt;/code&gt; if it wasn't set
+         *
+         * @return the log file name option value or &lt;code&gt;null&lt;/code&gt; if it wasn't set
+         */
+        String getLogFilename() {
+<span class="nc" id="L466">            return logFilename;</span>
+        }
+
+        /**
+         * Returns the the &lt;code&gt;array&lt;/code&gt; of the unprocessed arguments
+         *
+         * @return the the &lt;code&gt;array&lt;/code&gt; of the unprocessed arguments
+         */
+        String[] getRestArgs() {
+<span class="nc" id="L475">            return restArgs;</span>
+        }
+
+        @Override
+        protected void start() throws ParseException {
+<span class="nc bnc" id="L480" title="All 2 branches missed.">            if (getToken() == TOK_OPTION) {</span>
+<span class="nc" id="L481">                final String tokenVal = getTokenValue();</span>
+<span class="nc" id="L482">                nextToken();</span>
+<span class="nc bnc" id="L483" title="All 13 branches missed.">                switch (tokenVal) {</span>
+                    case OPTION_LOG:
+<span class="nc" id="L485">                        parseLog();</span>
+<span class="nc" id="L486">                        break;</span>
+                    case OPTION_EQUIPMENT_DB:
+<span class="nc" id="L488">                        processEquipmentDb();</span>
+<span class="nc" id="L489">                        break;</span>
+                    case OPTION_EQUIPMENT_EXTENDED_DB:
+<span class="nc" id="L491">                        processExtendedEquipmentDb();</span>
+<span class="nc" id="L492">                        break;</span>
+                    case OPTION_DATADIR:
+<span class="nc" id="L494">                        processDataDir();</span>
+<span class="nc" id="L495">                        break;</span>
+                    case OPTION_UNIT_VALIDATOR:
+<span class="nc" id="L497">                        processUnitValidator();</span>
+<span class="nc" id="L498">                        break;</span>
+                    case OPTION_UNIT_EXPORT:
+<span class="nc" id="L500">                        processUnitExporter();</span>
+<span class="nc" id="L501">                        break;</span>
+                    case OPTION_OFFICAL_UNIT_LIST:
+<span class="nc" id="L503">                        processUnitExporter(true);</span>
+<span class="nc" id="L504">                        break;</span>
+                    case OPTION_UNIT_BATTLEFORCE_CONVERSION:
+<span class="nc" id="L506">                        processUnitBattleForceConverter();</span>
+<span class="nc" id="L507">                        break;</span>
+                    case OPTION_UNIT_ALPHASTRIKE_CONVERSION:
+<span class="nc" id="L509">                        processUnitAlphaStrikeConverter();</span>
+<span class="nc" id="L510">                        break;</span>
+                    case OPTION_DEDICATED:
+<span class="nc" id="L512">                        dedicatedServer = true;</span>
+<span class="nc" id="L513">                        break;</span>
+                    case OPTION_GUI:
+<span class="nc" id="L515">                        parseGUI();</span>
+<span class="nc" id="L516">                        break;</span>
+                    case OPTION_RATGEN_EDIT:
+<span class="nc" id="L518">                        ratGenEditor = true;</span>
+                        break;
+                }
+            }
+<span class="nc" id="L522">            processRestOfInput();</span>
+<span class="nc bnc" id="L523" title="All 2 branches missed.">            if (getToken() != TOK_EOF) {</span>
+<span class="nc" id="L524">                throw new ParseException(&quot;unexpected input&quot;);</span>
+            }
+<span class="nc" id="L526">        }</span>
+
+        private void parseLog() throws ParseException {
+<span class="nc bnc" id="L529" title="All 2 branches missed.">            if (getToken() == TOK_LITERAL) {</span>
+<span class="nc" id="L530">                logFilename = getTokenValue();</span>
+<span class="nc" id="L531">                nextToken();</span>
+            } else {
+<span class="nc" id="L533">                throw new ParseException(&quot;log file name expected&quot;);</span>
+            }
+<span class="nc" id="L535">        }</span>
+
+        private void parseGUI() throws ParseException {
+<span class="nc bnc" id="L538" title="All 2 branches missed.">            if (getToken() == TOK_LITERAL) {</span>
+<span class="nc" id="L539">                guiName = getTokenValue();</span>
+<span class="nc" id="L540">                nextToken();</span>
+            } else {
+<span class="nc" id="L542">                throw new ParseException(&quot;GUI name expected&quot;);</span>
+            }
+<span class="nc" id="L544">        }</span>
+
+        private void processEquipmentDb() throws ParseException {
+            String filename;
+<span class="nc bnc" id="L548" title="All 2 branches missed.">            if (getToken() == TOK_LITERAL) {</span>
+<span class="nc" id="L549">                filename = getTokenValue();</span>
+<span class="nc" id="L550">                nextToken();</span>
+<span class="nc" id="L551">                megamek.common.EquipmentType.writeEquipmentDatabase(new File(filename));</span>
+            } else {
+<span class="nc" id="L553">                throw new ParseException(&quot;file name expected&quot;);</span>
+            }
+<span class="nc" id="L555">            System.exit(0);</span>
+<span class="nc" id="L556">        }</span>
+
+        private void processExtendedEquipmentDb() throws ParseException {
+            String filename;
+<span class="nc bnc" id="L560" title="All 2 branches missed.">            if (getToken() == TOK_LITERAL) {</span>
+<span class="nc" id="L561">                filename = getTokenValue();</span>
+<span class="nc" id="L562">                nextToken();</span>
+<span class="nc" id="L563">                megamek.common.EquipmentType.writeEquipmentExtendedDatabase(new File(filename));</span>
+            } else {
+<span class="nc" id="L565">                throw new ParseException(&quot;file name expected&quot;);</span>
+            }
+<span class="nc" id="L567">            System.exit(0);</span>
+<span class="nc" id="L568">        }</span>
+
+        private void processDataDir() throws ParseException {
+            String dataDirName;
+<span class="nc bnc" id="L572" title="All 2 branches missed.">            if (getToken() == TOK_LITERAL) {</span>
+<span class="nc" id="L573">                dataDirName = getTokenValue();</span>
+<span class="nc" id="L574">                nextToken();</span>
+<span class="nc" id="L575">                Configuration.setDataDir(new File(dataDirName));</span>
+            } else {
+<span class="nc" id="L577">                throw new ParseException(&quot;directory name expected&quot;);</span>
+            }
+<span class="nc" id="L579">        }</span>
+
+        private void processUnitValidator() throws ParseException {
+            String filename;
+<span class="nc bnc" id="L583" title="All 2 branches missed.">            if (getToken() == TOK_LITERAL) {</span>
+<span class="nc" id="L584">                filename = getTokenValue();</span>
+<span class="nc" id="L585">                nextToken();</span>
+<span class="nc" id="L586">                MechSummary ms = MechSummaryCache.getInstance().getMech(filename);</span>
+<span class="nc bnc" id="L587" title="All 2 branches missed.">                if (ms == null) {</span>
+<span class="nc" id="L588">                    MechSummary[] units = MechSummaryCache.getInstance().getAllMechs();</span>
+<span class="nc bnc" id="L589" title="All 2 branches missed.">                    for (MechSummary unit : units) {</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">                        if (unit.getSourceFile().getName().equalsIgnoreCase(filename)) {</span>
+<span class="nc" id="L591">                            ms = unit;</span>
+<span class="nc" id="L592">                            break;</span>
+                        }
+                    }
+                }
+
+<span class="nc bnc" id="L597" title="All 2 branches missed.">                if (ms == null) {</span>
+<span class="nc" id="L598">                    getLogger().error(new IOException(filename + &quot; not found.  Try using \&quot;chassis model\&quot; for input.&quot;));</span>
+                } else {
+                    try {
+<span class="nc" id="L601">                        Entity entity = new MechFileParser(ms.getSourceFile(),</span>
+<span class="nc" id="L602">                                ms.getEntryName()).getEntity();</span>
+<span class="nc" id="L603">                        getLogger().info(&quot;Validating Entity: &quot; + entity.getShortNameRaw());</span>
+<span class="nc" id="L604">                        EntityVerifier entityVerifier = EntityVerifier.getInstance(</span>
+<span class="nc" id="L605">                                new MegaMekFile(Configuration.unitsDir(),</span>
+<span class="nc" id="L606">                                        EntityVerifier.CONFIG_FILENAME).getFile());</span>
+<span class="nc" id="L607">                        MechView mechView = new MechView(entity, false);</span>
+<span class="nc" id="L608">                        StringBuffer sb = new StringBuffer(mechView.getMechReadout());</span>
+<span class="nc bnc" id="L609" title="All 8 branches missed.">                        if ((entity instanceof Mech) || (entity instanceof Tank)</span>
+                                || (entity instanceof Aero) || (entity instanceof BattleArmor)) {
+<span class="nc" id="L611">                            TestEntity testEntity = null;</span>
+<span class="nc bnc" id="L612" title="All 2 branches missed.">                            if (entity instanceof Mech) {</span>
+<span class="nc" id="L613">                                testEntity = new TestMech((Mech) entity, entityVerifier.mechOption,</span>
+                                        null);
+<span class="nc bnc" id="L615" title="All 4 branches missed.">                            } else if ((entity instanceof Tank) &amp;&amp; !(entity instanceof GunEmplacement)) {</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">                                if (entity.isSupportVehicle()) {</span>
+<span class="nc" id="L617">                                    testEntity = new TestSupportVehicle(entity,</span>
+                                            entityVerifier.tankOption, null);
+                                } else {
+<span class="nc" id="L620">                                    testEntity = new TestTank((Tank) entity,</span>
+                                            entityVerifier.tankOption, null);
+                                }
+<span class="nc bnc" id="L623" title="All 2 branches missed.">                            } else if ((entity.getEntityType() == Entity.ETYPE_AERO)</span>
+<span class="nc bnc" id="L624" title="All 2 branches missed.">                                    &amp;&amp; (entity.getEntityType() != Entity.ETYPE_DROPSHIP)</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">                                    &amp;&amp; (entity.getEntityType() != Entity.ETYPE_SMALL_CRAFT)</span>
+<span class="nc bnc" id="L626" title="All 2 branches missed.">                                    &amp;&amp; (entity.getEntityType() != Entity.ETYPE_FIGHTER_SQUADRON)</span>
+<span class="nc bnc" id="L627" title="All 2 branches missed.">                                    &amp;&amp; (entity.getEntityType() != Entity.ETYPE_JUMPSHIP)</span>
+<span class="nc bnc" id="L628" title="All 2 branches missed.">                                    &amp;&amp; (entity.getEntityType() != Entity.ETYPE_SPACE_STATION)) {</span>
+<span class="nc" id="L629">                                testEntity = new TestAero((Aero) entity,</span>
+                                        entityVerifier.aeroOption, null);
+<span class="nc bnc" id="L631" title="All 2 branches missed.">                            } else if (entity instanceof BattleArmor){</span>
+<span class="nc" id="L632">                                testEntity = new TestBattleArmor((BattleArmor) entity,</span>
+                                        entityVerifier.baOption, null);
+                            }
+
+<span class="nc bnc" id="L636" title="All 2 branches missed.">                            if (testEntity != null) {</span>
+<span class="nc" id="L637">                                testEntity.correctEntity(sb);</span>
+                            }
+                        }
+<span class="nc" id="L640">                        getLogger().info(sb.toString());</span>
+<span class="nc" id="L641">                    } catch (Exception ex) {</span>
+<span class="nc" id="L642">                        throw new ParseException(&quot;\&quot;chassis model\&quot; expected as input&quot;);</span>
+<span class="nc" id="L643">                    }</span>
+                }
+<span class="nc" id="L645">            } else {</span>
+<span class="nc" id="L646">                throw new ParseException(&quot;\&quot;chassis model\&quot; expected as input&quot;);</span>
+            }
+<span class="nc" id="L648">            System.exit(0);</span>
+<span class="nc" id="L649">        }</span>
+
+        private void processUnitBattleForceConverter() {
+            String filename;
+<span class="nc bnc" id="L653" title="All 2 branches missed.">            if (getToken() == TOK_LITERAL) {</span>
+<span class="nc" id="L654">                filename = getTokenValue();</span>
+<span class="nc" id="L655">                nextToken();</span>
+
+<span class="nc bnc" id="L657" title="All 2 branches missed.">                if (!new File(&quot;./docs&quot;).exists()) {</span>
+<span class="nc bnc" id="L658" title="All 2 branches missed.">                    if (!new File(&quot;./docs&quot;).mkdir()) {</span>
+<span class="nc" id="L659">                        getLogger().error(</span>
+                                &quot;Error in creating directory ./docs. We know this is annoying, and apologise. &quot;
+                                        + &quot;Please submit a bug report at https://github.com/MegaMek/megamek/issues &quot;
+                                        + &quot; and we will try to resolve your issue.&quot;);
+                    }
+                }
+<span class="nc" id="L665">                File file = new File(&quot;./docs/&quot; + filename);</span>
+<span class="nc" id="L666">                try (Writer w = new FileWriter(file); BufferedWriter fw = new BufferedWriter(w)) {</span>
+<span class="nc" id="L667">                    fw.write(&quot;Megamek Unit BattleForce Converter&quot;);</span>
+<span class="nc" id="L668">                    fw.newLine();</span>
+<span class="nc" id="L669">                    fw.write(&quot;This file can be regenerated with java -jar MegaMek.jar -bfc filename&quot;);</span>
+<span class="nc" id="L670">                    fw.newLine();</span>
+<span class="nc" id="L671">                    fw.write(&quot;Element\tSize\tMP\tArmor\tStructure\tS/M/L\tOV\tPoint Cost\tAbilities&quot;);</span>
+<span class="nc" id="L672">                    fw.newLine();</span>
+
+<span class="nc" id="L674">                    MechSummary[] units = MechSummaryCache.getInstance().getAllMechs();</span>
+<span class="nc bnc" id="L675" title="All 2 branches missed.">                    for (MechSummary unit : units) {</span>
+<span class="nc" id="L676">                        Entity entity = new MechFileParser(unit.getSourceFile(),</span>
+<span class="nc" id="L677">                                unit.getEntryName()).getEntity();</span>
+
+<span class="nc" id="L679">                        BattleForceElement bfe = new BattleForceElement(entity);</span>
+<span class="nc" id="L680">                        bfe.writeCsv(fw);</span>
+                    }
+<span class="nc" id="L682">                } catch (Exception e) {</span>
+<span class="nc" id="L683">                    getLogger().error(e);</span>
+<span class="nc" id="L684">                }</span>
+            }
+
+<span class="nc" id="L687">            System.exit(0);</span>
+<span class="nc" id="L688">        }</span>
+
+        private void processUnitAlphaStrikeConverter() {
+            String filename;
+<span class="nc bnc" id="L692" title="All 2 branches missed.">            if (getToken() == TOK_LITERAL) {</span>
+<span class="nc" id="L693">                filename = getTokenValue();</span>
+<span class="nc" id="L694">                nextToken();</span>
+
+<span class="nc bnc" id="L696" title="All 2 branches missed.">                if (!new File(&quot;./docs&quot;).exists()) {</span>
+<span class="nc bnc" id="L697" title="All 2 branches missed.">                    if (!new File(&quot;./docs&quot;).mkdir()) {</span>
+<span class="nc" id="L698">                        getLogger().error(</span>
+                                &quot;Error in creating directory ./docs. We know this is annoying, and apologise. &quot;
+                                        + &quot;Please submit a bug report at https://github.com/MegaMek/megamek/issues &quot;
+                                        + &quot; and we will try to resolve your issue.&quot;);
+                    }
+                }
+
+<span class="nc" id="L705">                File file = new File(&quot;./docs/&quot; + filename);</span>
+<span class="nc" id="L706">                try (Writer w = new FileWriter(file); BufferedWriter bw = new BufferedWriter(w)) {</span>
+<span class="nc" id="L707">                    bw.write(&quot;Megamek Unit AlphaStrike Converter&quot;);</span>
+<span class="nc" id="L708">                    bw.newLine();</span>
+<span class="nc" id="L709">                    bw.write(&quot;This file can be regenerated with java -jar MegaMek.jar -asc filename&quot;);</span>
+<span class="nc" id="L710">                    bw.newLine();</span>
+<span class="nc" id="L711">                    bw.write(&quot;Element\tType\tSize\tMP\tArmor\tStructure\tS/M/L\tOV\tPoint Cost\tAbilities&quot;);</span>
+<span class="nc" id="L712">                    bw.newLine();</span>
+
+<span class="nc" id="L714">                    MechSummary[] units = MechSummaryCache.getInstance().getAllMechs();</span>
+<span class="nc bnc" id="L715" title="All 2 branches missed.">                    for (MechSummary unit : units) {</span>
+<span class="nc" id="L716">                        Entity entity = new MechFileParser(unit.getSourceFile(),</span>
+<span class="nc" id="L717">                                unit.getEntryName()).getEntity();</span>
+
+<span class="nc" id="L719">                        AlphaStrikeElement ase = new AlphaStrikeElement(entity);</span>
+<span class="nc" id="L720">                        ase.writeCsv(bw);</span>
+                    }
+<span class="nc" id="L722">                } catch (Exception ex) {</span>
+<span class="nc" id="L723">                    getLogger().error(ex);</span>
+<span class="nc" id="L724">                }</span>
+            }
+<span class="nc" id="L726">            System.exit(0);</span>
+<span class="nc" id="L727">        }</span>
+
+        private void processUnitExporter() {
+<span class="nc" id="L730">            processUnitExporter(false);</span>
+<span class="nc" id="L731">        }</span>
+
+        private void processUnitExporter(boolean officialUnitList) {
+            String filename;
+<span class="nc bnc" id="L735" title="All 4 branches missed.">            if ((getToken() == TOK_LITERAL) || officialUnitList) {</span>
+<span class="nc bnc" id="L736" title="All 2 branches missed.">                if (officialUnitList) {</span>
+<span class="nc" id="L737">                    filename = MechFileParser.FILENAME_OFFICIAL_UNITS;</span>
+                } else {
+<span class="nc" id="L739">                    filename = getTokenValue();</span>
+                }
+<span class="nc" id="L741">                nextToken();</span>
+
+<span class="nc bnc" id="L743" title="All 2 branches missed.">                if (!new File(&quot;./docs&quot;).exists()) {</span>
+<span class="nc bnc" id="L744" title="All 2 branches missed.">                    if (!new File(&quot;./docs&quot;).mkdir()) {</span>
+<span class="nc" id="L745">                        getLogger().error(</span>
+                                &quot;Error in creating directory ./docs. We know this is annoying, and apologise. &quot;
+                                        + &quot;Please submit a bug report at https://github.com/MegaMek/megamek/issues &quot;
+                                        + &quot; and we will try to resolve your issue.&quot;);
+                    }
+                }
+<span class="nc" id="L751">                File file = new File(&quot;./docs/&quot; + filename);</span>
+<span class="nc" id="L752">                try (Writer w = new FileWriter(file); BufferedWriter bw = new BufferedWriter(w)) {</span>
+<span class="nc bnc" id="L753" title="All 2 branches missed.">                    if (officialUnitList) {</span>
+<span class="nc" id="L754">                        bw.write(&quot;Megamek Official Unit List&quot;);</span>
+<span class="nc" id="L755">                        bw.newLine();</span>
+<span class="nc" id="L756">                        bw.write(&quot;This file can be regenerated with java -jar MegaMek.jar -oul&quot;);</span>
+<span class="nc" id="L757">                        bw.newLine();</span>
+<span class="nc" id="L758">                        bw.write(&quot;Format is: Chassis Model|&quot;);</span>
+                    } else {
+<span class="nc" id="L760">                        bw.write(&quot;Megamek Unit Database&quot;);</span>
+<span class="nc" id="L761">                        bw.newLine();</span>
+<span class="nc" id="L762">                        bw.write(&quot;This file can be regenerated with java -jar MegaMek.jar -export filename&quot;);</span>
+<span class="nc" id="L763">                        bw.newLine();</span>
+<span class="nc" id="L764">                        bw.write(&quot;Type,SubType,Name,Model,BV,Cost (Loaded), Cost (Unloaded),Year,TechLevel,Tonnage,Tech,Canon,Walk,Run,Jump&quot;);</span>
+                    }
+<span class="nc" id="L766">                    bw.newLine();</span>
+
+<span class="nc" id="L768">                    MechSummary[] units = MechSummaryCache.getInstance(officialUnitList).getAllMechs();</span>
+<span class="nc bnc" id="L769" title="All 2 branches missed.">                    for (MechSummary unit : units) {</span>
+<span class="nc" id="L770">                        String unitType = unit.getUnitType();</span>
+<span class="nc bnc" id="L771" title="All 2 branches missed.">                        if (unitType.equalsIgnoreCase(&quot;mek&quot;)) {</span>
+<span class="nc" id="L772">                            unitType = &quot;'Mech&quot;;</span>
+                        }
+
+<span class="nc bnc" id="L775" title="All 2 branches missed.">                        if (!officialUnitList) {</span>
+<span class="nc" id="L776">                            bw.write(unitType);</span>
+<span class="nc" id="L777">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L778">                            bw.write(unit.getUnitSubType());</span>
+<span class="nc" id="L779">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L780">                            bw.write(unit.getChassis());</span>
+<span class="nc" id="L781">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L782">                            bw.write(unit.getModel());</span>
+<span class="nc" id="L783">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L784">                            bw.write(Integer.toString(unit.getBV()));</span>
+<span class="nc" id="L785">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L786">                            bw.write(Long.toString(unit.getCost()));</span>
+<span class="nc" id="L787">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L788">                            bw.write(Long.toString(unit.getUnloadedCost()));</span>
+<span class="nc" id="L789">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L790">                            bw.write(Integer.toString(unit.getYear()));</span>
+<span class="nc" id="L791">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L792">                            bw.write(TechConstants.getLevelDisplayableName(unit.getType()));</span>
+<span class="nc" id="L793">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L794">                            bw.write(Double.toString(unit.getTons()));</span>
+<span class="nc" id="L795">                            bw.write(&quot;,&quot;);</span>
+<span class="nc bnc" id="L796" title="All 2 branches missed.">                            if (unit.isClan()) {</span>
+<span class="nc" id="L797">                                bw.write(&quot;Clan,&quot;);</span>
+                            } else {
+<span class="nc" id="L799">                                bw.write(&quot;IS,&quot;);</span>
+                            }
+<span class="nc bnc" id="L801" title="All 2 branches missed.">                            if (unit.isCanon()) {</span>
+<span class="nc" id="L802">                                bw.write(&quot;Canon,&quot;);</span>
+                            } else {
+<span class="nc" id="L804">                                bw.write(&quot;Non-Canon,&quot;);</span>
+                            }
+<span class="nc" id="L806">                            bw.write(Integer.toString(unit.getWalkMp()));</span>
+<span class="nc" id="L807">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L808">                            bw.write(Integer.toString(unit.getRunMp()));</span>
+<span class="nc" id="L809">                            bw.write(&quot;,&quot;);</span>
+<span class="nc" id="L810">                            bw.write(Integer.toString(unit.getJumpMp()));</span>
+                        } else {
+<span class="nc" id="L812">                            bw.write(unit.getChassis()</span>
+<span class="nc bnc" id="L813" title="All 2 branches missed.">                                    + (unit.getModel().equals(&quot;&quot;) ? &quot;|&quot; : &quot; &quot;</span>
+<span class="nc" id="L814">                                    + unit.getModel() + &quot;|&quot;));</span>
+                        }
+<span class="nc" id="L816">                        bw.newLine();</span>
+                    }
+<span class="nc" id="L818">                } catch (Exception ex) {</span>
+<span class="nc" id="L819">                    getLogger().error(ex);</span>
+<span class="nc" id="L820">                }</span>
+            }
+<span class="nc" id="L822">            System.exit(0);</span>
+<span class="nc" id="L823">        }</span>
+
+        private void processRestOfInput() {
+<span class="nc" id="L826">            Vector&lt;String&gt; v = new Vector&lt;&gt;();</span>
+<span class="nc bnc" id="L827" title="All 2 branches missed.">            while (getArgValue() != null) {</span>
+<span class="nc" id="L828">                v.addElement(getArgValue());</span>
+<span class="nc" id="L829">                nextArg();</span>
+            }
+<span class="nc" id="L831">            setToken(TOK_EOF);</span>
+<span class="nc" id="L832">            setTokenValue(null);</span>
+<span class="nc" id="L833">            restArgs = v.toArray(new String[0]);</span>
+<span class="nc" id="L834">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

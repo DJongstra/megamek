@@ -1,0 +1,741 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TechAdvancement.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">TechAdvancement.java</span></div><h1>TechAdvancement.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2017 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common;
+
+import java.util.Arrays;
+import java.util.StringJoiner;
+
+/**
+ * Handles the progression of technology through prototype, production, extinction and reintroduction
+ * phases. Calculates current rules level for IS or Clan.
+ *
+ * @author Neoancient
+ *
+ */
+public class TechAdvancement implements ITechnology {
+
+    //Dates that are approximate can be pushed this many years earlier (or later for extinctions).
+    public static final int APPROXIMATE_MARGIN = 5;
+
+	public static final int PROTOTYPE    = 0;
+	public static final int PRODUCTION   = 1;
+	public static final int COMMON       = 2;
+	public static final int EXTINCT      = 3;
+	public static final int REINTRODUCED = 4;
+
+<span class="nc" id="L39">    private int techBase = TECH_BASE_ALL;</span>
+<span class="nc" id="L40">    private int[] isAdvancement = new int[5];</span>
+<span class="nc" id="L41">    private int[] clanAdvancement = new int[5];</span>
+<span class="nc" id="L42">    private boolean[] isApproximate = new boolean[5];</span>
+<span class="nc" id="L43">    private boolean[] clanApproximate = new boolean[5];</span>
+<span class="nc" id="L44">    private int[] prototypeFactions = {};</span>
+<span class="nc" id="L45">    private int[] productionFactions = {};</span>
+<span class="nc" id="L46">    private int[] extinctionFactions = {};</span>
+<span class="nc" id="L47">    private int[] reintroductionFactions = {};</span>
+<span class="nc" id="L48">    private SimpleTechLevel staticTechLevel = SimpleTechLevel.STANDARD;</span>
+<span class="nc" id="L49">    private int techRating = RATING_C;</span>
+<span class="nc" id="L50">    private int[] availability = new int[ERA_DA + 1];</span>
+
+<span class="nc" id="L52">    public TechAdvancement() {</span>
+<span class="nc" id="L53">        Arrays.fill(isAdvancement, DATE_NONE);</span>
+<span class="nc" id="L54">        Arrays.fill(clanAdvancement, DATE_NONE);</span>
+<span class="nc" id="L55">    }</span>
+
+    public TechAdvancement(int techBase) {
+<span class="nc" id="L58">        this();</span>
+<span class="nc" id="L59">        this.techBase = techBase;</span>
+<span class="nc" id="L60">    }</span>
+
+    /**
+     * Copy constructor
+     */
+    public TechAdvancement(TechAdvancement ta) {
+<span class="nc" id="L66">        this(ta.techBase);</span>
+<span class="nc" id="L67">        isAdvancement = Arrays.copyOf(ta.isAdvancement, ta.isAdvancement.length);</span>
+<span class="nc" id="L68">        clanAdvancement = Arrays.copyOf(ta.clanAdvancement, ta.clanAdvancement.length);</span>
+<span class="nc" id="L69">        isApproximate = Arrays.copyOf(ta.isApproximate, ta.isApproximate.length);</span>
+<span class="nc" id="L70">        clanApproximate = Arrays.copyOf(ta.clanApproximate, ta.clanApproximate.length);</span>
+<span class="nc" id="L71">        prototypeFactions = Arrays.copyOf(ta.prototypeFactions, ta.prototypeFactions.length);</span>
+<span class="nc" id="L72">        productionFactions = Arrays.copyOf(ta.productionFactions, ta.productionFactions.length);</span>
+<span class="nc" id="L73">        extinctionFactions = Arrays.copyOf(ta.extinctionFactions, ta.extinctionFactions.length);</span>
+<span class="nc" id="L74">        reintroductionFactions = Arrays.copyOf(ta.reintroductionFactions, ta.reintroductionFactions.length);</span>
+<span class="nc" id="L75">        this.staticTechLevel = ta.staticTechLevel;</span>
+<span class="nc" id="L76">        this.techRating = ta.techRating;</span>
+<span class="nc" id="L77">        System.arraycopy(ta.availability, 0, this.availability, 0, ta.availability.length);</span>
+<span class="nc" id="L78">    }</span>
+
+    public TechAdvancement setTechBase(int base) {
+<span class="nc" id="L81">        techBase = base;</span>
+<span class="nc" id="L82">        return this;</span>
+    }
+
+    public int getTechBase() {
+<span class="nc" id="L86">        return techBase;</span>
+    }
+
+    /**
+     * Provide years for prototype, production, common, extinction, and reintroduction for IS factions.
+     *
+     * @param prog Up to five tech progression years. Missing levels should be marked by DATE_NONE.
+     * @return a reference to this object
+     */
+    public TechAdvancement setISAdvancement(int... prog) {
+<span class="nc" id="L96">        Arrays.fill(isAdvancement, DATE_NONE);</span>
+<span class="nc" id="L97">        System.arraycopy(prog, 0, isAdvancement, 0, Math.min(isAdvancement.length, prog.length));</span>
+<span class="nc" id="L98">        return this;</span>
+    }
+
+    /**
+     * Indicate whether the years for prototype, production, common, extinction, and reintroduction
+     * for IS factions should be considered approximate.
+     *
+     * @param approx Up to five tech progression years.
+     * @return a reference to this object
+     */
+    public TechAdvancement setISApproximate(boolean... approx) {
+<span class="nc" id="L109">        Arrays.fill(isApproximate, false);</span>
+<span class="nc" id="L110">        System.arraycopy(approx, 0, isApproximate, 0, Math.min(isApproximate.length, approx.length));</span>
+<span class="nc" id="L111">        return this;</span>
+    }
+
+    /**
+     * Provide years for prototype, production, common, extinction, and reintroduction for Clan factions.
+     *
+     * @param prog Up to five tech progression years. Missing levels should be marked by DATE_NONE.
+     * @return a reference to this object
+     */
+    public TechAdvancement setClanAdvancement(int... prog) {
+<span class="nc" id="L121">        Arrays.fill(clanAdvancement, DATE_NONE);</span>
+<span class="nc" id="L122">        System.arraycopy(prog, 0, clanAdvancement, 0, Math.min(clanAdvancement.length, prog.length));</span>
+<span class="nc" id="L123">        return this;</span>
+    }
+
+    /**
+     * Indicate whether the years for prototype, production, common, extinction, and reintroduction
+     * for Clan factions should be considered approximate.
+     *
+     * @param approx Up to five tech progression years.
+     * @return a reference to this object
+     */
+    public TechAdvancement setClanApproximate(boolean... approx) {
+<span class="nc" id="L134">        Arrays.fill(clanApproximate, false);</span>
+<span class="nc" id="L135">        System.arraycopy(approx, 0, clanApproximate, 0, Math.min(clanApproximate.length, approx.length));</span>
+<span class="nc" id="L136">        return this;</span>
+    }
+
+    /**
+     * A convenience method that will set identical values for IS and Clan factions.
+     * @param prog
+     * @return
+     */
+    public TechAdvancement setAdvancement(int... prog) {
+<span class="nc" id="L145">        setISAdvancement(prog);</span>
+<span class="nc" id="L146">        setClanAdvancement(prog);</span>
+<span class="nc" id="L147">        return this;</span>
+    }
+
+    /**
+     * A convenience method that will set identical values for IS and Clan factions.
+     * @param approx
+     * @return
+     */
+    public TechAdvancement setApproximate(boolean... approx) {
+<span class="nc" id="L156">        setISApproximate(approx);</span>
+<span class="nc" id="L157">        setClanApproximate(approx);</span>
+<span class="nc" id="L158">        return this;</span>
+    }
+
+    /**
+     * Sets which factions developed a prototype.
+     *
+     * @param factions A list of F_* faction constants
+     * @return
+     */
+    public TechAdvancement setPrototypeFactions(int... factions) {
+<span class="nc" id="L168">        prototypeFactions = Arrays.copyOf(factions, factions.length);</span>
+<span class="nc" id="L169">        return this;</span>
+    }
+
+    /**
+     *
+     * @return A list of F_* constants that indicate which factions started prototype development.
+     */
+    public int[] getPrototypeFactions() {
+<span class="nc" id="L177">        return prototypeFactions;</span>
+    }
+
+    /**
+     * Sets which factions started production before the technology was commonly available.
+     *
+     * @param factions A list of F_* faction constants
+     * @return A reference to this object.
+     */
+    public TechAdvancement setProductionFactions(int... factions) {
+<span class="nc" id="L187">        productionFactions = Arrays.copyOf(factions, factions.length);</span>
+<span class="nc" id="L188">        return this;</span>
+    }
+
+    /**
+     *
+     * @return A list of F_* constants that indicate which factions started production
+     * before the technology was commonly available.
+     */
+    public int[] getProductionFactions() {
+<span class="nc" id="L197">        return productionFactions;</span>
+    }
+
+    /**
+     * Sets the factions for which the technology became extinct.
+     *
+     * @param factions A list of F_* faction constants
+     * @return A reference to this object.
+     */
+    public TechAdvancement setExtinctionFactions(int... factions) {
+<span class="nc" id="L207">        extinctionFactions = Arrays.copyOf(factions, factions.length);</span>
+<span class="nc" id="L208">        return this;</span>
+    }
+
+    /**
+     *
+     * @return A list of F_* constants that indicate the factions for which the technology
+     * became extinct.
+     */
+    public int[] getExtinctionFactions() {
+<span class="nc" id="L217">        return extinctionFactions;</span>
+    }
+
+    /**
+     * Sets the factions which reintroduced technology that had been extinct.
+     *
+     * @param factions A list of F_* faction constants
+     * @return A reference to this object.
+     */
+    public TechAdvancement setReintroductionFactions(int... factions) {
+<span class="nc" id="L227">        reintroductionFactions = Arrays.copyOf(factions, factions.length);</span>
+<span class="nc" id="L228">        return this;</span>
+    }
+
+    /**
+     *
+     * @return A list of F_* constants that indicate the factions that reintroduced extinct technology.
+     * became extinct.
+     */
+    public int[] getReintroductionFactions() {
+<span class="nc" id="L237">        return reintroductionFactions;</span>
+    }
+
+    /**
+     * The prototype date for either Clan or IS factions. If the date is flagged as approximate,
+     * the date returned will be earlier by the value of APPROXIMATE_MARGIN.
+     */
+    public int getPrototypeDate(boolean clan) {
+<span class="nc" id="L245">        return getDate(PROTOTYPE, clan);</span>
+    }
+
+    /**
+     * The prototype date for a particular faction. If there are prototype factions and the given faction
+     * is not among them, the prototype date is DATE_NONE.
+     *
+     * @param clan Whether to use Clan or IS progression dates
+     * @faction    The index of the faction (F_* constant). If &lt; 0, the prototype factions are ignored.
+     */
+    public int getPrototypeDate(boolean clan, int faction) {
+<span class="nc bnc" id="L256" title="All 2 branches missed.">        if (getDate(PROTOTYPE, clan) == DATE_NONE) {</span>
+<span class="nc" id="L257">            return DATE_NONE;</span>
+        }
+<span class="nc bnc" id="L259" title="All 4 branches missed.">        if ((prototypeFactions.length &gt; 0) &amp;&amp; (faction &gt; F_NONE)) {</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">            for (int f : prototypeFactions) {</span>
+<span class="nc bnc" id="L261" title="All 10 branches missed.">                if ((faction == f)</span>
+                        || ((f == F_IS) &amp;&amp; !clan)
+                        || ((f == F_CLAN) &amp;&amp; clan)) {
+<span class="nc" id="L264">                    return getDate(PROTOTYPE, clan);</span>
+                }
+            }
+            // Per IO p. 34, tech with only a prototype date becomes available to
+            // other factions after 3d6+5 years if it hasn't gone extinct by then.
+            // Using the minimum value here.
+<span class="nc" id="L270">            int date = getDate(PROTOTYPE, clan) + 8;</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            if ((getDate(PRODUCTION, clan) &lt; date)</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">                    || (getDate(COMMON, clan) &lt; date)</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">                    || isExtinct(date, clan)) {</span>
+<span class="nc" id="L274">                return DATE_NONE;</span>
+            }
+<span class="nc" id="L276">            return date;</span>
+        }
+<span class="nc" id="L278">        return getDate(PROTOTYPE, clan);</span>
+    }
+
+    /**
+     * The production date for either Clan or IS factions. If the date is flagged as approximate,
+     * the date returned will be earlier by the value of APPROXIMATE_MARGIN.
+     */
+    public int getProductionDate(boolean clan) {
+<span class="nc" id="L286">        return getDate(PRODUCTION, clan);</span>
+    }
+
+    /**
+     * The production date for a particular faction. If there are production factions and the given faction
+     * is not among them, the production date is DATE_NONE.
+     *
+     * @param clan Whether to use Clan or IS progression dates
+     * @faction    The index of the faction (F_* constant). If &lt; 0, the production factions are ignored.
+     */
+    public int getProductionDate(boolean clan, int faction) {
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        if (getDate(PRODUCTION, clan) == DATE_NONE) {</span>
+<span class="nc" id="L298">            return DATE_NONE;</span>
+        }
+<span class="nc bnc" id="L300" title="All 4 branches missed.">        if ((productionFactions.length &gt; 0) &amp;&amp; (faction &gt; F_NONE)) {</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">            for (int f : productionFactions) {</span>
+<span class="nc bnc" id="L302" title="All 10 branches missed.">                if ((faction == f)</span>
+                        || ((f == F_IS) &amp;&amp; !clan)
+                        || ((f == F_CLAN) &amp;&amp; clan)) {
+<span class="nc" id="L305">                    return getDate(PRODUCTION, clan);</span>
+                }
+            }
+            // Per IO p. 34, tech with no common date becomes available to
+            // other factions after 10 years if it hasn't gone extinct by then.
+<span class="nc" id="L310">            int date = getDate(PRODUCTION, clan) + 10;</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">            if ((getDate(COMMON, clan) &lt;= date)</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">                    || isExtinct(date, clan)) {</span>
+<span class="nc" id="L313">                return DATE_NONE;</span>
+            }
+<span class="nc" id="L315">            return date;</span>
+        }
+<span class="nc" id="L317">        return getDate(PRODUCTION, clan);</span>
+    }
+
+    /**
+     * The common date for either Clan or IS factions. If the date is flagged as approximate,
+     * the date returned will be earlier by the value of APPROXIMATE_MARGIN.
+     */
+    public int getCommonDate(boolean clan) {
+<span class="nc" id="L325">        return getDate(COMMON, clan);</span>
+    }
+
+    /**
+     * The extinction date for either Clan or IS factions. If the date is flagged as approximate,
+     * the date returned will be later by the value of APPROXIMATE_MARGIN.
+     */
+    public int getExtinctionDate(boolean clan) {
+<span class="nc" id="L333">        return getDate(EXTINCT, clan);</span>
+    }
+
+    /**
+     * The extinction date for a particular faction. If there are extinction factions and the given faction
+     * is not among them, the extinction date is DATE_NONE.
+     *
+     * @param clan Whether to use Clan or IS progression dates
+     * @faction    The index of the faction (F_* constant). If &lt; 0, the extinction factions are ignored.
+     */
+    public int getExtinctionDate(boolean clan, int faction) {
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (getDate(EXTINCT, clan) == DATE_NONE) {</span>
+<span class="nc" id="L345">            return DATE_NONE;</span>
+        }
+<span class="nc bnc" id="L347" title="All 4 branches missed.">        if ((extinctionFactions.length &gt; 0) &amp;&amp; (faction &gt; F_NONE)) {</span>
+<span class="nc bnc" id="L348" title="All 2 branches missed.">            for (int f : extinctionFactions) {</span>
+<span class="nc bnc" id="L349" title="All 10 branches missed.">                if ((faction == f)</span>
+                        || ((f == F_IS) &amp;&amp; !clan)
+                        || ((f == F_CLAN) &amp;&amp; clan)) {
+<span class="nc" id="L352">                    return getDate(EXTINCT, clan);</span>
+                }
+            }
+<span class="nc" id="L355">            return DATE_NONE;</span>
+        }
+<span class="nc" id="L357">        return getDate(EXTINCT, clan);</span>
+    }
+
+    /**
+     * The reintroduction date for either Clan or IS factions. If the date is flagged as approximate,
+     * the date returned will be earlier by the value of APPROXIMATE_MARGIN.
+     */
+    public int getReintroductionDate(boolean clan) {
+<span class="nc" id="L365">        return getDate(REINTRODUCED, clan);</span>
+    }
+
+    /**
+     * The reintroduction date for a particular faction. If there are reintroduction factions and the given faction
+     * is not among them, the reintroduction date is DATE_NONE.
+     *
+     * @param clan Whether to use Clan or IS progression dates
+     * @faction    The index of the faction (F_* constant). If &lt; 0, the reintroduction factions are ignored.
+     */
+    public int getReintroductionDate(boolean clan, int faction) {
+<span class="nc bnc" id="L376" title="All 2 branches missed.">        if (getDate(REINTRODUCED, clan) == DATE_NONE) {</span>
+<span class="nc" id="L377">            return DATE_NONE;</span>
+        }
+<span class="nc bnc" id="L379" title="All 4 branches missed.">        if ((reintroductionFactions.length &gt; 0) &amp;&amp; (faction &gt; F_NONE)) {</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">            for (int f : reintroductionFactions) {</span>
+<span class="nc bnc" id="L381" title="All 10 branches missed.">                if ((faction == f)</span>
+                        || ((f == F_IS) &amp;&amp; !clan)
+                        || ((f == F_CLAN) &amp;&amp; clan)) {
+<span class="nc" id="L384">                    return getDate(REINTRODUCED, clan);</span>
+                }
+            }
+            // If the production or common date is later than the reintroduction date, that is
+            // when it becomes available to other factions. Otherwise we use reintro + 10 as with
+            // production date.
+<span class="nc bnc" id="L390" title="All 2 branches missed.">            if (getProductionDate(clan, faction) &gt; getDate(REINTRODUCED, clan)) {</span>
+<span class="nc" id="L391">                return getProductionDate(clan, faction);</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">            } else if (getDate(COMMON, clan) &gt; getDate(REINTRODUCED, clan)) {</span>
+<span class="nc" id="L393">                    return getDate(COMMON, clan);</span>
+            } else {
+<span class="nc" id="L395">                return getDate(REINTRODUCED, clan) + 10;</span>
+            }
+        }
+<span class="nc" id="L398">        return getDate(REINTRODUCED, clan);</span>
+    }
+
+    /**
+     * The year the technology first became available for Clan or IS factions, regardless
+     * of production level, or APPROXIMATE_MARGIN years earlier if
+     * marked as approximate.
+     */
+    public int getIntroductionDate(boolean clan) {
+<span class="nc bnc" id="L407" title="All 2 branches missed.">        if (getPrototypeDate(clan) &gt; 0) {</span>
+<span class="nc" id="L408">            return getPrototypeDate(clan);</span>
+        }
+<span class="nc bnc" id="L410" title="All 2 branches missed.">        if (getProductionDate(clan) &gt; 0) {</span>
+<span class="nc" id="L411">            return getProductionDate(clan);</span>
+        }
+<span class="nc" id="L413">        return getCommonDate(clan);</span>
+    }
+
+    /**
+     * The year the technology first became available for the given faction, regardless
+     * of production level, or APPROXIMATE_MARGIN years earlier if
+     * marked as approximate.
+     */
+    public int getIntroductionDate(boolean clan, int faction) {
+<span class="nc" id="L422">        int date = getReintroductionDate(clan, faction);</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">        if (getPrototypeDate(clan, faction) &gt; 0) {</span>
+<span class="nc" id="L424">            return earliestDate(date, getPrototypeDate(clan, faction));</span>
+        }
+<span class="nc bnc" id="L426" title="All 2 branches missed.">        if (getProductionDate(clan, faction) &gt; 0) {</span>
+<span class="nc" id="L427">            return earliestDate(date, getProductionDate(clan, faction));</span>
+        }
+<span class="nc" id="L429">        return earliestDate(date, getCommonDate(clan));</span>
+    }
+
+    /**
+     * Convenience method for calculating approximations.
+     */
+    private int getDate(int index, boolean clan) {
+<span class="nc bnc" id="L436" title="All 2 branches missed.">        if (clan) {</span>
+<span class="nc bnc" id="L437" title="All 4 branches missed.">            if (clanApproximate[index] &amp;&amp; clanAdvancement[index] &gt; 0) {</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">                return clanAdvancement[index] + ((index == EXTINCT)? 5 : -5);</span>
+            } else {
+<span class="nc" id="L440">                return clanAdvancement[index];</span>
+            }
+        } else {
+<span class="nc bnc" id="L443" title="All 4 branches missed.">            if (isApproximate[index] &amp;&amp; isAdvancement[index] &gt; 0) {</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">                return isAdvancement[index] + ((index == EXTINCT)? 5 : -5);</span>
+            } else {
+<span class="nc" id="L446">                return isAdvancement[index];</span>
+            }
+        }
+    }
+
+    /*
+     * Methods which return universe-wide dates
+     */
+
+    public int getPrototypeDate() {
+<span class="nc" id="L456">        return earliestDate(getDate(PROTOTYPE, false), getDate(PROTOTYPE, true));</span>
+    }
+
+    public int getProductionDate() {
+<span class="nc" id="L460">        return earliestDate(getDate(PRODUCTION, false), getDate(PRODUCTION, true));</span>
+    }
+
+    public int getCommonDate() {
+<span class="nc" id="L464">        return earliestDate(getDate(COMMON, false), getDate(COMMON, true));</span>
+    }
+
+    /**
+     * If the tech base is IS or Clan, returns the extinction date that matches the tech base. Otherwise
+     * returns the later of the IS and Clan dates, or DATE_NONE if the tech has not gone extinct for both.
+     *
+     * @return Universe-wide extinction date.
+     */
+    public int getExtinctionDate() {
+<span class="nc bnc" id="L474" title="All 2 branches missed.">        if (getTechBase() != TECH_BASE_ALL) {</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">            return getDate(EXTINCT, getTechBase() == TECH_BASE_CLAN);</span>
+        }
+<span class="nc bnc" id="L477" title="All 4 branches missed.">        if (isAdvancement[EXTINCT] == DATE_NONE</span>
+                || clanAdvancement[EXTINCT] == DATE_NONE) {
+<span class="nc" id="L479">            return DATE_NONE;</span>
+        }
+<span class="nc" id="L481">        return Math.max(getDate(EXTINCT, false), getDate(EXTINCT, true));</span>
+    }
+
+    public int getReintroductionDate() {
+<span class="nc bnc" id="L485" title="All 2 branches missed.">        if (getTechBase() != TECH_BASE_ALL) {</span>
+<span class="nc bnc" id="L486" title="All 2 branches missed.">            return getDate(REINTRODUCED, getTechBase() == TECH_BASE_CLAN);</span>
+        }
+<span class="nc" id="L488">        return earliestDate(getDate(REINTRODUCED, false), getDate(REINTRODUCED, true));</span>
+    }
+
+    public int getIntroductionDate() {
+<span class="nc bnc" id="L492" title="All 2 branches missed.">        if (getPrototypeDate() &gt; 0) {</span>
+<span class="nc" id="L493">            return getPrototypeDate();</span>
+        }
+<span class="nc bnc" id="L495" title="All 2 branches missed.">        if (getProductionDate() &gt; 0) {</span>
+<span class="nc" id="L496">            return getProductionDate();</span>
+        }
+<span class="nc" id="L498">        return getCommonDate();</span>
+    }
+
+    /**
+     * Formats the date at an index for display in a table, showing DATE_NONE as &quot;-&quot; and prepending
+     * &quot;~&quot; to approximate dates.
+     *
+     * @param index PROTOTYPE, PRODUCTION, COMMON, EXTINCT, or REINTRODUCED
+     * @param clan  Use the Clan progression
+     * @param factions  A list of factions to include in parentheses after the date.
+     * @return
+     */
+    private String formatDate(int index, boolean clan, int[] factions) {
+<span class="nc bnc" id="L511" title="All 2 branches missed.">        int date = clan? clanAdvancement[index] : isAdvancement[index];</span>
+<span class="nc bnc" id="L512" title="All 2 branches missed.">        if (date == DATE_NONE) {</span>
+<span class="nc" id="L513">            return &quot;-&quot;;</span>
+        }
+<span class="nc" id="L515">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L516" title="All 6 branches missed.">        if (clan? clanApproximate[index] : isApproximate[index]) {</span>
+<span class="nc" id="L517">            sb.append(&quot;~&quot;);</span>
+        }
+<span class="nc bnc" id="L519" title="All 2 branches missed.">        if (date == DATE_PS) {</span>
+<span class="nc" id="L520">            sb.append(&quot;PS&quot;);</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">        } else if (date == DATE_ES) {</span>
+<span class="nc" id="L522">            sb.append(&quot;ES&quot;);</span>
+        } else {
+<span class="nc" id="L524">            sb.append(date);</span>
+        }
+<span class="nc bnc" id="L526" title="All 4 branches missed.">        if (factions != null &amp;&amp; factions.length &gt; 0) {</span>
+<span class="nc" id="L527">            StringJoiner sj = new StringJoiner(&quot;,&quot;);</span>
+<span class="nc bnc" id="L528" title="All 2 branches missed.">            for (int f : factions) {</span>
+<span class="nc bnc" id="L529" title="All 8 branches missed.">                if ((clan &amp;&amp; f &gt;= F_CLAN) || (!clan &amp;&amp; f &lt; F_CLAN)) {</span>
+<span class="nc" id="L530">                    sj.add(IO_FACTION_CODES[f]);</span>
+                }
+            }
+<span class="nc bnc" id="L533" title="All 2 branches missed.">            if (sj.length() &gt; 0) {</span>
+<span class="nc" id="L534">                sb.append(&quot;(&quot;).append(sj.toString()).append(&quot;)&quot;);</span>
+            }
+        }
+<span class="nc" id="L537">        return sb.toString();</span>
+    }
+
+    /**
+     * Formats introduction date indicating approximate when appropriate, and prototype faction if any
+     * for either IS or Clan use tech base.
+     */
+    public String getIntroductionDateName() {
+<span class="nc bnc" id="L545" title="All 2 branches missed.">        if (getPrototypeDate() &gt; 0) {</span>
+<span class="nc" id="L546">            return getPrototypeDateName();</span>
+        }
+<span class="nc bnc" id="L548" title="All 2 branches missed.">        if (getProductionDate() &gt; 0) {</span>
+<span class="nc" id="L549">            return getProductionDateName();</span>
+        }
+<span class="nc" id="L551">        return getCommonDateName();</span>
+    }
+
+    /**
+     * Formats prototype date indicating approximate when appropriate, and prototype faction if any
+     * for either IS or Clan use tech base.
+     */
+    public String getPrototypeDateName(boolean clan) {
+<span class="nc" id="L559">        return formatDate(PROTOTYPE, clan, prototypeFactions);</span>
+    }
+
+    /**
+     * Formats earliest of Clan or IS prototype date indicating approximate when appropriate,
+     * and prototype faction if any for mixed tech.
+     */
+    public String getPrototypeDateName() {
+<span class="nc bnc" id="L567" title="All 6 branches missed.">        boolean useClanDate = isAdvancement[PROTOTYPE] == DATE_NONE</span>
+                || (clanAdvancement[PROTOTYPE] != DATE_NONE &amp;&amp; clanAdvancement[PROTOTYPE] &lt; isAdvancement[PROTOTYPE]);
+<span class="nc" id="L569">        return formatDate(PROTOTYPE, useClanDate, prototypeFactions);</span>
+    }
+
+    /**
+     * Formats production date indicating approximate when appropriate, and production faction if any
+     * for either IS or Clan use tech base.
+     */
+    public String getProductionDateName(boolean clan) {
+<span class="nc" id="L577">        return formatDate(PRODUCTION, clan, productionFactions);</span>
+    }
+
+    /**
+     * Formats earliest of Clan or IS production date indicating approximate when appropriate,
+     * and production faction if any for mixed tech.
+     */
+    public String getProductionDateName() {
+<span class="nc bnc" id="L585" title="All 6 branches missed.">        boolean useClanDate = isAdvancement[PRODUCTION] == DATE_NONE</span>
+                || (clanAdvancement[PRODUCTION] != DATE_NONE &amp;&amp; clanAdvancement[PRODUCTION] &lt; isAdvancement[PRODUCTION]);
+<span class="nc" id="L587">        return formatDate(PRODUCTION, useClanDate, productionFactions);</span>
+    }
+
+    /**
+     * Formats common date indicating approximate when appropriate.
+     */
+    public String getCommonDateName(boolean clan) {
+<span class="nc" id="L594">        return formatDate(COMMON, clan, null);</span>
+    }
+
+    /**
+     * Formats earliest of Clan or IS common date indicating approximate when appropriate for mixed tech.
+     */
+    public String getCommonDateName() {
+<span class="nc bnc" id="L601" title="All 6 branches missed.">        boolean useClanDate = isAdvancement[COMMON] == DATE_NONE</span>
+                || (clanAdvancement[COMMON] != DATE_NONE &amp;&amp; clanAdvancement[COMMON] &lt; isAdvancement[COMMON]);
+<span class="nc" id="L603">        return formatDate(COMMON, useClanDate, null);</span>
+    }
+
+    /**
+     * Formats extinction date indicating approximate when appropriate, and extinction faction if any
+     * for either IS or Clan use tech base.
+     */
+    public String getExtinctionDateName(boolean clan) {
+<span class="nc" id="L611">        return formatDate(EXTINCT, clan, extinctionFactions);</span>
+    }
+
+    /**
+     * Formats latest of Clan or IS extinction date indicating approximate when appropriate,
+     * and extinction faction if any for mixed tech.
+     */
+    public String getExtinctionDateName() {
+<span class="nc bnc" id="L619" title="All 2 branches missed.">        if (techBase == TECH_BASE_ALL) {</span>
+<span class="nc bnc" id="L620" title="All 2 branches missed.">            if (isAdvancement[EXTINCT] == DATE_NONE) {</span>
+                // If there is no IS date, choose the Clan date
+<span class="nc" id="L622">                return getExtinctionDateName(true);</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">            } else if (clanAdvancement[EXTINCT] == DATE_NONE) {</span>
+                // If there is no Clan date, choose the IS date
+<span class="nc" id="L625">                return getExtinctionDateName(false);</span>
+            } else {
+<span class="nc bnc" id="L627" title="All 2 branches missed.">                return formatDate(EXTINCT, clanAdvancement[EXTINCT] &gt; isAdvancement[EXTINCT], extinctionFactions);</span>
+            }
+        } else {
+<span class="nc bnc" id="L630" title="All 2 branches missed.">            return getExtinctionDateName(techBase == TECH_BASE_CLAN);</span>
+        }
+    }
+
+    /**
+     * Formats reintroduction date indicating approximate when appropriate, and reintroduction faction if any
+     * for either IS or Clan use tech base.
+     */
+    public String getReintroductionDateName(boolean clan) {
+<span class="nc" id="L639">        return formatDate(REINTRODUCED, clan, reintroductionFactions);</span>
+    }
+
+    /**
+     * Formats earliest of Clan or IS reintroduction date indicating approximate when appropriate,
+     * and reintroduction faction if any for mixed tech.
+     */
+    public String getReintroductionDateName() {
+<span class="nc bnc" id="L647" title="All 6 branches missed.">        boolean useClanDate = isAdvancement[REINTRODUCED] == DATE_NONE</span>
+                || (clanAdvancement[REINTRODUCED] != DATE_NONE &amp;&amp; clanAdvancement[REINTRODUCED] &lt; isAdvancement[REINTRODUCED]);
+<span class="nc" id="L649">        return formatDate(REINTRODUCED, useClanDate, reintroductionFactions);</span>
+    }
+
+    /**
+     * Finds the earliest of two dates, ignoring DATE_NA unless both values are set to DATE_NA
+     */
+    public static int earliestDate(int d1, int d2) {
+<span class="nc bnc" id="L656" title="All 2 branches missed.">        if (d1 &lt; 0) {</span>
+<span class="nc" id="L657">            return d2;</span>
+        }
+<span class="nc bnc" id="L659" title="All 2 branches missed.">        if (d2 &lt; 0) {</span>
+<span class="nc" id="L660">            return d1;</span>
+        }
+<span class="nc" id="L662">        return Math.min(d1, d2);</span>
+    }
+
+    public TechAdvancement setIntroLevel(boolean intro) {
+<span class="nc bnc" id="L666" title="All 2 branches missed.">        if (intro) {</span>
+<span class="nc" id="L667">            staticTechLevel = SimpleTechLevel.INTRO;</span>
+<span class="nc bnc" id="L668" title="All 2 branches missed.">        } else if (staticTechLevel == SimpleTechLevel.INTRO) {</span>
+<span class="nc" id="L669">            staticTechLevel = SimpleTechLevel.STANDARD;</span>
+        }
+<span class="nc" id="L671">        return this;</span>
+    }
+
+    public TechAdvancement setUnofficial(boolean unofficial) {
+<span class="nc bnc" id="L675" title="All 2 branches missed.">        if (unofficial) {</span>
+<span class="nc" id="L676">            staticTechLevel = SimpleTechLevel.UNOFFICIAL;</span>
+<span class="nc bnc" id="L677" title="All 2 branches missed.">        } else if (staticTechLevel == SimpleTechLevel.UNOFFICIAL) {</span>
+<span class="nc" id="L678">            staticTechLevel = null;</span>
+        }
+<span class="nc" id="L680">        return this;</span>
+    }
+
+    @Override
+    public SimpleTechLevel getStaticTechLevel() {
+<span class="nc" id="L685">        return staticTechLevel;</span>
+    }
+
+    public TechAdvancement setStaticTechLevel(SimpleTechLevel level) {
+<span class="nc" id="L689">        staticTechLevel = level;</span>
+<span class="nc" id="L690">        return this;</span>
+    }
+
+    public SimpleTechLevel guessStaticTechLevel(String rulesRefs) {
+<span class="nc bnc" id="L694" title="All 4 branches missed.">        if (rulesRefs.contains(&quot;TW&quot;) || rulesRefs.contains(&quot;TM&quot;)) {</span>
+<span class="nc" id="L695">            return SimpleTechLevel.STANDARD;</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">        } else if (getProductionDate() != DATE_NONE) {</span>
+<span class="nc" id="L697">            return SimpleTechLevel.ADVANCED;</span>
+        } else {
+<span class="nc" id="L699">            return SimpleTechLevel.EXPERIMENTAL;</span>
+        }
+    }
+
+    public TechAdvancement setTechRating(int rating) {
+<span class="nc" id="L704">        techRating = rating;</span>
+<span class="nc" id="L705">        return this;</span>
+    }
+
+    public int getTechRating() {
+<span class="nc" id="L709">        return techRating;</span>
+    }
+
+    public TechAdvancement setAvailability(int... av) {
+<span class="nc" id="L713">        System.arraycopy(av, 0, availability, 0, Math.min(av.length, availability.length));</span>
+<span class="nc" id="L714">        return this;</span>
+    }
+
+    public TechAdvancement setAvailability(int era, int av) {
+<span class="nc bnc" id="L718" title="All 4 branches missed.">        if (era &gt; 0 &amp;&amp; era &lt; availability.length) {</span>
+<span class="nc" id="L719">            availability[era] = av;</span>
+        }
+<span class="nc" id="L721">        return this;</span>
+    }
+
+    public int getBaseAvailability(int era) {
+<span class="nc bnc" id="L725" title="All 4 branches missed.">        if (era &lt; 0 || era &gt;= availability.length) {</span>
+<span class="nc" id="L726">            return RATING_X;</span>
+        }
+<span class="nc" id="L728">        return availability[era];</span>
+    }
+
+    @Override
+    public boolean isClan() {
+<span class="nc bnc" id="L733" title="All 2 branches missed.">        return techBase == TECH_BASE_CLAN;</span>
+    }
+
+    @Override
+    public boolean isMixedTech() {
+<span class="nc bnc" id="L738" title="All 2 branches missed.">        return techBase == TECH_BASE_ALL;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

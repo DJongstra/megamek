@@ -1,0 +1,945 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GameOptionsDialog.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing</a> &gt; <span class="el_source">GameOptionsDialog.java</span></div><h1>GameOptionsDialog.java</h1><pre class="source lang-java linenums">/**
+ * MegaMek - Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+/*
+ * GameOptionsDialog.java
+ *
+ * Created on April 26, 2002, 2:14 PM
+ */
+
+package megamek.client.ui.swing;
+
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextField;
+import javax.swing.ScrollPaneConstants;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.filechooser.FileFilter;
+import javax.xml.parsers.DocumentBuilder;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.NodeList;
+
+import megamek.client.ui.GBC;
+import megamek.client.ui.Messages;
+import megamek.common.Entity;
+import megamek.common.Mech;
+import megamek.common.Tank;
+import megamek.common.TechConstants;
+import megamek.common.options.GameOptions;
+import megamek.common.options.IBasicOption;
+import megamek.common.options.IOption;
+import megamek.common.options.IOptionGroup;
+import megamek.common.options.OptionsConstants;
+import megamek.common.weapons.bayweapons.CapitalMissileBayWeapon;
+import megamek.utils.MegaMekXmlUtil;
+
+/**
+ * Responsible for displaying the current game options and allowing the user to
+ * change them.
+ *
+ * @author Ben
+ */
+public class GameOptionsDialog extends JDialog implements ActionListener, DialogOptionListener {
+
+    /**
+     *
+     */
+    private static final long serialVersionUID = -6072295678938594119L;
+    private ClientGUI client;
+    private GameOptions options;
+
+<span class="nc" id="L89">    private boolean editable = true;</span>
+<span class="nc" id="L90">    private boolean cancelled = false;</span>
+
+    /**
+     * A map that maps an option to a collection of DialogOptionComponents that
+     * can effect the value of this option.
+     */
+<span class="nc" id="L96">    private Map&lt;String, List&lt;DialogOptionComponent&gt;&gt; optionComps = new HashMap&lt;&gt;();</span>
+
+    /**
+     * Keeps track of the DialogOptionComponents that have been added to the
+     * search panel. This is used to remove those components from optionComps
+     * when they get removed.
+     */
+<span class="nc" id="L103">    private ArrayList&lt;DialogOptionComponent&gt; searchComps = new ArrayList&lt;&gt;();</span>
+
+    private int maxOptionWidth;
+
+<span class="nc" id="L107">    private JTabbedPane panOptions = new JTabbedPane();</span>
+
+    /**
+     * Panel that holds all of the options found via search
+     */
+    private JPanel panSearchOptions;
+    /**
+     * Text field that contains text to search on
+     */
+    private JTextField txtSearch;
+<span class="nc" id="L117">    private JPanel panPassword = new JPanel();</span>
+<span class="nc" id="L118">    private JLabel labPass = new JLabel(Messages.getString(&quot;GameOptionsDialog.Password&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L119">    private JTextField texPass = new JTextField(15);</span>
+<span class="nc" id="L120">    private JPanel panButtons = new JPanel();</span>
+<span class="nc" id="L121">    private JButton butSave = new JButton(Messages.getString(&quot;GameOptionsDialog.Save&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L122">    private JButton butLoad = new JButton(Messages.getString(&quot;GameOptionsDialog.Load&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L123">    private JButton butDefaults = new JButton(Messages.getString(&quot;GameOptionsDialog.Defaults&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L124">    private JButton butOkay = new JButton(Messages.getString(&quot;Okay&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L125">    private JButton butCancel = new JButton(Messages.getString(&quot;Cancel&quot;)); //$NON-NLS-1$</span>
+
+    /**
+     * When the OK button is pressed, the options can be saved to a file; this
+     * behavior happens by default but there are some situations where the
+     * options should not be saved, such as when loading a scenario.
+     */
+<span class="nc" id="L132">    private boolean performSave = true;</span>
+
+    /**
+     * Initialize this dialog.
+     *
+     * @param frame
+     *            - the &lt;code&gt;Frame&lt;/code&gt; parent of this dialog.
+     * @param options
+     *            - the &lt;code&gt;GameOptions&lt;/code&gt; to be displayed.
+     */
+    private void init(JFrame frame, GameOptions options) {
+<span class="nc" id="L143">        this.options = options;</span>
+
+<span class="nc" id="L145">        setupButtons();</span>
+<span class="nc" id="L146">        setupPassword();</span>
+<span class="nc" id="L147">        JPanel mainPanel = new JPanel(new GridBagLayout());</span>
+
+        // layout
+<span class="nc" id="L150">        mainPanel.add(panOptions, GBC.eol().fill(GridBagConstraints.BOTH).insets(5, 5, 5, 5));</span>
+<span class="nc" id="L151">        mainPanel.add(panPassword, GBC.eol().fill(GridBagConstraints.HORIZONTAL).insets(5, 5, 5, 5));</span>
+<span class="nc" id="L152">        mainPanel.add(panButtons, GBC.eol().anchor(GridBagConstraints.CENTER));</span>
+
+<span class="nc" id="L154">        getContentPane().add(mainPanel);</span>
+
+<span class="nc" id="L156">        addWindowListener(new WindowAdapter() {</span>
+            @Override
+            public void windowClosing(WindowEvent e) {
+<span class="nc" id="L159">                setVisible(false);</span>
+<span class="nc" id="L160">            }</span>
+        });
+
+<span class="nc" id="L163">        pack();</span>
+<span class="nc" id="L164">        GUIPreferences guip = GUIPreferences.getInstance();</span>
+<span class="nc" id="L165">        int width = guip.getGameOptionsSizeWidth();</span>
+<span class="nc" id="L166">        int height = guip.getGameOptionsSizeHeight();</span>
+<span class="nc" id="L167">        setSize(width, height);</span>
+<span class="nc" id="L168">        setResizable(true);</span>
+<span class="nc" id="L169">        setLocationRelativeTo(frame);</span>
+<span class="nc" id="L170">        Dimension size = new Dimension((getSize().width * 40) / 100, (getSize().height * 59) / 100);</span>
+<span class="nc" id="L171">        panOptions.setPreferredSize(size);</span>
+<span class="nc" id="L172">        panOptions.setMinimumSize(size);</span>
+<span class="nc" id="L173">        panOptions.setMaximumSize(size);</span>
+
+<span class="nc" id="L175">    }</span>
+
+    /**
+     * Creates new &lt;code&gt;GameOptionsDialog&lt;/code&gt; for a &lt;code&gt;Client&lt;/code&gt;
+     *
+     * @param client
+     *            - the &lt;code&gt;Client&lt;/code&gt; parent of this dialog.
+     */
+    public GameOptionsDialog(ClientGUI client) {
+<span class="nc" id="L184">        super(client.frame, Messages.getString(&quot;GameOptionsDialog.title&quot;), true); //$NON-NLS-1$</span>
+<span class="nc" id="L185">        this.client = client;</span>
+<span class="nc" id="L186">        init(client.frame, client.getClient().getGame().getOptions());</span>
+<span class="nc" id="L187">    }</span>
+
+    public GameOptionsDialog(JFrame frame, GameOptions options, boolean shouldSave) {
+<span class="nc" id="L190">        super(frame, Messages.getString(&quot;GameOptionsDialog.title&quot;), true);</span>
+        // $NON-NLS-1$
+<span class="nc" id="L192">        performSave = shouldSave;</span>
+<span class="nc" id="L193">        init(frame, options);</span>
+<span class="nc" id="L194">        butOkay.setEnabled(false);</span>
+<span class="nc" id="L195">    }</span>
+
+    public void update(GameOptions options) {
+<span class="nc" id="L198">        this.options = options;</span>
+<span class="nc" id="L199">        refreshOptions();</span>
+<span class="nc" id="L200">    }</span>
+
+    private void send() {
+<span class="nc" id="L203">        Vector&lt;IBasicOption&gt; changed = new Vector&lt;IBasicOption&gt;();</span>
+
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        for (List&lt;DialogOptionComponent&gt; comps : optionComps.values()) {</span>
+            // Each option in the list should have the same value, so picking
+            // the first is fine
+<span class="nc bnc" id="L208" title="All 2 branches missed.">            if (comps.size() &gt; 0) {</span>
+<span class="nc" id="L209">                DialogOptionComponent comp = comps.get(0);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">                if (comp.hasChanged()) {</span>
+<span class="nc" id="L211">                    changed.addElement(comp.changedOption());</span>
+<span class="nc" id="L212">                    comp.setOptionChanged(false);</span>
+                }
+            }
+<span class="nc" id="L215">        }</span>
+
+<span class="nc bnc" id="L217" title="All 4 branches missed.">        if ((client != null) &amp;&amp; (changed.size() &gt; 0)) {</span>
+<span class="nc" id="L218">            client.getClient().sendGameOptions(texPass.getText(), changed);</span>
+        }
+<span class="nc" id="L220">    }</span>
+
+    private void doSave() {
+<span class="nc" id="L223">        GameOptions.saveOptions(getOptions());</span>
+<span class="nc" id="L224">    }</span>
+
+    public Vector&lt;IBasicOption&gt; getOptions() {
+<span class="nc" id="L227">        Vector&lt;IBasicOption&gt; output = new Vector&lt;IBasicOption&gt;();</span>
+
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        for (List&lt;DialogOptionComponent&gt; comps : optionComps.values()) {</span>
+            // Each option in the list should have the same value, so picking
+            // the first is fine
+<span class="nc bnc" id="L232" title="All 2 branches missed.">            if (comps.size() &gt; 0) {</span>
+<span class="nc" id="L233">                IBasicOption option = comps.get(0).changedOption();</span>
+<span class="nc" id="L234">                output.addElement(option);</span>
+            }
+<span class="nc" id="L236">        }</span>
+<span class="nc" id="L237">        return output;</span>
+    }
+
+    private void resetToDefaults() {
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        for (List&lt;DialogOptionComponent&gt; comps : optionComps.values()) {</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">            for (DialogOptionComponent comp : comps) {</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">                if (!comp.isDefaultValue()) {</span>
+<span class="nc" id="L244">                    comp.resetToDefault();</span>
+                }
+<span class="nc" id="L246">            }</span>
+<span class="nc" id="L247">        }</span>
+<span class="nc" id="L248">    }</span>
+
+    public void refreshOptions() {
+<span class="nc" id="L251">        panOptions.removeAll();</span>
+<span class="nc" id="L252">        optionComps = new HashMap&lt;&gt;();</span>
+
+<span class="nc bnc" id="L254" title="All 2 branches missed.">        for (Enumeration&lt;IOptionGroup&gt; i = options.getGroups(); i.hasMoreElements();) {</span>
+<span class="nc" id="L255">            IOptionGroup group = i.nextElement();</span>
+
+<span class="nc" id="L257">            JPanel groupPanel = addGroup(group);</span>
+
+<span class="nc bnc" id="L259" title="All 2 branches missed.">            for (Enumeration&lt;IOption&gt; j = group.getOptions(); j.hasMoreElements();) {</span>
+<span class="nc" id="L260">                IOption option = j.nextElement();</span>
+<span class="nc" id="L261">                addOption(groupPanel, option);</span>
+<span class="nc" id="L262">            }</span>
+<span class="nc" id="L263">        }</span>
+
+<span class="nc" id="L265">        addSearchPanel();</span>
+
+        // Make the width accomadate the longest game option label
+        // without needing to scroll horizontally.
+<span class="nc" id="L269">        setSize(Math.max(getSize().width, maxOptionWidth + 30), Math.max(getSize().height, 400));</span>
+
+<span class="nc" id="L271">        validate();</span>
+<span class="nc" id="L272">    }</span>
+
+    private void refreshSearchPanel() {
+<span class="nc" id="L275">        panSearchOptions.removeAll();</span>
+        // We need to first remove all of the DialogOptionComponents
+        // that were on the search panel
+<span class="nc bnc" id="L278" title="All 2 branches missed.">        for (DialogOptionComponent comp : searchComps) {</span>
+<span class="nc" id="L279">            List&lt;DialogOptionComponent&gt; compList = optionComps.get(comp.option.getName());</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            if (compList != null) { // Shouldn't be null...</span>
+<span class="nc" id="L281">                compList.remove(comp);</span>
+            }
+<span class="nc" id="L283">        }</span>
+
+        // Add new DialogOptionComponents for all matching Options
+<span class="nc" id="L286">        final String searchText = txtSearch.getText().toLowerCase();</span>
+<span class="nc" id="L287">        ArrayList&lt;DialogOptionComponent&gt; allNewComps = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">        for (List&lt;DialogOptionComponent&gt; comps : optionComps.values()) {</span>
+<span class="nc" id="L289">            ArrayList&lt;DialogOptionComponent&gt; newComps = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">            for (DialogOptionComponent comp : comps) {</span>
+<span class="nc" id="L291">                String optName = comp.option.getDisplayableName().toLowerCase();</span>
+<span class="nc" id="L292">                String optDesc = comp.option.getDescription().toLowerCase();</span>
+<span class="nc bnc" id="L293" title="All 6 branches missed.">                if ((optName.contains(searchText) || optDesc.contains(searchText)) &amp;&amp; !searchText.equals(&quot;&quot;)) {</span>
+<span class="nc" id="L294">                    DialogOptionComponent newComp = new DialogOptionComponent(this, comp.option);</span>
+<span class="nc" id="L295">                    newComp.setEditable(comp.getEditable());</span>
+<span class="nc" id="L296">                    searchComps.add(newComp);</span>
+<span class="nc" id="L297">                    newComps.add(newComp);</span>
+                }
+<span class="nc" id="L299">            }</span>
+<span class="nc" id="L300">            comps.addAll(newComps);</span>
+<span class="nc" id="L301">            allNewComps.addAll(newComps);</span>
+<span class="nc" id="L302">        }</span>
+<span class="nc" id="L303">        Collections.sort(allNewComps);</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        for (DialogOptionComponent comp : allNewComps) {</span>
+<span class="nc" id="L305">            panSearchOptions.add(comp);</span>
+<span class="nc" id="L306">        }</span>
+        // panSearchOptions.validate();
+<span class="nc" id="L308">        panOptions.repaint();</span>
+<span class="nc" id="L309">    }</span>
+
+    private JPanel addGroup(IOptionGroup group) {
+<span class="nc" id="L312">        JPanel groupPanel = new JPanel();</span>
+<span class="nc" id="L313">        JScrollPane scrOptions = new JScrollPane(groupPanel);</span>
+<span class="nc" id="L314">        groupPanel.setLayout(new BoxLayout(groupPanel, BoxLayout.Y_AXIS));</span>
+<span class="nc" id="L315">        scrOptions.setAutoscrolls(true);</span>
+<span class="nc" id="L316">        scrOptions.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);</span>
+<span class="nc" id="L317">        scrOptions.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);</span>
+
+<span class="nc" id="L319">        panOptions.addTab(group.getDisplayableName(), scrOptions);</span>
+<span class="nc" id="L320">        return groupPanel;</span>
+    }
+
+    private void addSearchPanel() {
+<span class="nc" id="L324">        JPanel panSearch = new JPanel();</span>
+<span class="nc" id="L325">        JScrollPane scrOptions = new JScrollPane(panSearch);</span>
+<span class="nc" id="L326">        scrOptions.setAutoscrolls(true);</span>
+<span class="nc" id="L327">        scrOptions.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);</span>
+<span class="nc" id="L328">        scrOptions.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);</span>
+
+        // Panel for holding the label and text field for searching
+<span class="nc" id="L331">        JPanel panText = new JPanel();</span>
+<span class="nc" id="L332">        JLabel lblSearch = new JLabel(Messages.getString(&quot;GameOptionsDialog.Search&quot;) + &quot;:&quot;);</span>
+<span class="nc" id="L333">        txtSearch = new JTextField(&quot;&quot;);</span>
+<span class="nc" id="L334">	lblSearch.setLabelFor(txtSearch);</span>
+<span class="nc" id="L335">        lblSearch.setToolTipText(Messages.getString(&quot;GameOptionsDialog.SearchToolTip&quot;));</span>
+<span class="nc" id="L336">        txtSearch.setToolTipText(Messages.getString(&quot;GameOptionsDialog.SearchToolTip&quot;));</span>
+<span class="nc" id="L337">        txtSearch.getDocument().addDocumentListener(new DocumentListener() {</span>
+            public void changedUpdate(DocumentEvent e) {
+<span class="nc" id="L339">                refreshSearchPanel();</span>
+<span class="nc" id="L340">            }</span>
+
+            public void insertUpdate(DocumentEvent e) {
+<span class="nc" id="L343">                refreshSearchPanel();</span>
+<span class="nc" id="L344">            }</span>
+
+            public void removeUpdate(DocumentEvent e) {
+<span class="nc" id="L347">                refreshSearchPanel();</span>
+<span class="nc" id="L348">            }</span>
+        });
+
+<span class="nc" id="L351">        panText.setLayout(new GridBagLayout());</span>
+<span class="nc" id="L352">        GridBagConstraints gbc = new GridBagConstraints();</span>
+<span class="nc" id="L353">        gbc.gridx = gbc.gridy = 0;</span>
+<span class="nc" id="L354">        gbc.insets = new Insets(10, 5, 15, 5);</span>
+<span class="nc" id="L355">        gbc.anchor = GridBagConstraints.NORTHWEST;</span>
+<span class="nc" id="L356">        gbc.fill = GridBagConstraints.NONE;</span>
+<span class="nc" id="L357">        panText.add(lblSearch, gbc);</span>
+<span class="nc" id="L358">        gbc.gridx++;</span>
+<span class="nc" id="L359">        gbc.weightx = 0.7;</span>
+<span class="nc" id="L360">        gbc.fill = GridBagConstraints.HORIZONTAL;</span>
+<span class="nc" id="L361">        panText.add(txtSearch, gbc);</span>
+
+<span class="nc" id="L363">        panSearchOptions = new JPanel();</span>
+<span class="nc" id="L364">        panSearchOptions.setLayout(new BoxLayout(panSearchOptions, BoxLayout.Y_AXIS));</span>
+
+<span class="nc" id="L366">        panSearch.setLayout(new GridBagLayout());</span>
+<span class="nc" id="L367">        gbc.gridx = gbc.gridy = 0;</span>
+<span class="nc" id="L368">        gbc.insets = new Insets(0, 0, 0, 0);</span>
+<span class="nc" id="L369">        gbc.anchor = GridBagConstraints.NORTHWEST;</span>
+<span class="nc" id="L370">        gbc.fill = GridBagConstraints.HORIZONTAL;</span>
+<span class="nc" id="L371">        gbc.weightx = 0.7;</span>
+<span class="nc" id="L372">        panSearch.add(panText, gbc);</span>
+<span class="nc" id="L373">        gbc.gridy++;</span>
+<span class="nc" id="L374">        gbc.weighty = 0.7;</span>
+
+<span class="nc" id="L376">        gbc.fill = GridBagConstraints.BOTH;</span>
+<span class="nc" id="L377">        panSearch.add(panSearchOptions, gbc);</span>
+
+<span class="nc" id="L379">        panOptions.addTab(Messages.getString(&quot;GameOptionsDialog.Search&quot;), scrOptions);</span>
+<span class="nc" id="L380">    }</span>
+
+    private void addOption(JPanel groupPanel, IOption option) {
+<span class="nc bnc" id="L383" title="All 2 branches missed.">        if (option == null) {</span>
+<span class="nc" id="L384">            return;</span>
+        }
+<span class="nc" id="L386">        DialogOptionComponent optionComp = new DialogOptionComponent(this, option, true, true);</span>
+
+<span class="nc" id="L388">        groupPanel.add(optionComp);</span>
+<span class="nc" id="L389">        maxOptionWidth = Math.max(maxOptionWidth, optionComp.getPreferredSize().width);</span>
+
+<span class="nc bnc" id="L391" title="All 2 branches missed.">        if (OptionsConstants.INIT_INF_DEPLOY_EVEN.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L393" title="All 4 branches missed.">                    || !(options.getOption(OptionsConstants.INIT_INF_MOVE_EVEN)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L395">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L397" title="All 2 branches missed.">        } else if (OptionsConstants.INIT_INF_MOVE_MULTI.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L398" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">                    || (options.getOption(OptionsConstants.INIT_INF_MOVE_EVEN)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L400" title="All 4 branches missed.">                    || (options.getOption(OptionsConstants.INIT_INF_MOVE_LATER)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L402">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L404" title="All 2 branches missed.">        } else if (OptionsConstants.INIT_INF_MOVE_EVEN.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">                    || (options.getOption(OptionsConstants.INIT_INF_MOVE_MULTI)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L407" title="All 4 branches missed.">                    || (options.getOption(OptionsConstants.INIT_INF_MOVE_LATER)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L409">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L411" title="All 2 branches missed.">        } else if (OptionsConstants.INIT_INF_MOVE_LATER.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">                    || (options.getOption(OptionsConstants.INIT_INF_MOVE_EVEN)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L414" title="All 4 branches missed.">                    || (options.getOption(OptionsConstants.INIT_INF_MOVE_MULTI)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L416">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L418" title="All 2 branches missed.">        } else if (OptionsConstants.INIT_PROTOS_MOVE_EVEN.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L419" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L420" title="All 4 branches missed.">                    || !(options.getOption(OptionsConstants.INIT_PROTOS_MOVE_EVEN)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L422">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L424" title="All 2 branches missed.">        } else if (OptionsConstants.INIT_PROTOS_MOVE_MULTI.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L426" title="All 2 branches missed.">                    || (options.getOption(OptionsConstants.INIT_PROTOS_MOVE_EVEN)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L427" title="All 4 branches missed.">                    || (options.getOption(OptionsConstants.INIT_PROTOS_MOVE_LATER)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L429">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L431" title="All 2 branches missed.">        } else if (OptionsConstants.INIT_PROTOS_MOVE_EVEN.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">                    || (options.getOption(OptionsConstants.INIT_PROTOS_MOVE_MULTI)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L434" title="All 4 branches missed.">                    || (options.getOption(OptionsConstants.INIT_PROTOS_MOVE_LATER)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L436">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L438" title="All 2 branches missed.">        } else if (OptionsConstants.INIT_PROTOS_MOVE_LATER.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L439" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">                    || (options.getOption(OptionsConstants.INIT_PROTOS_MOVE_EVEN)).booleanValue() // $NON-NLS-1$</span>
+<span class="nc bnc" id="L441" title="All 4 branches missed.">                    || (options.getOption(OptionsConstants.INIT_PROTOS_MOVE_MULTI)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L443">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L445" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVGRNDMOV_TACOPS_FALLING_EXPANDED)) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L446" title="All 4 branches missed.">            if (!(options.getOption(OptionsConstants.ADVGRNDMOV_TACOPS_HULL_DOWN)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L448">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L450" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVCOMBAT_TACOPS_LOS1)) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L451" title="All 4 branches missed.">            if ((options.getOption(OptionsConstants.ADVCOMBAT_TACOPS_DEAD_ZONES)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L453">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L455" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVCOMBAT_TACOPS_LOS_RANGE)) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L456" title="All 4 branches missed.">            if (!options.getOption(OptionsConstants.ADVCOMBAT_TACOPS_RANGE).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L458">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L460" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVCOMBAT_TACOPS_DEAD_ZONES)) { // $NON-NLS-1$</span>
+<span class="nc bnc" id="L461" title="All 4 branches missed.">            if ((options.getOption(OptionsConstants.ADVCOMBAT_TACOPS_LOS1)).booleanValue() // $NON-NLS-1$</span>
+                    || !editable) {
+<span class="nc" id="L463">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L465" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVCOMBAT_KIND_RAPID_AC)) {</span>
+<span class="nc bnc" id="L466" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.ADVCOMBAT_TACOPS_RAPID_AC)).booleanValue()) {</span>
+<span class="nc" id="L467">                optionComp.setEditable(editable);</span>
+            } else {
+<span class="nc" id="L469">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L471" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVCOMBAT_VEHICLES_THRESHOLD_DIVISOR)) {</span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.ADVCOMBAT_VEHICLES_THRESHOLD)).booleanValue()) {</span>
+<span class="nc" id="L473">                optionComp.setEditable(editable);</span>
+            } else {
+<span class="nc" id="L475">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L477" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVCOMBAT_VEHICLES_THRESHOLD_VARIABLE)) {</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.ADVCOMBAT_VEHICLES_THRESHOLD)).booleanValue()) {</span>
+<span class="nc" id="L479">                optionComp.setEditable(editable);</span>
+            } else {
+<span class="nc" id="L481">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L483" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVAERORULES_STRATOPS_BEARINGS_ONLY_VELOCITY)) {</span>
+<span class="nc bnc" id="L484" title="All 2 branches missed.">            if (option.intValue() &lt; CapitalMissileBayWeapon.CAPITAL_MISSILE_MIN_VELOCITY) {</span>
+                //Set to the minimum velocity if under
+<span class="nc" id="L486">                option.setValue(CapitalMissileBayWeapon.CAPITAL_MISSILE_MIN_VELOCITY);</span>
+<span class="nc bnc" id="L487" title="All 2 branches missed.">            } else if (option.intValue() &gt; CapitalMissileBayWeapon.CAPITAL_MISSILE_MAX_VELOCITY) {</span>
+                //Set to the maximum velocity if over
+<span class="nc" id="L489">                option.setValue(CapitalMissileBayWeapon.CAPITAL_MISSILE_MAX_VELOCITY);</span>
+            }
+<span class="nc bnc" id="L491" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.RPG_BEGIN_SHUTDOWN)) {</span>
+<span class="nc bnc" id="L492" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.RPG_MANUAL_SHUTDOWN)).booleanValue()) {</span>
+<span class="nc" id="L493">                optionComp.setEditable(editable);</span>
+            } else {
+<span class="nc" id="L495">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L497" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVANCED_ALTERNATE_MASC_ENHANCED)) {</span>
+<span class="nc bnc" id="L498" title="All 2 branches missed.">            if ((options.getOption(OptionsConstants.ADVANCED_ALTERNATE_MASC)).booleanValue()) {</span>
+<span class="nc" id="L499">                optionComp.setEditable(editable);</span>
+            } else {
+<span class="nc" id="L501">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L503" title="All 2 branches missed.">        } else if (option.getName().equals(&quot;techlevel&quot;)) {</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">            for (String tlName : TechConstants.T_SIMPLE_NAMES) {</span>
+<span class="nc" id="L505">                optionComp.addValue(tlName);</span>
+            }
+<span class="nc" id="L507">            optionComp.setSelected(option.stringValue());</span>
+<span class="nc" id="L508">            optionComp.setEditable(editable);</span>
+<span class="nc bnc" id="L509" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVGRNDMOV_MEK_LANCE_MOVEMENT)) {</span>
+            // Disable if individual init is on
+<span class="nc bnc" id="L511" title="All 2 branches missed.">            if (!options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE).booleanValue()) {</span>
+<span class="nc" id="L512">                optionComp.setEditable(editable);</span>
+            } else {
+<span class="nc" id="L514">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L516" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.ADVGRNDMOV_VEHICLE_LANCE_MOVEMENT)) {</span>
+            // Disable if individual init is on
+<span class="nc bnc" id="L518" title="All 2 branches missed.">            if (!options.getOption(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE).booleanValue()) {</span>
+<span class="nc" id="L519">                optionComp.setEditable(editable);</span>
+            } else {
+<span class="nc" id="L521">                optionComp.setEditable(false);</span>
+            }
+<span class="nc bnc" id="L523" title="All 2 branches missed.">        } else if (option.getName().equals(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)) {</span>
+            // Disable if any lance movement is on
+<span class="nc bnc" id="L525" title="All 2 branches missed.">            if (!options.getOption(OptionsConstants.ADVGRNDMOV_VEHICLE_LANCE_MOVEMENT).booleanValue() </span>
+<span class="nc bnc" id="L526" title="All 2 branches missed.">                    &amp;&amp; !options.getOption(OptionsConstants.ADVGRNDMOV_MEK_LANCE_MOVEMENT).booleanValue()) {</span>
+<span class="nc" id="L527">                optionComp.setEditable(editable);</span>
+            } else {
+<span class="nc" id="L529">                optionComp.setEditable(false);</span>
+            }
+        } else {
+<span class="nc" id="L532">            optionComp.setEditable(editable);</span>
+        }
+<span class="nc" id="L534">        List&lt;DialogOptionComponent&gt; comps = optionComps.get(option.getName());</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">        if (comps == null) {</span>
+<span class="nc" id="L536">            comps = new ArrayList&lt;DialogOptionComponent&gt;();</span>
+<span class="nc" id="L537">            optionComps.put(option.getName(), comps);</span>
+        }
+<span class="nc" id="L539">        comps.add(optionComp);</span>
+<span class="nc" id="L540">    }</span>
+
+    // Gets called when one of the option checkboxes is clicked.
+    // Arguments are the GameOption object and the true/false
+    // state of the checkbox.
+    public void optionClicked(DialogOptionComponent clickedComp, IOption option, boolean state) {
+
+        // Ensure that any other DialogOptionComponents with the same IOption
+        // have the same value
+<span class="nc" id="L549">        List&lt;DialogOptionComponent&gt; comps = optionComps.get(option.getName());</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">        for (DialogOptionComponent comp : comps) {</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">            if (!comp.equals(clickedComp)) {</span>
+<span class="nc" id="L552">                comp.setValue(clickedComp.getValue());</span>
+            }
+<span class="nc" id="L554">        }</span>
+
+<span class="nc bnc" id="L556" title="All 2 branches missed.">        if (OptionsConstants.INIT_INF_MOVE_EVEN.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L557">            comps = optionComps.get(OptionsConstants.INIT_INF_DEPLOY_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L558" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L559">                comp_i.setEditable(state);</span>
+<span class="nc" id="L560">                comp_i.setSelected(false);</span>
+<span class="nc" id="L561">            }</span>
+<span class="nc" id="L562">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_MULTI); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L565">            }</span>
+<span class="nc" id="L566">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_LATER); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L568" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L569">            }</span>
+        }
+<span class="nc bnc" id="L571" title="All 2 branches missed.">        if (OptionsConstants.INIT_INF_MOVE_MULTI.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L572">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L573" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L575">            }</span>
+<span class="nc" id="L576">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_LATER); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L577" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L578" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L579">            }</span>
+        }
+<span class="nc bnc" id="L581" title="All 2 branches missed.">        if (OptionsConstants.INIT_INF_MOVE_LATER.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L582">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L583" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L585">            }</span>
+<span class="nc" id="L586">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_MULTI); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L587" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L589">            }</span>
+        }
+<span class="nc bnc" id="L591" title="All 2 branches missed.">        if (OptionsConstants.INIT_PROTOS_MOVE_EVEN.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L592">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L593" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L594">                comp_i.setEditable(state);</span>
+<span class="nc" id="L595">                comp_i.setSelected(false);</span>
+<span class="nc" id="L596">            }</span>
+<span class="nc" id="L597">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_MULTI); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L598" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L599" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L600">            }</span>
+<span class="nc" id="L601">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_LATER); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L602" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L603" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L604">            }</span>
+        }
+<span class="nc bnc" id="L606" title="All 2 branches missed.">        if (OptionsConstants.INIT_PROTOS_MOVE_MULTI.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L607">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L609" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L610">            }</span>
+<span class="nc" id="L611">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_LATER); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L612" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L613" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L614">            }</span>
+        }
+<span class="nc bnc" id="L616" title="All 2 branches missed.">        if (OptionsConstants.INIT_PROTOS_MOVE_LATER.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L617">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L618" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L619" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L620">            }</span>
+<span class="nc" id="L621">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_MULTI); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L624">            }</span>
+        }
+<span class="nc bnc" id="L626" title="All 2 branches missed.">        if (option.getName().equals(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE)) {</span>
+<span class="nc" id="L627">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L628" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L629">                comp_i.setEditable(false);</span>
+<span class="nc" id="L630">                comp_i.setSelected(false);</span>
+<span class="nc" id="L631">            }</span>
+<span class="nc" id="L632">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L635">                comp_i.setSelected(false);</span>
+<span class="nc" id="L636">            }</span>
+<span class="nc" id="L637">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_MULTI); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L638" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L639" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L640">                comp_i.setSelected(false);</span>
+<span class="nc" id="L641">            }</span>
+<span class="nc" id="L642">            comps = optionComps.get(OptionsConstants.INIT_PROTOS_MOVE_LATER); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L643" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L644" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L645">                comp_i.setSelected(false);</span>
+<span class="nc" id="L646">            }</span>
+<span class="nc" id="L647">            comps = optionComps.get(OptionsConstants.INIT_INF_DEPLOY_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L648" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L649">                comp_i.setEditable(false);</span>
+<span class="nc" id="L650">                comp_i.setSelected(false);</span>
+<span class="nc" id="L651">            }</span>
+<span class="nc" id="L652">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_EVEN); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L653" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L654" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L655">                comp_i.setSelected(false);</span>
+<span class="nc" id="L656">            }</span>
+<span class="nc" id="L657">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_MULTI); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L658" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L659" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L660">                comp_i.setSelected(false);</span>
+<span class="nc" id="L661">            }</span>
+<span class="nc" id="L662">            comps = optionComps.get(OptionsConstants.INIT_INF_MOVE_LATER); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L663" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L664" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L665">                comp_i.setSelected(false);</span>
+<span class="nc" id="L666">            }</span>
+<span class="nc" id="L667">            comps = optionComps.get(OptionsConstants.ADVGRNDMOV_MEK_LANCE_MOVEMENT);</span>
+<span class="nc bnc" id="L668" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L669" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L670">                comp_i.setSelected(false);</span>
+<span class="nc" id="L671">            }</span>
+<span class="nc" id="L672">            comps = optionComps.get(OptionsConstants.ADVGRNDMOV_VEHICLE_LANCE_MOVEMENT);</span>
+<span class="nc bnc" id="L673" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L674" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L675">                comp_i.setSelected(false);</span>
+<span class="nc" id="L676">            }</span>
+        }
+<span class="nc bnc" id="L678" title="All 2 branches missed.">        if (option.getName().equals(OptionsConstants.ADVGRNDMOV_VEHICLE_LANCE_MOVEMENT)</span>
+<span class="nc bnc" id="L679" title="All 2 branches missed.">                || option.getName().equals(OptionsConstants.ADVGRNDMOV_MEK_LANCE_MOVEMENT)) {</span>
+<span class="nc" id="L680">            comps = optionComps.get(OptionsConstants.RPG_INDIVIDUAL_INITIATIVE);</span>
+<span class="nc bnc" id="L681" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L682" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L683">                comp_i.setSelected(false);</span>
+<span class="nc" id="L684">            }</span>
+        }
+<span class="nc bnc" id="L686" title="All 2 branches missed.">        if (&quot;vacuum&quot;.equals(option.getName())) { //$NON-NLS-1$</span>
+<span class="nc" id="L687">            comps = optionComps.get(&quot;fire&quot;); //$NON-NLS-1$</span>
+<span class="nc bnc" id="L688" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L689" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L690">                comp_i.setSelected(false);</span>
+<span class="nc" id="L691">            }</span>
+        }
+<span class="nc bnc" id="L693" title="All 2 branches missed.">        if (OptionsConstants.ADVGRNDMOV_TACOPS_HULL_DOWN.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L694">            comps = optionComps.get(OptionsConstants.ADVGRNDMOV_TACOPS_FALLING_EXPANDED); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L695" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L696">                comp_i.setEditable(state);</span>
+<span class="nc" id="L697">                comp_i.setSelected(false);</span>
+<span class="nc" id="L698">            }</span>
+        }
+<span class="nc bnc" id="L700" title="All 2 branches missed.">        if (OptionsConstants.ADVCOMBAT_TACOPS_DEAD_ZONES.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L701">            comps = optionComps.get(OptionsConstants.ADVCOMBAT_TACOPS_LOS1); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L702" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L703" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L704">                comp_i.setSelected(false);</span>
+<span class="nc" id="L705">            }</span>
+        }
+<span class="nc bnc" id="L707" title="All 2 branches missed.">        if (OptionsConstants.ADVCOMBAT_TACOPS_RANGE.equals(option.getName())) {</span>
+<span class="nc" id="L708">            comps = optionComps.get(OptionsConstants.ADVCOMBAT_TACOPS_LOS_RANGE);</span>
+<span class="nc bnc" id="L709" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L710">                comp_i.setEditable(state);</span>
+<span class="nc" id="L711">                comp_i.setSelected(false);</span>
+<span class="nc" id="L712">            }</span>
+        }
+<span class="nc bnc" id="L714" title="All 2 branches missed.">        if (OptionsConstants.ADVCOMBAT_TACOPS_LOS1.equals(option.getName())) { // $NON-NLS-1$</span>
+<span class="nc" id="L715">            comps = optionComps.get(OptionsConstants.ADVCOMBAT_TACOPS_DEAD_ZONES); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L716" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc bnc" id="L717" title="All 2 branches missed.">                comp_i.setEditable(!state);</span>
+<span class="nc" id="L718">                comp_i.setSelected(false);</span>
+<span class="nc" id="L719">            }</span>
+        }
+<span class="nc bnc" id="L721" title="All 2 branches missed.">        if (option.getName().equals(OptionsConstants.ADVCOMBAT_TACOPS_RAPID_AC)) {</span>
+<span class="nc" id="L722">            comps = optionComps.get(OptionsConstants.ADVCOMBAT_KIND_RAPID_AC); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L723" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L724">                comp_i.setEditable(state);</span>
+<span class="nc" id="L725">                comp_i.setSelected(false);</span>
+<span class="nc" id="L726">            }</span>
+        }
+<span class="nc bnc" id="L728" title="All 2 branches missed.">        if (option.getName().equals(OptionsConstants.ADVCOMBAT_VEHICLES_THRESHOLD)) {</span>
+<span class="nc" id="L729">            comps = optionComps.get(OptionsConstants.ADVCOMBAT_VEHICLES_THRESHOLD_VARIABLE); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L730" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L731">                comp_i.setEditable(state);</span>
+<span class="nc" id="L732">                comp_i.setSelected(false);</span>
+<span class="nc" id="L733">            }</span>
+<span class="nc" id="L734">            comps = optionComps.get(OptionsConstants.ADVCOMBAT_VEHICLES_THRESHOLD_DIVISOR); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L735" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L736">                comp_i.setEditable(state);</span>
+<span class="nc" id="L737">                comp_i.resetToDefault();</span>
+<span class="nc" id="L738">            }</span>
+        }
+<span class="nc bnc" id="L740" title="All 2 branches missed.">        if (option.getName().equals(OptionsConstants.RPG_MANUAL_SHUTDOWN)) {</span>
+<span class="nc" id="L741">            comps = optionComps.get(OptionsConstants.RPG_BEGIN_SHUTDOWN); //$NON-NLS-1$</span>
+<span class="nc bnc" id="L742" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L743">                comp_i.setEditable(state);</span>
+<span class="nc" id="L744">                comp_i.setSelected(false);</span>
+<span class="nc" id="L745">            }</span>
+        }
+<span class="nc bnc" id="L747" title="All 2 branches missed.">        if (option.getName().equals(OptionsConstants.ADVANCED_ALTERNATE_MASC)) {</span>
+<span class="nc" id="L748">            comps = optionComps.get(OptionsConstants.ADVANCED_ALTERNATE_MASC_ENHANCED); // $NON-NLS-1$</span>
+<span class="nc bnc" id="L749" title="All 2 branches missed.">            for (DialogOptionComponent comp_i : comps) {</span>
+<span class="nc" id="L750">                comp_i.setEditable(state);</span>
+<span class="nc" id="L751">                comp_i.setSelected(false);</span>
+<span class="nc" id="L752">            }</span>
+        }
+<span class="nc bnc" id="L754" title="All 2 branches missed.">        if (option.getName().equals(OptionsConstants.ADVANCED_BA_GRAB_BARS)) {</span>
+<span class="nc bnc" id="L755" title="All 2 branches missed.">            if (client != null) {</span>
+<span class="nc bnc" id="L756" title="All 2 branches missed.">                for (Entity ent : client.getClient().getGame().getEntitiesVector()) {</span>
+<span class="nc bnc" id="L757" title="All 2 branches missed.">                    if (ent instanceof Mech) {</span>
+<span class="nc" id="L758">                        ((Mech) ent).setBAGrabBars();</span>
+                    }
+<span class="nc bnc" id="L760" title="All 2 branches missed.">                    if (ent instanceof Tank) {</span>
+<span class="nc" id="L761">                        ((Tank) ent).setBAGrabBars();</span>
+                    }
+<span class="nc" id="L763">                }</span>
+            }
+        }
+<span class="nc" id="L766">    }</span>
+
+    private void setupButtons() {
+<span class="nc" id="L769">        butOkay.addActionListener(this);</span>
+<span class="nc" id="L770">        butCancel.addActionListener(this);</span>
+<span class="nc" id="L771">        butDefaults.addActionListener(this);</span>
+<span class="nc" id="L772">        butSave.addActionListener(this);</span>
+<span class="nc" id="L773">        butLoad.addActionListener(this);</span>
+
+<span class="nc" id="L775">        panButtons.add(butOkay);</span>
+<span class="nc" id="L776">        panButtons.add(butCancel);</span>
+<span class="nc" id="L777">        panButtons.add(butDefaults);</span>
+<span class="nc" id="L778">        panButtons.add(butSave);</span>
+<span class="nc" id="L779">        panButtons.add(butLoad);</span>
+<span class="nc" id="L780">    }</span>
+
+    private void setupPassword() {
+<span class="nc" id="L783">        panPassword.setLayout(new BorderLayout());</span>
+<span class="nc" id="L784">	labPass.setLabelFor(texPass);</span>
+<span class="nc" id="L785">        panPassword.add(labPass, BorderLayout.WEST);</span>
+<span class="nc" id="L786">        panPassword.add(texPass, BorderLayout.CENTER);</span>
+<span class="nc" id="L787">    }</span>
+
+    public void actionPerformed(ActionEvent e) {
+<span class="nc bnc" id="L790" title="All 2 branches missed.">        if (e.getSource().equals(butOkay)) {</span>
+<span class="nc" id="L791">            cancelled = false;</span>
+<span class="nc bnc" id="L792" title="All 2 branches missed.">            if (client != null) {</span>
+<span class="nc" id="L793">                send();</span>
+            }
+<span class="nc bnc" id="L795" title="All 2 branches missed.">            if (performSave) {</span>
+<span class="nc" id="L796">                doSave();</span>
+            }
+<span class="nc bnc" id="L798" title="All 2 branches missed.">        } else if (e.getSource().equals(butDefaults)) {</span>
+<span class="nc" id="L799">            resetToDefaults();</span>
+<span class="nc" id="L800">            return;</span>
+<span class="nc bnc" id="L801" title="All 2 branches missed.">        } else if (e.getSource().equals(butSave)) {</span>
+<span class="nc" id="L802">            File gameOptsFile = selectGameOptionsFile(true);</span>
+<span class="nc bnc" id="L803" title="All 2 branches missed.">            if (gameOptsFile != null) {</span>
+<span class="nc" id="L804">                GameOptions.saveOptions(getOptions(), gameOptsFile.getAbsolutePath());</span>
+            }
+<span class="nc" id="L806">            return;</span>
+<span class="nc bnc" id="L807" title="All 2 branches missed.">        } else if (e.getSource().equals(butLoad)) {</span>
+<span class="nc" id="L808">            File gameOptsFile = selectGameOptionsFile(false);</span>
+<span class="nc bnc" id="L809" title="All 2 branches missed.">            if (gameOptsFile != null) {</span>
+<span class="nc" id="L810">                options.loadOptions(gameOptsFile, false);</span>
+<span class="nc" id="L811">                ArrayList&lt;IOption&gt; changed = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L812" title="All 2 branches missed.">                for (List&lt;DialogOptionComponent&gt; comps : optionComps.values()) {</span>
+                    // Each option in the list should have the same value, so
+                    // picking the first is fine
+<span class="nc bnc" id="L815" title="All 2 branches missed.">                    if (comps.size() &gt; 0) {</span>
+<span class="nc" id="L816">                        DialogOptionComponent comp = comps.get(0);</span>
+<span class="nc bnc" id="L817" title="All 2 branches missed.">                        if (comp.hasChanged()) {</span>
+<span class="nc" id="L818">                            changed.add(comp.getOption());</span>
+                        }
+                    }
+<span class="nc" id="L821">                }</span>
+<span class="nc" id="L822">                refreshOptions();</span>
+                // We need to ensure that the IOption for the component doesn't
+                // match, otherwise send() won't send updates to the server
+<span class="nc bnc" id="L825" title="All 2 branches missed.">                for (IOption opt : changed) {</span>
+<span class="nc" id="L826">                    String name = opt.getName();</span>
+<span class="nc" id="L827">                    List&lt;DialogOptionComponent&gt; comps = optionComps.get(name);</span>
+<span class="nc bnc" id="L828" title="All 2 branches missed.">                    if (comps.size() &gt; 0) {</span>
+<span class="nc" id="L829">                        comps.get(0).setOptionChanged(true);</span>
+                    }
+<span class="nc" id="L831">                }</span>
+            }
+<span class="nc" id="L833">            return;</span>
+<span class="nc bnc" id="L834" title="All 2 branches missed.">        } else if (e.getSource().equals(butCancel)) {</span>
+<span class="nc" id="L835">            cancelled = true;</span>
+        }
+<span class="nc" id="L837">        setVisible(false);</span>
+<span class="nc" id="L838">    }</span>
+
+    private File selectGameOptionsFile(boolean saveDialog) {
+<span class="nc" id="L841">        JFileChooser fc = new JFileChooser(&quot;mmconf&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L842">        fc.setLocation(getLocation().x + 150, getLocation().y + 100);</span>
+        // fc.setDialogTitle(Messages.getString(
+        // &quot;GameOptionsDialog.FileChooser.title&quot;)); //$NON-NLS-1$
+<span class="nc" id="L845">        fc.setFileFilter(new FileFilter() {</span>
+            @Override
+            public boolean accept(File dir) {
+<span class="nc bnc" id="L848" title="All 2 branches missed.">                if (dir.isDirectory()) {</span>
+<span class="nc" id="L849">                    return true;</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">                } else if (dir.getName().endsWith(&quot;.xml&quot;)) {</span>
+                    try {
+<span class="nc" id="L852">                        DocumentBuilder builder = MegaMekXmlUtil.newSafeDocumentBuilder();</span>
+<span class="nc" id="L853">                        Document doc = builder.parse(dir);</span>
+<span class="nc" id="L854">                        NodeList listOfComponents = doc.getElementsByTagName(&quot;options&quot;);</span>
+<span class="nc bnc" id="L855" title="All 2 branches missed.">                        if (listOfComponents.getLength() &gt; 0) {</span>
+<span class="nc" id="L856">                            return true;</span>
+                        } else {
+<span class="nc" id="L858">                            return false;</span>
+                        }
+<span class="nc" id="L860">                    } catch (Exception e) {</span>
+<span class="nc" id="L861">                        return false;</span>
+                    }
+                } else {
+<span class="nc" id="L864">                    return false;</span>
+                }
+            }
+
+            @Override
+            public String getDescription() {
+<span class="nc" id="L870">                return &quot;GameOptions&quot;; //$NON-NLS-1$</span>
+            }
+        });
+        int returnVal;
+<span class="nc bnc" id="L874" title="All 2 branches missed.">        if (saveDialog) {</span>
+<span class="nc" id="L875">            returnVal = fc.showSaveDialog(this);</span>
+        } else {
+<span class="nc" id="L877">            returnVal = fc.showOpenDialog(this);</span>
+        }
+<span class="nc bnc" id="L879" title="All 4 branches missed.">        if ((returnVal != JFileChooser.APPROVE_OPTION) || (fc.getSelectedFile() == null)) {</span>
+<span class="nc" id="L880">            return null;</span>
+        }
+<span class="nc" id="L882">        File result = fc.getSelectedFile();</span>
+<span class="nc bnc" id="L883" title="All 2 branches missed.">        if (!result.getName().endsWith(&quot;.xml&quot;)) {</span>
+<span class="nc" id="L884">            result = new File(result + &quot;.xml&quot;);</span>
+        }
+<span class="nc" id="L886">        return result;</span>
+    }
+
+    /**
+     * Update the dialog so that it is editable or view-only.
+     *
+     * @param editable
+     *            - &lt;code&gt;true&lt;/code&gt; if the contents of the dialog are
+     *            editable, &lt;code&gt;false&lt;/code&gt; if they are view-only.
+     */
+    public void setEditable(boolean editable) {
+
+        // Set enabled state of all of the option components in the dialog.
+<span class="nc bnc" id="L899" title="All 2 branches missed.">        for (List&lt;DialogOptionComponent&gt; comps : optionComps.values()) {</span>
+<span class="nc bnc" id="L900" title="All 2 branches missed.">            for (DialogOptionComponent comp : comps) {</span>
+<span class="nc" id="L901">                comp.setEditable(editable);</span>
+<span class="nc" id="L902">            }</span>
+<span class="nc" id="L903">        }</span>
+
+        // If the panel is editable, the player can commit or reset.
+<span class="nc" id="L906">        texPass.setEnabled(editable);</span>
+<span class="nc" id="L907">        butOkay.setEnabled(editable);</span>
+<span class="nc" id="L908">        butDefaults.setEnabled(editable);</span>
+
+        // Update our data element.
+<span class="nc" id="L911">        this.editable = editable;</span>
+<span class="nc" id="L912">    }</span>
+
+    /**
+     * Determine whether the dialog is editable or view-only.
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if the contents of the dialog are editable,
+     *         &lt;code&gt;false&lt;/code&gt; if they are view-only.
+     */
+    public boolean isEditable() {
+<span class="nc" id="L921">        return editable;</span>
+    }
+
+    /**
+     * Determine whether the dialog was cancelled.
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if the dialog was cancelled, &lt;code&gt;false&lt;/code&gt;
+     *         if it was not
+     */
+    public boolean wasCancelled() {
+<span class="nc" id="L931">        return cancelled;</span>
+    }
+
+    @Override
+    protected void processWindowEvent(WindowEvent e) {
+<span class="nc" id="L936">        super.processWindowEvent(e);</span>
+<span class="nc bnc" id="L937" title="All 2 branches missed.">        if (e.getID() == WindowEvent.WINDOW_DEACTIVATED) {</span>
+<span class="nc" id="L938">            GUIPreferences guip = GUIPreferences.getInstance();</span>
+<span class="nc" id="L939">            guip.setGameOptionsSizeHeight(getSize().height);</span>
+<span class="nc" id="L940">            guip.setGameOptionsSizeWidth(getSize().width);</span>
+        }
+<span class="nc" id="L942">    }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

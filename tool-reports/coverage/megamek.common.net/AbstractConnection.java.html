@@ -1,0 +1,678 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractConnection.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.net</a> &gt; <span class="el_source">AbstractConnection.java</span></div><h1>AbstractConnection.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.net;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.net.SocketException;
+import java.util.Enumeration;
+import java.util.LinkedList;
+import java.util.Vector;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
+
+import megamek.common.net.marshall.PacketMarshaller;
+import megamek.common.net.marshall.PacketMarshallerFactory;
+import megamek.common.util.CircularIntegerBuffer;
+
+/**
+ * Generic bidirectional connection between client and server
+ */
+public abstract class AbstractConnection implements IConnection {
+
+<span class="nc" id="L42">    private static PacketMarshallerFactory marshallerFactory = PacketMarshallerFactory</span>
+<span class="nc" id="L43">            .getInstance();</span>
+
+    private static final int DEFAULT_MARSHALLING = PacketMarshaller.NATIVE_SERIALIZATION_MARSHALING;
+
+    /**
+     * Peer Host Non null in case if it's a client connection
+     */
+    private String host;
+
+    /**
+     * Peer port != 0 in case if it's a client connection
+     */
+    private int port;
+
+    /**
+     * Connection state
+     */
+    private boolean open;
+
+    /**
+     * The socket for this connection.
+     */
+    private Socket socket;
+
+    /**
+     * The connection ID
+     */
+    private int id;
+
+    /**
+     * Bytes send during the connection lifecycle
+     */
+    private long bytesSent;
+
+    /**
+     * Bytes received during the connection lifecycle
+     */
+    private long bytesReceived;
+
+    /**
+     * Queue of &lt;code&gt;Packets&lt;/code&gt; to send
+     */
+<span class="nc" id="L85">    private SendQueue sendQueue = new SendQueue();</span>
+
+    /**
+     * Connection listeners list
+     */
+<span class="nc" id="L90">    private Vector&lt;ConnectionListener&gt; connectionListeners = new Vector&lt;ConnectionListener&gt;();</span>
+
+    /**
+     * Buffer of the last commands sent; Used for debugging purposes.
+     */
+<span class="nc" id="L95">    private CircularIntegerBuffer debugLastFewCommandsSent = new CircularIntegerBuffer(</span>
+            50);
+
+    /**
+     * Buffer of the last commands received; Used for debugging purposes.
+     */
+<span class="nc" id="L101">    private CircularIntegerBuffer debugLastFewCommandsReceived = new CircularIntegerBuffer(</span>
+            50);
+
+    /**
+     * Type of marshalling used to represent sent packets
+     */
+    protected int marshallingType;
+
+    /**
+     * Marshaller used to send packets
+     */
+    protected PacketMarshaller marshaller;
+
+    /**
+     * Indicates the need to compress sent data
+     */
+<span class="nc" id="L117">    private boolean zipData = true;</span>
+
+    /**
+     * Creates new client (connection from client to server) connection
+     *
+     * @param host target host
+     * @param port target port
+     * @param id connection ID
+     */
+<span class="nc" id="L126">    public AbstractConnection(String host, int port, int id) {</span>
+<span class="nc" id="L127">        this.host = host;</span>
+<span class="nc" id="L128">        this.port = port;</span>
+<span class="nc" id="L129">        this.id = id;</span>
+<span class="nc" id="L130">        setMarshallingType(DEFAULT_MARSHALLING);</span>
+<span class="nc" id="L131">    }</span>
+
+    /**
+     * Creates new Server connection
+     *
+     * @param socket accepted socket
+     * @param id connection ID
+     */
+<span class="nc" id="L139">    public AbstractConnection(Socket socket, int id) {</span>
+<span class="nc" id="L140">        this.socket = socket;</span>
+<span class="nc" id="L141">        this.id = id;</span>
+<span class="nc" id="L142">        setMarshallingType(DEFAULT_MARSHALLING);</span>
+<span class="nc" id="L143">    }</span>
+
+    /**
+     * Returns &lt;code&gt;true&lt;/code&gt; if it's the Server connection
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if it's the Server connection
+     */
+    public boolean isServer() {
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        return host == null;</span>
+    }
+
+    /**
+     * Returns the type of the marshalling used to send packets
+     *
+     * @return the type of the marshalling used to send packets
+     */
+    protected int getMarshallingType() {
+<span class="nc" id="L160">        return marshallingType;</span>
+    }
+
+    /**
+     * Sets the type of the marshalling used to send packets
+     *
+     * @param marshallingType new marhalling type
+     */
+    protected void setMarshallingType(int marshallingType) {
+<span class="nc" id="L169">        PacketMarshaller pm = marshallerFactory.getMarshaller(marshallingType);</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        assert (pm != null) : &quot;Unknown marshalling type&quot;;</span>
+<span class="nc" id="L171">        this.marshallingType = marshallingType;</span>
+<span class="nc" id="L172">        marshaller = pm;</span>
+<span class="nc" id="L173">    }</span>
+
+    /**
+     * Opens the connection
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; on success, &lt;code&gt;false&lt;/code&gt; otherwise
+     */
+    public synchronized boolean open() {
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        if (!open) {</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">            if (socket == null) {</span>
+                try {
+<span class="nc" id="L184">                    socket = new Socket(host, port);</span>
+<span class="nc" id="L185">                } catch (Exception e) {</span>
+<span class="nc" id="L186">                    return false;</span>
+<span class="nc" id="L187">                }</span>
+            }
+<span class="nc" id="L189">            open = true;</span>
+        }
+<span class="nc" id="L191">        return true;</span>
+    }
+
+    /**
+     * Closes the socket and shuts down the receiver and sender threads
+     */
+    public void close() {
+<span class="nc" id="L198">        synchronized (this) {</span>
+<span class="nc" id="L199">            System.err.print(getConnectionTypeAbbrevation());</span>
+<span class="nc" id="L200">            sendQueue.reportContents();</span>
+<span class="nc" id="L201">            sendQueue.finish();</span>
+            try {
+<span class="nc bnc" id="L203" title="All 2 branches missed.">                if (socket != null) {</span>
+<span class="nc" id="L204">                    socket.close();</span>
+                }
+<span class="nc" id="L206">            } catch (IOException e) {</span>
+<span class="nc" id="L207">                System.err.print(&quot;Error closing connection #&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L208">                System.err.print(getId());</span>
+<span class="nc" id="L209">                System.err.print(&quot;: &quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L210">                System.err.println(e.getMessage());</span>
+                // We don't need a full stack trace... we're
+                // just closing the connection anyway.
+                // e.printStackTrace();
+<span class="nc" id="L214">            }</span>
+<span class="nc" id="L215">            socket = null;</span>
+<span class="nc" id="L216">        }</span>
+<span class="nc" id="L217">        processConnectionEvent(new DisconnectedEvent(this));</span>
+<span class="nc" id="L218">    }</span>
+
+    public boolean isClosed(){
+<span class="nc bnc" id="L221" title="All 4 branches missed.">        return (socket == null) || socket.isClosed();</span>
+    }
+
+    /**
+     * Returns the connection ID
+     *
+     * @return the connection ID
+     */
+    public int getId() {
+<span class="nc" id="L230">        return id;</span>
+    }
+
+    /**
+     * Sets the connection ID
+     *
+     * @param id new connection ID Be careful with this...
+     */
+    public void setId(int id) {
+<span class="nc" id="L239">        this.id = id;</span>
+<span class="nc" id="L240">    }</span>
+
+    public String getInetAddress() {
+<span class="nc bnc" id="L243" title="All 2 branches missed.">        if (socket != null) {</span>
+<span class="nc" id="L244">            return socket.getInetAddress().toString();</span>
+        }
+<span class="nc" id="L246">        return &quot;Unknown&quot;;</span>
+    }
+
+    /**
+     * Returns &lt;code&gt;true&lt;/code&gt; if this connection compress the sent data
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if this connection compress the sent data
+     */
+    public boolean isCompressed() {
+<span class="nc" id="L255">        return zipData;</span>
+    }
+
+    /**
+     * Sets the compression
+     *
+     * @param compress
+     */
+    public void setCompression(boolean compress) {
+<span class="nc" id="L264">        zipData = compress;</span>
+<span class="nc" id="L265">    }</span>
+
+    /**
+     * Adds a packet to the send queue to be send on a seperate thread.
+     */
+    public synchronized void send(Packet packet) {
+<span class="nc" id="L271">        sendQueue.addPacket(new SendPacket(packet));</span>
+        // Send right now
+<span class="nc" id="L273">        flush();</span>
+<span class="nc" id="L274">    }</span>
+
+    /**
+     * Send packet now; This is the blocking call.
+     */
+    public void sendNow(SendPacket packet) {
+        try {
+<span class="nc" id="L281">            sendNetworkPacket(packet.getData(), packet.isCompressed());</span>
+<span class="nc" id="L282">            debugLastFewCommandsSent.push(packet.getCommand());</span>
+<span class="nc" id="L283">        } catch (Exception e) {</span>
+<span class="nc" id="L284">            e.printStackTrace();</span>
+<span class="nc" id="L285">        }</span>
+<span class="nc" id="L286">    }</span>
+
+    /**
+     * Returns &lt;code&gt;true&lt;/code&gt; if there are pending packets
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if there are pending packets
+     */
+    public synchronized boolean hasPending() {
+<span class="nc" id="L294">        return sendQueue.hasPending();</span>
+    }
+
+    /**
+     * Returns a very approximate count of how many bytes were sent
+     *
+     * @return a very approximate count of how many bytes were sent
+     */
+    public synchronized long bytesSent() {
+<span class="nc" id="L303">        return bytesSent;</span>
+    }
+
+    /**
+     * Returns a very approximate count of how many bytes were received
+     *
+     * @return a very approximate count of how many bytes were received
+     */
+    public synchronized long bytesReceived() {
+<span class="nc" id="L312">        return bytesReceived;</span>
+    }
+
+    /**
+     * Adds the specified connection listener to receive connection events from
+     * connection.
+     *
+     * @param listener the connection listener.
+     */
+    public void addConnectionListener(ConnectionListener listener) {
+<span class="nc" id="L322">        connectionListeners.addElement(listener);</span>
+<span class="nc" id="L323">    }</span>
+
+    /**
+     * Removes the specified connection listener.
+     *
+     * @param listener the connection listener.
+     */
+    public void removeConnectionListener(ConnectionListener listener) {
+<span class="nc" id="L331">        connectionListeners.removeElement(listener);</span>
+<span class="nc" id="L332">    }</span>
+
+    /**
+     * Reports receive exception to the &lt;code&gt;System.err&lt;/code&gt;
+     *
+     * @param ex &lt;code&gt;Exception&lt;/code&gt;
+     * @param packet &lt;code&gt;Packet&lt;/code&gt;
+     */
+    protected void reportSendException(Exception ex, SendPacket packet) {
+<span class="nc" id="L341">        System.err.print(getConnectionTypeAbbrevation());</span>
+<span class="nc" id="L342">        System.err.print(&quot; error sending command #&quot;);</span>
+<span class="nc" id="L343">        System.err.print(packet.getCommand());</span>
+<span class="nc" id="L344">        System.err.print(&quot;: &quot;);</span>
+<span class="nc" id="L345">        System.err.println(ex.getMessage());</span>
+<span class="nc" id="L346">        reportLastCommands();</span>
+<span class="nc" id="L347">    }</span>
+
+    /**
+     * Reports receive exception to the &lt;code&gt;System.err&lt;/code&gt;
+     *
+     * @param ex &lt;code&gt;Exception&lt;/code&gt;
+     */
+    protected void reportReceiveException(Exception ex) {
+<span class="nc" id="L355">        StringBuffer message = new StringBuffer();</span>
+<span class="nc" id="L356">        reportReceiveException(ex, message);</span>
+<span class="nc" id="L357">        System.err.println(message);</span>
+<span class="nc" id="L358">    }</span>
+
+    /**
+     * Appends the receive exception report to the given
+     * &lt;code&gt;StringBuffer&lt;/code&gt;
+     *
+     * @param ex &lt;code&gt;Exception&lt;/code&gt;
+     */
+    protected void reportReceiveException(Exception ex, StringBuffer buffer) {
+<span class="nc" id="L367">        System.err.print(getConnectionTypeAbbrevation());</span>
+<span class="nc" id="L368">        System.err.print(&quot; error reading command: &quot;);</span>
+<span class="nc" id="L369">        System.err.println(ex.getMessage());</span>
+<span class="nc" id="L370">        reportLastCommands();</span>
+<span class="nc" id="L371">    }</span>
+
+    /**
+     * Appends the last commands sent/received to the given
+     * &lt;code&gt;StringBuffer&lt;/code&gt;
+     */
+    protected synchronized void reportLastCommands() {
+<span class="nc" id="L378">        reportLastCommands(true);</span>
+<span class="nc" id="L379">        System.err.println();</span>
+<span class="nc" id="L380">        reportLastCommands(false);</span>
+<span class="nc" id="L381">        System.err.println();</span>
+<span class="nc" id="L382">        sendQueue.reportContents();</span>
+<span class="nc" id="L383">    }</span>
+
+    /**
+     * Appends the last commands sent or received to the given
+     * &lt;code&gt;StringBuffer&lt;/code&gt; dependig on the &lt;code&gt;sent&lt;/code&gt; parameter
+     *
+     * @param sent indicates which commands (sent/received) should be reported
+     */
+    protected void reportLastCommands(boolean sent) {
+<span class="nc bnc" id="L392" title="All 2 branches missed.">        CircularIntegerBuffer buf = sent ? debugLastFewCommandsSent</span>
+<span class="nc" id="L393">                : debugLastFewCommandsReceived;</span>
+<span class="nc" id="L394">        System.err.print(&quot;    Last &quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L395">        System.err.print(buf.length());</span>
+<span class="nc" id="L396">        System.err.print(&quot; commands that were &quot;); //$NON-NLS-1$</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">        System.err.print(sent ? &quot;sent&quot; : &quot;received&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L398">        System.err.print(&quot; (oldest first): &quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L399">        System.err.println(buf);</span>
+<span class="nc" id="L400">    }</span>
+
+    /**
+     * Returns the the connection type abbrevation (client/server) that used in
+     * the debug messages and so on.
+     *
+     * @return
+     */
+    protected String getConnectionTypeAbbrevation() {
+<span class="nc bnc" id="L409" title="All 2 branches missed.">        return isServer() ? &quot;s:&quot; : &quot;c:&quot;; //$NON-NLS-1$ //$NON-NLS-2$</span>
+    }
+
+    /**
+     * Returns an input stream
+     *
+     * @return an input stream
+     * @throws IOException
+     */
+    protected InputStream getInputStream() throws IOException {
+<span class="nc" id="L419">        return socket.getInputStream();</span>
+    }
+
+    /**
+     * Returns an output stream
+     *
+     * @return an output stream
+     * @throws IOException
+     */
+    protected OutputStream getOutputStream() throws IOException {
+<span class="nc" id="L429">        return socket.getOutputStream();</span>
+    }
+
+
+    protected int getSendBufferSize() throws SocketException{
+<span class="nc" id="L434">        return socket.getSendBufferSize();</span>
+    }
+
+
+    protected int getReceiveBufferSize() throws SocketException{
+<span class="nc" id="L439">        return socket.getReceiveBufferSize();</span>
+    }
+
+    /**
+     * Process all incoming data, blocking on the input stream until new input
+     * is available.  This method should not be synchronized as it should only
+     * deal with the input side of things.  Without creating separate read/write
+     * locks, making this method synchronized would not allow synchronous reads
+     * and writes.
+     */
+    public void update() {
+        try {
+            INetworkPacket np;
+<span class="nc bnc" id="L452" title="All 2 branches missed.">            while ((np = readNetworkPacket()) != null) {</span>
+<span class="nc" id="L453">                processPacket(np);</span>
+            }
+<span class="nc" id="L455">        } catch (SocketException e) {</span>
+            // Do nothing, happens when the socket closes
+<span class="nc" id="L457">            close();</span>
+<span class="nc" id="L458">        } catch (EOFException e) {</span>
+            // Do nothing, happens when the socket closes
+<span class="nc" id="L460">            close();</span>
+<span class="nc" id="L461">        } catch (IOException e) {</span>
+<span class="nc" id="L462">            System.out</span>
+<span class="nc" id="L463">                    .println(&quot;IOException during AbstractConnection#update()&quot;);</span>
+<span class="nc" id="L464">            close();</span>
+<span class="nc" id="L465">        } catch (Exception e) {</span>
+<span class="nc" id="L466">            e.printStackTrace();</span>
+<span class="nc" id="L467">            reportReceiveException(e);</span>
+<span class="nc" id="L468">            close();</span>
+<span class="nc" id="L469">        }</span>
+<span class="nc" id="L470">    }</span>
+
+    /**
+     * Send all queued packets.  This method is synchronized since it deals with
+     * the non-thread-safe send queue.
+     */
+    public synchronized void flush() {
+<span class="nc" id="L477">        SendPacket packet = null;</span>
+        try {
+<span class="nc bnc" id="L479" title="All 2 branches missed.">            while ((packet = sendQueue.getPacket()) != null) {</span>
+<span class="nc" id="L480">                processPacket(packet);</span>
+            }
+<span class="nc" id="L482">        } catch (Exception e) {</span>
+<span class="nc" id="L483">            reportSendException(e, packet);</span>
+<span class="nc" id="L484">            close();</span>
+<span class="nc" id="L485">        }</span>
+<span class="nc" id="L486">    }</span>
+
+    /**
+     * process a received packet
+     */
+    protected void processPacket(INetworkPacket np) throws Exception {
+<span class="nc" id="L492">        PacketMarshaller pm = marshallerFactory.getMarshaller(np</span>
+<span class="nc" id="L493">                .getMarshallingType());</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">        assert (pm != null) : &quot;Unknown marshalling type&quot;;</span>
+<span class="nc" id="L495">        Packet packet = null;</span>
+<span class="nc" id="L496">        byte[] data = np.getData();</span>
+<span class="nc" id="L497">        bytesReceived += data.length;</span>
+<span class="nc" id="L498">        ByteArrayInputStream bis = new ByteArrayInputStream(data);</span>
+        InputStream in;
+<span class="nc bnc" id="L500" title="All 2 branches missed.">        if (np.isCompressed()) {</span>
+<span class="nc" id="L501">            in = new GZIPInputStream(bis);</span>
+        } else {
+<span class="nc" id="L503">            in = bis;</span>
+        }
+<span class="nc" id="L505">        packet = pm.unmarshall(in);</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">        if (packet != null) {</span>
+<span class="nc" id="L507">            debugLastFewCommandsReceived.push(packet.getCommand());</span>
+<span class="nc" id="L508">            processConnectionEvent(new PacketReceivedEvent(</span>
+                    AbstractConnection.this, packet));
+        }
+<span class="nc" id="L511">    }</span>
+
+    /**
+     * process a packet to be sent
+     */
+    protected void processPacket(SendPacket packet) throws Exception {
+<span class="nc" id="L517">        sendNow(packet);</span>
+<span class="nc" id="L518">    }</span>
+
+    /**
+     * Reads a complete &lt;code&gt;NetworkPacket&lt;/code&gt; must not block, must return
+     * null instead
+     *
+     * @return the &lt;code&gt;NetworkPacket&lt;/code&gt; that was sent.
+     */
+    protected abstract INetworkPacket readNetworkPacket() throws Exception;
+
+    /**
+     * Sends the data must not block for too long
+     *
+     * @param data data to send
+     * @param zipped should the data be compressed
+     * @throws Exception
+     */
+    protected abstract void sendNetworkPacket(byte[] data, boolean zipped)
+            throws Exception;
+
+    /**
+     * Wrapper around a &lt;code&gt;LinkedList&lt;/code&gt; for keeping a queue of packets
+     * to send.  Note that this implementation is not synchronized.
+     */
+<span class="nc" id="L542">    static class SendQueue {</span>
+
+<span class="nc" id="L544">        private LinkedList&lt;SendPacket&gt; queue =</span>
+                new LinkedList&lt;SendPacket&gt;();
+<span class="nc" id="L546">        private boolean finished = false;</span>
+
+        public void addPacket(SendPacket packet) {
+<span class="nc" id="L549">            queue.add(packet);</span>
+<span class="nc" id="L550">        }</span>
+
+        public void finish() {
+<span class="nc" id="L553">            queue.clear();</span>
+<span class="nc" id="L554">            finished = true;</span>
+<span class="nc" id="L555">        }</span>
+
+        /**
+         * Waits for a packet to appear in the queue and then returns it.
+         *
+         * @return the first available packet in the queue or null if none
+         */
+        public SendPacket getPacket() {
+<span class="nc bnc" id="L563" title="All 2 branches missed.">            if (!finished) {</span>
+<span class="nc" id="L564">                return queue.poll();</span>
+            }
+<span class="nc" id="L566">            return null;</span>
+        }
+
+        /**
+         * Returns true if this connection has pending data
+         */
+        public boolean hasPending() {
+<span class="nc bnc" id="L573" title="All 2 branches missed.">            return !queue.isEmpty();</span>
+        }
+
+        public void reportContents() {
+<span class="nc" id="L577">            System.err.print(&quot;Contents of Send Queue: &quot;);</span>
+<span class="nc bnc" id="L578" title="All 2 branches missed.">            for (SendPacket p : queue) {</span>
+<span class="nc" id="L579">                System.err.print(p.command);</span>
+<span class="nc" id="L580">            }</span>
+<span class="nc" id="L581">            System.err.println();</span>
+<span class="nc" id="L582">        }</span>
+    }
+
+    /**
+     * Processes game events occurring on this connection by dispatching them to
+     * any registered GameListener objects.
+     *
+     * @param event the game event.
+     */
+    protected void processConnectionEvent(ConnectionEvent event) {
+<span class="nc" id="L592">        for (Enumeration&lt;ConnectionListener&gt; e = connectionListeners.elements(); e</span>
+<span class="nc bnc" id="L593" title="All 2 branches missed.">                .hasMoreElements();) {</span>
+<span class="nc" id="L594">            ConnectionListener l = e.nextElement();</span>
+<span class="nc bnc" id="L595" title="All 4 branches missed.">            switch (event.getType()) {</span>
+                case ConnectionEvent.CONNECTED:
+<span class="nc" id="L597">                    l.connected((ConnectedEvent) event);</span>
+<span class="nc" id="L598">                    break;</span>
+                case ConnectionEvent.DISCONNECTED:
+<span class="nc" id="L600">                    l.disconnected((DisconnectedEvent) event);</span>
+<span class="nc" id="L601">                    break;</span>
+                case ConnectionEvent.PACKET_RECEIVED:
+<span class="nc" id="L603">                    l.packetReceived((PacketReceivedEvent) event);</span>
+                    break;
+            }
+<span class="nc" id="L606">        }</span>
+<span class="nc" id="L607">    }</span>
+
+    private class SendPacket implements INetworkPacket {
+        byte[] data;
+<span class="nc" id="L611">        boolean zipped = false;</span>
+        int command;
+
+<span class="nc" id="L614">        public SendPacket(Packet packet) {</span>
+<span class="nc" id="L615">            command = packet.getCommand();</span>
+<span class="nc" id="L616">            ByteArrayOutputStream bos = new ByteArrayOutputStream();</span>
+            OutputStream out;
+            try {
+<span class="nc bnc" id="L619" title="All 4 branches missed.">                if (zipData &amp;&amp; packet.getData() != null) {</span>
+<span class="nc" id="L620">                    out = new GZIPOutputStream(bos);</span>
+<span class="nc" id="L621">                    zipped = true;</span>
+                } else {
+<span class="nc" id="L623">                    out = bos;</span>
+                }
+<span class="nc" id="L625">                marshaller.marshall(packet, out);</span>
+<span class="nc" id="L626">                out.close();</span>
+<span class="nc" id="L627">                data = bos.toByteArray();</span>
+<span class="nc" id="L628">                bytesSent += data.length;</span>
+<span class="nc" id="L629">            } catch (Exception e) {</span>
+<span class="nc" id="L630">                e.printStackTrace();</span>
+<span class="nc" id="L631">            }</span>
+<span class="nc" id="L632">        }</span>
+
+        public int getMarshallingType() {
+<span class="nc" id="L635">            return marshallingType;</span>
+        }
+
+        public byte[] getData() {
+<span class="nc" id="L639">            return data;</span>
+        }
+
+        public boolean isCompressed() {
+<span class="nc" id="L643">            return zipped;</span>
+        }
+
+        public int getCommand() {
+<span class="nc" id="L647">            return command;</span>
+        }
+    }
+
+    /**
+     * Connection layer data packet.
+     */
+    protected interface INetworkPacket {
+
+        /**
+         * Returns data marshalling type
+         *
+         * @return data marshalling type
+         */
+        public abstract int getMarshallingType();
+
+        /**
+         * Returns packet data
+         *
+         * @return packet data
+         */
+        public abstract byte[] getData();
+
+        /**
+         * Returns &lt;code&gt;true&lt;/code&gt; if data is compressed
+         *
+         * @return &lt;code&gt;true&lt;/code&gt; if data is compressed
+         */
+        public abstract boolean isCompressed();
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

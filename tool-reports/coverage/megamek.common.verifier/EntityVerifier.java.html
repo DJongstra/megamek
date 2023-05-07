@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>EntityVerifier.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.verifier</a> &gt; <span class="el_source">EntityVerifier.java</span></div><h1>EntityVerifier.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek -
+ * Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.common.verifier;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.text.NumberFormat;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.Unmarshaller;
+import javax.xml.bind.annotation.XmlAccessType;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlElement;
+import javax.xml.bind.annotation.XmlRootElement;
+
+import megamek.MegaMek;
+import megamek.common.Aero;
+import megamek.common.BattleArmor;
+import megamek.common.Configuration;
+import megamek.common.Entity;
+import megamek.common.GunEmplacement;
+import megamek.common.Infantry;
+import megamek.common.Jumpship;
+import megamek.common.Mech;
+import megamek.common.MechFileParser;
+import megamek.common.MechSummary;
+import megamek.common.MechSummaryCache;
+import megamek.common.Protomech;
+import megamek.common.SmallCraft;
+import megamek.common.Tank;
+import megamek.common.UnitType;
+import megamek.utils.MegaMekXmlUtil;
+
+/**
+ * Performs verification of the validity of different types of 
+ * &lt;code&gt;Entity&lt;/code&gt; subclasses.  Most of the actual validation is performed
+ * by &lt;code&gt;TestEntity&lt;/code&gt; and its subclasses. 
+ * 
+ * @author Reinhard Vicinus
+ */
+@XmlRootElement(name = &quot;entityverifier&quot;)
+@XmlAccessorType(XmlAccessType.NONE)
+public class EntityVerifier implements MechSummaryCache.Listener {
+    public static final String CONFIG_FILENAME = &quot;UnitVerifierOptions.xml&quot;; //$NON-NLS-1$
+
+<span class="nc" id="L63">    private static MechSummaryCache mechSummaryCache = null;</span>
+
+<span class="nc" id="L65">    @XmlElement(name = &quot;mech&quot;)</span>
+    public TestXMLOption mechOption = new TestXMLOption();
+<span class="nc" id="L67">    @XmlElement(name = &quot;protomech&quot;)</span>
+    public TestXMLOption protomechOption = new TestXMLOption();
+<span class="nc" id="L69">    @XmlElement(name = &quot;tank&quot;)</span>
+    public TestXMLOption tankOption = new TestXMLOption();
+<span class="nc" id="L71">    @XmlElement(name = &quot;aero&quot;)</span>
+    public TestXMLOption aeroOption = new TestXMLOption();
+<span class="nc" id="L73">    @XmlElement(name = &quot;ba&quot;)</span>
+    public TestXMLOption baOption = new TestXMLOption();
+<span class="nc" id="L75">    @XmlElement(name = &quot;infantry&quot;)</span>
+    public TestXMLOption infOption = new TestXMLOption();
+    
+<span class="nc" id="L78">    private boolean loadingVerbosity = false;</span>
+<span class="nc" id="L79">    private boolean failsOnly = false;</span>
+
+    /**
+     * JAXB Constructor.
+     */
+<span class="nc" id="L84">    private EntityVerifier() {</span>
+<span class="nc" id="L85">    }</span>
+    
+    /**
+     * Creates and return a new instance of EntityVerifier.
+     * 
+     * @param config a File that contains an XML representation of the configuration settings
+     * @return an EntityVerifier with the configuration loaded from XML
+     */
+    public static EntityVerifier getInstance(final File config) {
+        EntityVerifier ev;
+        
+        try {
+<span class="nc" id="L97">            JAXBContext jc = JAXBContext.newInstance(EntityVerifier.class);</span>
+
+<span class="nc" id="L99">            Unmarshaller um = jc.createUnmarshaller();</span>
+<span class="nc" id="L100">            InputStream is = new FileInputStream(config);</span>
+<span class="nc" id="L101">            ev = (EntityVerifier) um.unmarshal(MegaMekXmlUtil.createSafeXmlSource(is));</span>
+<span class="nc" id="L102">        } catch (Exception e) {</span>
+<span class="nc" id="L103">            MegaMek.getLogger().error(&quot;Error loading XML for entity verifier: &quot; + e.getMessage(), e);</span>
+
+<span class="nc" id="L105">            ev = new EntityVerifier();</span>
+<span class="nc" id="L106">        }</span>
+        
+<span class="nc" id="L108">        return ev;</span>
+    }
+
+    public boolean checkEntity(Entity entity, String fileString, boolean verbose) {
+<span class="nc" id="L112">        return checkEntity(entity, fileString, verbose, entity.getTechLevel());</span>
+    }
+
+    public boolean checkEntity(Entity entity, String fileString,
+            boolean verbose, int ammoTechLvl) {
+<span class="nc" id="L117">        return checkEntity(entity, fileString, verbose, ammoTechLvl, false);</span>
+    }
+    
+    public boolean checkEntity(Entity entity, String fileString,
+            boolean verbose, int ammoTechLvl, boolean failsOnly) {
+<span class="nc" id="L122">        final NumberFormat FMT = NumberFormat.getNumberInstance(Locale.getDefault());</span>
+<span class="nc" id="L123">        boolean retVal = false;</span>
+        TestEntity testEntity;
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        if (entity instanceof Mech) {</span>
+<span class="nc" id="L126">            testEntity = new TestMech((Mech) entity, mechOption, fileString);</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        } else if (entity instanceof Protomech) {</span>
+<span class="nc" id="L128">            testEntity = new TestProtomech((Protomech) entity, protomechOption, fileString);</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        } else if (entity.isSupportVehicle()) {</span>
+<span class="nc" id="L130">            testEntity = new TestSupportVehicle(entity, tankOption, null);</span>
+<span class="nc bnc" id="L131" title="All 4 branches missed.">        } else if ((entity instanceof Tank) &amp;&amp; </span>
+                !(entity instanceof GunEmplacement)) {
+<span class="nc" id="L133">            testEntity = new TestTank((Tank) entity, tankOption, null);</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        } else if (entity.hasETypeFlag(Entity.ETYPE_SMALL_CRAFT)) {</span>
+<span class="nc" id="L135">            testEntity = new TestSmallCraft((SmallCraft) entity, aeroOption, fileString);</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        } else if (entity.hasETypeFlag(Entity.ETYPE_JUMPSHIP)) {</span>
+<span class="nc" id="L137">            testEntity = new TestAdvancedAerospace((Jumpship) entity, aeroOption, fileString);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        } else if (entity.hasETypeFlag(Entity.ETYPE_AERO)</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">                &amp;&amp; !entity.hasETypeFlag(Entity.ETYPE_FIGHTER_SQUADRON)) {</span>
+<span class="nc" id="L140">            testEntity = new TestAero((Aero) entity, aeroOption, fileString);</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        } else if (entity instanceof BattleArmor) {</span>
+<span class="nc" id="L142">            testEntity = new TestBattleArmor((BattleArmor) entity, baOption,</span>
+                    fileString);
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        } else if (entity instanceof Infantry) {</span>
+<span class="nc" id="L145">            testEntity = new TestInfantry((Infantry) entity, infOption,</span>
+                    fileString);
+        } else {
+<span class="nc" id="L148">            System.err.println(&quot;UnknownType: &quot; + entity.getDisplayName());</span>
+<span class="nc" id="L149">            System.err.println(&quot;Found in: &quot; + fileString);</span>
+<span class="nc" id="L150">            return false;</span>
+        }
+
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (verbose) {</span>
+<span class="nc" id="L154">            StringBuffer buff = new StringBuffer();</span>
+<span class="nc" id="L155">            boolean valid = testEntity.correctEntity(buff, ammoTechLvl);</span>
+<span class="nc bnc" id="L156" title="All 4 branches missed.">            if (!valid || !failsOnly) {</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">                if (valid) {</span>
+<span class="nc" id="L158">                    System.out.println(&quot;---Entity is valid---&quot;);</span>
+                } else {
+<span class="nc" id="L160">                    System.out.println(&quot;---Entity INVALID---&quot;);</span>
+                }
+<span class="nc" id="L162">                System.out.print(testEntity.printEntity());                        </span>
+<span class="nc" id="L163">                System.out.println(&quot;BV: &quot; + entity.calculateBattleValue()</span>
+<span class="nc" id="L164">                        + &quot;    Cost: &quot; + FMT.format(entity.getCost(false)));</span>
+            }
+<span class="nc" id="L166">        } else {</span>
+<span class="nc" id="L167">            StringBuffer buff = new StringBuffer();</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">            if (testEntity.correctEntity(buff, ammoTechLvl)) {</span>
+<span class="nc" id="L169">                retVal = true;</span>
+            } else {
+<span class="nc" id="L171">                System.out.println(testEntity.getName());</span>
+<span class="nc" id="L172">                System.out.println(&quot;Found in: &quot; + testEntity.fileString);</span>
+<span class="nc" id="L173">                System.out.println(&quot;Intro year: &quot; + entity.getYear());</span>
+<span class="nc" id="L174">                System.out.println(&quot;BV: &quot; + entity.calculateBattleValue()</span>
+<span class="nc" id="L175">                + &quot;    Cost: &quot; + FMT.format(entity.getCost(false)));</span>
+<span class="nc" id="L176">                System.out.println(buff);</span>
+
+            }
+        }
+
+<span class="nc" id="L181">        return retVal;</span>
+    }
+
+    public Entity loadEntity(File f, String entityName) {
+<span class="nc" id="L185">        Entity entity = null;</span>
+        try {
+<span class="nc" id="L187">            entity = new MechFileParser(f, entityName).getEntity();</span>
+<span class="nc" id="L188">        } catch (megamek.common.loaders.EntityLoadingException e) {</span>
+<span class="nc" id="L189">            System.out.println(&quot;Exception: &quot; + e.toString());</span>
+<span class="nc" id="L190">        }</span>
+<span class="nc" id="L191">        return entity;</span>
+    }
+
+    // This is the listener method that MechSummaryCache calls when it
+    // finishes loading all the mechs. This should only happen if no
+    // specific files were passed to main() as arguments (which implies
+    // all units that are loaded when MegaMek normally runs should be
+    // checked).
+    @Override
+    public void doneLoading() {
+<span class="nc" id="L201">        MechSummary[] ms = mechSummaryCache.getAllMechs();</span>
+<span class="nc" id="L202">        System.out.println(&quot;\n&quot;);</span>
+
+<span class="nc" id="L204">        System.out.println(&quot;Mech Options:&quot;);</span>
+<span class="nc" id="L205">        System.out.println(mechOption.printOptions());</span>
+<span class="nc" id="L206">        System.out.println(&quot;Protomech Options:&quot;);</span>
+<span class="nc" id="L207">        System.out.println(protomechOption.printOptions());</span>
+<span class="nc" id="L208">        System.out.println(&quot;\nTank Options:&quot;);</span>
+<span class="nc" id="L209">        System.out.println(tankOption.printOptions());</span>
+<span class="nc" id="L210">        System.out.println(&quot;\nAero Options:&quot;);</span>
+<span class="nc" id="L211">        System.out.println(aeroOption.printOptions());</span>
+<span class="nc" id="L212">        System.out.println(&quot;\nBattleArmor Options:&quot;);</span>
+<span class="nc" id="L213">        System.out.println(baOption.printOptions());</span>
+<span class="nc" id="L214">        System.out.println(&quot;\nInfantry Options:&quot;);</span>
+<span class="nc" id="L215">        System.out.println(infOption.printOptions());</span>
+
+<span class="nc" id="L217">        int failures = 0;</span>
+<span class="nc" id="L218">        Map&lt;Integer,Integer&gt; failedByType = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        for (int i = 0; i &lt; ms.length; i++) {</span>
+<span class="nc" id="L220">            int unitType = UnitType.determineUnitTypeCode(ms[i].getUnitType());</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">            if (unitType != UnitType.GUN_EMPLACEMENT) {</span>
+<span class="nc" id="L222">                Entity entity = loadEntity(ms[i].getSourceFile(), ms[i]</span>
+<span class="nc" id="L223">                        .getEntryName());</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">                if (entity == null) {</span>
+<span class="nc" id="L225">                    continue;</span>
+                }
+<span class="nc bnc" id="L227" title="All 2 branches missed.">                if (!checkEntity(entity, ms[i].getSourceFile().toString(),</span>
+<span class="nc" id="L228">                        loadingVerbosity,entity.getTechLevel(),failsOnly)) {</span>
+<span class="nc" id="L229">                    failures++;</span>
+<span class="nc" id="L230">                    failedByType.merge(unitType, 1, Integer::sum);</span>
+                }
+            }
+        }
+<span class="nc" id="L234">        System.out.println(&quot;Total Failures: &quot; + failures);</span>
+<span class="nc" id="L235">        System.out.println(&quot;\t Failed Meks: &quot; + failedByType.getOrDefault(UnitType.MEK, 0));</span>
+<span class="nc" id="L236">        System.out.println(&quot;\t Failed Protomeks: &quot; + failedByType.getOrDefault(UnitType.PROTOMEK, 0));</span>
+<span class="nc" id="L237">        System.out.println(&quot;\t Failed Tanks: &quot; + failedByType.getOrDefault(UnitType.TANK, 0));</span>
+<span class="nc" id="L238">        System.out.println(&quot;\t Failed VTOLs: &quot; + failedByType.getOrDefault(UnitType.VTOL, 0));</span>
+<span class="nc" id="L239">        System.out.println(&quot;\t Failed Naval: &quot; + failedByType.getOrDefault(UnitType.NAVAL, 0));</span>
+<span class="nc" id="L240">        System.out.println(&quot;\t Failed ASFs: &quot; + failedByType.getOrDefault(UnitType.AERO, 0));</span>
+<span class="nc" id="L241">        System.out.println(&quot;\t Failed CFs: &quot; + failedByType.getOrDefault(UnitType.CONV_FIGHTER, 0));</span>
+<span class="nc" id="L242">        System.out.println(&quot;\t Failed Small Craft: &quot; + failedByType.getOrDefault(UnitType.SMALL_CRAFT, 0));</span>
+<span class="nc" id="L243">        System.out.println(&quot;\t Failed Dropships: &quot; + failedByType.getOrDefault(UnitType.DROPSHIP, 0));</span>
+<span class="nc" id="L244">        System.out.println(&quot;\t Failed Jumpships: &quot; + failedByType.getOrDefault(UnitType.JUMPSHIP, 0));</span>
+<span class="nc" id="L245">        System.out.println(&quot;\t Failed Warships: &quot; + failedByType.getOrDefault(UnitType.WARSHIP, 0));</span>
+<span class="nc" id="L246">        System.out.println(&quot;\t Failed Space Stations: &quot; + failedByType.getOrDefault(UnitType.SPACE_STATION, 0));</span>
+<span class="nc" id="L247">        System.out.println(&quot;\t Failed BA: &quot; + failedByType.getOrDefault(UnitType.BATTLE_ARMOR, 0));</span>
+<span class="nc" id="L248">        System.out.println(&quot;\t Failed Infantry: &quot; + failedByType.getOrDefault(UnitType.INFANTRY, 0));</span>
+<span class="nc" id="L249">    }</span>
+
+    public static void main(String[] args) {
+<span class="nc" id="L252">        File config = new File(Configuration.unitsDir(), CONFIG_FILENAME);</span>
+<span class="nc" id="L253">        File f = null;</span>
+<span class="nc" id="L254">        String entityName = null;</span>
+<span class="nc" id="L255">        boolean verbose = false;</span>
+<span class="nc" id="L256">        boolean ignoreUnofficial = true;</span>
+<span class="nc" id="L257">        boolean failsOnly = true;</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">        for (int i = 0; i &lt; args.length; i++) {</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">            if (args[i].equals(&quot;-file&quot;)) {</span>
+<span class="nc" id="L260">                i++;</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">                if (i &gt;= args.length) {</span>
+<span class="nc" id="L262">                    System.out.println(&quot;Missing argument filename!&quot;);</span>
+<span class="nc" id="L263">                    return;</span>
+                }
+<span class="nc" id="L265">                f = new File(args[i]);</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">                if (!f.exists()) {</span>
+<span class="nc" id="L267">                    System.out.println(&quot;Can't find: &quot; + args[i] + &quot;!&quot;);</span>
+<span class="nc" id="L268">                    return;</span>
+                }
+<span class="nc bnc" id="L270" title="All 2 branches missed.">                if (args[i].endsWith(&quot;.zip&quot;)) {</span>
+<span class="nc" id="L271">                    i++;</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">                    if (i &gt;= args.length) {</span>
+<span class="nc" id="L273">                        System.out.println(&quot;Missing Entity Name!&quot;);</span>
+<span class="nc" id="L274">                        return;</span>
+                    }
+<span class="nc" id="L276">                    entityName = args[i];</span>
+                }
+<span class="nc bnc" id="L278" title="All 4 branches missed.">            } else if (args[i].equals(&quot;-v&quot;) || args[i].equals(&quot;-verbose&quot;)) {</span>
+<span class="nc" id="L279">                verbose = true;</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            } else if (args[i].equals(&quot;-valid&quot;)) {</span>
+<span class="nc" id="L281">                failsOnly = false;</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">            } else if (args[i].equals(&quot;-unofficial&quot;)) {</span>
+<span class="nc" id="L283">                ignoreUnofficial = false;</span>
+            } else {
+<span class="nc" id="L285">                System.err.println(&quot;Error: Invalid argument.\n&quot;);</span>
+<span class="nc" id="L286">                System.err.println(&quot;Usage:\n\tEntityVerifier [flags] \n\n&quot; +</span>
+                &quot;Valid Flags: \n&quot; +
+                &quot;-file &lt;FILENAME&gt; \t Specify a file to validate,\n&quot;+
+                &quot;                 \t   else the data directory is checked\n&quot; +
+                &quot;-v               \t Verbose -- print detailed report\n&quot; +
+                &quot;-unofficial      \t Consider unofficial units in data dir\n&quot;+ 
+                &quot;-valid           \t Print verbose reports for valid units\n&quot;);
+<span class="nc" id="L293">                return;</span>
+            }
+        }
+
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        if (f != null) {</span>
+            Entity entity;
+            try {
+<span class="nc" id="L300">                entity = new MechFileParser(f, entityName).getEntity();</span>
+<span class="nc" id="L301">            } catch (megamek.common.loaders.EntityLoadingException e) {</span>
+<span class="nc" id="L302">                System.err.println(&quot;Exception: &quot; + e.toString());</span>
+<span class="nc" id="L303">                System.err.println(&quot;Exception: &quot; + e.getMessage());</span>
+<span class="nc" id="L304">                return;</span>
+<span class="nc" id="L305">            }</span>
+<span class="nc" id="L306">            EntityVerifier.getInstance(config).checkEntity(entity, f.toString(), true);</span>
+<span class="nc" id="L307">        } else {</span>
+            // No specific file passed, so have MegaMek load all the mechs it
+            // normally would, then verify all of them.
+<span class="nc" id="L310">            EntityVerifier ev = EntityVerifier.getInstance(config);</span>
+<span class="nc" id="L311">            ev.loadingVerbosity = verbose;</span>
+<span class="nc" id="L312">            ev.failsOnly = failsOnly;</span>
+<span class="nc" id="L313">            mechSummaryCache = MechSummaryCache.getInstance(ignoreUnofficial);</span>
+<span class="nc" id="L314">            mechSummaryCache.addListener(ev);</span>
+        }
+<span class="nc" id="L316">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

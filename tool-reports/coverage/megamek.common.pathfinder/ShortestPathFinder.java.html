@@ -1,0 +1,446 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ShortestPathFinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">ShortestPathFinder.java</span></div><h1>ShortestPathFinder.java</h1><pre class="source lang-java linenums">package megamek.common.pathfinder;
+
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Map;
+
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IAero;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.Infantry;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.MoveStep;
+import megamek.common.Tank;
+import megamek.common.Terrains;
+
+/**
+ * Implementation of MovePathFinder designed to find the shortest path between
+ * two hexes or finding shortest paths from a single hex to all surrounding.
+ * 
+ * @author Saginatio
+ * 
+ */
+public class ShortestPathFinder extends MovePathFinder&lt;MovePath&gt; {
+
+    /**
+     * Returns true if last processed move path had final position equal to
+     * destination.
+     * 
+     */
+    public static class DestinationReachedStopCondition implements StopCondition&lt;MovePath&gt; {
+        private final Coords destination;
+
+<span class="nc" id="L37">        public DestinationReachedStopCondition(Coords destination) {</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">            if (destination == null)</span>
+<span class="nc" id="L39">                throw new NullPointerException();</span>
+<span class="nc" id="L40">            this.destination = destination;</span>
+<span class="nc" id="L41">        }</span>
+
+        public boolean shouldStop(MovePath e) {
+<span class="nc" id="L44">            return destination.equals(e.getFinalCoords());</span>
+        }
+    }
+
+    /**
+     * Compares MovePaths based on distance from final position to destination.
+     * If those distances are equal then spent movement points are compared.
+     * 
+     */
+    public static class MovePathGreedyComparator implements Comparator&lt;MovePath&gt; {
+        private final Coords destination;
+
+<span class="nc" id="L56">        public MovePathGreedyComparator(Coords destination) {</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">            if (destination == null)</span>
+<span class="nc" id="L58">                throw new NullPointerException();</span>
+<span class="nc" id="L59">            this.destination = destination;</span>
+<span class="nc" id="L60">        }</span>
+
+        /**
+         * Compares MovePaths based on distance from final position to
+         * destination. If those distances are equal then spent movement points
+         * are compared.
+         * 
+         */
+        @Override
+        public int compare(MovePath mp1, MovePath mp2) {
+<span class="nc" id="L70">            int d1 = mp1.getFinalCoords().distance(destination);</span>
+<span class="nc" id="L71">            int d2 = mp2.getFinalCoords().distance(destination);</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">            if (d1 != d2)</span>
+<span class="nc" id="L73">                return d1 - d2;</span>
+            else
+<span class="nc" id="L75">                return mp1.getMpUsed() - mp2.getMpUsed();</span>
+
+        }
+    }
+
+    /**
+     * @see #shouldStay(MovePath)
+     * 
+     */
+    public static class MovePathGreedyFilter extends Filter&lt;MovePath&gt; {
+        private Coords dest;
+
+<span class="nc" id="L87">        public MovePathGreedyFilter(Coords dest) {</span>
+<span class="nc" id="L88">            this.dest = dest;</span>
+<span class="nc" id="L89">        }</span>
+
+        /**
+         * Returns true if last step reduces distance to destination or if the
+         * last step is a turn, get_up... .
+         */
+        @Override
+        public boolean shouldStay(MovePath movePath) {
+<span class="nc bnc" id="L97" title="All 2 branches missed.">            if (movePath.length() &lt; 2)</span>
+<span class="nc" id="L98">                return true;</span>
+<span class="nc" id="L99">            MoveStep prevStep = movePath.getSecondLastStep();</span>
+<span class="nc" id="L100">            Coords prevC = prevStep.getPosition();</span>
+<span class="nc" id="L101">            int prevDist = dest.distance(prevC), mpDist = dest.distance(movePath.getFinalCoords());</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">            if (prevDist &gt; mpDist)</span>
+<span class="nc" id="L103">                return true;</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">            if (prevDist == mpDist) {</span>
+                //the distance has not changed 
+                //if we are in the same hex, then we are changing facing and it's ok.
+<span class="nc" id="L107">                return prevC.equals(movePath.getFinalCoords());</span>
+            }
+
+<span class="nc" id="L110">            return false;</span>
+        }
+    }
+
+    /**
+     * Relaxes edge by favouring MovePaths that end in a not prone stance.
+     * 
+     */
+<span class="nc" id="L118">    public static class MovePathRelaxer</span>
+            implements AbstractPathFinder.EdgeRelaxer&lt;MovePath, MovePath&gt; {
+        @Override
+        public MovePath doRelax(MovePath v, MovePath e, Comparator&lt;MovePath&gt; comparator) {
+<span class="nc bnc" id="L122" title="All 2 branches missed.">            if (v == null)</span>
+<span class="nc" id="L123">                return e;</span>
+
+            // We have to be standing to be able to move
+            // Maybe I should replace this extra condition with a flag in node(?)
+<span class="nc" id="L127">            boolean vprone = v.getFinalProne(), eprone = e.getFinalProne();</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">            if (vprone != eprone)</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">                return vprone ? e : null;</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">            if (!(v.getEntity() instanceof Tank)) {</span>
+<span class="nc" id="L131">                boolean vhdown = v.getFinalHullDown(), ehdown = e</span>
+<span class="nc" id="L132">                        .getFinalHullDown();</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">                if (vhdown != ehdown)</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">                    return vhdown ? e : null;</span>
+            }
+
+<span class="nc bnc" id="L137" title="All 2 branches missed.">            return comparator.compare(e, v) &lt; 0 ? e : null;</span>
+        }
+    }
+    
+    /**
+     * Relaxes edge based on the supplied comparator, with special
+     * considerations for flying off the map (since this will likely always look
+     * back to the comparator).
+     * 
+     */
+<span class="nc" id="L147">    public static class AeroMovePathRelaxer</span>
+            implements AbstractPathFinder.EdgeRelaxer&lt;MovePath, MovePath&gt; {
+        @Override
+        public MovePath doRelax(MovePath v, MovePath e, Comparator&lt;MovePath&gt; comparator) {
+<span class="nc bnc" id="L151" title="All 2 branches missed.">            if (v == null)</span>
+<span class="nc" id="L152">                return e;</span>
+            
+<span class="nc bnc" id="L154" title="All 2 branches missed.">            return comparator.compare(e, v) &lt; 0 ? e : null;</span>
+        }
+    }    
+
+    /**
+     * A MovePath comparator that compares movement points spent and distance to
+     * destination. If those are equal then MovePaths with more HexesMoved are
+     * Preferred. This should considerably speed A* when multiple shortest paths
+     * are present.
+     * 
+     * This comparator is used by A* algorithm.
+     * 
+     */
+    public static class MovePathAStarComparator implements Comparator&lt;MovePath&gt; {
+        Coords destination;
+        MoveStepType stepType;
+        IBoard board;
+
+        public MovePathAStarComparator(Coords destination,
+<span class="nc" id="L173">                MoveStepType stepType, IBoard board) {</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">            if (destination == null)</span>
+<span class="nc" id="L175">                throw new NullPointerException();</span>
+<span class="nc" id="L176">            this.destination = destination;</span>
+<span class="nc" id="L177">            this.stepType = stepType;</span>
+<span class="nc" id="L178">            this.board = board;</span>
+<span class="nc" id="L179">        }</span>
+
+        @Override
+        public int compare(MovePath first, MovePath second) {
+
+<span class="nc" id="L184">            int h1 = 0, h2 = 0;</span>
+            // We cannot estimate the needed cost for aeros
+            // However, Dropships basically follow ground movement rules
+<span class="nc bnc" id="L187" title="All 2 branches missed.">            if ((first.getEntity().isAero()) </span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">                    &amp;&amp; !((IAero)first.getEntity()).isSpheroid()) {</span>
+                // We want to pick paths that use fewer MP, and are also shorter
+                // unlike ground units which could benefit from better target
+                // movement modifiers for longer paths
+<span class="nc" id="L192">                int dd = (first.getMpUsed() + h1) - (second.getMpUsed() + h2);</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                if (dd != 0) {</span>
+<span class="nc" id="L194">                    return dd;</span>
+                } else {
+                    // Pick the shortest path
+<span class="nc" id="L197">                    int hexesMovedDiff = first.getHexesMoved()</span>
+<span class="nc" id="L198">                            - second.getHexesMoved();</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">                    if (hexesMovedDiff != 0) {</span>
+<span class="nc" id="L200">                        return hexesMovedDiff;</span>
+                    }
+                    // If both are the same length, pick one with fewer steps
+<span class="nc" id="L203">                    return (first.length() - second.length());</span>
+                }
+<span class="nc bnc" id="L205" title="All 2 branches missed.">            }else if(first.getEntity().getWalkMP()==0) {</span>
+                // current implementation of movement cost allows a 0mp moves
+                // for units with 0 mp.
+            }else{
+<span class="nc bnc" id="L209" title="All 2 branches missed.">                boolean backwards = stepType == MoveStepType.BACKWARDS;</span>
+<span class="nc" id="L210">                h1 = first.getFinalCoords().distance(destination)</span>
+<span class="nc" id="L211">                        + getFacingDiff(first, destination, backwards)</span>
+<span class="nc" id="L212">                        + getLevelDiff(first, destination, board, first.isJumping())</span>
+<span class="nc" id="L213">                        + getElevationDiff(first, destination, board,</span>
+<span class="nc" id="L214">                                first.getEntity());</span>
+<span class="nc" id="L215">                h2 = second.getFinalCoords().distance(destination)</span>
+<span class="nc" id="L216">                        + getFacingDiff(second, destination, backwards)</span>
+<span class="nc" id="L217">                        + getLevelDiff(second, destination, board, second.isJumping())</span>
+<span class="nc" id="L218">                        + getElevationDiff(second, destination, board,</span>
+<span class="nc" id="L219">                                second.getEntity());</span>
+            }
+
+<span class="nc" id="L222">            int dd = (first.getMpUsed() + h1) - (second.getMpUsed() + h2);</span>
+
+<span class="nc bnc" id="L224" title="All 2 branches missed.">            if (dd != 0) {</span>
+<span class="nc" id="L225">                return dd;</span>
+            } else {
+<span class="nc" id="L227">                return first.getHexesMoved() - second.getHexesMoved();</span>
+            }
+        }
+    }
+
+    private ShortestPathFinder(EdgeRelaxer&lt;MovePath, MovePath&gt; costRelaxer,
+            Comparator&lt;MovePath&gt; comparator, final MoveStepType stepType, IGame game) {
+<span class="nc" id="L234">        super(costRelaxer, new NextStepsAdjacencyMap(stepType), comparator, game);</span>
+<span class="nc" id="L235">    }</span>
+
+    /**
+     * Produces a new instance of shortest path between starting points and a
+     * destination finder. Algorithm will halt after reaching destination.
+     * 
+     * Current implementation uses AStar algorithm.
+     * 
+     * @param destination
+     * @param stepType
+     * @param game
+     */
+    public static ShortestPathFinder newInstanceOfAStar(final Coords destination, final MoveStepType stepType, final IGame game) {
+<span class="nc" id="L248">        final ShortestPathFinder spf = new ShortestPathFinder(</span>
+                new ShortestPathFinder.MovePathRelaxer(),
+                new ShortestPathFinder.MovePathAStarComparator(destination,
+<span class="nc" id="L251">                        stepType, game.getBoard()), stepType, game);</span>
+
+<span class="nc" id="L253">        spf.addStopCondition(new DestinationReachedStopCondition(destination));</span>
+<span class="nc" id="L254">        spf.addFilter(new MovePathLegalityFilter(game));</span>
+<span class="nc" id="L255">        return spf;</span>
+    }
+
+    /**
+     * Produces new instance of shortest path searcher. It will find all the
+     * shortest paths between starting points that are reachable with at most
+     * maxMp move points.
+     * 
+     * @param maxMP maximum MP that entity can use
+     * @param stepType
+     * @param game
+     */
+    public static ShortestPathFinder newInstanceOfOneToAll(final int maxMP, final MoveStepType stepType, final IGame game) {
+<span class="nc" id="L268">        final ShortestPathFinder spf =</span>
+                new ShortestPathFinder(
+                        new ShortestPathFinder.MovePathRelaxer(),
+                        new ShortestPathFinder.MovePathMPCostComparator(),
+                        stepType, game);
+<span class="nc" id="L273">        spf.addFilter(new MovePathLengthFilter(maxMP));</span>
+<span class="nc" id="L274">        spf.addFilter(new MovePathLegalityFilter(game));</span>
+<span class="nc" id="L275">        return spf;</span>
+    }
+
+    /**
+     * Constructs a greedy algorithms. It considers only the moves end closer to
+     * destination. Ignores legality of the move. Stops after reaching
+     * destination.
+     */
+    public static ShortestPathFinder newInstanceOfGreedy(final Coords destination, final MoveStepType stepType,
+            final IGame game) {
+
+<span class="nc" id="L286">        final ShortestPathFinder spf =</span>
+                new ShortestPathFinder(new ShortestPathFinder.MovePathRelaxer(),
+                        new MovePathGreedyComparator(destination),
+                        stepType, game);
+
+<span class="nc" id="L291">        spf.addStopCondition(new DestinationReachedStopCondition(destination));</span>
+<span class="nc" id="L292">        spf.addFilter(new MovePathGreedyFilter(destination));</span>
+<span class="nc" id="L293">        return spf;</span>
+    }
+
+    /**
+     * Returns the shortest move path to a hex at given coordinates or
+     * {@code null} if none is present. If multiple path are present with
+     * different final facings, the minimal one is chosen.
+     * 
+     * 
+     * @param coordinates - the coordinates of the hex
+     * @return the shortest move path to hex at given coordinates or
+     *         {@code null}
+     */
+    public MovePath getComputedPath(Coords coordinates) {
+<span class="nc" id="L307">        return getCost(coordinates, getComparator());</span>
+    }
+
+    /**
+     * Returns a map of all computed shortest paths. If multiple paths to a
+     * single hex, each with different final facing, are present, then the
+     * minimal one is chosen for each hex.
+     * 
+     * @return a map of all computed shortest paths.
+     */
+    public Map&lt;Coords, MovePath&gt; getAllComputedPaths() {
+<span class="nc" id="L318">        return super.getAllComputedCosts(getComparator());</span>
+    }
+
+    public Collection&lt;MovePath&gt; getAllComputedPathsUncategorized() {
+<span class="nc" id="L322">        return getPathCostMap().values();</span>
+    }
+    
+    public static int getFacingDiff(final MovePath mp, Coords dest,
+            boolean backward) {
+        // Facing doesn't matter for jumping
+<span class="nc bnc" id="L328" title="All 2 branches missed.">        if (mp.isJumping()) {</span>
+<span class="nc" id="L329">            return 0;</span>
+        }
+
+        // Ignore facing if we are on the destination
+<span class="nc bnc" id="L333" title="All 2 branches missed.">        if (mp.getFinalCoords().equals(dest)) {</span>
+<span class="nc" id="L334">            return 0;</span>
+        }
+
+        // Direction dest hex is from current location, in hex facings
+<span class="nc" id="L338">        int destDir = mp.getFinalCoords().direction(dest);</span>
+        // Direction dest hex is from current location, in degrees
+<span class="nc" id="L340">        int destAngle = mp.getFinalCoords().degree(dest);</span>
+        // Estimate the number of facing changes to reach destination
+<span class="nc bnc" id="L342" title="All 2 branches missed.">        int firstFacing = Math.abs(((destDir + (backward ? 3 : 0)) % 6)</span>
+<span class="nc" id="L343">                - mp.getFinalFacing());</span>
+
+        // Adjust for circular nature of facing
+<span class="nc bnc" id="L346" title="All 2 branches missed.">        if (firstFacing &gt; 3) {</span>
+<span class="nc" id="L347">            firstFacing = 6 - firstFacing;</span>
+        }
+
+        // Ability to shift can ease facing costs
+<span class="nc bnc" id="L351" title="All 2 branches missed.">        if (mp.canShift()) {</span>
+<span class="nc" id="L352">            firstFacing = Math.max(0, firstFacing - 1);</span>
+        }
+
+        // If the angle to the goal doesn't fall along a hex facing, then we
+        // need to make another facing change, which needs to be accounted for
+<span class="nc bnc" id="L357" title="All 2 branches missed.">        if ((destAngle % 60) != 0) {</span>
+<span class="nc" id="L358">            firstFacing++;</span>
+        }
+<span class="nc" id="L360">        return firstFacing;</span>
+    }
+    
+    /**
+     * Computes the difference in levels between the current location and the
+     * goal location. This prevents the heuristic from under-estimating when a
+     * unit is on top of a hill.
+     * 
+     * @param mp MovePath to evaluate
+     * @param dest Destination coordinates
+     * @param board Board on which the move path takes place
+     * @param ignore Whether to ignore this calculation and return 0
+     * @return level difference between the final coordinates of the given move path and the destination coordinates
+     */
+    public static int getLevelDiff(final MovePath mp, Coords dest, IBoard board, boolean ignore) {
+        // Ignore level differences if we're not on the ground
+<span class="nc bnc" id="L376" title="All 4 branches missed.">        if (ignore || (mp.getFinalElevation() != 0)) {</span>
+<span class="nc" id="L377">            return 0;</span>
+        }
+<span class="nc" id="L379">        IHex currHex = board.getHex(mp.getFinalCoords());</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">        if (currHex == null) {</span>
+<span class="nc" id="L381">            System.out.println(&quot;getLevelDiff: currHex was null!&quot; +</span>
+<span class="nc" id="L382">                               &quot;\nStart: &quot; + mp.getStartCoords() +</span>
+<span class="nc" id="L383">                               &quot;\ncurrHex:  &quot; + mp.getFinalCoords() +</span>
+<span class="nc" id="L384">                               &quot;\nPath: &quot; + mp.toString());</span>
+<span class="nc" id="L385">            return 0;</span>
+        }
+<span class="nc" id="L387">        IHex destHex = board.getHex(dest);</span>
+<span class="nc bnc" id="L388" title="All 2 branches missed.">        if (destHex == null) {</span>
+<span class="nc" id="L389">            System.out.println(&quot;getLevelDiff: destHex was null!&quot; +</span>
+<span class="nc" id="L390">                               &quot;\nStart: &quot; + mp.getStartCoords() +</span>
+                               &quot;\ndestHex: &quot; + dest +
+<span class="nc" id="L392">                               &quot;\nPath: &quot; + mp.toString());</span>
+<span class="nc" id="L393">            return 0;</span>
+        }
+<span class="nc" id="L395">        return Math.abs(destHex.getLevel() - currHex.getLevel());</span>
+    }
+    
+    /**
+     * Computes the difference in elevation between the current location and 
+     * the goal location.  This is important for using determining when
+     * elevation change steps should be used.
+     * 
+     * @param mp
+     * @param dest
+     * @param board
+     * @param ent
+     * @return
+     */
+    public static int getElevationDiff(final MovePath mp, Coords dest,
+            IBoard board, Entity ent) {
+        // We can ignore this if we're jumping
+<span class="nc bnc" id="L412" title="All 2 branches missed.">        if (mp.isJumping()) {</span>
+<span class="nc" id="L413">            return 0;</span>
+        }
+<span class="nc" id="L415">        IHex destHex = board.getHex(dest);</span>
+<span class="nc" id="L416">        int currElevation = mp.getFinalElevation();</span>
+        // Get elevation in destination hex, ignoring buildings
+<span class="nc" id="L418">        int destElevation = ent.elevationOccupied(destHex,</span>
+<span class="nc" id="L419">                mp.getFinalElevation());</span>
+        // If there's a building, we could stand on it
+<span class="nc bnc" id="L421" title="All 2 branches missed.">        if (destHex.containsTerrain(Terrains.BLDG_ELEV)) {</span>
+            // Assume that we stay on same level if building is high enough
+<span class="nc bnc" id="L423" title="All 2 branches missed.">            if (destHex.terrainLevel(Terrains.BLDG_ELEV) &gt;= currElevation) {</span>
+<span class="nc" id="L424">                destElevation = currElevation;</span>
+            }
+        // If there's a bridge, we could stand on it            
+<span class="nc bnc" id="L427" title="All 2 branches missed.">        } else if (destHex.containsTerrain(Terrains.BRIDGE_ELEV)) {</span>
+            // Assume that we stay on same level if bridge is high enough
+<span class="nc bnc" id="L429" title="All 2 branches missed.">            if (destHex.terrainLevel(Terrains.BRIDGE_ELEV) == currElevation) {</span>
+<span class="nc" id="L430">                destElevation = currElevation;</span>
+            }
+        }
+<span class="nc" id="L433">        int elevationDiff = Math.abs(currElevation - destElevation);</span>
+        // Infantry elevation changes are doubled 
+<span class="nc bnc" id="L435" title="All 2 branches missed.">        if (ent instanceof Infantry) {</span>
+<span class="nc" id="L436">            elevationDiff *= 2;</span>
+        }
+        // Penalty for standing
+<span class="nc bnc" id="L439" title="All 4 branches missed.">        if (ent.isProne() &amp;&amp; !(mp.contains(MoveStepType.GET_UP)</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">                || mp.contains(MoveStepType.CAREFUL_STAND))) {</span>
+<span class="nc" id="L441">            elevationDiff += 2;</span>
+        }
+<span class="nc" id="L443">        return elevationDiff;</span>
+    }    
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

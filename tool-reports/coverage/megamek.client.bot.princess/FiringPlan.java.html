@@ -1,0 +1,349 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FiringPlan.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">FiringPlan.java</span></div><h1>FiringPlan.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.bot.princess;
+
+import megamek.common.AmmoType;
+import megamek.common.Mounted;
+import megamek.common.Targetable;
+import megamek.common.WeaponType;
+import megamek.common.actions.EntityAction;
+import megamek.common.actions.FlipArmsAction;
+import megamek.common.actions.TorsoTwistAction;
+import megamek.common.util.StringUtil;
+
+import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Vector;
+
+/**
+ * FiringPlan is a series of {@link WeaponFireInfo} objects describing a full attack turn
+ *
+ * @version $Id$
+ * @lastEditBy Deric &quot;Netzilla&quot; Page (deric dot page at usa dot net)
+ * @since: 12/18/13 1:20 pM
+ */
+public class FiringPlan extends ArrayList&lt;WeaponFireInfo&gt; implements
+        Comparable&lt;FiringPlan&gt; {
+
+    private static final long serialVersionUID = 8938385222775928559L;
+
+    private double utility; // calculated elsewhere
+    private Targetable target;
+    private int twist;
+    private boolean flipArms;
+    
+<span class="nc" id="L49">    FiringPlan() {</span>
+<span class="nc" id="L50">        setTwist(0);</span>
+<span class="nc" id="L51">        setUtility(0);</span>
+<span class="nc" id="L52">    }</span>
+    
+    FiringPlan(Targetable target) {
+<span class="nc" id="L55">        this();</span>
+<span class="nc" id="L56">        this.target = target;</span>
+<span class="nc" id="L57">    }</span>
+    
+    FiringPlan(Targetable target, boolean flipArms) {
+<span class="nc" id="L60">        this(target);</span>
+<span class="nc" id="L61">        this.flipArms = flipArms;</span>
+<span class="nc" id="L62">    }</span>
+
+    /**
+     * @return The total heat for all weapons being fired with this plan.
+     */
+    synchronized int getHeat() {
+<span class="nc" id="L68">        int heat = 0;</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">        for (WeaponFireInfo weaponFireInfo : this) {</span>
+<span class="nc" id="L70">            heat += weaponFireInfo.getHeat();</span>
+<span class="nc" id="L71">        }</span>
+<span class="nc" id="L72">        return heat;</span>
+    }
+
+    /**
+     * @return The amount of damage based on the damage of each weapon and their odds of hitting.
+     */
+    synchronized double getExpectedDamage() {
+<span class="nc" id="L79">        double expectedDamage = 0;</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        for (WeaponFireInfo weaponFireInfo : this) {</span>
+<span class="nc" id="L81">            expectedDamage += weaponFireInfo.getExpectedDamageOnHit() * weaponFireInfo.getProbabilityToHit();</span>
+<span class="nc" id="L82">        }</span>
+<span class="nc" id="L83">        return expectedDamage;</span>
+    }
+
+    /**
+     * @return The total number of expected critical hits based on the chance to hit, damage to target, toughness of
+     *         target and odds of rolling a successful crit check.   This is in the units of critical hits.
+     */
+    synchronized double getExpectedCriticals() {
+<span class="nc" id="L91">        double expectedCriticals = 0;</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">        for (WeaponFireInfo weaponFireInfo : this) {</span>
+<span class="nc" id="L93">            expectedCriticals += weaponFireInfo.getExpectedCriticals();</span>
+<span class="nc" id="L94">        }</span>
+<span class="nc" id="L95">        return expectedCriticals;</span>
+    }
+
+    /**
+     * Models the probability of each individual weapon getting a kill shot.
+     * We treat each weapon shot as a Bernoulli trial and compute the probiblity
+     * of the target surviving each shot.  We can then take 1 - surviveChance to
+     * get the chance of getting a kill.  This model doesn't take into 
+     * consideration multiple weapons hitting the same location. 
+     *   
+     * @return The odds of getting a kill based on the odds of each individual 
+     *      weapon getting a kill.  The result will be between 0 and 1.
+     */
+    synchronized double getKillProbability() {
+<span class="nc" id="L109">        double surviveProbability = 1;</span>
+        
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        for (WeaponFireInfo weaponFireInfo : this) {</span>
+<span class="nc" id="L112">            surviveProbability *= 1 - weaponFireInfo.getKillProbability();</span>
+<span class="nc" id="L113">        }</span>
+<span class="nc" id="L114">        return 1 - surviveProbability;</span>
+    }
+
+    /**
+     * Searches the list of weapons contained in this plan to see if the given weapon is part of it.
+     *
+     * @param weapon The weapon being searched for.
+     * @return TRUE if the given weapon is part of this plan.
+     */
+    synchronized boolean containsWeapon(Mounted weapon) {
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        for (WeaponFireInfo weaponFireInfo : this) {</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">            if (weaponFireInfo.getWeapon() == weapon) {</span>
+<span class="nc" id="L126">                return true;</span>
+            }
+<span class="nc" id="L128">        }</span>
+<span class="nc" id="L129">        return false;</span>
+    }
+
+    /**
+     * Builds a {@link Vector} of all the actions, {@link EntityAction}, that make up this firing plan.
+     *
+     * @return The list of actions as a vector.
+     */
+    synchronized Vector&lt;EntityAction&gt; getEntityActionVector() {
+<span class="nc" id="L138">        Vector&lt;EntityAction&gt; actionVector = new Vector&lt;&gt;();</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (size() == 0) {</span>
+<span class="nc" id="L140">            return actionVector;</span>
+        }
+        
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if(getTwist() != 0) {</span>
+<span class="nc" id="L144">        	actionVector.add(new TorsoTwistAction(get(0).getShooter().getId(),</span>
+<span class="nc" id="L145">        		FireControl.correctFacing(get(0).getShooter().getFacing() + getTwist())));</span>
+        }
+        
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if(flipArms) {</span>
+<span class="nc" id="L149">            actionVector.addElement(new FlipArmsAction(get(0).getShooter().getId(), flipArms));</span>
+        }
+        
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        for (WeaponFireInfo weaponFireInfo : this) {</span>
+<span class="nc" id="L153">            actionVector.add(weaponFireInfo.getWeaponAttackAction());</span>
+<span class="nc" id="L154">        }</span>
+<span class="nc" id="L155">        return actionVector;</span>
+    }
+
+    /*
+     * Returns a string describing the firing actions, their likelihood to hit, and damage
+     */
+    String getDebugDescription(boolean detailed) {
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        if (size() == 0) {</span>
+<span class="nc" id="L163">            return &quot;Empty FiringPlan!&quot;;</span>
+        }
+        
+<span class="nc" id="L166">        StringBuilder description = new StringBuilder(&quot;Firing Plan for &quot;).append(get(0).getShooter().getChassis())</span>
+<span class="nc" id="L167">                                                                         .append(&quot; at &quot;);</span>
+<span class="nc" id="L168">        Set&lt;Integer&gt; targets = new HashSet&lt;&gt;();</span>
+        // loop through all the targets for this firing plan, only show each target once.
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        for(WeaponFireInfo weaponFireInfo : this) {</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">            if(!targets.contains(weaponFireInfo.getTarget().getTargetId())) {</span>
+<span class="nc" id="L172">                description.append(weaponFireInfo.getTarget().getDisplayName()).append(&quot;, &quot;);</span>
+<span class="nc" id="L173">                targets.add(weaponFireInfo.getTarget().getTargetId());</span>
+            }
+<span class="nc" id="L175">        }</span>
+        
+        // chop off the last &quot;, &quot;
+<span class="nc" id="L178">        description.deleteCharAt(description.length() - 1);</span>
+<span class="nc" id="L179">        description.deleteCharAt(description.length() - 1);</span>
+        
+<span class="nc" id="L181">        description.append(&quot;; &quot;).append(Integer.toString(size()))</span>
+<span class="nc" id="L182">                                .append(&quot; weapons fired &quot;);</span>
+        
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if (detailed) {</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">            for (WeaponFireInfo weaponFireInfo : this) {</span>
+<span class="nc" id="L186">                description.append(&quot;\n\t\t&quot;).append(weaponFireInfo.getDebugDescription());</span>
+<span class="nc" id="L187">            }</span>
+        }
+<span class="nc" id="L189">        DecimalFormat decimalFormat = new DecimalFormat(&quot;0.00000&quot;);</span>
+<span class="nc" id="L190">        description.append(&quot;\n\tTotal Expected Damage=&quot;).append(decimalFormat.format(getExpectedDamage()));</span>
+<span class="nc" id="L191">        description.append(&quot;\n\tTotal Expected Criticals=&quot;).append(decimalFormat.format(getExpectedCriticals()));</span>
+<span class="nc" id="L192">        description.append(&quot;\n\tKill Probability=&quot;).append(decimalFormat.format(getKillProbability()));</span>
+<span class="nc" id="L193">        description.append(&quot;\n\tUtility=&quot;).append(decimalFormat.format(getUtility()));</span>
+<span class="nc" id="L194">        return description.toString();</span>
+    }
+
+    public double getUtility() {
+<span class="nc" id="L198">        return utility;</span>
+    }
+
+    public void setUtility(double utility) {
+<span class="nc" id="L202">        this.utility = utility;</span>
+<span class="nc" id="L203">    }</span>
+
+    public int getTwist() {
+<span class="nc" id="L206">        return twist;</span>
+    }
+
+    public void setTwist(int twist) {
+<span class="nc" id="L210">        this.twist = twist;</span>
+<span class="nc" id="L211">    }</span>
+    
+    public boolean getFlipArms() {
+<span class="nc" id="L214">        return flipArms;</span>
+    }
+    
+    public void setFlipArms(boolean flipArms) {
+<span class="nc" id="L218">        this.flipArms = flipArms;</span>
+<span class="nc" id="L219">    }</span>
+
+    /**
+     * @return Who is being shot at?
+     */
+    public Targetable getTarget() {
+<span class="nc" id="L225">        return target;</span>
+    }
+
+    @Override
+    public boolean equals(Object o) {
+<span class="nc bnc" id="L230" title="All 2 branches missed.">        if (this == o) return true;</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">        if (!(o instanceof FiringPlan)) return false;</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        if (!super.equals(o)) return false;</span>
+
+<span class="nc" id="L234">        FiringPlan that = (FiringPlan) o;</span>
+
+<span class="nc" id="L236">        final double TOLERANCE = 0.00001;</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (twist != that.twist) return false;</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">        if (Math.abs(utility - that.utility) &gt; TOLERANCE) return false;</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (!target.equals(that.target)) return false;</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">        if (getHeat() != that.getHeat()) return false;</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        if (Math.abs(getKillProbability() - that.getKillProbability()) &gt; TOLERANCE) return false;</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        if (Math.abs(getExpectedCriticals() - that.getExpectedCriticals()) &gt; TOLERANCE) return false;</span>
+        //noinspection RedundantIfStatement
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if (Math.abs(getExpectedDamage() - that.getExpectedDamage()) &gt; TOLERANCE) return false;</span>
+
+<span class="nc" id="L246">        return true;</span>
+    }
+    
+    @Override
+    public String toString() {
+<span class="nc" id="L251">        String desc = &quot;Utility: &quot; + utility + &quot; &quot;;</span>
+<span class="nc" id="L252">        desc += super.toString();</span>
+<span class="nc" id="L253">        return desc;</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L258">        int result = super.hashCode();</span>
+        long temp;
+<span class="nc" id="L260">        temp = Double.doubleToLongBits(utility);</span>
+<span class="nc" id="L261">        result = 31 * result + (int) (temp ^ (temp &gt;&gt;&gt; 32));</span>
+<span class="nc" id="L262">        result = 31 * result + target.hashCode();</span>
+<span class="nc" id="L263">        result = 31 * result + twist;</span>
+<span class="nc" id="L264">        return result;</span>
+    }
+
+    /**
+     * Hole punchers before crit seekers
+     */
+    void sortPlan() {
+<span class="nc" id="L271">        this.sort(new Comparator&lt;WeaponFireInfo&gt;() {</span>
+            @Override
+            public int compare(WeaponFireInfo o1, WeaponFireInfo o2) {
+<span class="nc" id="L274">                Mounted weapon1 = o1.getWeapon();</span>
+<span class="nc" id="L275">                Mounted weapon2 = o2.getWeapon();</span>
+
+                // Both null, both equal.
+<span class="nc bnc" id="L278" title="All 4 branches missed.">                if (weapon1 == null &amp;&amp; weapon2 == null) {</span>
+<span class="nc" id="L279">                    return 0;</span>
+                }
+
+                // Not null beats null;
+<span class="nc bnc" id="L283" title="All 2 branches missed.">                if (weapon1 == null) {</span>
+<span class="nc" id="L284">                    return -1;</span>
+                }
+<span class="nc bnc" id="L286" title="All 2 branches missed.">                if (weapon2 == null) {</span>
+<span class="nc" id="L287">                    return 1;</span>
+                }
+
+<span class="nc" id="L290">                double dmg1 = -1;</span>
+<span class="nc" id="L291">                double dmg2 = -1;</span>
+
+<span class="nc" id="L293">                WeaponType weaponType1 = (WeaponType) weapon1.getType();</span>
+<span class="nc" id="L294">                WeaponType weaponType2 = (WeaponType) weapon2.getType();</span>
+
+<span class="nc" id="L296">                Mounted ammo1 = weapon1.getLinked();</span>
+<span class="nc" id="L297">                Mounted ammo2 = weapon2.getLinked();</span>
+
+<span class="nc bnc" id="L299" title="All 4 branches missed.">                if ((ammo1 != null) &amp;&amp; (ammo1.getType() instanceof AmmoType)) {</span>
+<span class="nc" id="L300">                    AmmoType ammoType = (AmmoType) ammo1.getType();</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">                    if (WeaponType.DAMAGE_BY_CLUSTERTABLE == weaponType1.getDamage() ||</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">                        AmmoType.M_CLUSTER == ammoType.getMunitionType()) {</span>
+<span class="nc" id="L303">                        dmg1 = ammoType.getDamagePerShot();</span>
+                    }
+                }
+<span class="nc bnc" id="L306" title="All 2 branches missed.">                if (dmg1 == -1) {</span>
+<span class="nc" id="L307">                    dmg1 = weaponType1.getDamage();</span>
+                }
+<span class="nc bnc" id="L309" title="All 4 branches missed.">                if ((ammo2 != null) &amp;&amp; (ammo2.getType() instanceof AmmoType)) {</span>
+<span class="nc" id="L310">                    AmmoType ammoType = (AmmoType) ammo2.getType();</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">                    if (WeaponType.DAMAGE_BY_CLUSTERTABLE == weaponType2.getDamage() ||</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">                        AmmoType.M_CLUSTER == ammoType.getMunitionType()) {</span>
+<span class="nc" id="L313">                        dmg2 = ammoType.getDamagePerShot();</span>
+                    }
+                }
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                if (dmg2 == -1) {</span>
+<span class="nc" id="L317">                    dmg2 = weaponType2.getDamage();</span>
+                }
+
+<span class="nc" id="L320">                return -Double.compare(dmg1, dmg2);</span>
+            }
+        });
+<span class="nc" id="L323">    }</span>
+
+    String getWeaponNames() {
+<span class="nc" id="L326">        StringBuilder out = new StringBuilder(&quot;&quot;);</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">        for (WeaponFireInfo wfi : this) {</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">            if (!StringUtil.isNullOrEmpty(out)) {</span>
+<span class="nc" id="L329">                out.append(&quot;,&quot;);</span>
+            }
+
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            if (wfi.getWeapon() == null) {</span>
+<span class="nc" id="L333">                out.append(&quot;null&quot;);</span>
+<span class="nc" id="L334">                continue;</span>
+            }
+<span class="nc" id="L336">            out.append(wfi.getWeapon().getName());</span>
+<span class="nc" id="L337">        }</span>
+<span class="nc" id="L338">        return out.toString();</span>
+    }
+
+    /**
+     * Compares to FiringPlans based on utility.  Higher utility is better.
+     */
+    @Override
+    public int compareTo(FiringPlan other) {
+<span class="nc" id="L346">        return (int)(getUtility() - other.getUtility() + 0.5);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

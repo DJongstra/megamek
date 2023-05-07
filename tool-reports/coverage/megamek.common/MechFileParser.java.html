@@ -1,0 +1,1018 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MechFileParser.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">MechFileParser.java</span></div><h1>MechFileParser.java</h1><pre class="source lang-java linenums">/*
+ * MechFileParser.java - Copyright (C) 2002,2003,2004 Josh Yockey
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ * This program is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation; either version 2 of the License, or (at your option) any later
+ * version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+ * details.
+ */
+
+package megamek.common;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Vector;
+import java.util.zip.ZipFile;
+
+import megamek.MegaMek;
+import megamek.common.loaders.BLKAeroFile;
+import megamek.common.loaders.BLKBattleArmorFile;
+import megamek.common.loaders.BLKConvFighterFile;
+import megamek.common.loaders.BLKDropshipFile;
+import megamek.common.loaders.BLKFile;
+import megamek.common.loaders.BLKFixedWingSupportFile;
+import megamek.common.loaders.BLKGunEmplacementFile;
+import megamek.common.loaders.BLKInfantryFile;
+import megamek.common.loaders.BLKJumpshipFile;
+import megamek.common.loaders.BLKLargeSupportTankFile;
+import megamek.common.loaders.BLKMechFile;
+import megamek.common.loaders.BLKProtoFile;
+import megamek.common.loaders.BLKSmallCraftFile;
+import megamek.common.loaders.BLKSpaceStationFile;
+import megamek.common.loaders.BLKSupportTankFile;
+import megamek.common.loaders.BLKSupportVTOLFile;
+import megamek.common.loaders.BLKTankFile;
+import megamek.common.loaders.BLKVTOLFile;
+import megamek.common.loaders.BLKWarshipFile;
+import megamek.common.loaders.EntityLoadingException;
+import megamek.common.loaders.HmpFile;
+import megamek.common.loaders.HmvFile;
+import megamek.common.loaders.IMechLoader;
+import megamek.common.loaders.MepFile;
+import megamek.common.loaders.MtfFile;
+import megamek.common.loaders.TdbFile;
+import megamek.common.util.BuildingBlock;
+import megamek.common.util.fileUtils.MegaMekFile;
+import megamek.common.weapons.ppc.CLERPPC;
+import megamek.common.weapons.ppc.ISERPPC;
+import megamek.common.weapons.ppc.ISHeavyPPC;
+import megamek.common.weapons.ppc.ISLightPPC;
+import megamek.common.weapons.ppc.ISPPC;
+import megamek.common.weapons.ppc.ISSnubNosePPC;
+
+/*
+ * Switches between the various type-specific parsers depending on suffix
+ */
+
+public class MechFileParser {
+<span class="nc" id="L75">    private Entity m_entity = null;</span>
+<span class="nc" id="L76">    private static Vector&lt;String&gt; canonUnitNames = null;</span>
+    public static final String FILENAME_OFFICIAL_UNITS = &quot;OfficialUnitList.txt&quot;; //$NON-NLS-1$
+
+    public MechFileParser(File f) throws EntityLoadingException {
+<span class="nc" id="L80">        this(f, null);</span>
+<span class="nc" id="L81">    }</span>
+
+    public MechFileParser(File f, String entryName)
+<span class="nc" id="L84">            throws EntityLoadingException {</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (entryName == null) {</span>
+            // try normal file
+<span class="nc" id="L87">            try(InputStream is = new FileInputStream(f.getAbsolutePath())) {</span>
+<span class="nc" id="L88">                parse(is, f.getName());</span>
+<span class="nc" id="L89">            } catch (Exception ex) {</span>
+<span class="nc" id="L90">                System.out.println(&quot;Error parsing &quot; + entryName + &quot;!&quot;);</span>
+<span class="nc" id="L91">                ex.printStackTrace();</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">                if (ex instanceof EntityLoadingException) {</span>
+<span class="nc" id="L93">                    throw new EntityLoadingException(&quot;While parsing file &quot;</span>
+<span class="nc" id="L94">                            + f.getName() + &quot;, &quot; + ex.getMessage());</span>
+                }
+<span class="nc" id="L96">                throw new EntityLoadingException(&quot;Exception from &quot;</span>
+<span class="nc" id="L97">                        + ex.getClass() + &quot;: &quot; + ex.getMessage());</span>
+<span class="nc" id="L98">            }</span>
+        } else {
+
+            // try zip file
+            try {
+<span class="nc" id="L103">                ZipFile zFile = new ZipFile(f.getAbsolutePath());</span>
+<span class="nc" id="L104">                parse(zFile.getInputStream(zFile.getEntry(entryName)),</span>
+                        entryName);
+<span class="nc" id="L106">                zFile.close();</span>
+<span class="nc" id="L107">            } catch (EntityLoadingException ele) {</span>
+<span class="nc" id="L108">                throw new EntityLoadingException(ele.getMessage());</span>
+<span class="nc" id="L109">            } catch (NullPointerException npe) {</span>
+<span class="nc" id="L110">                throw new NullPointerException();</span>
+<span class="nc" id="L111">            } catch (Exception ex) {</span>
+<span class="nc" id="L112">                ex.printStackTrace();</span>
+<span class="nc" id="L113">                throw new EntityLoadingException(&quot;Exception from &quot;</span>
+<span class="nc" id="L114">                        + ex.getClass() + &quot;: &quot; + ex.getMessage());</span>
+<span class="nc" id="L115">            }</span>
+        }
+<span class="nc" id="L117">    }</span>
+
+    public MechFileParser(InputStream is, String fileName)
+<span class="nc" id="L120">            throws EntityLoadingException {</span>
+        try {
+<span class="nc" id="L122">            parse(is, fileName);</span>
+<span class="nc" id="L123">        } catch (Exception ex) {</span>
+<span class="nc" id="L124">            ex.printStackTrace();</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">            if (ex instanceof EntityLoadingException) {</span>
+<span class="nc" id="L126">                throw new EntityLoadingException(ex.getMessage());</span>
+            }
+<span class="nc" id="L128">            throw new EntityLoadingException(&quot;Exception from &quot; + ex.getClass()</span>
+<span class="nc" id="L129">                    + &quot;: &quot; + ex.getMessage());</span>
+<span class="nc" id="L130">        }</span>
+<span class="nc" id="L131">    }</span>
+
+    public Entity getEntity() {
+<span class="nc" id="L134">        return m_entity;</span>
+    }
+
+    public void parse(InputStream is, String fileName)
+            throws EntityLoadingException {
+<span class="nc" id="L139">        String lowerName = fileName.toLowerCase();</span>
+        IMechLoader loader;
+
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (lowerName.endsWith(&quot;.mep&quot;)) {</span>
+<span class="nc" id="L143">            loader = new MepFile(is);</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        } else if (lowerName.endsWith(&quot;.mtf&quot;)) {</span>
+<span class="nc" id="L145">            loader = new MtfFile(is);</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        } else if (lowerName.endsWith(&quot;.hmp&quot;)) {</span>
+<span class="nc" id="L147">            loader = new HmpFile(is);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        } else if (lowerName.endsWith(&quot;.hmv&quot;)) {</span>
+<span class="nc" id="L149">            loader = new HmvFile(is);</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        } else if (lowerName.endsWith(&quot;.xml&quot;)) {</span>
+<span class="nc" id="L151">            loader = TdbFile.getInstance(is);</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        } else if (lowerName.endsWith(&quot;.blk&quot;)) {</span>
+<span class="nc" id="L153">            BuildingBlock bb = new BuildingBlock(is);</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">            if (bb.exists(&quot;UnitType&quot;)) {</span>
+<span class="nc" id="L155">                String sType = bb.getDataAsString(&quot;UnitType&quot;)[0];</span>
+<span class="nc bnc" id="L156" title="All 4 branches missed.">                if (sType.equals(&quot;Tank&quot;) || sType.equals(&quot;Naval&quot;)</span>
+<span class="nc bnc" id="L157" title="All 4 branches missed.">                        || sType.equals(&quot;Surface&quot;) || sType.equals(&quot;Hydrofoil&quot;)) {</span>
+<span class="nc" id="L158">                    loader = new BLKTankFile(bb);</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">                } else if (sType.equals(&quot;Infantry&quot;)) {</span>
+<span class="nc" id="L160">                    loader = new BLKInfantryFile(bb);</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">                } else if (sType.equals(&quot;BattleArmor&quot;)) {</span>
+<span class="nc" id="L162">                    loader = new BLKBattleArmorFile(bb);</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">                } else if (sType.equals(&quot;ProtoMech&quot;)) {</span>
+<span class="nc" id="L164">                    loader = new BLKProtoFile(bb);</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">                } else if (sType.equals(&quot;Mech&quot;)) {</span>
+<span class="nc" id="L166">                    loader = new BLKMechFile(bb);</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">                } else if (sType.equals(&quot;VTOL&quot;)) {</span>
+<span class="nc" id="L168">                    loader = new BLKVTOLFile(bb);</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">                } else if (sType.equals(&quot;GunEmplacement&quot;)) {</span>
+<span class="nc" id="L170">                    loader = new BLKGunEmplacementFile(bb);</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">                } else if (sType.equals(&quot;SupportTank&quot;)) {</span>
+<span class="nc" id="L172">                    loader = new BLKSupportTankFile(bb);</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">                } else if (sType.equals(&quot;LargeSupportTank&quot;)) {</span>
+<span class="nc" id="L174">                    loader = new BLKLargeSupportTankFile(bb);</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">                } else if (sType.equals(&quot;SupportVTOL&quot;)) {</span>
+<span class="nc" id="L176">                    loader = new BLKSupportVTOLFile(bb);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">                } else if (sType.equals(&quot;Aero&quot;)) {</span>
+<span class="nc" id="L178">                    loader = new BLKAeroFile(bb);</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">                } else if (sType.equals(&quot;FixedWingSupport&quot;)) {</span>
+<span class="nc" id="L180">                    loader = new BLKFixedWingSupportFile(bb);</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">                } else if (sType.equals(&quot;ConvFighter&quot;)) {</span>
+<span class="nc" id="L182">                    loader = new BLKConvFighterFile(bb);</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">                } else if (sType.equals(&quot;SmallCraft&quot;)) {</span>
+<span class="nc" id="L184">                    loader = new BLKSmallCraftFile(bb);</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                } else if (sType.equals(&quot;Dropship&quot;)) {</span>
+<span class="nc" id="L186">                    loader = new BLKDropshipFile(bb);</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">                } else if (sType.equals(&quot;Jumpship&quot;)) {</span>
+<span class="nc" id="L188">                    loader = new BLKJumpshipFile(bb);</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">                } else if (sType.equals(&quot;Warship&quot;)) {</span>
+<span class="nc" id="L190">                    loader = new BLKWarshipFile(bb);</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">                } else if (sType.equals(&quot;SpaceStation&quot;)) {</span>
+<span class="nc" id="L192">                    loader = new BLKSpaceStationFile(bb);</span>
+                } else {
+<span class="nc" id="L194">                    throw new EntityLoadingException(&quot;Unknown UnitType: &quot;</span>
+                            + sType);
+                }
+<span class="nc" id="L197">            } else {</span>
+<span class="nc" id="L198">                loader = new BLKMechFile(bb);</span>
+            }
+<span class="nc bnc" id="L200" title="All 2 branches missed.">        } else if (lowerName.endsWith(&quot;.dbm&quot;)) {</span>
+<span class="nc" id="L201">            throw new EntityLoadingException(</span>
+                    &quot;In order to use mechs from The Drawing Board with MegaMek, you must save your mech as an XML file (look in the 'File' menu of TDB.)  Then use the resulting '.xml' file instead of the '.dbm' file.  Note that only version 2.0.23 or later of TDB is compatible with MegaMek.&quot;);
+        } else {
+<span class="nc" id="L204">            throw new EntityLoadingException(&quot;Unsupported file suffix&quot;);</span>
+        }
+
+<span class="nc" id="L207">        m_entity = loader.getEntity();</span>
+
+<span class="nc" id="L209">        MechFileParser.postLoadInit(m_entity);</span>
+<span class="nc" id="L210">    }</span>
+
+    /**
+     * File-format agnostic location to do post-load initialization on a unit.
+     * Automatically add BattleArmorHandles to all OmniMechs.
+     */
+    public static void postLoadInit(Entity ent) throws EntityLoadingException {
+
+        try {
+<span class="nc" id="L219">            ent.loadDefaultQuirks();</span>
+<span class="nc" id="L220">            ent.loadDefaultCustomWeaponOrder();</span>
+<span class="nc" id="L221">        } catch (Exception e) {</span>
+<span class="nc" id="L222">            System.out.println(&quot;Error in postLoadInit for &quot;</span>
+<span class="nc" id="L223">                    + ent.getDisplayName() + &quot;!&quot;);</span>
+<span class="nc" id="L224">            e.printStackTrace();</span>
+<span class="nc" id="L225">        }</span>
+
+        // add any sensors to the entity's vector of sensors
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (ent instanceof Mech) {</span>
+            // all meks get the four basic sensors
+<span class="nc" id="L230">            ent.getSensors().add(new Sensor(Sensor.TYPE_MEK_RADAR));</span>
+<span class="nc" id="L231">            ent.getSensors().add(new Sensor(Sensor.TYPE_MEK_IR));</span>
+<span class="nc" id="L232">            ent.getSensors().add(new Sensor(Sensor.TYPE_MEK_MAGSCAN));</span>
+<span class="nc" id="L233">            ent.getSensors().add(new Sensor(Sensor.TYPE_MEK_SEISMIC));</span>
+<span class="nc" id="L234">            ent.setNextSensor(ent.getSensors().firstElement());</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">        } else if (ent instanceof VTOL) {</span>
+<span class="nc" id="L236">            ent.getSensors().add(new Sensor(Sensor.TYPE_VEE_RADAR));</span>
+<span class="nc" id="L237">            ent.getSensors().add(new Sensor(Sensor.TYPE_VEE_IR));</span>
+<span class="nc" id="L238">            ent.getSensors().add(new Sensor(Sensor.TYPE_VEE_MAGSCAN));</span>
+<span class="nc" id="L239">            ent.setNextSensor(ent.getSensors().firstElement());</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">        } else if (ent instanceof Tank) {</span>
+            // all tanks get the four basic sensors
+<span class="nc" id="L242">            ent.getSensors().add(new Sensor(Sensor.TYPE_VEE_RADAR));</span>
+<span class="nc" id="L243">            ent.getSensors().add(new Sensor(Sensor.TYPE_VEE_IR));</span>
+<span class="nc" id="L244">            ent.getSensors().add(new Sensor(Sensor.TYPE_VEE_MAGSCAN));</span>
+<span class="nc" id="L245">            ent.getSensors().add(new Sensor(Sensor.TYPE_VEE_SEISMIC));</span>
+<span class="nc" id="L246">            ent.setNextSensor(ent.getSensors().firstElement());</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        } else if (ent.hasETypeFlag(Entity.ETYPE_CONV_FIGHTER)) {</span>
+            //Conventional Fighters get a combined sensor suite
+<span class="nc" id="L249">            ent.getSensors().add(new Sensor(Sensor.TYPE_AERO_SENSOR));</span>
+<span class="nc" id="L250">            ent.setNextSensor(ent.getSensors().firstElement());</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">        } else if (ent.hasETypeFlag(Entity.ETYPE_DROPSHIP) </span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">                || ent.hasETypeFlag(Entity.ETYPE_SPACE_STATION)</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">                || ent.hasETypeFlag(Entity.ETYPE_JUMPSHIP)</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">                || ent.hasETypeFlag(Entity.ETYPE_WARSHIP)) {</span>
+        //Large craft get active radar
+        //And both a passive sensor suite and thermal/optical sensors, which only work in space
+<span class="nc" id="L257">        ent.getSensors().add(new Sensor(Sensor.TYPE_SPACECRAFT_THERMAL));</span>
+<span class="nc" id="L258">        ent.getSensors().add(new Sensor(Sensor.TYPE_SPACECRAFT_RADAR));</span>
+            //Only military craft get ESM, which detects active radar
+<span class="nc" id="L260">            Aero lc = (Aero) ent;</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">            if (lc.getDesignType() == Aero.MILITARY) {</span>
+<span class="nc" id="L262">                ent.getSensors().add(new Sensor(Sensor.TYPE_SPACECRAFT_ESM));</span>
+            }
+<span class="nc" id="L264">        ent.setNextSensor(ent.getSensors().firstElement());</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        } else if (ent.isAero()) {</span>
+            //ASFs and small craft get a combined sensor suite
+            //And thermal/optical sensors, which only work in space
+<span class="nc" id="L268">            ent.getSensors().add(new Sensor(Sensor.TYPE_AERO_THERMAL));</span>
+<span class="nc" id="L269">            ent.getSensors().add(new Sensor(Sensor.TYPE_AERO_SENSOR));</span>
+<span class="nc" id="L270">            ent.setNextSensor(ent.getSensors().firstElement());</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        } else if (ent instanceof BattleArmor) {</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">            if (ent.hasWorkingMisc(MiscType.F_HEAT_SENSOR)) {</span>
+<span class="nc" id="L273">                ent.getSensors().add(new Sensor(Sensor.TYPE_BA_HEAT));</span>
+<span class="nc" id="L274">                ent.setNextSensor(ent.getSensors().lastElement());</span>
+            }
+        }
+
+        // Walk through the list of equipment.
+<span class="nc bnc" id="L279" title="All 2 branches missed.">        for (Mounted m : ent.getMisc()) {</span>
+
+            // link laser insulators
+<span class="nc bnc" id="L282" title="All 2 branches missed.">            if ((m.getType().hasFlag(MiscType.F_LASER_INSULATOR))) {</span>
+                // get the mount directly before the insulator, this is the
+                // weapon
+<span class="nc" id="L285">                Mounted weapon = ent.getEquipment().get(</span>
+<span class="nc" id="L286">                        ent.getEquipment().indexOf(m) - 1);</span>
+                // already linked?
+<span class="nc bnc" id="L288" title="All 2 branches missed.">                if (weapon.getLinkedBy() != null) {</span>
+<span class="nc" id="L289">                    continue;</span>
+                }
+<span class="nc bnc" id="L291" title="All 2 branches missed.">                if (!(weapon.getType() instanceof WeaponType)</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">                        &amp;&amp; !(weapon.getType().hasFlag(WeaponType.F_LASER))) {</span>
+<span class="nc" id="L293">                    continue;</span>
+                }
+                // check location
+<span class="nc bnc" id="L296" title="All 2 branches missed.">                if (weapon.getLocation() == m.getLocation()) {</span>
+<span class="nc" id="L297">                    m.setLinked(weapon);</span>
+<span class="nc" id="L298">                    continue;</span>
+                }
+<span class="nc bnc" id="L300" title="All 2 branches missed.">                if (m.getLinked() == null) {</span>
+                    // huh. this shouldn't happen
+<span class="nc" id="L302">                    throw new EntityLoadingException(</span>
+<span class="nc" id="L303">                            &quot;Unable to match laser insulator to laser for &quot;+ent.getShortName());</span>
+                }
+            }
+
+            // link DWPs to their weapons
+<span class="nc bnc" id="L308" title="All 2 branches missed.">            if ((m.getType().hasFlag(MiscType.F_DETACHABLE_WEAPON_PACK))) {</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">                for (Mounted mWeapon : ent.getTotalWeaponList()) {</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">                    if (!mWeapon.isDWPMounted()) {</span>
+<span class="nc" id="L311">                        continue;</span>
+                    }
+                    // already linked?
+<span class="nc bnc" id="L314" title="All 2 branches missed.">                    if (mWeapon.getLinkedBy() != null) {</span>
+<span class="nc" id="L315">                        continue;</span>
+                    }
+
+                    // check location
+<span class="nc bnc" id="L319" title="All 2 branches missed.">                    if (mWeapon.getLocation() == m.getLocation()) {</span>
+<span class="nc" id="L320">                        m.setLinked(mWeapon);</span>
+<span class="nc" id="L321">                        break;</span>
+                    }
+<span class="nc" id="L323">                }</span>
+<span class="nc bnc" id="L324" title="All 2 branches missed.">                if (m.getLinked() == null) {</span>
+                    // huh. this shouldn't happen
+<span class="nc" id="L326">                    throw new EntityLoadingException(</span>
+                            &quot;Unable to match DWP to weapon for &quot;
+<span class="nc" id="L328">                                    + ent.getShortName());</span>
+                }
+            }
+
+            // Link AP weapons to their AP Mount, when applicable
+<span class="nc bnc" id="L333" title="All 2 branches missed.">            if ((m.getType().hasFlag(MiscType.F_AP_MOUNT))) {</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">                for (Mounted mWeapon : ent.getTotalWeaponList()) {</span>
+                    // Can only link APM mounted weapons that aren't linked
+<span class="nc bnc" id="L336" title="All 2 branches missed.">                    if (!mWeapon.isAPMMounted()</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">                            || (mWeapon.getLinkedBy() != null)) {</span>
+<span class="nc" id="L338">                        continue;</span>
+                    }
+
+                    // check location
+<span class="nc bnc" id="L342" title="All 2 branches missed.">                    if (mWeapon.getLocation() == m.getLocation()) {</span>
+<span class="nc" id="L343">                        m.setLinked(mWeapon);</span>
+<span class="nc" id="L344">                        break;</span>
+                    }
+<span class="nc" id="L346">                }</span>
+            }
+
+            // Link Artemis IV fire-control systems to their missle racks.
+<span class="nc bnc" id="L350" title="All 2 branches missed.">            if ((m.getType().hasFlag(MiscType.F_ARTEMIS) </span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">                    || (m.getType().hasFlag(MiscType.F_ARTEMIS_V))</span>
+<span class="nc bnc" id="L352" title="All 2 branches missed.">                    || (m.getType().hasFlag(MiscType.F_ARTEMIS_PROTO)))</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">                    &amp;&amp; (m.getLinked() == null)) {</span>
+
+                // link up to a weapon in the same location
+<span class="nc bnc" id="L356" title="All 2 branches missed.">                for (Mounted mWeapon : ent.getTotalWeaponList()) {</span>
+<span class="nc" id="L357">                    WeaponType wtype = (WeaponType) mWeapon.getType();</span>
+
+                    // only srm, lrm and mml are valid for artemis
+<span class="nc bnc" id="L360" title="All 2 branches missed.">                    if ((wtype.getAmmoType() != AmmoType.T_LRM)</span>
+<span class="nc bnc" id="L361" title="All 2 branches missed.">                            &amp;&amp; (wtype.getAmmoType() != AmmoType.T_LRM_IMP)</span>
+<span class="nc bnc" id="L362" title="All 2 branches missed.">                            &amp;&amp; (wtype.getAmmoType() != AmmoType.T_MML)</span>
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                            &amp;&amp; (wtype.getAmmoType() != AmmoType.T_SRM)</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">                            &amp;&amp; (wtype.getAmmoType() != AmmoType.T_SRM_IMP)</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                            &amp;&amp; (wtype.getAmmoType() != AmmoType.T_NLRM)</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                            &amp;&amp; (wtype.getAmmoType() != AmmoType.T_LRM_TORPEDO)</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">                            &amp;&amp; (wtype.getAmmoType() != AmmoType.T_SRM_TORPEDO)</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">                            &amp;&amp; (wtype.getAmmoType() != AmmoType.T_LRM_TORPEDO_COMBO)) {</span>
+<span class="nc" id="L369">                        continue;</span>
+                    }
+
+                    // already linked?
+<span class="nc bnc" id="L373" title="All 2 branches missed.">                    if (mWeapon.getLinkedBy() != null) {</span>
+<span class="nc" id="L374">                        continue;</span>
+                    }
+
+                    // check location
+<span class="nc bnc" id="L378" title="All 2 branches missed.">                    if (mWeapon.getLocation() == m.getLocation()) {</span>
+<span class="nc" id="L379">                        m.setLinked(mWeapon);</span>
+<span class="nc" id="L380">                        break;</span>
+                    }
+<span class="nc" id="L382">                }</span>
+
+<span class="nc bnc" id="L384" title="All 2 branches missed.">                if (m.getLinked() == null) {</span>
+                    // huh. this shouldn't happen
+<span class="nc" id="L386">                    throw new EntityLoadingException(</span>
+<span class="nc" id="L387">                            &quot;Unable to match Artemis to launcher for &quot;+ent.getShortName());</span>
+                }
+            } // End link-Artemis
+            // Link RISC Laser Pulse Module to their lasers
+<span class="nc bnc" id="L391" title="All 4 branches missed.">            else if ((m.getType().hasFlag(MiscType.F_RISC_LASER_PULSE_MODULE) &amp;&amp; (m.getLinked() == null))) {</span>
+
+                // link up to a weapon in the same location
+<span class="nc bnc" id="L394" title="All 2 branches missed.">                for (Mounted mWeapon : ent.getTotalWeaponList()) {</span>
+<span class="nc" id="L395">                    WeaponType wtype = (WeaponType) mWeapon.getType();</span>
+
+                    // only IS lasers that are not pulse are allows
+<span class="nc bnc" id="L398" title="All 4 branches missed.">                    if (wtype.hasFlag(WeaponType.F_PULSE) || TechConstants.isClan(wtype.getTechLevel(ent.getYear()))) {</span>
+<span class="nc" id="L399">                        continue;</span>
+                    }
+
+                    // already linked?
+<span class="nc bnc" id="L403" title="All 2 branches missed.">                    if (mWeapon.getLinkedBy() != null) {</span>
+<span class="nc" id="L404">                        continue;</span>
+                    }
+
+                    // check location
+<span class="nc bnc" id="L408" title="All 2 branches missed.">                    if (mWeapon.getLocation() == m.getLocation()) {</span>
+<span class="nc" id="L409">                        m.setLinked(mWeapon);</span>
+<span class="nc" id="L410">                        break;</span>
+                    }
+<span class="nc" id="L412">                }</span>
+
+<span class="nc bnc" id="L414" title="All 2 branches missed.">                if (m.getLinked() == null) {</span>
+                    // huh. this shouldn't happen
+<span class="nc" id="L416">                    throw new EntityLoadingException(</span>
+<span class="nc" id="L417">                            &quot;Unable to match RISC Laser Pulse Model to laser for &quot;+ent.getShortName());</span>
+                }
+            } // End link-RISC laser pulse module
+<span class="nc bnc" id="L420" title="All 2 branches missed.">            else if ((m.getType().hasFlag(MiscType.F_STEALTH) || m.getType()</span>
+<span class="nc bnc" id="L421" title="All 2 branches missed.">                    .hasFlag(MiscType.F_VOIDSIG))</span>
+<span class="nc bnc" id="L422" title="All 4 branches missed.">                    &amp;&amp; (m.getLinked() == null)</span>
+                    &amp;&amp; (ent instanceof Mech)) {
+                // Find an ECM suite to link to the stealth system.
+                // Stop looking after we find the first ECM suite.
+<span class="nc bnc" id="L426" title="All 2 branches missed.">                for (Mounted mEquip : ent.getMisc()) {</span>
+<span class="nc" id="L427">                    MiscType mtype = (MiscType) mEquip.getType();</span>
+<span class="nc bnc" id="L428" title="All 2 branches missed.">                    if (mtype.hasFlag(MiscType.F_ECM)) {</span>
+<span class="nc" id="L429">                        m.setLinked(mEquip);</span>
+<span class="nc" id="L430">                        break;</span>
+                    }
+<span class="nc" id="L432">                }</span>
+
+<span class="nc bnc" id="L434" title="All 2 branches missed.">                if (m.getLinked() == null) {</span>
+                    // This mech has stealth armor but no ECM. Probably
+                    // an improperly created custom.
+<span class="nc" id="L437">                    throw new EntityLoadingException(</span>
+<span class="nc" id="L438">                            &quot;Unable to find an ECM Suite for &quot;+ent.getShortName()+&quot;.  Mechs with Stealth Armor or Void-Signature-System must also be equipped with an ECM Suite.&quot;);</span>
+                }
+            } // End link-Stealth
+              // Link PPC Capacitor to PPC it its location.
+<span class="nc bnc" id="L442" title="All 2 branches missed.">            else if (m.getType().hasFlag(MiscType.F_PPC_CAPACITOR)</span>
+<span class="nc bnc" id="L443" title="All 2 branches missed.">                    &amp;&amp; (m.getLinked() == null)) {</span>
+
+                // link up to a weapon in the same location
+<span class="nc bnc" id="L446" title="All 2 branches missed.">                for (Mounted mWeapon : ent.getTotalWeaponList()) {</span>
+<span class="nc" id="L447">                    WeaponType wtype = (WeaponType) mWeapon.getType();</span>
+
+                    // Only PPCS are Valid
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                    if (!wtype.hasFlag(WeaponType.F_PPC)) {</span>
+<span class="nc" id="L451">                        continue;</span>
+                    }
+
+                    // already linked?
+<span class="nc bnc" id="L455" title="All 2 branches missed.">                    if (mWeapon.getLinkedBy() != null) {</span>
+<span class="nc" id="L456">                        continue;</span>
+                    }
+
+                    // check location
+<span class="nc bnc" id="L460" title="All 2 branches missed.">                    if (mWeapon.getLocation() == m.getLocation()) {</span>
+
+                        // Only Legal IS PPC's are allowed.
+<span class="nc bnc" id="L463" title="All 2 branches missed.">                        if ((mWeapon.getType() instanceof ISPPC)</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">                                || (mWeapon.getType() instanceof ISLightPPC)</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">                                || (mWeapon.getType() instanceof ISHeavyPPC)</span>
+<span class="nc bnc" id="L466" title="All 2 branches missed.">                                || (mWeapon.getType() instanceof ISERPPC)</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">                                || (mWeapon.getType() instanceof ISSnubNosePPC)</span>
+<span class="nc bnc" id="L468" title="All 4 branches missed.">                                || (mWeapon.getType() instanceof CLERPPC &amp;&amp; ent.getYear() &gt;= 3101)) {</span>
+<span class="nc" id="L469">                            m.setLinked(mWeapon);</span>
+<span class="nc" id="L470">                            break;</span>
+                        }
+                    }
+<span class="nc" id="L473">                }</span>
+            } // End link-PPC Capacitor
+
+            // Link MRM Apollo fire-control systems to their missle racks.
+<span class="nc bnc" id="L477" title="All 2 branches missed.">            else if (m.getType().hasFlag(MiscType.F_APOLLO)</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">                    &amp;&amp; (m.getLinked() == null)) {</span>
+
+                // link up to a weapon in the same location
+<span class="nc bnc" id="L481" title="All 2 branches missed.">                for (Mounted mWeapon : ent.getTotalWeaponList()) {</span>
+<span class="nc" id="L482">                    WeaponType wtype = (WeaponType) mWeapon.getType();</span>
+
+                    // only srm and lrm are valid for artemis
+<span class="nc bnc" id="L485" title="All 2 branches missed.">                    if (wtype.getAmmoType() != AmmoType.T_MRM) {</span>
+<span class="nc" id="L486">                        continue;</span>
+                    }
+
+                    // already linked?
+<span class="nc bnc" id="L490" title="All 2 branches missed.">                    if (mWeapon.getLinkedBy() != null) {</span>
+<span class="nc" id="L491">                        continue;</span>
+                    }
+
+                    // check location
+<span class="nc bnc" id="L495" title="All 2 branches missed.">                    if (mWeapon.getLocation() == m.getLocation()) {</span>
+<span class="nc" id="L496">                        m.setLinked(mWeapon);</span>
+<span class="nc" id="L497">                        break;</span>
+                    }
+
+<span class="nc" id="L500">                }</span>
+
+<span class="nc bnc" id="L502" title="All 2 branches missed.">                if (m.getLinked() == null) {</span>
+                    // huh. this shouldn't happen
+<span class="nc" id="L504">                    throw new EntityLoadingException(</span>
+<span class="nc" id="L505">                            &quot;Unable to match Apollo to launcher for &quot;+ent.getShortName());</span>
+                }
+            } // End link-Apollo
+              // now find any active probes and add them to the sensor list
+              // choose this sensor if added
+              //WOR CEWS
+<span class="nc bnc" id="L511" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_BAP)) {</span>
+<span class="nc bnc" id="L512" title="All 2 branches missed.">                if (m.getType().getInternalName().equals(Sensor.BAP)) {</span>
+<span class="nc" id="L513">                    ent.getSensors().add(new Sensor(Sensor.TYPE_BAP));</span>
+<span class="nc" id="L514">                    ent.setNextSensor(ent.getSensors().lastElement());</span>
+<span class="nc bnc" id="L515" title="All 2 branches missed.">               } else if (m.getType().getInternalName().equals(Sensor.BAPP)) {</span>
+<span class="nc" id="L516">                    ent.getSensors().add(new Sensor(Sensor.TYPE_BAPP));</span>
+<span class="nc" id="L517">                    ent.setNextSensor(ent.getSensors().lastElement());      </span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">               } else if (m.getType().getInternalName().equals(Sensor.BLOODHOUND)) {</span>
+<span class="nc" id="L519">                    ent.getSensors().add(new Sensor(Sensor.TYPE_BLOODHOUND));</span>
+<span class="nc" id="L520">                    ent.setNextSensor(ent.getSensors().lastElement());</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">                } else if (m.getType().getInternalName().equals(Sensor.WATCHDOG)) {</span>
+<span class="nc" id="L522">                    ent.getSensors().add(new Sensor(Sensor.TYPE_WATCHDOG));</span>
+<span class="nc" id="L523">                    ent.setNextSensor(ent.getSensors().lastElement());</span>
+<span class="nc bnc" id="L524" title="All 2 branches missed.">                } else if (m.getType().getInternalName().equals(Sensor.NOVA)) {</span>
+<span class="nc" id="L525">                    ent.getSensors().add(new Sensor(Sensor.TYPE_NOVA));</span>
+<span class="nc" id="L526">                    ent.setNextSensor(ent.getSensors().lastElement());</span>
+<span class="nc bnc" id="L527" title="All 2 branches missed.">                } else if (m.getType().getInternalName().equals(Sensor.CLAN_AP)) {</span>
+<span class="nc" id="L528">                    ent.getSensors().add(new Sensor(Sensor.TYPE_CLAN_BAP));</span>
+<span class="nc" id="L529">                    ent.setNextSensor(ent.getSensors().lastElement());</span>
+<span class="nc" id="L530">                } else if (m.getType().getInternalName()</span>
+<span class="nc bnc" id="L531" title="All 2 branches missed.">                        .equals(Sensor.LIGHT_AP)) {</span>
+<span class="nc" id="L532">                    ent.getSensors().add(new Sensor(Sensor.TYPE_LIGHT_AP));</span>
+<span class="nc" id="L533">                    ent.setNextSensor(ent.getSensors().lastElement());</span>
+<span class="nc" id="L534">                } else if (m.getType().getInternalName()</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">                        .equals(Sensor.CLIMPROVED)) {</span>
+<span class="nc" id="L536">                    ent.getSensors().add(new Sensor(Sensor.TYPE_BA_IMPROVED));</span>
+<span class="nc" id="L537">                    ent.setNextSensor(ent.getSensors().lastElement());</span>
+<span class="nc" id="L538">                } else if (m.getType().getInternalName()</span>
+<span class="nc bnc" id="L539" title="All 2 branches missed.">                        .equals(Sensor.ISIMPROVED)) {</span>
+<span class="nc" id="L540">                    ent.getSensors().add(new Sensor(Sensor.TYPE_BA_IMPROVED));</span>
+<span class="nc" id="L541">                    ent.setNextSensor(ent.getSensors().lastElement());</span>
+                }
+            }
+
+<span class="nc bnc" id="L545" title="All 6 branches missed.">            if ((ent instanceof Mech) &amp;&amp; (m.getType().hasFlag(MiscType.F_CASE) || m.getType().hasFlag(MiscType.F_CASEII)</span>
+<span class="nc bnc" id="L546" title="All 2 branches missed.">                    || m.getType().hasFlag(MiscType.F_CASEP)</span>
+
+            )) {
+<span class="nc" id="L549">                ((Mech) ent).setAutoEject(false);</span>
+            }
+
+<span class="nc bnc" id="L552" title="All 2 branches missed.">            if ((ent instanceof Mech)</span>
+<span class="nc bnc" id="L553" title="All 2 branches missed.">                    &amp;&amp; m.getType().hasFlag(</span>
+                            MiscType.F_ACTUATOR_ENHANCEMENT_SYSTEM)) {
+
+<span class="nc bnc" id="L556" title="All 2 branches missed.">                if (ent.hasTargComp()</span>
+<span class="nc bnc" id="L557" title="All 2 branches missed.">                        || ((Mech) ent).hasTSM()</span>
+<span class="nc bnc" id="L558" title="All 4 branches missed.">                        || (((Mech) ent).hasMASC() &amp;&amp; !ent.hasWorkingMisc(</span>
+                                MiscType.F_MASC, MiscType.S_SUPERCHARGER))) {
+<span class="nc" id="L560">                    throw new EntityLoadingException(</span>
+<span class="nc" id="L561">                            &quot;Unable to load AES due to incompatible systems for &quot;+ent.getShortName());</span>
+                }
+
+<span class="nc bnc" id="L564" title="All 2 branches missed.">                if ((m.getLocation() != Mech.LOC_LARM)</span>
+<span class="nc bnc" id="L565" title="All 2 branches missed.">                        &amp;&amp; (m.getLocation() != Mech.LOC_LLEG)</span>
+<span class="nc bnc" id="L566" title="All 2 branches missed.">                        &amp;&amp; (m.getLocation() != Mech.LOC_RARM)</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">                        &amp;&amp; (m.getLocation() != Mech.LOC_RLEG)) {</span>
+<span class="nc" id="L568">                    throw new EntityLoadingException(</span>
+<span class="nc" id="L569">                            &quot;Unable to load AES due to incompatible location for &quot;+ent.getShortName());</span>
+                }
+
+            }
+
+<span class="nc bnc" id="L574" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_HARJEL)</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">                    &amp;&amp; (m.getLocation() == Mech.LOC_HEAD)) {</span>
+<span class="nc" id="L576">                throw new EntityLoadingException(</span>
+<span class="nc" id="L577">                        &quot;Unable to load harjel in head for &quot;+ent.getShortName());</span>
+            }
+
+<span class="nc bnc" id="L580" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_MASS)</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">                    &amp;&amp; ((m.getLocation() != Mech.LOC_HEAD) || ((((Mech) ent)</span>
+<span class="nc bnc" id="L582" title="All 2 branches missed.">                            .getCockpitType() == Mech.COCKPIT_TORSO_MOUNTED) &amp;&amp; (m</span>
+<span class="nc bnc" id="L583" title="All 2 branches missed.">                            .getLocation() != Mech.LOC_CT)))) {</span>
+<span class="nc" id="L584">                throw new EntityLoadingException(</span>
+<span class="nc" id="L585">                        &quot;Unable to load MASS for &quot;+ent.getShortName()+&quot;!  Must be located in the same location as the cockpit.&quot;);</span>
+            }
+
+<span class="nc bnc" id="L588" title="All 4 branches missed.">            if (m.getType().hasFlag(MiscType.F_MODULAR_ARMOR)</span>
+<span class="nc bnc" id="L589" title="All 4 branches missed.">                    &amp;&amp; (((ent instanceof Mech) &amp;&amp; (m.getLocation() == Mech.LOC_HEAD)) || ((ent instanceof VTOL) &amp;&amp; (m</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">                            .getLocation() == VTOL.LOC_ROTOR)))) {</span>
+<span class="nc" id="L591">                throw new EntityLoadingException(</span>
+<span class="nc" id="L592">                        &quot;Unable to load Modular Armor in Rotor/Head location for &quot;+ent.getShortName());</span>
+            }
+
+<span class="nc bnc" id="L595" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_TALON)) {</span>
+<span class="nc bnc" id="L596" title="All 2 branches missed.">                if (ent instanceof Mech) {</span>
+<span class="nc bnc" id="L597" title="All 2 branches missed.">                    if (!ent.locationIsLeg(m.getLocation())) {</span>
+<span class="nc" id="L598">                        throw new EntityLoadingException(&quot;Talons are only legal in the Legs for &quot; + ent.getShortName());</span>
+                    }
+<span class="nc bnc" id="L600" title="All 2 branches missed.">                    for (int loc = 0; loc &lt; ent.locations(); loc++) {</span>
+<span class="nc bnc" id="L601" title="All 4 branches missed.">                        if (ent.locationIsLeg(loc) &amp;&amp; !ent.hasWorkingMisc(MiscType.F_TALON, -1, loc)) {</span>
+<span class="nc" id="L602">                            throw new EntityLoadingException(&quot;Talons must be in all legs for &quot; + ent.getShortName());</span>
+                        }
+                    }
+                } else {
+<span class="nc" id="L606">                    throw new EntityLoadingException(&quot;Unable to load talons in non-Mek entity for &quot;</span>
+<span class="nc" id="L607">                            + ent.getShortName());</span>
+                }
+            }
+
+<span class="nc" id="L611">        } // Check the next piece of equipment.</span>
+
+        // Walk through the list of equipment.
+<span class="nc bnc" id="L614" title="All 2 branches missed.">        for (Mounted m : ent.getMisc()) {</span>
+
+            // Link PPC Capacitor to PPC it its location.
+<span class="nc bnc" id="L617" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_PPC_CAPACITOR)</span>
+<span class="nc bnc" id="L618" title="All 2 branches missed.">                    &amp;&amp; (m.getLinked() == null)) {</span>
+
+                // link up to a weapon in the same location
+<span class="nc bnc" id="L621" title="All 2 branches missed.">                for (Mounted mWeapon : ent.getWeaponList()) {</span>
+<span class="nc" id="L622">                    WeaponType wtype = (WeaponType) mWeapon.getType();</span>
+
+                    //Handle weapon bays
+<span class="nc bnc" id="L625" title="All 2 branches missed.">                    if (wtype.getBayType().equals(EquipmentType.get(EquipmentTypeLookup.PPC_BAY))){</span>
+<span class="nc bnc" id="L626" title="All 2 branches missed.">                        for (int wId : mWeapon.getBayWeapons())</span>
+                        {
+<span class="nc" id="L628">                            Mounted bayMountedWeapon = ent.getEquipment(wId);</span>
+<span class="nc" id="L629">                            WeaponType bayWeapType =</span>
+<span class="nc" id="L630">                                    (WeaponType)bayMountedWeapon.getType();</span>
+
+                            // Check for PPC that isn't crosslinked
+<span class="nc bnc" id="L633" title="All 2 branches missed.">                            if (!bayWeapType.hasFlag(WeaponType.F_PPC) ||</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">                                    (bayMountedWeapon.getCrossLinkedBy() != null)){</span>
+<span class="nc" id="L635">                                continue;</span>
+                            }
+
+                            // check location
+<span class="nc" id="L639">                            if (bayMountedWeapon.getLocation() ==</span>
+<span class="nc bnc" id="L640" title="All 2 branches missed.">                                    m.getLocation()) {</span>
+
+                                // Only Legal IS PPC's are allowed.
+<span class="nc bnc" id="L643" title="All 12 branches missed.">                                if ((bayWeapType instanceof ISPPC)</span>
+                                        || (bayWeapType instanceof ISLightPPC)
+                                        || (bayWeapType instanceof ISHeavyPPC)
+                                        || (bayWeapType instanceof ISERPPC)
+                                        || (bayWeapType instanceof ISSnubNosePPC)
+<span class="nc bnc" id="L648" title="All 2 branches missed.">                                        || (bayWeapType instanceof CLERPPC &amp;&amp; ent.getYear() &gt;= 3101)) {</span>
+
+<span class="nc" id="L650">                                    m.setCrossLinked(bayMountedWeapon);</span>
+<span class="nc" id="L651">                                    break;</span>
+                                }
+                            }
+<span class="nc" id="L654">                        }</span>
+                    }
+
+                    // Check for PPC that isn't crosslinked
+<span class="nc bnc" id="L658" title="All 2 branches missed.">                    if (!wtype.hasFlag(WeaponType.F_PPC) ||</span>
+<span class="nc bnc" id="L659" title="All 2 branches missed.">                            (mWeapon.getCrossLinkedBy() != null)) {</span>
+<span class="nc" id="L660">                        continue;</span>
+                    }
+
+                    // check location
+<span class="nc bnc" id="L664" title="All 2 branches missed.">                    if (mWeapon.getLocation() == m.getLocation()) {</span>
+
+                        // Only Legal IS PPC's are allowed.
+<span class="nc bnc" id="L667" title="All 2 branches missed.">                        if ((mWeapon.getType() instanceof ISPPC)</span>
+<span class="nc bnc" id="L668" title="All 2 branches missed.">                                || (mWeapon.getType() instanceof ISLightPPC)</span>
+<span class="nc bnc" id="L669" title="All 2 branches missed.">                                || (mWeapon.getType() instanceof ISHeavyPPC)</span>
+<span class="nc bnc" id="L670" title="All 2 branches missed.">                                || (mWeapon.getType() instanceof ISERPPC)</span>
+<span class="nc bnc" id="L671" title="All 2 branches missed.">                                || (mWeapon.getType() instanceof ISSnubNosePPC)</span>
+<span class="nc bnc" id="L672" title="All 4 branches missed.">                                || (mWeapon.getType() instanceof CLERPPC &amp;&amp; ent.getYear() &gt;= 3101)) {</span>
+
+<span class="nc" id="L674">                            m.setCrossLinked(mWeapon);</span>
+<span class="nc" id="L675">                            break;</span>
+                        }
+                    }
+<span class="nc" id="L678">                }</span>
+
+<span class="nc bnc" id="L680" title="All 2 branches missed.">                if (m.getLinked() == null) {</span>
+                    // huh. this shouldn't happen
+<span class="nc" id="L682">                    throw new EntityLoadingException(</span>
+<span class="nc" id="L683">                            &quot;No available PPC to match Capacitor for &quot;+ent.getShortName()+&quot;!&quot;);</span>
+                }
+
+            } // End crossLink-PPC Capacitor
+
+<span class="nc" id="L688">        } // Check the next piece of equipment.</span>
+
+        // For BattleArmor, we have to ensure that all ammo that is DWP mounted
+        //  is linked to it's DWP mounted weapon, so that TestBattleArmor
+        //  can properly account for DWP mounted ammo
+<span class="nc bnc" id="L693" title="All 2 branches missed.">        if (ent instanceof BattleArmor){</span>
+<span class="nc bnc" id="L694" title="All 2 branches missed.">            for (Mounted ammo : ent.getAmmo()){</span>
+<span class="nc bnc" id="L695" title="All 2 branches missed.">                if (ammo.isDWPMounted()){</span>
+                    // First, make sure every valid DWP weapon has ammo
+<span class="nc bnc" id="L697" title="All 2 branches missed.">                    for (Mounted weapon : ent.getWeaponList()){</span>
+<span class="nc bnc" id="L698" title="All 4 branches missed.">                        if (weapon.isDWPMounted() &amp;&amp; (weapon.getLinked() == null)</span>
+<span class="nc bnc" id="L699" title="All 2 branches missed.">                                &amp;&amp; AmmoType.isAmmoValid(ammo,</span>
+<span class="nc" id="L700">                                        (WeaponType)weapon.getType())){</span>
+<span class="nc" id="L701">                            weapon.setLinked(ammo);</span>
+<span class="nc" id="L702">                            break;</span>
+                        }
+<span class="nc" id="L704">                    }</span>
+                    // If we didn't find a match, we can link to a weapon with
+                    //  already linked ammo.
+<span class="nc bnc" id="L707" title="All 2 branches missed.">                    if (ammo.getLinkedBy() == null) {</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">                        for (Mounted weapon : ent.getWeaponList()){</span>
+<span class="nc bnc" id="L709" title="All 2 branches missed.">                            if (weapon.isDWPMounted()</span>
+<span class="nc bnc" id="L710" title="All 2 branches missed.">                                    &amp;&amp; AmmoType.isAmmoValid(ammo,</span>
+<span class="nc" id="L711">                                            (WeaponType)weapon.getType())){</span>
+<span class="nc" id="L712">                                weapon.setLinked(ammo);</span>
+<span class="nc" id="L713">                                break;</span>
+                            }
+<span class="nc" id="L715">                        }</span>
+                    }
+                }
+<span class="nc" id="L718">            }</span>
+        }
+
+<span class="nc" id="L721">        linkMGAs(ent);</span>
+
+        // Don't forget to actually load any applicable weapons.
+<span class="nc" id="L724">        ent.loadAllWeapons();</span>
+
+<span class="nc bnc" id="L726" title="All 2 branches missed.">        if (ent instanceof Aero) {</span>
+            // set RACs and UACs at maximum firing rate if aero
+<span class="nc" id="L728">            ent.setRapidFire();</span>
+        }
+<span class="nc bnc" id="L730" title="All 2 branches missed.">        if (ent instanceof BattleArmor) {</span>
+            // now, depending on equipment and chassis, BA might be able to do
+            // leg
+            // and swarm attacks
+<span class="nc bnc" id="L734" title="All 2 branches missed.">            if (((BattleArmor) ent).getChassisType() != BattleArmor.CHASSIS_TYPE_QUAD) {</span>
+<span class="nc" id="L735">                int tBasicManipulatorCount = ent</span>
+<span class="nc" id="L736">                        .countWorkingMisc(MiscType.F_BASIC_MANIPULATOR);</span>
+<span class="nc" id="L737">                int tArmoredGloveCount = ent</span>
+<span class="nc" id="L738">                        .countWorkingMisc(MiscType.F_ARMORED_GLOVE);</span>
+<span class="nc" id="L739">                int tBattleClawCount = ent</span>
+<span class="nc" id="L740">                        .countWorkingMisc(MiscType.F_BATTLE_CLAW);</span>
+                boolean hasSwarm, hasSwarmStart, hasSwarmStop, hasLegAttack;
+<span class="nc" id="L742">                hasSwarm = hasSwarmStart = hasSwarmStop = hasLegAttack = false;</span>
+<span class="nc bnc" id="L743" title="All 2 branches missed.">                for (Mounted m : ent.getWeaponList()){</span>
+<span class="nc" id="L744">                    if (m.getType().getInternalName()</span>
+<span class="nc bnc" id="L745" title="All 2 branches missed.">                            .equals(Infantry.SWARM_WEAPON_MEK)) {</span>
+<span class="nc" id="L746">                        hasSwarm = true;</span>
+<span class="nc" id="L747">                    } else if (m.getType().getInternalName()</span>
+<span class="nc bnc" id="L748" title="All 2 branches missed.">                            .equals(Infantry.SWARM_MEK)) {</span>
+<span class="nc" id="L749">                        hasSwarmStart = true;</span>
+<span class="nc" id="L750">                    } else if (m.getType().getInternalName()</span>
+<span class="nc bnc" id="L751" title="All 2 branches missed.">                            .equals(Infantry.STOP_SWARM)) {</span>
+<span class="nc" id="L752">                        hasSwarmStop = true;</span>
+<span class="nc" id="L753">                    } else if (m.getType().getInternalName()</span>
+<span class="nc bnc" id="L754" title="All 2 branches missed.">                            .equals(Infantry.LEG_ATTACK)) {</span>
+<span class="nc" id="L755">                        hasLegAttack = true;</span>
+                    }
+<span class="nc" id="L757">                }</span>
+<span class="nc bnc" id="L758" title="All 3 branches missed.">                switch (ent.getWeightClass()) {</span>
+                    case EntityWeightClass.WEIGHT_ULTRA_LIGHT:
+                    case EntityWeightClass.WEIGHT_LIGHT:
+<span class="nc bnc" id="L761" title="All 6 branches missed.">                        if ((tArmoredGloveCount &gt; 1)</span>
+                                || (tBasicManipulatorCount &gt; 1)
+                                || (tBattleClawCount &gt; 0)) {
+                            try {
+<span class="nc bnc" id="L765" title="All 2 branches missed.">                                if (!hasSwarmStart) {</span>
+<span class="nc" id="L766">                                    ent.addEquipment(</span>
+<span class="nc" id="L767">                                            EquipmentType.get(Infantry.SWARM_MEK),</span>
+                                            BattleArmor.LOC_SQUAD, false,
+                                            BattleArmor.MOUNT_LOC_NONE, false);
+                                }
+<span class="nc bnc" id="L771" title="All 2 branches missed.">                                if (!hasSwarm) {</span>
+<span class="nc" id="L772">                                    ent.addEquipment(EquipmentType</span>
+<span class="nc" id="L773">                                            .get(Infantry.SWARM_WEAPON_MEK),</span>
+                                            BattleArmor.LOC_SQUAD, false,
+                                            BattleArmor.MOUNT_LOC_NONE, false);
+                                }
+<span class="nc bnc" id="L777" title="All 2 branches missed.">                                if (!hasSwarmStop) {</span>
+<span class="nc" id="L778">                                    ent.addEquipment(</span>
+<span class="nc" id="L779">                                            EquipmentType.get(Infantry.STOP_SWARM),</span>
+                                            BattleArmor.LOC_SQUAD, false,
+                                            BattleArmor.MOUNT_LOC_NONE, false);
+                                }
+<span class="nc bnc" id="L783" title="All 2 branches missed.">                                if (!hasLegAttack) {</span>
+<span class="nc" id="L784">                                    ent.addEquipment(</span>
+<span class="nc" id="L785">                                            EquipmentType.get(Infantry.LEG_ATTACK),</span>
+                                            BattleArmor.LOC_SQUAD, false,
+                                            BattleArmor.MOUNT_LOC_NONE, false);
+                                }
+<span class="nc" id="L789">                            } catch (LocationFullException ex) {</span>
+<span class="nc" id="L790">                                throw new EntityLoadingException(</span>
+<span class="nc" id="L791">                                        ex.getMessage());</span>
+<span class="nc" id="L792">                            }</span>
+                        }
+                        break;
+                    case EntityWeightClass.WEIGHT_MEDIUM:
+<span class="nc bnc" id="L796" title="All 4 branches missed.">                        if ((tBasicManipulatorCount &gt; 1)</span>
+                                || (tBattleClawCount &gt; 0)) {
+                            try {
+<span class="nc bnc" id="L799" title="All 2 branches missed.">                                if (!hasSwarmStart) {</span>
+<span class="nc" id="L800">                                    ent.addEquipment(</span>
+<span class="nc" id="L801">                                            EquipmentType.get(Infantry.SWARM_MEK),</span>
+                                            BattleArmor.LOC_SQUAD, false,
+                                            BattleArmor.MOUNT_LOC_NONE, false);
+                                }
+<span class="nc bnc" id="L805" title="All 2 branches missed.">                                if (!hasSwarm) {</span>
+<span class="nc" id="L806">                                    ent.addEquipment(EquipmentType</span>
+<span class="nc" id="L807">                                            .get(Infantry.SWARM_WEAPON_MEK),</span>
+                                            BattleArmor.LOC_SQUAD, false,
+                                            BattleArmor.MOUNT_LOC_NONE, false);
+                                }
+<span class="nc bnc" id="L811" title="All 2 branches missed.">                                if (!hasSwarmStop) {</span>
+<span class="nc" id="L812">                                    ent.addEquipment(</span>
+<span class="nc" id="L813">                                            EquipmentType.get(Infantry.STOP_SWARM),</span>
+                                            BattleArmor.LOC_SQUAD, false,
+                                            BattleArmor.MOUNT_LOC_NONE, false);
+                                }
+<span class="nc bnc" id="L817" title="All 2 branches missed.">                                if (!hasLegAttack) {</span>
+<span class="nc" id="L818">                                    ent.addEquipment(</span>
+<span class="nc" id="L819">                                            EquipmentType.get(Infantry.LEG_ATTACK),</span>
+                                            BattleArmor.LOC_SQUAD, false,
+                                            BattleArmor.MOUNT_LOC_NONE, false);
+                                }
+<span class="nc" id="L823">                            } catch (LocationFullException ex) {</span>
+<span class="nc" id="L824">                                throw new EntityLoadingException(</span>
+<span class="nc" id="L825">                                        ex.getMessage());</span>
+<span class="nc" id="L826">                            }</span>
+                        }
+                        break;
+                    case EntityWeightClass.WEIGHT_HEAVY:
+                    case EntityWeightClass.WEIGHT_ASSAULT:
+                    default:
+                        break;
+                }
+<span class="nc" id="L834">            }</span>
+        }
+        // physical attacks for conventional infantry
+<span class="nc bnc" id="L837" title="All 4 branches missed.">        else if ((ent instanceof Infantry) &amp;&amp; ((Infantry) ent).canMakeAntiMekAttacks()) {</span>
+            try {
+<span class="nc" id="L839">                ent.addEquipment(EquipmentType.get(Infantry.SWARM_MEK),</span>
+                        Infantry.LOC_INFANTRY, false,
+                        BattleArmor.MOUNT_LOC_NONE, false);
+<span class="nc" id="L842">                ent.addEquipment(EquipmentType.get(Infantry.STOP_SWARM),</span>
+                        Infantry.LOC_INFANTRY, false,
+                        BattleArmor.MOUNT_LOC_NONE, false);
+<span class="nc" id="L845">                ent.addEquipment(EquipmentType.get(Infantry.LEG_ATTACK),</span>
+                        Infantry.LOC_INFANTRY, false,
+                        BattleArmor.MOUNT_LOC_NONE, false);
+<span class="nc" id="L848">            } catch (LocationFullException ex) {</span>
+<span class="nc" id="L849">                throw new EntityLoadingException(ex.getMessage());</span>
+<span class="nc" id="L850">            }</span>
+        }
+        
+        // Check if it's canon; if it is, mark it as such.
+<span class="nc" id="L854">        ent.setCanon(false);// Guilty until proven innocent</span>
+        try {
+<span class="nc bnc" id="L856" title="All 2 branches missed.">            if (canonUnitNames == null) {</span>
+<span class="nc" id="L857">                canonUnitNames = new Vector&lt;String&gt;();</span>
+                // init the list.
+<span class="nc" id="L859">                try(BufferedReader br = new BufferedReader(new FileReader(new MegaMekFile(</span>
+<span class="nc" id="L860">                            Configuration.docsDir(), FILENAME_OFFICIAL_UNITS).getFile()))) {</span>
+                    String s;
+                    String name;
+<span class="nc bnc" id="L863" title="All 2 branches missed.">                    while ((s = br.readLine()) != null) {</span>
+<span class="nc" id="L864">                        int nIndex1 = s.indexOf('|');</span>
+<span class="nc bnc" id="L865" title="All 2 branches missed.">                        if (nIndex1 &gt; -1) {</span>
+<span class="nc" id="L866">                            name = s.substring(0, nIndex1);</span>
+<span class="nc" id="L867">                            canonUnitNames.addElement(name);</span>
+                        }
+<span class="nc" id="L869">                    }</span>
+<span class="nc" id="L870">                    Collections.sort(canonUnitNames);</span>
+<span class="nc" id="L871">                } catch (FileNotFoundException e) {</span>
+<span class="nc" id="L872">                }</span>
+            }
+<span class="nc" id="L874">        } catch (IOException e) {</span>
+<span class="nc" id="L875">        }</span>
+<span class="nc" id="L876">        int index = Collections.binarySearch(canonUnitNames,</span>
+<span class="nc" id="L877">                ent.getShortNameRaw()); </span>
+<span class="nc bnc" id="L878" title="All 2 branches missed.">        if (index &gt;= 0) {</span>
+<span class="nc" id="L879">            ent.setCanon(true);</span>
+        }        
+<span class="nc" id="L881">        ent.initMilitary();</span>
+
+<span class="nc" id="L883">    } // End private void postLoadInit(Entity) throws EntityLoadingException</span>
+
+    /**
+     * Links machine gun arrays to their machine guns using the bayWeapon list.
+     * We take the first qualifying machine gun in the location (correct size and not already
+     * linked to this or another MGA and continue linking successive slots until full or we get to
+     * a slot that does not contain a qualifying machine gun. This allows specifying which guns go
+     * with which array in the event of multiple MGAs in a location or some MGs that are not linked.
+     *
+     * @param entity
+     */
+    static void linkMGAs(Entity entity) {
+<span class="nc" id="L895">        List&lt;Integer&gt; usedMG = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L896" title="All 2 branches missed.">        for (Mounted mga : entity.getWeaponList()) {</span>
+<span class="nc bnc" id="L897" title="All 2 branches missed.">            if (mga.getType().hasFlag(WeaponType.F_MGA)) {</span>
+                // This may be called from MML after changing equipment location, so there
+                // may be old data that needs to be cleared
+<span class="nc" id="L900">                mga.getBayWeapons().clear();</span>
+<span class="nc bnc" id="L901" title="All 2 branches missed.">                for (int i = 0; i &lt; entity.getNumberOfCriticals(mga.getLocation()); i++) {</span>
+<span class="nc" id="L902">                    CriticalSlot slot = entity.getCritical(mga.getLocation(), i);</span>
+<span class="nc bnc" id="L903" title="All 4 branches missed.">                    if ((slot != null) &amp;&amp; (slot.getType() == CriticalSlot.TYPE_EQUIPMENT)</span>
+<span class="nc bnc" id="L904" title="All 2 branches missed.">                            &amp;&amp; (slot.getMount().getType() instanceof WeaponType)) {</span>
+<span class="nc" id="L905">                        WeaponType wtype = (WeaponType) slot.getMount().getType();</span>
+<span class="nc" id="L906">                        int eqNum = entity.getEquipmentNum(slot.getMount());</span>
+<span class="nc bnc" id="L907" title="All 2 branches missed.">                        if (!usedMG.contains(eqNum)</span>
+<span class="nc bnc" id="L908" title="All 2 branches missed.">                                &amp;&amp; wtype.hasFlag(WeaponType.F_MG)</span>
+<span class="nc bnc" id="L909" title="All 2 branches missed.">                                &amp;&amp; (((WeaponType) mga.getType()).getRackSize() == wtype.getRackSize())) {</span>
+<span class="nc" id="L910">                            mga.addWeaponToBay(eqNum);</span>
+<span class="nc" id="L911">                            usedMG.add(eqNum);</span>
+<span class="nc bnc" id="L912" title="All 2 branches missed.">                            if (mga.getBayWeapons().size() &gt;= 4) {</span>
+<span class="nc" id="L913">                                break;</span>
+                            }
+                        } else {
+<span class="nc bnc" id="L916" title="All 2 branches missed.">                            if (!mga.getBayWeapons().isEmpty()) {</span>
+<span class="nc" id="L917">                                break;</span>
+                            }
+                        }
+<span class="nc" id="L920">                    } else {</span>
+<span class="nc bnc" id="L921" title="All 2 branches missed.">                        if (!mga.getBayWeapons().isEmpty()) {</span>
+<span class="nc" id="L922">                            break;</span>
+                        }
+                    }
+                }
+            }
+<span class="nc" id="L927">        }</span>
+<span class="nc" id="L928">    }</span>
+
+    public static void main(String[] args) {
+<span class="nc bnc" id="L931" title="All 2 branches missed.">        if (args.length == 0) {</span>
+<span class="nc" id="L932">            System.out</span>
+<span class="nc" id="L933">                    .println(&quot;Files in a supported MegaMek file format can be specified on&quot;);</span>
+<span class="nc" id="L934">            System.out</span>
+<span class="nc" id="L935">                    .println(&quot;the command line.  Multiple files may be processed at once.&quot;);</span>
+<span class="nc" id="L936">            System.out.println(&quot;The supported formats are:&quot;);</span>
+<span class="nc" id="L937">            System.out</span>
+<span class="nc" id="L938">                    .println(&quot;\t.mtf    The native MegaMek format that your file will be converted into&quot;);</span>
+<span class="nc" id="L939">            System.out.println(&quot;\t.blk    Another native MegaMek format&quot;);</span>
+<span class="nc" id="L940">            System.out.println(&quot;\t.hmp    Heavy Metal Pro (c)RCW Enterprises&quot;);</span>
+<span class="nc" id="L941">            System.out</span>
+<span class="nc" id="L942">                    .println(&quot;\t.mep    MechEngineer Pro (c)Howling Moon SoftWorks&quot;);</span>
+<span class="nc" id="L943">            System.out</span>
+<span class="nc" id="L944">                    .println(&quot;\t.xml    The Drawing Board (c)Blackstone Interactive&quot;);</span>
+<span class="nc" id="L945">            System.out</span>
+<span class="nc" id="L946">                    .println(&quot;Note: If you are using the MtfConvert utility, you may also drag and drop files onto it for conversion.&quot;);</span>
+<span class="nc" id="L947">            MechFileParser.getResponse(&quot;Press &lt;enter&gt; to exit...&quot;);</span>
+<span class="nc" id="L948">            return;</span>
+        }
+<span class="nc bnc" id="L950" title="All 2 branches missed.">        for (int i = 0; i &lt; args.length; i++) {</span>
+<span class="nc" id="L951">            String filename = args[i];</span>
+<span class="nc" id="L952">            File file = new File(filename);</span>
+<span class="nc" id="L953">            String outFilename = filename.substring(0,</span>
+<span class="nc" id="L954">                    filename.lastIndexOf(&quot;.&quot;));</span>
+<span class="nc" id="L955">            BufferedWriter out = null;</span>
+            try {
+<span class="nc" id="L957">                MechFileParser mfp = new MechFileParser(file);</span>
+<span class="nc" id="L958">                Entity e = mfp.getEntity();</span>
+<span class="nc bnc" id="L959" title="All 2 branches missed.">                if (e instanceof Mech) {</span>
+<span class="nc" id="L960">                    outFilename += &quot;.mtf&quot;;</span>
+<span class="nc" id="L961">                    File outFile = new File(outFilename);</span>
+<span class="nc bnc" id="L962" title="All 2 branches missed.">                    if (outFile.exists()) {</span>
+<span class="nc" id="L963">                        if (!MechFileParser</span>
+<span class="nc bnc" id="L964" title="All 2 branches missed.">                                .getResponse(&quot;File already exists, overwrite? &quot;)) {</span>
+<span class="nc" id="L965">                            return;</span>
+                        }
+                    }
+<span class="nc" id="L968">                    out = new BufferedWriter(new FileWriter(outFile));</span>
+<span class="nc" id="L969">                    out.write(((Mech) e).getMtf());</span>
+<span class="nc bnc" id="L970" title="All 2 branches missed.">                } else if (e instanceof Tank) {</span>
+<span class="nc" id="L971">                    outFilename += &quot;.blk&quot;;</span>
+<span class="nc" id="L972">                    BLKFile.encode(outFilename, e);</span>
+                }
+<span class="nc" id="L974">            } catch (Exception e) {</span>
+<span class="nc" id="L975">                System.out.println(e.getMessage());</span>
+<span class="nc" id="L976">                MechFileParser.getResponse(&quot;Press &lt;enter&gt; to exit...&quot;);</span>
+            } finally {
+<span class="nc bnc" id="L978" title="All 2 branches missed.">                if (out != null) {</span>
+                    try {
+<span class="nc" id="L980">                        out.close();</span>
+<span class="nc" id="L981">                    } catch (IOException ex) {</span>
+                        // ignore
+<span class="nc" id="L983">                    }</span>
+                }
+            }
+        }
+<span class="nc" id="L987">    }</span>
+
+    private static boolean getResponse(String prompt) {
+<span class="nc" id="L990">        String response = null;</span>
+<span class="nc" id="L991">        BufferedReader in = new BufferedReader(new InputStreamReader(System.in));</span>
+<span class="nc" id="L992">        System.out.print(prompt);</span>
+        try {
+<span class="nc" id="L994">            response = in.readLine();</span>
+<span class="nc" id="L995">        } catch (IOException ioe) {</span>
+<span class="nc" id="L996">        }</span>
+<span class="nc bnc" id="L997" title="All 4 branches missed.">        if ((response != null) &amp;&amp; (response.toLowerCase().indexOf(&quot;y&quot;) == 0)) {</span>
+<span class="nc" id="L998">            return true;</span>
+        }
+<span class="nc" id="L1000">        return false;</span>
+    }
+
+    public static Entity loadEntity(File f, String entityName) {
+<span class="nc" id="L1004">        Entity entity = null;</span>
+        try {
+<span class="nc" id="L1006">            entity = new MechFileParser(f, entityName).getEntity();</span>
+<span class="nc" id="L1007">        } catch (megamek.common.loaders.EntityLoadingException e) {</span>
+<span class="nc" id="L1008">            System.out.println(&quot;Exception: &quot; + e.toString());</span>
+<span class="nc" id="L1009">            e.printStackTrace();</span>
+<span class="nc" id="L1010">        }</span>
+<span class="nc" id="L1011">        return entity;</span>
+    }
+
+    public static void dispose() {
+<span class="nc" id="L1015">        canonUnitNames = null;</span>
+<span class="nc" id="L1016">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

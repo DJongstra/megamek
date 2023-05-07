@@ -1,0 +1,678 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Bay.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">Bay.java</span></div><h1>Bay.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2003, 2004 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Vector;
+
+/**
+ * Represents a volume of space set aside for carrying cargo of some sort
+ * aboard large spacecraft and mobile structures
+ */
+
+public class Bay implements Transporter, ITechnology {
+
+    // Private attributes and helper functions.
+
+    private static final long serialVersionUID = -9056450317468016272L;
+
+    public static final String FIELD_SEPARATOR = &quot;:&quot;;
+    public static final String FACING_PREFIX = &quot;f&quot;;
+
+<span class="nc" id="L37">    int doors = 1;</span>
+<span class="nc" id="L38">    int doorsNext = 1;</span>
+<span class="nc" id="L39">    int currentdoors = doors;</span>
+<span class="nc" id="L40">    protected int unloadedThisTurn = 0;</span>
+<span class="nc" id="L41">    protected int loadedThisTurn = 0;</span>
+<span class="nc" id="L42">    Vector&lt;Integer&gt; recoverySlots = new Vector&lt;Integer&gt;();</span>
+<span class="nc" id="L43">    int bayNumber = 0;</span>
+<span class="nc" id="L44">    transient IGame game = null;</span>
+    private double damage;
+
+    /**
+     * The troops being carried.
+     */
+<span class="nc" id="L50">    /* package */Vector&lt;Integer&gt; troops = new Vector&lt;Integer&gt;();</span>
+
+    /**
+     * The total amount of space available for troops.
+     */
+    /* package */double totalSpace;
+
+    /**
+     * The current amount of space not occupied by troops or cargo.
+     */
+    /* package */double currentSpace;
+
+    // Protected constructors and methods.
+
+    /**
+     * The default constructor is only for serialization.
+     */
+<span class="nc" id="L67">    protected Bay() {</span>
+<span class="nc" id="L68">        totalSpace = 0;</span>
+<span class="nc" id="L69">        currentSpace = 0;</span>
+<span class="nc" id="L70">        damage = 0;</span>
+<span class="nc" id="L71">    }</span>
+
+    // Public constructors and methods.
+
+    /**
+     * Create a space for the given tonnage of troops. For this class, only the
+     * weight of the troops (and their equipment) are considered; if you'd like
+     * to think that they are stacked like lumber, be my guest.
+     *
+     * @param space
+     *            - The weight of troops (in tons) this space can carry.
+     * @param doors
+     * @param bayNumber
+     */
+<span class="nc" id="L85">    public Bay(double space, int doors, int bayNumber) {</span>
+<span class="nc" id="L86">        totalSpace = space;</span>
+<span class="nc" id="L87">        currentSpace = space;</span>
+<span class="nc" id="L88">        this.doors = doors;</span>
+<span class="nc" id="L89">        doorsNext = currentdoors;</span>
+<span class="nc" id="L90">        this.bayNumber = bayNumber;</span>
+<span class="nc" id="L91">        damage = 0;</span>
+<span class="nc" id="L92">    }</span>
+
+    /**
+     * Bay damage to unit transport bays is tracked by number of cubicles/units. Damage
+     * to cargo bays is tracked by cargo tonnage.
+     *
+     * @return The reduction of bay capacity due to damage.
+     */
+    public double getBayDamage() {
+<span class="nc" id="L101">    	return damage;</span>
+    }
+
+    /**
+     * Bay damage to unit transport bays is tracked by number of cubicles/units. Damage
+     * to cargo bays is tracked by cargo tonnage.
+     *
+     * @param damage The total amount of bay capacity reduced due to damage.
+     */
+    public void setBayDamage(double damage) {
+<span class="nc" id="L111">    	this.damage = Math.min(damage, totalSpace);</span>
+<span class="nc" id="L112">    }</span>
+    
+    /**
+     * Method used by MHQ to update bay space when loading units in lobby. See Utilities.loadPlayerTransports
+     * This ensures that consumed space is kept in sync between the MM client and MHQ game thread
+     * 
+     * @param space - double representing space consumed by the unit being loaded. 1 except in the case of infantry
+     */
+    public void setCurrentSpace(double space) {
+<span class="nc" id="L121">        this.currentSpace = Math.max(0, (currentSpace - space));</span>
+<span class="nc" id="L122">    }</span>
+
+    // the starting number of doors for the bay.
+    public int getDoors() {
+<span class="nc" id="L126">        return doors;</span>
+    }
+
+    public void setDoors(int d) {
+<span class="nc" id="L130">        doors = d;</span>
+<span class="nc" id="L131">        doorsNext = d;</span>
+<span class="nc" id="L132">        currentdoors = d;</span>
+<span class="nc" id="L133">    }</span>
+
+    public int getCurrentDoors() {
+        // defense against invalid values
+<span class="nc" id="L137">        return Math.min(doors, Math.max(currentdoors, 0));</span>
+    }
+
+    public void setCurrentDoors(int d) {
+<span class="nc" id="L141">    	currentdoors = d;</span>
+<span class="nc" id="L142">    }</span>
+
+    // for setting doors after this launch
+    public void setDoorsNext(int d) {
+<span class="nc" id="L146">        doorsNext = d;</span>
+<span class="nc" id="L147">    }</span>
+
+    public int getDoorsNext() {
+<span class="nc" id="L150">        return doorsNext;</span>
+    }
+
+    public void resetDoors() {
+<span class="nc" id="L154">        doorsNext = currentdoors;</span>
+<span class="nc" id="L155">    }</span>
+
+    public void resetCounts() {
+<span class="nc" id="L158">        unloadedThisTurn = 0;</span>
+<span class="nc" id="L159">        loadedThisTurn = 0;</span>
+<span class="nc" id="L160">    }</span>
+
+    /**
+     * Most bay types track space by individual units. Infantry bays have variable space requirements
+     * and must track by cubicle tonnage.
+     *
+     * @param unit The unit to load/unload.
+     * @return     The amount of bay space taken up by the unit.
+     */
+    public double spaceForUnit(Entity unit) {
+<span class="nc" id="L170">        return 1;</span>
+    }
+
+    @Override
+    public void resetTransporter() {
+<span class="nc" id="L175">        troops = new Vector&lt;Integer&gt;();</span>
+<span class="nc" id="L176">        currentSpace = totalSpace;</span>
+<span class="nc" id="L177">        resetCounts();</span>
+<span class="nc" id="L178">    }</span>
+
+    /**
+     * Determines if this object can accept the given unit. The unit may not be
+     * of the appropriate type or there may be no room for the unit.
+     *
+     * @param unit
+     *            - the &lt;code&gt;Entity&lt;/code&gt; to be loaded.
+     * @return &lt;code&gt;true&lt;/code&gt; if the unit can be loaded, &lt;code&gt;false&lt;/code&gt;
+     *         otherwise.
+     */
+    @Override
+    public boolean canLoad(Entity unit) {
+        // Assume that we cannot carry the unit.
+<span class="nc" id="L192">        boolean result = true;</span>
+
+        // We must have enough space for the new troops.
+<span class="nc bnc" id="L195" title="All 2 branches missed.">        if (getUnused() &lt; spaceForUnit(unit)) {</span>
+<span class="nc" id="L196">            result = false;</span>
+        }
+
+        // more doors than units loaded
+<span class="nc bnc" id="L200" title="All 2 branches missed.">        if (currentdoors &lt;= loadedThisTurn) {</span>
+<span class="nc" id="L201">            result = false;</span>
+        }
+
+        // Return our result.
+<span class="nc" id="L205">        return result;</span>
+    }
+
+    /**
+     * to unload units, a bay must have more doors available than units unloaded
+     * this turn
+     *
+     * @return
+     */
+
+    // can't load, launch or recover into a damaged bay, but you can unload it
+    public boolean canUnloadUnits() {
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        return currentdoors &gt; unloadedThisTurn;</span>
+    }
+
+    /**
+     * Load the given unit.
+     *
+     * @param unit
+     *            - the &lt;code&gt;Entity&lt;/code&gt; to be loaded.
+     * @exception - If the unit can't be loaded, an
+     *            &lt;code&gt;IllegalArgumentException&lt;/code&gt; exception will be
+     *            thrown.
+     */
+    @Override
+    public void load(Entity unit) throws IllegalArgumentException {
+        // If we can't load the unit, throw an exception.
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        if (!canLoad(unit)) {</span>
+<span class="nc" id="L233">            throw new IllegalArgumentException(&quot;Can not load &quot; + unit.getShortName() + &quot; into this bay. &quot; + getUnused());</span>
+        }
+
+<span class="nc" id="L236">        currentSpace -= spaceForUnit(unit);</span>
+<span class="nc bnc" id="L237" title="All 4 branches missed.">        if((unit.game.getPhase() != IGame.Phase.PHASE_DEPLOYMENT) &amp;&amp; (unit.game.getPhase() != IGame.Phase.PHASE_LOUNGE)) {</span>
+<span class="nc" id="L238">                loadedThisTurn += 1;</span>
+        }
+
+        // Add the unit to our list of troops.
+<span class="nc" id="L242">        troops.addElement(unit.getId());</span>
+<span class="nc" id="L243">    }</span>
+
+    /**
+     * Get a &lt;code&gt;List&lt;/code&gt; of the units currently loaded into this payload.
+     *
+     * @return A &lt;code&gt;List&lt;/code&gt; of loaded &lt;code&gt;Entity&lt;/code&gt; units. This
+     *         list will never be &lt;code&gt;null&lt;/code&gt;, but it may be empty. The
+     *         returned &lt;code&gt;List&lt;/code&gt; is independent from the under- lying
+     *         data structure; modifying one does not affect the other.
+     */
+    @Override
+    public Vector&lt;Entity&gt; getLoadedUnits() {
+        // Return a copy of our list of troops.
+<span class="nc" id="L256">        Vector&lt;Entity&gt; loaded = new Vector&lt;Entity&gt;();</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">        for (int unit : troops) {</span>
+<span class="nc" id="L258">            loaded.add(game.getEntity(unit));</span>
+<span class="nc" id="L259">        }</span>
+<span class="nc" id="L260">        return loaded;</span>
+    }
+    
+    /**
+     * Generate a raw list of the Ids stored in troops. 
+     * Used by MHQ in cases where we can't get the entities via Game
+     *
+     * @return
+     */
+    public List&lt;Integer&gt; getLoadedUnitIds() {
+        // Return a copy of our list of troops.
+<span class="nc" id="L271">        List&lt;Integer&gt; loaded = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        for (int id : troops) {</span>
+<span class="nc" id="L273">            loaded.add(id);</span>
+<span class="nc" id="L274">        }</span>
+<span class="nc" id="L275">        return loaded;</span>
+    }
+
+    /**
+     * get a vector of launchable units. This is different from loaded in that
+     * units in recovery cannot launch
+     */
+    public Vector&lt;Entity&gt; getLaunchableUnits() {
+
+<span class="nc" id="L284">        Vector&lt;Entity&gt; launchable = new Vector&lt;Entity&gt;();</span>
+
+<span class="nc bnc" id="L286" title="All 2 branches missed.">        for (int i = 0; i &lt; troops.size(); i++) {</span>
+<span class="nc" id="L287">            Entity nextUnit = game.getEntity(troops.elementAt(i));</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">            if (nextUnit.getRecoveryTurn() == 0) {</span>
+<span class="nc" id="L289">                launchable.add(nextUnit);</span>
+            }
+        }
+
+<span class="nc" id="L293">        return launchable;</span>
+    }
+
+    /**
+     * get a vector of droppable units.
+     */
+    public Vector&lt;Entity&gt; getDroppableUnits() {
+
+<span class="nc" id="L301">        Vector&lt;Entity&gt; droppable = new Vector&lt;Entity&gt;();</span>
+
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        for (int i = 0; i &lt; troops.size(); i++) {</span>
+<span class="nc" id="L304">            Entity nextUnit = game.getEntity(troops.elementAt(i));</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">            if (nextUnit.canAssaultDrop()) {</span>
+<span class="nc" id="L306">                droppable.add(nextUnit);</span>
+            }
+        }
+
+<span class="nc" id="L310">        return droppable;</span>
+    }
+
+    /***
+     * get a vector of units that are unloadable on the ground
+     */
+    public Vector&lt;Entity&gt; getUnloadableUnits() {
+
+<span class="nc" id="L318">        Vector&lt;Entity&gt; unloadable = new Vector&lt;Entity&gt;();</span>
+
+        // TODO: we need to handle aeros and VTOLs differently
+<span class="nc bnc" id="L321" title="All 2 branches missed.">        for (int i = 0; i &lt; troops.size(); i++) {</span>
+<span class="nc" id="L322">            Entity nextUnit = game.getEntity(troops.elementAt(i));</span>
+<span class="nc" id="L323">            unloadable.add(nextUnit);</span>
+        }
+
+<span class="nc" id="L326">        return unloadable;</span>
+    }
+
+    /**
+     * Unload the given unit.
+     *
+     * @param unit
+     *            - the &lt;code&gt;Entity&lt;/code&gt; to be unloaded.
+     * @return &lt;code&gt;true&lt;/code&gt; if the unit was contained in this space,
+     *         &lt;code&gt;false&lt;/code&gt; otherwise.
+     */
+    @Override
+    public boolean unload(Entity unit) {
+
+        // Remove the unit if we are carrying it.
+<span class="nc" id="L341">        boolean retval = troops.removeElement(unit.getId());</span>
+
+        // If we removed it, restore our space.
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (retval) {</span>
+<span class="nc" id="L345">            currentSpace += spaceForUnit(unit);</span>
+<span class="nc" id="L346">            unloadedThisTurn += 1;</span>
+        }
+
+        // Return our status
+<span class="nc" id="L350">        return retval;</span>
+    }
+
+    /**
+     * Return a string that identifies the unused capacity of this transporter.
+     *
+     * @return A &lt;code&gt;String&lt;/code&gt; meant for a human.
+     */
+    public String getUnusedString(boolean showrecovery) {
+<span class="nc" id="L359">        return numDoorsString() + &quot;  - &quot; + getUnused()</span>
+<span class="nc bnc" id="L360" title="All 2 branches missed.">                + (getUnused() &gt; 1 ? &quot; units&quot; : &quot; unit&quot;);</span>
+    }
+
+    protected String numDoorsString() {
+<span class="nc" id="L364">        return &quot;(&quot; + getCurrentDoors()</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">            + ((getCurrentDoors() == 1)?&quot; door&quot;:&quot; doors&quot;) + &quot;)&quot;;</span>
+    }
+
+    @Override
+    public String getUnusedString() {
+<span class="nc" id="L370">        return getUnusedString(true);</span>
+    }
+
+    /**
+     * @return The amount of unused space in the bay.
+     */
+    @Override
+    public double getUnused() {
+<span class="nc" id="L378">        return currentSpace - damage;</span>
+    }
+
+    /**
+     * @return The amount of unused space in the bay expressed in slots. For most bays this is the
+     *         same as the the unused space, but bays for units that can take up a variable amount
+     *         of space (such as infantry bays) this calculates the number of the default unit size
+     *         that can fit into the remaining space.
+     */
+    public double getUnusedSlots() {
+<span class="nc" id="L388">        return currentSpace;</span>
+    }
+
+    /**
+     * @return A String that describes the default slot type. Only meaningful for bays with variable
+     *         space requirements (like infantry).
+     */
+    public String getDefaultSlotDescription() {
+<span class="nc" id="L396">        return &quot;&quot;;</span>
+    }
+
+    /**
+     * Determine if transported units prevent a weapon in the given location
+     * from firing.
+     *
+     * @param loc
+     *            - the &lt;code&gt;int&lt;/code&gt; location attempting to fire.
+     * @param isRear
+     *            - a &lt;code&gt;boolean&lt;/code&gt; value stating if the given location
+     *            is rear facing; if &lt;code&gt;false&lt;/code&gt;, the location is front
+     *            facing.
+     * @return &lt;code&gt;true&lt;/code&gt; if a transported unit is in the way,
+     *         &lt;code&gt;false&lt;/code&gt; if the weapon can fire.
+     */
+    @Override
+    public boolean isWeaponBlockedAt(int loc, boolean isRear) {
+<span class="nc" id="L414">        return false;</span>
+    }
+
+    /**
+     * If a unit is being transported on the outside of the transporter, it can
+     * suffer damage when the transporter is hit by an attack. Currently, no
+     * more than one unit can be at any single location; that same unit can be
+     * &quot;spread&quot; over multiple locations.
+     *
+     * @param loc
+     *            - the &lt;code&gt;int&lt;/code&gt; location hit by attack.
+     * @param isRear
+     *            - a &lt;code&gt;boolean&lt;/code&gt; value stating if the given location
+     *            is rear facing; if &lt;code&gt;false&lt;/code&gt;, the location is front
+     *            facing.
+     * @return The &lt;code&gt;Entity&lt;/code&gt; being transported on the outside at that
+     *         location. This value will be &lt;code&gt;null&lt;/code&gt; if no unit is
+     *         transported on the outside at that location.
+     */
+    @Override
+    public Entity getExteriorUnitAt(int loc, boolean isRear) {
+<span class="nc" id="L435">        return null;</span>
+    }
+
+    @Override
+    public final List&lt;Entity&gt; getExternalUnits() {
+<span class="nc" id="L440">        ArrayList&lt;Entity&gt; rv = new ArrayList&lt;Entity&gt;(1);</span>
+<span class="nc" id="L441">        return rv;</span>
+    }
+
+    @Override
+    public int getCargoMpReduction(Entity carrier) {
+<span class="nc" id="L446">        return 0;</span>
+    }
+
+    public String getType() {
+<span class="nc" id="L450">        return &quot;Unknown&quot;;</span>
+    }
+
+    // destroy a door for next turn
+    public void destroyDoorNext() {
+
+<span class="nc bnc" id="L456" title="All 2 branches missed.">        if (getDoorsNext() &gt; 0) {</span>
+<span class="nc" id="L457">            setDoorsNext(getDoorsNext() - 1);</span>
+        }
+
+<span class="nc" id="L460">    }</span>
+
+    // destroy a door
+    public void destroyDoor() {
+<span class="nc bnc" id="L464" title="All 2 branches missed.">    	if (getCurrentDoors() &gt; 0)</span>
+<span class="nc" id="L465">    		setCurrentDoors(getCurrentDoors() - 1);</span>
+<span class="nc" id="L466">    }</span>
+
+    // restore a door
+    public void restoreDoor() {
+<span class="nc bnc" id="L470" title="All 2 branches missed.">    	if (getCurrentDoors() &lt; getDoors()) {</span>
+<span class="nc" id="L471">    		setCurrentDoors(getCurrentDoors() + 1);</span>
+    	}
+<span class="nc" id="L473">    }</span>
+
+    // restore all doors
+    public void restoreAllDoors() {
+<span class="nc" id="L477">    	setCurrentDoors(getDoors());</span>
+<span class="nc" id="L478">    }</span>
+
+    public int getNumberUnloadedThisTurn() {
+<span class="nc" id="L481">        return unloadedThisTurn;</span>
+    }
+
+    public int getNumberLoadedThisTurn() {
+<span class="nc" id="L485">        return unloadedThisTurn;</span>
+    }
+
+    /** Return the tonnage of the bay, not the actual mass or weight */
+    public double getWeight() {
+<span class="nc" id="L490">        return totalSpace;</span>
+    }
+
+    /**
+     * @param clan  Whether the bay is installed in a Clan unit. Needed for infantry bays.
+     * @return      The number of additional crew provided by the bay. This includes transport bays only;
+     *              crew quarters are already accounted for in the crew total.
+     */
+    public int getPersonnel(boolean clan) {
+<span class="nc" id="L499">        return 0;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L504">        return &quot;bay:&quot; + totalSpace + &quot;:&quot; + doors + &quot;:&quot;+ bayNumber;</span>
+    }
+
+    /**
+     * @return The total size of the bay.
+     */
+    public double getCapacity() {
+<span class="nc" id="L511">        return totalSpace;</span>
+    }
+
+    public int getBayNumber() {
+<span class="nc" id="L515">        return bayNumber;</span>
+    }
+
+    /**
+     * Some bays (dropshuttle and repair facility) have a maximum number per armor facing.
+     * @return The facing of the bay, or Entity.LOC_NONE if the bay does not require a facing.
+     */
+    public int getFacing() {
+<span class="nc" id="L523">        return Entity.LOC_NONE;</span>
+    }
+
+    /**
+     * Sets the armor facing for the bay, if the bay type requires it. If not required by the bay
+     * type, does nothing.
+     *
+     * @param facing The location to use for the facing.
+     */
+    public void setFacing(int facing) {
+        // do nothing by default
+<span class="nc" id="L534">    }</span>
+
+    @Override
+    public int hardpointCost() {
+<span class="nc" id="L538">        return 0;</span>
+    }
+
+    @Override
+    public void setGame(IGame game) {
+<span class="nc" id="L543">        this.game = game;</span>
+<span class="nc" id="L544">    }</span>
+
+    // Use cargo/infantry for default tech advancement
+    public static TechAdvancement techAdvancement() {
+<span class="nc" id="L548">        return new TechAdvancement(TECH_BASE_ALL).setAdvancement(DATE_PS, DATE_PS, DATE_PS)</span>
+<span class="nc" id="L549">                .setTechRating(RATING_A)</span>
+<span class="nc" id="L550">                .setAvailability(RATING_A, RATING_A, RATING_A, RATING_A)</span>
+<span class="nc" id="L551">                .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+    }
+
+    /**
+     * Shared by several types of bays
+     * @return Tech advancement for advanced robotic transport system.
+     */
+    public static TechAdvancement artsTechAdvancement() {
+<span class="nc" id="L559">        return new TechAdvancement(TECH_BASE_ALL).setAdvancement(2600, 2609, DATE_NONE, 2804, 3068)</span>
+<span class="nc" id="L560">                .setApproximate(true, false, false, false, false)</span>
+<span class="nc" id="L561">                .setPrototypeFactions(F_TH).setProductionFactions(F_TH).setReintroductionFactions(F_WB)</span>
+<span class="nc" id="L562">                .setTechRating(RATING_E)</span>
+<span class="nc" id="L563">                .setAvailability(RATING_D, RATING_E, RATING_E, RATING_E)</span>
+<span class="nc" id="L564">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+
+    public TechAdvancement getTechAdvancement() {
+<span class="nc" id="L568">        return Bay.techAdvancement();</span>
+    }
+
+    @Override
+    public boolean isClan() {
+<span class="nc" id="L573">        return getTechAdvancement().isClan();</span>
+    }
+
+    @Override
+    public boolean isMixedTech() {
+<span class="nc" id="L578">        return getTechAdvancement().isMixedTech();</span>
+    }
+
+    @Override
+    public int getTechBase() {
+<span class="nc" id="L583">        return getTechAdvancement().getTechBase();</span>
+    }
+
+    @Override
+    public int getIntroductionDate() {
+<span class="nc" id="L588">        return getTechAdvancement().getIntroductionDate();</span>
+    }
+
+    @Override
+    public int getPrototypeDate() {
+<span class="nc" id="L593">        return getTechAdvancement().getPrototypeDate();</span>
+    }
+
+    @Override
+    public int getProductionDate() {
+<span class="nc" id="L598">        return getTechAdvancement().getProductionDate();</span>
+    }
+
+    @Override
+    public int getCommonDate() {
+<span class="nc" id="L603">        return getTechAdvancement().getCommonDate();</span>
+    }
+
+    @Override
+    public int getExtinctionDate() {
+<span class="nc" id="L608">        return getTechAdvancement().getExtinctionDate();</span>
+    }
+
+    @Override
+    public int getReintroductionDate() {
+<span class="nc" id="L613">        return getTechAdvancement().getReintroductionDate();</span>
+    }
+
+    @Override
+    public int getTechRating() {
+<span class="nc" id="L618">        return getTechAdvancement().getTechRating();</span>
+    }
+
+    @Override
+    public int getBaseAvailability(int era) {
+<span class="nc" id="L623">        return getTechAdvancement().getBaseAvailability(era);</span>
+    }
+
+    @Override
+    public int getIntroductionDate(boolean clan, int faction) {
+<span class="nc" id="L628">        return getTechAdvancement().getIntroductionDate(clan, faction);</span>
+    }
+
+    @Override
+    public int getPrototypeDate(boolean clan, int faction) {
+<span class="nc" id="L633">        return getTechAdvancement().getPrototypeDate(clan, faction);</span>
+    }
+
+    @Override
+    public int getProductionDate(boolean clan, int faction) {
+<span class="nc" id="L638">        return getTechAdvancement().getProductionDate(clan, faction);</span>
+    }
+
+    @Override
+    public int getExtinctionDate(boolean clan, int faction) {
+<span class="nc" id="L643">        return getTechAdvancement().getExtinctionDate(clan, faction);</span>
+    }
+
+    @Override
+    public int getReintroductionDate(boolean clan, int faction) {
+<span class="nc" id="L648">        return getTechAdvancement().getReintroductionDate(clan, faction);</span>
+    }
+
+    @Override
+    public SimpleTechLevel getStaticTechLevel() {
+<span class="nc" id="L653">        return getTechAdvancement().getStaticTechLevel();</span>
+    }
+
+    /**
+     * @return true if this bay represents crew quarters or seating rather than a unit transport bay.
+     */
+    public boolean isQuarters() {
+<span class="nc" id="L660">        return false;</span>
+    }
+
+    /**
+     * @return true if this bay represents cargo capacity rather than unit transport or crew quarters.
+     */
+    public boolean isCargo() {
+<span class="nc" id="L667">        return false;</span>
+    }
+
+    /**
+     * @return The cost of the bay in C-bills
+     */
+    public long getCost() {
+<span class="nc" id="L674">        return 0;</span>
+    }
+
+ } // End package class TroopSpace implements Transporter
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

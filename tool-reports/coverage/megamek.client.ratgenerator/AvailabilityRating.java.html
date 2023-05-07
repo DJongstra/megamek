@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AvailabilityRating.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ratgenerator</a> &gt; <span class="el_source">AvailabilityRating.java</span></div><h1>AvailabilityRating.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.client.ratgenerator;
+
+import megamek.MegaMek;
+
+/**
+ * Handles availability rating values and calculations for RAT generator.
+ * Availability is rated on a base-2 logarithmic scale from 0 (non-existent) to 10 (ubiquitous),
+ * with 6 being a typical value when the source material does not give an indication of frequency.
+ * The availability rating is actually twice the exponent, which allows more precision
+ * while still storing values as integers (so it's really a base-(sqrt(2)) scale, but using
+ * 2 as the base should theoretically be faster).
+ *
+ * These values are stored separately for chassis and models; for example, there is
+ * one value to indicate the likelihood that a medium Mek is a Phoenix Hawk and another
+ * set of values to indicate the likelihood that a give Phoenix Hawk is a 1D or 1K, etc.
+ *
+ * @author Neoancient
+ *
+ */
+
+public class AvailabilityRating {
+	//Used to calculate av rating from weight.
+<span class="nc" id="L39">	public static final double LOG_BASE = Math.log(2);</span>
+
+<span class="nc" id="L41">	String faction = &quot;General&quot;;</span>
+<span class="nc" id="L42">	int availability = 0;</span>
+<span class="nc" id="L43">	String ratings = null;</span>
+<span class="nc" id="L44">	int ratingAdjustment = 0;</span>
+	int era;
+	int startYear;
+<span class="nc" id="L47">	String unitName = null;</span>
+
+	/**
+	 *
+	 * @param unit The chassis or model key
+	 * @param era  The era that this availability code applies to.
+	 * @param code A string with the format FKEY[!RATING]:AV[+/-][:YEAR]
+	 * 				FKEY: the faction key
+	 * 				RATING: if supplied, will limit this record to units with the indicated equipment rating
+	 * 				AV: a value that indicates how common this unit is, from 0 (non-existent)
+	 *                  to 10 (ubiquitous)
+	 * 				+: the indicated av rating applies to the highest equipment rating for the faction
+	 * 					(usually A or Keshik) and decreases for each step the rating is reduced.
+	 * 				-: as +, but applies to the lowest equipment rating (F or PGC) and decreases
+	 * 					as rating increases.
+	 * 				YEAR: when the unit becomes available to the faction, if later than the
+	 * 					beginning of the era. Any year before this within the era will be treated
+	 * 					as having no availability.
+	 */
+<span class="nc" id="L66">	public AvailabilityRating(String unit, int era, String code) {</span>
+<span class="nc" id="L67">		unitName = unit;</span>
+<span class="nc" id="L68">		this.era = era;</span>
+<span class="nc" id="L69">		startYear = era;</span>
+<span class="nc" id="L70">		this.ratingAdjustment = 0;</span>
+<span class="nc" id="L71">		String[] fields = code.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">		if (fields[0].contains(&quot;!&quot;)) {</span>
+<span class="nc" id="L73">			String[] subfields = fields[0].split(&quot;!&quot;);</span>
+<span class="nc" id="L74">			ratings = subfields[1];</span>
+<span class="nc" id="L75">			fields[0] = subfields[0];</span>
+		}
+<span class="nc" id="L77">		faction = fields[0];</span>
+
+<span class="nc bnc" id="L79" title="All 2 branches missed.">		if (fields.length &lt; 2) {</span>
+<span class="nc" id="L80">		    MegaMek.getLogger().warning(&quot;No availability code given for &quot; + unit +</span>
+					&quot; (&quot; + era + &quot;): &quot; + faction);
+<span class="nc" id="L82">			return;</span>
+		}
+<span class="nc bnc" id="L84" title="All 2 branches missed.">		if (fields[1].endsWith(&quot;+&quot;)) {</span>
+<span class="nc" id="L85">			this.ratingAdjustment++;</span>
+<span class="nc" id="L86">			fields[1] = fields[1].replace(&quot;+&quot;, &quot;&quot;);</span>
+		}
+<span class="nc bnc" id="L88" title="All 2 branches missed.">		if (fields[1].endsWith(&quot;-&quot;)) {</span>
+<span class="nc" id="L89">			this.ratingAdjustment--;</span>
+<span class="nc" id="L90">			fields[1] = fields[1].replace(&quot;-&quot;, &quot;&quot;);</span>
+		}
+<span class="nc" id="L92">		availability = Integer.parseInt(fields[1]);</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">		if (fields.length &gt; 2) {</span>
+			try {
+<span class="nc" id="L95">				startYear = Integer.parseInt(fields[2]);</span>
+<span class="nc" id="L96">			} catch (NumberFormatException ex) {</span>
+<span class="nc" id="L97">			    MegaMek.getLogger().warning(&quot;Could not parse start year &quot; + fields[2] + &quot; for &quot;</span>
+						+ unit + &quot; in &quot; + era);
+<span class="nc" id="L99">			}</span>
+		}
+<span class="nc" id="L101">	}</span>
+
+	public String getFaction() {
+<span class="nc" id="L104">		return faction;</span>
+	}
+
+	public void setFaction(String faction) {
+<span class="nc" id="L108">		this.faction = faction;</span>
+<span class="nc" id="L109">	}</span>
+
+	public int getAvailability() {
+<span class="nc" id="L112">		return availability;</span>
+	}
+
+	public int adjustForRating(int rating, int numLevels) {
+<span class="nc bnc" id="L116" title="All 4 branches missed.">		if (rating &lt; 0 || ratingAdjustment == 0) {</span>
+<span class="nc" id="L117">			return availability;</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">		} else if (ratingAdjustment &lt; 0) {</span>
+<span class="nc" id="L119">			return availability - rating;</span>
+		} else {
+<span class="nc" id="L121">			return availability - (numLevels - rating);</span>
+		}
+	}
+
+	public void setAvailability(int availability) {
+<span class="nc" id="L126">		this.availability = availability;</span>
+<span class="nc" id="L127">	}</span>
+
+	public String getRatings() {
+<span class="nc" id="L130">		return ratings;</span>
+	}
+
+	public void setRatings(String ratings) {
+<span class="nc" id="L134">		this.ratings = ratings;</span>
+<span class="nc" id="L135">	}</span>
+
+	public int getRatingAdjustment() {
+<span class="nc" id="L138">		return ratingAdjustment;</span>
+	}
+
+	public void setRatingAdjustment(int ratingAdjustment) {
+<span class="nc" id="L142">		this.ratingAdjustment = ratingAdjustment;</span>
+<span class="nc" id="L143">	}</span>
+
+	public int getEra() {
+<span class="nc" id="L146">		return era;</span>
+	}
+
+	public void setEra(int era) {
+<span class="nc" id="L150">		this.era = era;</span>
+<span class="nc" id="L151">	}</span>
+
+	public int getStartYear() {
+<span class="nc" id="L154">		return startYear;</span>
+	}
+
+	public void setStartYear(int year) {
+<span class="nc" id="L158">		startYear = year;</span>
+<span class="nc" id="L159">	}</span>
+
+	public String getUnitName() {
+<span class="nc" id="L162">		return unitName;</span>
+	}
+
+	public void setUnitName(String unitName) {
+<span class="nc" id="L166">		this.unitName = unitName;</span>
+<span class="nc" id="L167">	}</span>
+
+	public String getFactionCode() {
+<span class="nc" id="L170">		String retVal = faction;</span>
+<span class="nc bnc" id="L171" title="All 4 branches missed.">		if (ratings != null &amp;&amp; ratings.length() &gt; 0) {</span>
+<span class="nc" id="L172">			retVal += &quot;!&quot; + ratings;</span>
+		}
+<span class="nc" id="L174">		return retVal;</span>
+	}
+
+	public String getAvailabilityCode() {
+<span class="nc bnc" id="L178" title="All 2 branches missed.">		if (ratingAdjustment == 0) {</span>
+<span class="nc" id="L179">			return Integer.toString(availability);</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">		} else if (ratingAdjustment &lt; 0) {</span>
+<span class="nc" id="L181">			return availability + &quot;-&quot;;</span>
+		} else {
+<span class="nc" id="L183">			return availability + &quot;+&quot;;</span>
+		}
+	}
+
+	@Override
+	public String toString() {
+<span class="nc bnc" id="L189" title="All 2 branches missed.">		if (era != startYear) {</span>
+<span class="nc" id="L190">			return getFactionCode() + &quot;:&quot; + getAvailabilityCode()</span>
+					+ &quot;:&quot; + startYear;
+		}
+<span class="nc" id="L193">		return getFactionCode() + &quot;:&quot; + getAvailabilityCode();</span>
+	}
+
+	public AvailabilityRating makeCopy(String newFaction) {
+<span class="nc" id="L197">		return new AvailabilityRating(unitName, era, newFaction + &quot;:&quot; + getAvailabilityCode());</span>
+	}
+
+	public double getWeight() {
+<span class="nc" id="L201">		return calcWeight(availability);</span>
+	}
+
+	static double calcWeight(double avRating) {
+<span class="nc" id="L205">		return Math.pow(2, avRating / 2.0);</span>
+	}
+
+	static double calcAvRating(double weight) {
+<span class="nc" id="L209">		return 2.0 * Math.log(weight) / LOG_BASE;</span>
+	}
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

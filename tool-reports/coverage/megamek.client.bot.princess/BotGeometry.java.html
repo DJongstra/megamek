@@ -1,0 +1,602 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BotGeometry.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">BotGeometry.java</span></div><h1>BotGeometry.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.bot.princess;
+
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import megamek.MegaMek;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IBoard;
+import megamek.common.MovePath;
+
+/**
+ * This contains useful classes and functions for geometric questions
+ * the bot algorithm might have
+ */
+<span class="nc" id="L30">public class BotGeometry {</span>
+
+    /**
+     * The combination of a coordinate and a facing
+     */
+    public static class CoordFacingCombo {
+
+        private Coords coords;
+        private int facing;
+
+<span class="nc" id="L40">        private CoordFacingCombo(Coords c, int f) {</span>
+<span class="nc" id="L41">            setCoords(c);</span>
+<span class="nc" id="L42">            setFacing(f);</span>
+<span class="nc" id="L43">        }</span>
+
+        static CoordFacingCombo createCoordFacingCombo(Coords c, int f) {
+<span class="nc" id="L46">            return new CoordFacingCombo(c, f);</span>
+        }
+
+        static CoordFacingCombo createCoordFacingCombo(Entity e) {
+<span class="nc bnc" id="L50" title="All 2 branches missed.">            if (e == null) {</span>
+<span class="nc" id="L51">                return null;</span>
+            }
+<span class="nc" id="L53">            return createCoordFacingCombo(e.getPosition(), e.getFacing());</span>
+        }
+
+        static CoordFacingCombo createCoordFacingCombo(MovePath p) {
+<span class="nc bnc" id="L57" title="All 2 branches missed.">            if (p == null) {</span>
+<span class="nc" id="L58">                return null;</span>
+            }
+<span class="nc" id="L60">            return createCoordFacingCombo(p.getFinalCoords(), p.getFinalFacing());</span>
+        }
+
+        @Override
+        public boolean equals(Object o) {
+<span class="nc bnc" id="L65" title="All 2 branches missed.">            if (!(o instanceof CoordFacingCombo)) {</span>
+<span class="nc" id="L66">                return false;</span>
+            }
+<span class="nc" id="L68">            CoordFacingCombo c = (CoordFacingCombo) o;</span>
+<span class="nc bnc" id="L69" title="All 6 branches missed.">            return !(getCoords() == null || !getCoords().equals(c.getCoords())) &amp;&amp; getFacing() == c.getFacing();</span>
+        }
+
+        @Override
+        public int hashCode() {
+<span class="nc" id="L74">            return (getCoords().hashCode() * 6) + getFacing();</span>
+        }
+
+        Coords getCoords() {
+<span class="nc" id="L78">            return coords;</span>
+        }
+
+        void setCoords(Coords coords) {
+<span class="nc" id="L82">            this.coords = coords;</span>
+<span class="nc" id="L83">        }</span>
+
+        int getFacing() {
+<span class="nc" id="L86">            return facing;</span>
+        }
+
+        void setFacing(int facing) {
+<span class="nc" id="L90">            this.facing = facing;</span>
+<span class="nc" id="L91">        }</span>
+
+        @Override
+        public String toString() {
+<span class="nc bnc" id="L95" title="All 2 branches missed.">            return &quot;Facing &quot; + getFacing() + &quot;; &quot; + (getCoords() == null ? &quot;null&quot; : getCoords().toString());</span>
+        }
+    }
+
+    /**
+     * This describes a line in one of the 6 directions in board space
+     * ---copied from Coords---
+     * Coords stores x and y values. Since these are hexes, coordinates with odd x
+     * values are a half-hex down. Directions work clockwise around the hex,
+     * starting with zero at the top.
+     *        -y
+     *        0
+     *      _____
+     *   5 /     \ 1
+     * -x /       \ +x
+     *    \       /
+     *   4 \_____/ 2
+     *        3
+     *        +y
+     * ------------------------------
+     * Direction is stored as above, but the meaning of 'intercept' depends
+     * on the direction.  For directions 0,3, intercept means the y=0 intercept
+     * for directions 1,2,4,5 intercept is the x=0 intercept
+     */
+    public static class HexLine {
+        private int intercept;
+        private int direction;
+
+        /**
+         * Create a hexline from a point and direction
+         */
+<span class="nc" id="L126">        public HexLine(Coords c, int dir) {</span>
+            @SuppressWarnings(&quot;unused&quot;)
+<span class="nc" id="L128">            final String METHOD_NAME = &quot;HexLine(Coords, int)&quot;;</span>
+
+<span class="nc" id="L130">            setDirection(dir);</span>
+<span class="nc bnc" id="L131" title="All 4 branches missed.">            if ((getDirection() == 0) || (getDirection() == 3)) {</span>
+<span class="nc" id="L132">                setIntercept(c.getX());</span>
+<span class="nc bnc" id="L133" title="All 4 branches missed.">            } else if ((getDirection() == 1) || (getDirection() == 4)) {</span>
+<span class="nc" id="L134">                setIntercept(c.getY() + ((c.getX() + 1) / 2));</span>
+            } else {//direction==2||direction==5
+<span class="nc" id="L136">                setIntercept(c.getY() - ((c.getX()) / 2));</span>
+            }
+<span class="nc" id="L138">        }</span>
+
+        /**
+         * returns -1 if the point is to the left of the line
+         * +1 if the point is to the right of the line
+         * and 0 if the point is on the line
+         */
+        public int judgePoint(Coords c) {
+<span class="nc" id="L146">            HexLine comparor = new HexLine(c, getDirection());</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">            if (comparor.getIntercept() &lt; getIntercept()) {</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">                return (getDirection() &lt; 3) ? -1 : 1;</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">            } else if (comparor.getIntercept() &gt; getIntercept()) {</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">                return (getDirection() &lt; 3) ? 1 : -1;</span>
+            }
+            
+<span class="nc" id="L153">            return 0;</span>
+        }
+
+        /**
+         * returns -1 if the area is entirely to the left of the line
+         * returns +1 if the area is entirely to the right of the line
+         * returns 0 if the area is divided by the line
+         */
+        public int judgeArea(ConvexBoardArea a) {
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            boolean flip = getDirection() &gt; 2;</span>
+<span class="nc" id="L163">            HexLine[] edges = a.getEdges();</span>
+<span class="nc bnc" id="L164" title="All 4 branches missed.">            if ((edges[getDirection()] == null) || (edges[(getDirection() + 3) % 6] == null)) {</span>
+<span class="nc" id="L165">                System.err.println(new IllegalStateException(&quot;Detection of NULL edges in ConvexBoardArea :: &quot; +</span>
+<span class="nc" id="L166">                                                             a.toString()));</span>
+<span class="nc" id="L167">                return 0;</span>
+            }
+<span class="nc bnc" id="L169" title="All 2 branches missed.">            if (edges[getDirection()].getIntercept() == getIntercept()) {</span>
+<span class="nc" id="L170">                return 0;</span>
+            }
+<span class="nc bnc" id="L172" title="All 2 branches missed.">            if (edges[(getDirection() + 3) % 6].getIntercept() == getIntercept()) {</span>
+<span class="nc" id="L173">                return 0;</span>
+            }
+<span class="nc bnc" id="L175" title="All 2 branches missed.">            boolean edgeone = (edges[getDirection()].getIntercept() &lt; getIntercept()) ^ flip;</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">            boolean edgetwo = (edges[(getDirection() + 3) % 6].getIntercept() &lt; getIntercept()) ^ flip;</span>
+<span class="nc bnc" id="L177" title="All 4 branches missed.">            if (edgeone &amp;&amp; edgetwo) {</span>
+<span class="nc" id="L178">                return 1;</span>
+            }
+<span class="nc bnc" id="L180" title="All 4 branches missed.">            if ((!edgeone) &amp;&amp; (!edgetwo)) {</span>
+<span class="nc" id="L181">                return -1;</span>
+            }
+<span class="nc" id="L183">            return 0;</span>
+        }
+
+        /**
+         * This function only makes sense for directions 1,2,4,5
+         * Note that the function getXfromY would be multvalued
+         */
+        public int getYfromX(int x) {
+<span class="nc bnc" id="L191" title="All 4 branches missed.">            if ((getDirection() == 0) || (getDirection() == 3)) {</span>
+<span class="nc" id="L192">                return 0;</span>
+            }
+<span class="nc bnc" id="L194" title="All 4 branches missed.">            if ((getDirection() == 1) || (getDirection() == 4)) {</span>
+<span class="nc" id="L195">                return getIntercept() - ((x + 1) / 2); //halfs round down</span>
+            }
+            // direction==5||direction==2
+<span class="nc" id="L198">            return getIntercept() + ((x) / 2);     //halfs round down</span>
+        }
+
+        /**
+         * Returns the intersection point with another line
+         * if lines are parallel (even if they are coincident) returns null
+         */
+        public Coords getIntersection(HexLine h) {
+<span class="nc bnc" id="L206" title="All 2 branches missed.">            if ((h.getDirection() % 3) == (getDirection() % 3)) {</span>
+<span class="nc" id="L207">                return null;</span>
+            }
+<span class="nc bnc" id="L209" title="All 2 branches missed.">            if (h.getDirection() == 0) {</span>
+<span class="nc" id="L210">                return h.getIntersection(this);</span>
+            }
+<span class="nc bnc" id="L212" title="All 2 branches missed.">            if (getDirection() == 2) {</span>
+<span class="nc" id="L213">                return h.getIntersection(this);</span>
+            }
+<span class="nc bnc" id="L215" title="All 4 branches missed.">            if (getDirection() == 0 || getDirection() == 3) {</span>
+<span class="nc" id="L216">                return new Coords(getIntercept(), h.getYfromX(getIntercept()));</span>
+            }
+            //direction must be 1 here, and h.direction=2
+<span class="nc" id="L219">            return new Coords(getIntercept() - h.getIntercept(), getYfromX(getIntercept() - h.getIntercept()));</span>
+        }
+
+        /**
+         * Returns the (euclidian distance) closest point on this
+         * line to another point
+         */
+        public Coords getClosestPoint(Coords c) {
+<span class="nc bnc" id="L227" title="All 4 branches missed.">            if ((getDirection() == 0) || (getDirection() == 3)) { //technically two points are equidistant,</span>
+                // but who's counting
+<span class="nc" id="L229">                return new Coords(getIntercept(), c.getY());</span>
+<span class="nc bnc" id="L230" title="All 4 branches missed.">            } else if ((getDirection() == 1) || (getDirection() == 4)) {</span>
+<span class="nc" id="L231">                double myx = (-2.0 / 3.0) * (getIntercept() - 0.5 - c.getY() - (2.0 * c.getX()));</span>
+<span class="nc" id="L232">                return new Coords((int) myx, getYfromX((int) myx));</span>
+            }
+<span class="nc" id="L234">            double myx = (-5.0 / 3.0) * (getIntercept() - (double) c.getY() - (2.0 * c.getX()));</span>
+<span class="nc" id="L235">            return new Coords((int) myx, getYfromX((int) myx));</span>
+        }
+
+        @Override
+        public boolean equals(Object o) {
+<span class="nc bnc" id="L240" title="All 2 branches missed.">            if (this == o) {</span>
+<span class="nc" id="L241">                return true;</span>
+            }
+<span class="nc bnc" id="L243" title="All 2 branches missed.">            if (!(o instanceof HexLine)) {</span>
+<span class="nc" id="L244">                return false;</span>
+            }
+
+<span class="nc" id="L247">            HexLine hexLine = (HexLine) o;</span>
+
+<span class="nc bnc" id="L249" title="All 2 branches missed.">            if (getDirection() != hexLine.getDirection()) {</span>
+<span class="nc" id="L250">                return false;</span>
+            }
+            //noinspection RedundantIfStatement
+<span class="nc bnc" id="L253" title="All 2 branches missed.">            if (getIntercept() != hexLine.getIntercept()) {</span>
+<span class="nc" id="L254">                return false;</span>
+            }
+
+<span class="nc" id="L257">            return true;</span>
+        }
+
+        @Override
+        public int hashCode() {
+<span class="nc" id="L262">            int result = getIntercept();</span>
+<span class="nc" id="L263">            result = 31 * result + getDirection();</span>
+<span class="nc" id="L264">            return result;</span>
+        }
+
+        int getIntercept() {
+<span class="nc" id="L268">            return intercept;</span>
+        }
+
+        void setIntercept(int intercept) {
+<span class="nc" id="L272">            this.intercept = intercept;</span>
+<span class="nc" id="L273">        }</span>
+
+        int getDirection() {
+<span class="nc" id="L276">            return direction;</span>
+        }
+
+        void setDirection(int direction) {
+<span class="nc" id="L280">            this.direction = direction;</span>
+<span class="nc" id="L281">        }</span>
+
+        @Override
+        public String toString() {
+<span class="nc" id="L285">            return &quot;Intercept &quot; + getIntercept() + &quot;, Direction &quot; + getDirection();</span>
+        }
+    }
+
+    /**
+     * This is a convex area on the board made up of 6 lines lying along one of the
+     * 3 primary directions of a hex map
+     */
+    public static class ConvexBoardArea {
+
+        //left/right indicates whether its the small x
+        //or large x line
+        //        HexLine[] left=new HexLine[3];
+        //        HexLine[] right=new HexLine[3];
+        //edge points to the previous lines in the right order
+<span class="nc" id="L300">        private HexLine[] edges = new HexLine[6];</span>
+<span class="nc" id="L301">        private Coords[] vertices = new Coords[6];</span>
+        
+<span class="nc" id="L303">        ConvexBoardArea() {</span>
+<span class="nc" id="L304">        }</span>
+
+        @Override
+        public boolean equals(Object o) {
+<span class="nc bnc" id="L308" title="All 2 branches missed.">            if (this == o) {</span>
+<span class="nc" id="L309">                return true;</span>
+            }
+<span class="nc bnc" id="L311" title="All 2 branches missed.">            if (!(o instanceof ConvexBoardArea)) {</span>
+<span class="nc" id="L312">                return false;</span>
+            }
+
+<span class="nc" id="L315">            ConvexBoardArea that = (ConvexBoardArea) o;</span>
+
+            //noinspection RedundantIfStatement
+<span class="nc bnc" id="L318" title="All 2 branches missed.">            if (!Arrays.equals(edges, that.edges)) {</span>
+<span class="nc" id="L319">                return false;</span>
+            }
+
+<span class="nc" id="L322">            return true;</span>
+        }
+
+        @Override
+        public int hashCode() {
+<span class="nc" id="L327">            return Arrays.hashCode(edges);</span>
+        }
+
+        @Override
+        public String toString() {
+<span class="nc" id="L332">            StringBuilder msg = new StringBuilder(&quot;Edges:&quot;);</span>
+<span class="nc" id="L333">            HexLine[] edges = getEdges();</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">            for (int i = 0; i &lt; edges.length; i++) {</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">                if (i != 0) {</span>
+<span class="nc" id="L336">                    msg.append(&quot;; &quot;);</span>
+                }
+<span class="nc bnc" id="L338" title="All 2 branches missed.">                if (edges[i] == null) {</span>
+<span class="nc" id="L339">                    msg.append(&quot;null&quot;);</span>
+                } else {
+<span class="nc" id="L341">                    msg.append(edges[i].toString());</span>
+                }
+            }
+<span class="nc" id="L344">            return msg.toString();</span>
+        }
+
+        void addCoordFacingCombos(Iterator&lt;CoordFacingCombo&gt; cfit, IBoard board) {
+<span class="nc bnc" id="L348" title="All 2 branches missed.">            while (cfit.hasNext()) {</span>
+<span class="nc" id="L349">                CoordFacingCombo cf = cfit.next();</span>
+<span class="nc bnc" id="L350" title="All 4 branches missed.">                if(cf != null &amp;&amp; board.contains(cf.coords)) {</span>
+<span class="nc" id="L351">                    expandToInclude(cf.getCoords());</span>
+                }
+<span class="nc" id="L353">            }</span>
+<span class="nc" id="L354">        }</span>
+
+        /**
+         * returns true if a point is inside the area
+         * false if it is not
+         */
+        public boolean contains(Coords c) {
+<span class="nc" id="L361">            HexLine[] edges = getEdges();</span>
+<span class="nc bnc" id="L362" title="All 2 branches missed.">            if (edges[0] == null) {</span>
+<span class="nc" id="L363">                return false;</span>
+            }
+<span class="nc bnc" id="L365" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                if (edges[i].judgePoint(c) &gt; 0) {</span>
+<span class="nc" id="L367">                    return false;</span>
+                }
+            }
+<span class="nc" id="L370">            return true;</span>
+        }
+
+        /**
+         * expands the board area to include point onc
+         */
+        void expandToInclude(Coords onc) {
+<span class="nc" id="L377">            HexLine[] edges = getEdges();</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc bnc" id="L379" title="All 4 branches missed.">                if ((edges[i] == null) || (edges[i].judgePoint(onc) &gt; 0)) {</span>
+<span class="nc" id="L380">                    edges[i] = new HexLine(onc, i);</span>
+                }
+            }
+<span class="nc" id="L383">            setEdges(edges);</span>
+<span class="nc" id="L384">        }</span>
+
+        /**
+         * Returns a vertex, with zero starting at the upper left of the hex
+         */
+        public Coords getVertexNum(int i) {
+<span class="nc bnc" id="L390" title="All 2 branches missed.">            if (vertices[i] != null) {</span>
+<span class="nc" id="L391">                return vertices[i];</span>
+            }
+            
+<span class="nc" id="L394">            HexLine[] edges = getEdges();</span>
+<span class="nc bnc" id="L395" title="All 4 branches missed.">            if (edges[i] == null || edges[(i + 1) % 6] == null) {</span>
+<span class="nc" id="L396">                MegaMek.getLogger().error(&quot;Edge[&quot; + i + &quot;] is NULL.&quot;);</span>
+<span class="nc" id="L397">                return null;</span>
+            }
+            
+<span class="nc" id="L400">            vertices[i] = edges[i].getIntersection(edges[(i + 1) % 6]);</span>
+<span class="nc" id="L401">            return vertices[i];</span>
+        }
+
+        /**
+         * returns the closest coord in the area to the given coord
+         */
+        public Coords getClosestCoordsTo(Coords c) {
+<span class="nc" id="L408">            Coords closest = null;</span>
+<span class="nc" id="L409">            int closest_dist = 0;</span>
+<span class="nc" id="L410">            HexLine[] edges = getEdges();</span>
+<span class="nc bnc" id="L411" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">                if (edges[i] == null) {</span>
+<span class="nc" id="L413">                    continue;</span>
+                }
+<span class="nc bnc" id="L415" title="All 2 branches missed.">                if (edges[i].judgePoint(c) &gt; 0) {</span>
+<span class="nc" id="L416">                    Coords vert = getVertexNum(i);</span>
+<span class="nc" id="L417">                    int vdist = vert.distance(c);</span>
+<span class="nc bnc" id="L418" title="All 4 branches missed.">                    if ((closest == null) || (vdist &lt; closest_dist)) {</span>
+<span class="nc" id="L419">                        closest = vert;</span>
+<span class="nc" id="L420">                        closest_dist = vdist;</span>
+                    }
+<span class="nc" id="L422">                    Coords online = edges[i].getClosestPoint(c);</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">                    if (contains(online)) {</span>
+<span class="nc" id="L424">                        int ldist = online.distance(c);</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">                        if (ldist &lt; closest_dist) {</span>
+<span class="nc" id="L426">                            closest = online;</span>
+<span class="nc" id="L427">                            closest_dist = ldist;</span>
+                        }
+                    }
+                }
+            }
+<span class="nc bnc" id="L432" title="All 2 branches missed.">            if (closest == null) {</span>
+<span class="nc" id="L433">                return new Coords(c.getX(), c.getY());</span>
+            }
+<span class="nc" id="L435">            return closest;</span>
+        }
+
+        public HexLine[] getEdges() {
+<span class="nc" id="L439">            return edges;</span>
+        }
+
+        void setEdges(HexLine[] edges) {
+<span class="nc bnc" id="L443" title="All 2 branches missed.">            if (edges == null) {</span>
+<span class="nc" id="L444">                throw new IllegalArgumentException(&quot;Edges cannot be NULL, but it's members can.&quot;);</span>
+            }
+<span class="nc bnc" id="L446" title="All 2 branches missed.">            if (edges.length != 6) {</span>
+<span class="nc" id="L447">                throw new IllegalArgumentException(&quot;Edges must have exactly 6 members.&quot;);</span>
+            }
+
+<span class="nc" id="L450">            this.edges = edges;</span>
+<span class="nc" id="L451">            vertices = new Coords[6];</span>
+<span class="nc" id="L452">        }</span>
+
+        void clearEdges() {
+<span class="nc" id="L455">            setEdges(new HexLine[6]);</span>
+<span class="nc" id="L456">        }</span>
+    }
+
+    /**
+     * runs a series of self tests to make sure geometry is done correctly
+     */
+    static void debugSelfTest(Princess owner) {
+<span class="nc" id="L463">        final String PASSED = &quot;passed&quot;;</span>
+<span class="nc" id="L464">        final String FAILED = &quot;failed&quot;;</span>
+
+<span class="nc" id="L466">        StringBuilder msg = new StringBuilder(&quot;Performing self test of geometry&quot;);</span>
+
+        try {
+<span class="nc" id="L469">            Coords center = new Coords(4, 6);</span>
+<span class="nc" id="L470">            HexLine[] lines = new HexLine[6];</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc" id="L472">                lines[i] = new HexLine(center, i);</span>
+            }
+
+<span class="nc" id="L475">            msg.append(&quot;\n\tTesting that center lies in lines... &quot;);</span>
+<span class="nc" id="L476">            boolean passed = true;</span>
+<span class="nc bnc" id="L477" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+                //System.err.println(&quot;direction=&quot;+i);
+                //System.err.println(&quot;0=&quot;+lines[i].judgePoint(center));
+<span class="nc bnc" id="L480" title="All 2 branches missed.">                if (lines[i].judgePoint(center) != 0) {</span>
+<span class="nc" id="L481">                    passed = false;</span>
+                }
+            }
+<span class="nc bnc" id="L484" title="All 2 branches missed.">            msg.append(passed ? PASSED : FAILED);</span>
+
+<span class="nc" id="L486">            msg.append(&quot;\n\tTesting more points that should lie on lines... &quot;);</span>
+<span class="nc" id="L487">            passed = true;</span>
+<span class="nc bnc" id="L488" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc bnc" id="L489" title="All 4 branches missed.">                if ((lines[i].judgePoint(center.translated(i)) != 0) || (lines[i].judgePoint(center.translated((i +</span>
+                                                                                                                3) %
+                                                                                                               6)) !=
+                                                                         0)) {
+<span class="nc" id="L493">                    passed = false;</span>
+                    //System.err.println(&quot;direction=&quot;+i);
+                    //System.err.println(&quot;0=&quot;+lines[i].judgePoint(center.translated(i)));
+                    //System.err.println(&quot;0=&quot;+lines[i].judgePoint(center.translated((i+3)%6)));
+                }
+            }
+<span class="nc bnc" id="L499" title="All 2 branches missed.">            msg.append(passed ? PASSED : FAILED);</span>
+
+<span class="nc" id="L501">            passed = true;</span>
+<span class="nc" id="L502">            msg.append(&quot;\n\tTesting points to left and right of lines... &quot;);</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+                //            System.err.println(&quot;direction=&quot;+i);
+                //          System.err.println(&quot;-1=&quot;+lines[i].judgePoint(center.translated((i+5)%6)));
+<span class="nc bnc" id="L506" title="All 2 branches missed.">                if (-1 != lines[i].judgePoint(center.translated((i + 5) % 6))) {</span>
+<span class="nc" id="L507">                    passed = false;</span>
+                }
+                //        System.err.println(&quot;-1=&quot;+lines[i].judgePoint(center.translated((i+4)%6)));
+<span class="nc bnc" id="L510" title="All 2 branches missed.">                if (-1 != lines[i].judgePoint(center.translated((i + 4) % 6))) {</span>
+<span class="nc" id="L511">                    passed = false;</span>
+                }
+                //      System.err.println(&quot;1=&quot;+lines[i].judgePoint(center.translated((i+1)%6)));
+<span class="nc bnc" id="L514" title="All 2 branches missed.">                if (1 != lines[i].judgePoint(center.translated((i + 1) % 6))) {</span>
+<span class="nc" id="L515">                    passed = false;</span>
+                }
+                //    System.err.println(&quot;1=&quot;+lines[i].judgePoint(center.translated((i+2)%6)));
+<span class="nc bnc" id="L518" title="All 2 branches missed.">                if (1 != lines[i].judgePoint(center.translated((i + 2) % 6))) {</span>
+<span class="nc" id="L519">                    passed = false;</span>
+                }
+            }
+<span class="nc bnc" id="L522" title="All 2 branches missed.">            msg.append(passed ? PASSED : FAILED);</span>
+
+<span class="nc" id="L524">            passed = true;</span>
+<span class="nc" id="L525">            Coords areapt1 = new Coords(1, 1);</span>
+<span class="nc" id="L526">            Coords areapt2 = new Coords(3, 1);</span>
+<span class="nc" id="L527">            Coords areapt3 = new Coords(2, 3);</span>
+<span class="nc" id="L528">            ConvexBoardArea area = new ConvexBoardArea();</span>
+<span class="nc" id="L529">            area.expandToInclude(areapt1);</span>
+<span class="nc" id="L530">            area.expandToInclude(areapt2);</span>
+<span class="nc" id="L531">            area.expandToInclude(areapt3);</span>
+<span class="nc" id="L532">            owner.getLogger().debug(&quot;Checking area contains proper points... &quot;);</span>
+<span class="nc" id="L533">            msg.append(&quot;\n\tChecking area contains proper points... &quot;);</span>
+<span class="nc bnc" id="L534" title="All 2 branches missed.">            if (!area.contains(new Coords(1, 1))) {</span>
+<span class="nc" id="L535">                passed = false;</span>
+            }
+<span class="nc bnc" id="L537" title="All 2 branches missed.">            if (!area.contains(new Coords(2, 1))) {</span>
+<span class="nc" id="L538">                passed = false;</span>
+            }
+<span class="nc bnc" id="L540" title="All 2 branches missed.">            if (!area.contains(new Coords(3, 1))) {</span>
+<span class="nc" id="L541">                passed = false;</span>
+            }
+<span class="nc bnc" id="L543" title="All 2 branches missed.">            if (!area.contains(new Coords(1, 2))) {</span>
+<span class="nc" id="L544">                passed = false;</span>
+            }
+<span class="nc bnc" id="L546" title="All 2 branches missed.">            if (!area.contains(new Coords(2, 2))) {</span>
+<span class="nc" id="L547">                passed = false;</span>
+            }
+<span class="nc bnc" id="L549" title="All 2 branches missed.">            if (!area.contains(new Coords(3, 2))) {</span>
+<span class="nc" id="L550">                passed = false;</span>
+            }
+<span class="nc bnc" id="L552" title="All 2 branches missed.">            if (!area.contains(new Coords(2, 3))) {</span>
+<span class="nc" id="L553">                passed = false;</span>
+            }
+<span class="nc bnc" id="L555" title="All 2 branches missed.">            msg.append(passed ? PASSED : FAILED);</span>
+
+<span class="nc" id="L557">            passed = true;</span>
+<span class="nc" id="L558">            msg.append(&quot;\n\tChecking area doesn't contain extra points... &quot;);</span>
+<span class="nc bnc" id="L559" title="All 2 branches missed.">            if (area.contains(new Coords(0, 1))) {</span>
+<span class="nc" id="L560">                passed = false;</span>
+            }
+<span class="nc bnc" id="L562" title="All 2 branches missed.">            if (area.contains(new Coords(1, 0))) {</span>
+<span class="nc" id="L563">                passed = false;</span>
+            }
+<span class="nc bnc" id="L565" title="All 2 branches missed.">            if (area.contains(new Coords(2, 0))) {</span>
+<span class="nc" id="L566">                passed = false;</span>
+            }
+<span class="nc bnc" id="L568" title="All 2 branches missed.">            if (area.contains(new Coords(3, 0))) {</span>
+<span class="nc" id="L569">                passed = false;</span>
+            }
+<span class="nc bnc" id="L571" title="All 2 branches missed.">            if (area.contains(new Coords(4, 1))) {</span>
+<span class="nc" id="L572">                passed = false;</span>
+            }
+<span class="nc bnc" id="L574" title="All 2 branches missed.">            if (area.contains(new Coords(4, 2))) {</span>
+<span class="nc" id="L575">                passed = false;</span>
+            }
+<span class="nc bnc" id="L577" title="All 2 branches missed.">            if (area.contains(new Coords(4, 3))) {</span>
+<span class="nc" id="L578">                passed = false;</span>
+            }
+<span class="nc bnc" id="L580" title="All 2 branches missed.">            if (area.contains(new Coords(3, 3))) {</span>
+<span class="nc" id="L581">                passed = false;</span>
+            }
+<span class="nc bnc" id="L583" title="All 2 branches missed.">            if (area.contains(new Coords(2, 4))) {</span>
+<span class="nc" id="L584">                passed = false;</span>
+            }
+<span class="nc bnc" id="L586" title="All 2 branches missed.">            if (area.contains(new Coords(1, 3))) {</span>
+<span class="nc" id="L587">                passed = false;</span>
+            }
+<span class="nc bnc" id="L589" title="All 2 branches missed.">            if (area.contains(new Coords(0, 3))) {</span>
+<span class="nc" id="L590">                passed = false;</span>
+            }
+<span class="nc bnc" id="L592" title="All 2 branches missed.">            if (area.contains(new Coords(0, 2))) {</span>
+<span class="nc" id="L593">                passed = false;</span>
+            }
+<span class="nc bnc" id="L595" title="All 2 branches missed.">            msg.append(passed ? PASSED : FAILED);</span>
+
+        } finally {
+<span class="nc" id="L598">            owner.getLogger().debug(msg.toString());</span>
+        }
+<span class="nc" id="L600">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

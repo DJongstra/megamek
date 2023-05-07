@@ -1,0 +1,508 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>EntityImage.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing.tileset</a> &gt; <span class="el_source">EntityImage.java</span></div><h1>EntityImage.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2002, 2003, 2004 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018, 2020 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+package megamek.client.ui.swing.tileset;
+
+import java.awt.Component;
+import java.awt.Graphics;
+import java.awt.Image;
+import java.awt.geom.AffineTransform;
+import java.awt.image.*;
+import java.io.File;
+import java.util.Iterator;
+import java.util.Objects;
+
+import megamek.MegaMek;
+import megamek.client.ui.swing.GUIPreferences;
+import megamek.client.ui.swing.util.PlayerColour;
+import megamek.common.icons.Camouflage;
+import megamek.common.util.fileUtils.ImageFileFactory;
+import megamek.common.*;
+import megamek.common.util.fileUtils.DirectoryItems;
+import megamek.common.util.ImageUtil;
+
+/** Handles the rotated and damaged and preview images for a unit. */
+public class EntityImage {
+
+    // Control values for applying bigger and smaller smoke
+    private static final int SMOKE_THREE = 70;
+    private static final int SMOKE_TWO = 40;
+
+    // Damage decal images
+<span class="nc" id="L44">    private static final File DECAL_PATH = new File(Configuration.imagesDir(), &quot;units/DamageDecals&quot;);</span>
+<span class="nc" id="L45">    private static final File FILE_DAMAGEDECAL_EMPTY = new File(&quot;Transparent.png&quot;);</span>
+
+    // Directory paths within DECAL_PATH
+    private static final String PATH_FIRE1 = &quot;Fire1/&quot;;
+    private static final String PATH_FIRE2 = &quot;Fire2/&quot;;
+    private static final String PATH_FIRE3 = &quot;Fire3/&quot;;
+    private static final String PATH_FIREMULTI = &quot;FireMulti/&quot;;
+
+    private static final String PATH_SMOKE1 = &quot;Smoke1/&quot;;
+    private static final String PATH_SMOKE2 = &quot;Smoke2/&quot;;
+    private static final String PATH_SMOKE3 = &quot;Smoke3/&quot;;
+    private static final String PATH_SMOKEMULTI = &quot;SmokeMulti/&quot;;
+
+    private static final String PATH_LIGHT = &quot;Light/&quot;;
+    private static final String PATH_MODERATE = &quot;Moderate/&quot;;
+    private static final String PATH_HEAVY = &quot;Heavy/&quot;;
+    private static final String PATH_CRIPPLED = &quot;Crippled/&quot;;
+
+    /** A transparent image used as a no-damage decal. */
+    private static Image dmgEmpty;
+
+<span class="nc" id="L66">    private static final int[] X_POS = {0, 0, 63, 63, 0, -63, -63};</span>
+<span class="nc" id="L67">    private static final int[] Y_POS = {0, -72, -36, 36, 72, 36, -36};</span>
+
+    private static final int IMG_WIDTH = HexTileset.HEX_W;
+    private static final int IMG_HEIGHT = HexTileset.HEX_H;
+    private static final int IMG_SIZE = IMG_WIDTH * IMG_HEIGHT;
+
+    /** All damage decal/fire/smoke files in DECAL_PATH. */
+    private static DirectoryItems DecalImages;
+
+    static {
+        try {
+<span class="nc" id="L78">            DecalImages = new DirectoryItems(DECAL_PATH, &quot;&quot;, new ImageFileFactory());</span>
+<span class="nc" id="L79">        } catch (Exception e) {</span>
+<span class="nc" id="L80">            DecalImages = null;</span>
+<span class="nc" id="L81">            MegaMek.getLogger().warning(&quot;Failed to find the damage decal images.&quot; + e.getMessage());</span>
+<span class="nc" id="L82">        }</span>
+<span class="nc" id="L83">        dmgEmpty = TilesetManager.LoadSpecificImage(DECAL_PATH, FILE_DAMAGEDECAL_EMPTY.toString());</span>
+<span class="nc" id="L84">    }</span>
+
+    /** The base (unit) image used for this icon. */
+    private Image base;
+    /** The wreck base image used for this icon. */
+    private Image wreck;
+    /** The damage decal image used for this icon. */
+    private Image decal;
+    /** The smoke image used for this icon. */
+    private Image smoke;
+    /** A smaller icon used for the unit overview. */
+    private Image icon;
+    private Camouflage camouflage;
+<span class="nc" id="L97">    private Image[] facings = new Image[6];</span>
+<span class="nc" id="L98">    private Image[] wreckFacings = new Image[6];</span>
+    private Component parent;
+    /** The damage level, from none to crippled. */
+    private final int dmgLevel;
+    /** The tonnage of the unit. */
+    private final double weight;
+    /** True for units of class or subclass of Infantry. */
+    private final boolean isInfantry;
+    /** True when the image is for the lobby. */
+    private final boolean isPreview;
+    /** True when the unit is likely to be more long than wide (e.g. tanks). */
+    private final boolean isSlim;
+    /** True when the unit is likely to be very narrow (VTOL). */
+    private final boolean isVerySlim;
+    /** The position in multi-hex units. */
+    private final int pos;
+    /** True for units that occupy one hex (all but some dropships). */
+    private final boolean isSingleHex;
+    /** True for tanks */
+    private final boolean isTank;
+
+    public EntityImage(Image base, Camouflage camouflage, Component comp, Entity entity) {
+<span class="nc" id="L120">        this(base, null, camouflage, comp, entity, -1, true);</span>
+<span class="nc" id="L121">    }</span>
+
+    public EntityImage(Image base, Image wreck, Camouflage camouflage, Component comp,
+                       Entity entity, int secondaryPos) {
+<span class="nc" id="L125">        this(base, wreck, camouflage, comp, entity, secondaryPos, false);</span>
+<span class="nc" id="L126">    }</span>
+
+    public EntityImage(Image base, Image wreck, Camouflage camouflage, Component comp,
+<span class="nc" id="L129">                       Entity entity, int secondaryPos, boolean preview) {</span>
+<span class="nc" id="L130">        this.base = base;</span>
+<span class="nc" id="L131">        setCamouflage(camouflage);</span>
+<span class="nc" id="L132">        parent = comp;</span>
+<span class="nc" id="L133">        this.wreck = wreck;</span>
+<span class="nc" id="L134">        this.dmgLevel = calculateDamageLevel(entity);</span>
+        // hack: gun emplacements are pretty beefy but have weight 0
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        this.weight = entity instanceof GunEmplacement ?</span>
+<span class="nc" id="L137">                SMOKE_THREE + 1 : entity.getWeight();</span>
+<span class="nc" id="L138">        isInfantry = entity instanceof Infantry;</span>
+<span class="nc" id="L139">        isTank = entity instanceof Tank;</span>
+<span class="nc" id="L140">        isPreview = preview;</span>
+<span class="nc bnc" id="L141" title="All 4 branches missed.">        isSlim = (isTank &amp;&amp; !(entity instanceof GunEmplacement));</span>
+<span class="nc" id="L142">        isVerySlim = entity instanceof VTOL;</span>
+<span class="nc" id="L143">        pos = secondaryPos;</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        isSingleHex = secondaryPos == -1;</span>
+<span class="nc" id="L145">        decal = getDamageDecal(entity, secondaryPos);</span>
+<span class="nc" id="L146">        smoke = getSmokeImage(entity, secondaryPos);</span>
+<span class="nc" id="L147">    }</span>
+
+    /**
+     * Worker function that calculates the entity's damage level for the purposes of displaying damage
+     * to avoid particularly dumb-looking situations
+     */
+    private int calculateDamageLevel(Entity entity) {
+        // gun emplacements don't show up as crippled when destroyed, which leads to them looking pristine
+<span class="nc bnc" id="L155" title="All 4 branches missed.">        if ((entity instanceof GunEmplacement) &amp;&amp; entity.isDestroyed()) {</span>
+<span class="nc" id="L156">            return Entity.DMG_CRIPPLED;</span>
+        }
+
+        // aerospace fighters where the pilot ejects look pretty dumb without any damage decals
+        // so let's give them at least some damage
+<span class="nc bnc" id="L161" title="All 4 branches missed.">        if (entity.isAirborne() &amp;&amp; entity.getCrew().isEjected()) {</span>
+<span class="nc" id="L162">            return Math.max(Entity.DMG_HEAVY, entity.getDamageLevel(false));</span>
+        }
+
+<span class="nc" id="L165">        int calculatedDamageLevel = entity.getDamageLevel();</span>
+
+        // entities may be &quot;damaged&quot; or &quot;crippled&quot; due to harmless weapon jams, being out of ammo or otherwise but
+        // not having taken any actual damage. In this case, it looks stupid for the entity to be all shot up,
+        // so we pretend there's no damage.
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (calculatedDamageLevel &gt; Entity.DMG_NONE) {</span>
+<span class="nc bnc" id="L171" title="All 4 branches missed.">            if ((entity.getArmorRemainingPercent() &gt;= 1.0) &amp;&amp; (entity.getInternalRemainingPercent() &gt;= 1.0)) {</span>
+<span class="nc" id="L172">                calculatedDamageLevel = Entity.DMG_NONE;</span>
+            }
+        }
+
+<span class="nc" id="L176">        return calculatedDamageLevel;</span>
+    }
+
+    public Camouflage getCamouflage() {
+<span class="nc" id="L180">        return camouflage;</span>
+    }
+
+    public void setCamouflage(Camouflage camouflage) {
+<span class="nc" id="L184">        this.camouflage = Objects.requireNonNull(camouflage);</span>
+<span class="nc" id="L185">    }</span>
+
+    public int getDmgLvl() {
+<span class="nc" id="L188">        return dmgLevel;</span>
+    }
+
+    /** Creates images applying damage decals, rotating and scaling. */
+    public void loadFacings() {
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        if (base == null) {</span>
+<span class="nc" id="L194">            return;</span>
+        }
+
+        // Apply the player/unit camouflage
+<span class="nc" id="L198">        base = applyColor(base);</span>
+
+        // Save a small icon (without damage decals) for the unit overview
+<span class="nc" id="L201">        icon = ImageUtil.getScaledImage(base,  56, 48);</span>
+
+        // Add damage scars and smoke/fire; not to Infantry
+<span class="nc bnc" id="L204" title="All 4 branches missed.">        if (!isInfantry &amp;&amp; GUIPreferences.getInstance().getShowDamageDecal()) {</span>
+<span class="nc" id="L205">            base = applyDamageDecal(base);</span>
+            // No smoke in the lobby
+<span class="nc bnc" id="L207" title="All 2 branches missed.">            if (!isPreview) {</span>
+<span class="nc" id="L208">                base = applyDamageSmoke(base);</span>
+            }
+        }
+
+        // Generate rotated images for the unit and for a wreck
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc" id="L214">            facings[i] = rotateImage(base, i);</span>
+        }
+
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        if (wreck != null) {</span>
+<span class="nc" id="L218">            wreck = applyColor(wreck);</span>
+
+            // Add damage scars and smoke/fire; not to Infantry
+<span class="nc bnc" id="L221" title="All 4 branches missed.">            if (!isInfantry &amp;&amp; GUIPreferences.getInstance().getShowDamageDecal()) {</span>
+<span class="nc" id="L222">                wreck = applyDamageDecal(wreck);</span>
+                // No smoke in the lobby
+<span class="nc bnc" id="L224" title="All 2 branches missed.">                if (!isPreview) {</span>
+<span class="nc" id="L225">                    wreck = applyDamageSmoke(wreck);</span>
+                }
+            }
+
+<span class="nc bnc" id="L229" title="All 2 branches missed.">            for (int i = 0; i &lt; 6; i++) {</span>
+<span class="nc" id="L230">                wreckFacings[i] = rotateImage(wreck, i);</span>
+            }
+        }
+<span class="nc" id="L233">    }</span>
+
+    /** Rotates a given unit image into direction dir. */
+    private BufferedImage rotateImage(Image img, int dir) {
+<span class="nc" id="L237">        double cx = base.getWidth(parent) / 2.0;</span>
+<span class="nc" id="L238">        double cy = base.getHeight(parent) / 2.0;</span>
+<span class="nc" id="L239">        AffineTransformOp xform = new AffineTransformOp(</span>
+<span class="nc" id="L240">                AffineTransform.getRotateInstance(</span>
+                        (-Math.PI / 3) * (6 - dir), cx, cy),
+                AffineTransformOp.TYPE_BICUBIC);
+        BufferedImage src;
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if (img instanceof BufferedImage) {</span>
+<span class="nc" id="L245">            src = (BufferedImage) img;</span>
+        } else {
+<span class="nc" id="L247">            src = ImageUtil.createAcceleratedImage(img);</span>
+        }
+<span class="nc" id="L249">        BufferedImage dst = ImageUtil.createAcceleratedImage(</span>
+<span class="nc" id="L250">                src.getWidth(), src.getHeight());</span>
+<span class="nc" id="L251">        xform.filter(src, dst);</span>
+<span class="nc" id="L252">        return dst;</span>
+    }
+
+    public Image getFacing(int facing) {
+<span class="nc" id="L256">        return facings[facing];</span>
+    }
+
+    public Image getWreckFacing(int facing) {
+<span class="nc" id="L260">        return wreckFacings[facing];</span>
+    }
+
+    public Image getBase() {
+<span class="nc" id="L264">        return base;</span>
+    }
+
+    public Image getIcon() {
+<span class="nc" id="L268">        return icon;</span>
+    }
+
+    public Image loadPreviewImage() {
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (base == null) {</span>
+<span class="nc" id="L273">            return null;</span>
+        }
+
+<span class="nc" id="L276">        base = applyColor(getBase());</span>
+
+        // Add damage scars and smoke/fire; not to Infantry
+<span class="nc bnc" id="L279" title="All 4 branches missed.">        if (!isInfantry &amp;&amp; GUIPreferences.getInstance().getShowDamageDecal()) {</span>
+<span class="nc" id="L280">            base = applyDamageDecal(getBase());</span>
+            // No smoke in the lobby
+<span class="nc bnc" id="L282" title="All 2 branches missed.">            if (!isPreview) {</span>
+<span class="nc" id="L283">                base = applyDamageSmoke(getBase());</span>
+            }
+        }
+<span class="nc" id="L286">        return getBase();</span>
+    }
+
+    /** Applies the unit individual or player camouflage to the icon. */
+    private Image applyColor(Image image) {
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (image == null) {</span>
+<span class="nc" id="L292">            return null;</span>
+        }
+<span class="nc" id="L294">        final boolean colourCamouflage = getCamouflage().isColourCamouflage();</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        final int colour = colourCamouflage ? PlayerColour.parseFromString(getCamouflage().getFilename()).getHex() : -1;</span>
+
+        // Prepare the images for access
+<span class="nc" id="L298">        int[] pMech = new int[IMG_SIZE];</span>
+<span class="nc" id="L299">        int[] pCamo = new int[IMG_SIZE];</span>
+        try {
+<span class="nc" id="L301">            grabImagePixels(image, pMech);</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">            if (!colourCamouflage) {</span>
+<span class="nc" id="L303">                grabImagePixels(camouflage.getImage(), pCamo);</span>
+            }
+<span class="nc" id="L305">        } catch (Exception e) {</span>
+<span class="nc" id="L306">            MegaMek.getLogger().error(&quot;Failed to grab pixels for an image to apply the camo.&quot; + e.getMessage());</span>
+<span class="nc" id="L307">            return image;</span>
+<span class="nc" id="L308">        }</span>
+
+        // Overlay the camo or color
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        for (int i = 0; i &lt; IMG_SIZE; i++) {</span>
+<span class="nc" id="L312">            int pixel = pMech[i];</span>
+<span class="nc" id="L313">            int alpha = (pixel &gt;&gt; 24) &amp; 0xff;</span>
+<span class="nc" id="L314">            int red = (pixel &gt;&gt; 16) &amp; 0xff;</span>
+<span class="nc" id="L315">            int green = (pixel &gt;&gt; 8) &amp; 0xff;</span>
+<span class="nc" id="L316">            int blue = (pixel) &amp; 0xff;</span>
+
+            // Don't apply the camo over colored (not gray) pixels
+<span class="nc bnc" id="L319" title="All 4 branches missed.">            if (!(red == green &amp;&amp; green == blue)) {</span>
+<span class="nc" id="L320">                continue;</span>
+            }
+
+            // Apply the camo only on the icon pixels, not on transparent pixels
+<span class="nc bnc" id="L324" title="All 2 branches missed.">            if (alpha != 0) {</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">                int pixel1 = colourCamouflage ? colour : pCamo[i];</span>
+<span class="nc" id="L326">                int red1 = (pixel1 &gt;&gt; 16) &amp; 0xff;</span>
+<span class="nc" id="L327">                int green1 = (pixel1 &gt;&gt; 8) &amp; 0xff;</span>
+<span class="nc" id="L328">                int blue1 = (pixel1) &amp; 0xff;</span>
+
+<span class="nc" id="L330">                int red2 = red1 * blue / 255;</span>
+<span class="nc" id="L331">                int green2 = green1 * blue / 255;</span>
+<span class="nc" id="L332">                int blue2 = blue1 * blue / 255;</span>
+
+<span class="nc" id="L334">                pMech[i] = (alpha &lt;&lt; 24) | (red2 &lt;&lt; 16) | (green2 &lt;&lt; 8) | blue2;</span>
+            }
+        }
+        
+<span class="nc" id="L338">        Image result = parent.createImage(new MemoryImageSource(IMG_WIDTH,</span>
+                IMG_HEIGHT, pMech, 0, IMG_WIDTH));
+<span class="nc" id="L340">        return ImageUtil.createAcceleratedImage(result);</span>
+    }
+    
+    /** Applies the damage decal image to the icon. */
+    private Image applyDamageDecal(Image image) {
+<span class="nc bnc" id="L345" title="All 2 branches missed.">        if (image == null) {</span>
+<span class="nc" id="L346">            return null;</span>
+        }
+        
+        // Get the damage decal; will be null for undamaged
+<span class="nc bnc" id="L350" title="All 2 branches missed.">        if (decal == null) {</span>
+<span class="nc" id="L351">            return image;</span>
+        }
+        
+        // Prepare the images for access
+<span class="nc" id="L355">        int[] pUnit = new int[IMG_SIZE];</span>
+<span class="nc" id="L356">        int[] pDmgD = new int[IMG_SIZE];</span>
+        try {
+<span class="nc" id="L358">            grabImagePixels(image, pUnit);</span>
+<span class="nc" id="L359">            grabImagePixels(decal, pDmgD);</span>
+<span class="nc" id="L360">        } catch (Exception e) {</span>
+<span class="nc" id="L361">            MegaMek.getLogger().error(&quot;Failed to grab pixels for an image to apply the decal. &quot; + e.getMessage());</span>
+<span class="nc" id="L362">            return image;</span>
+<span class="nc" id="L363">        }</span>
+
+        // Overlay the damage decal where the unit image 
+        // is not transparent
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        for (int i = 0; i &lt; IMG_SIZE; i++) {</span>
+<span class="nc" id="L368">            int alp = (pUnit[i] &gt;&gt; 24) &amp; 0xff;</span>
+<span class="nc" id="L369">            int alpD = (pDmgD[i] &gt;&gt; 24) &amp; 0xff;</span>
+            
+            // Don't apply the decal over semi-transparent pixels
+            // as these are normally the drop shadow
+<span class="nc bnc" id="L373" title="All 4 branches missed.">            if (alp &gt; 220 &amp;&amp; alpD != 0) {</span>
+<span class="nc" id="L374">                int red = (pUnit[i] &gt;&gt; 16) &amp; 0xff;</span>
+<span class="nc" id="L375">                int grn = (pUnit[i] &gt;&gt; 8) &amp; 0xff;</span>
+<span class="nc" id="L376">                int blu = (pUnit[i]) &amp; 0xff;</span>
+<span class="nc" id="L377">                int redD = (pDmgD[i] &gt;&gt; 16) &amp; 0xff;</span>
+<span class="nc" id="L378">                int grnD = (pDmgD[i] &gt;&gt; 8) &amp; 0xff;</span>
+<span class="nc" id="L379">                int bluD = (pDmgD[i]) &amp; 0xff;</span>
+
+<span class="nc" id="L381">                red = Math.min(255, (red * (255 - alpD) + redD * alpD ) / 255);</span>
+<span class="nc" id="L382">                grn = Math.min(255, (grn * (255 - alpD) + grnD * alpD ) / 255);</span>
+<span class="nc" id="L383">                blu = Math.min(255, (blu * (255 - alpD) + bluD * alpD ) / 255);</span>
+                
+<span class="nc" id="L385">                pUnit[i] = (alp &lt;&lt; 24) | (red &lt;&lt; 16) | (grn &lt;&lt; 8) | blu;</span>
+            }
+        }
+        
+<span class="nc" id="L389">        Image temp = parent.createImage(new MemoryImageSource(IMG_WIDTH,</span>
+                IMG_HEIGHT, pUnit, 0, IMG_WIDTH));
+<span class="nc" id="L391">        return ImageUtil.createAcceleratedImage(temp);</span>
+    }
+    
+    /** Applies the smoke/fire image to the icon. */
+    private Image applyDamageSmoke(Image image) {
+<span class="nc bnc" id="L396" title="All 2 branches missed.">        if (image == null) {</span>
+<span class="nc" id="L397">            return null;</span>
+        }
+        
+        // Get the smoke image for heavier damage; is transparent for lighter damage
+<span class="nc bnc" id="L401" title="All 2 branches missed.">        if (smoke == null) {</span>
+<span class="nc" id="L402">            MegaMek.getLogger().error(&quot;Smoke decal image is null.&quot;);</span>
+<span class="nc" id="L403">            return image;</span>
+        }
+        
+        // Overlay the smoke image
+<span class="nc" id="L407">        Image result = ImageUtil.createAcceleratedImage(image);</span>
+<span class="nc" id="L408">        Graphics g = result.getGraphics();</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">        if (isSingleHex) {</span>
+<span class="nc" id="L410">            g.drawImage(smoke, 0, 0, null);</span>
+        } else {
+            // Draw the right section of the bigger smoke/fire image
+<span class="nc" id="L413">            int sx = smoke.getWidth(null) / 2 - IMG_WIDTH / 2 + X_POS[pos];</span>
+<span class="nc" id="L414">            int sy = smoke.getHeight(null) / 2 - IMG_HEIGHT / 2 + Y_POS[pos];</span>
+<span class="nc" id="L415">            g.drawImage(smoke, 0, 0, IMG_WIDTH, IMG_HEIGHT, sx, sy, sx + IMG_WIDTH, sy + IMG_HEIGHT, null);</span>
+        }
+
+<span class="nc" id="L418">        return result;</span>
+    }
+
+    /** Initiates the PixelGrabber for the given image and int array. */
+    private void grabImagePixels(Image img, int[] pixels) throws InterruptedException, RuntimeException {
+<span class="nc" id="L423">        PixelGrabber pg = new PixelGrabber(img, 0, 0, IMG_WIDTH, IMG_HEIGHT, pixels, 0, IMG_WIDTH);</span>
+<span class="nc" id="L424">        pg.grabPixels();</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">        if ((pg.getStatus() &amp; ImageObserver.ABORT) != 0) {</span>
+<span class="nc" id="L426">            throw new RuntimeException(&quot;ImageObserver aborted.&quot;);</span>
+        }
+<span class="nc" id="L428">    }</span>
+    
+    /** Returns the damage decal based on damage level. */
+    private Image getDamageDecal(Entity entity, int pos) {
+        try {
+<span class="nc bnc" id="L433" title="All 5 branches missed.">            switch (dmgLevel) {</span>
+            case Entity.DMG_LIGHT:
+<span class="nc" id="L435">                return getIM(PATH_LIGHT, entity.getShortName(), pos);</span>
+            case Entity.DMG_MODERATE:
+<span class="nc" id="L437">                return getIM(PATH_MODERATE, entity.getShortName(), pos);</span>
+            case Entity.DMG_HEAVY:
+<span class="nc" id="L439">                return getIM(PATH_HEAVY, entity.getShortName(), pos);</span>
+            case Entity.DMG_CRIPPLED:
+<span class="nc" id="L441">                return getIM(PATH_CRIPPLED, entity.getShortName(), pos);</span>
+            default: // DMG_NONE:
+<span class="nc" id="L443">                return null;</span>
+            }
+<span class="nc" id="L445">        } catch (Exception e) {</span>
+<span class="nc" id="L446">            MegaMek.getLogger().error(&quot;Could not load decal image.&quot;, e);</span>
+        }
+
+<span class="nc" id="L449">        return null;</span>
+    }
+    
+    /** Returns the smoke/fire image based on damage level. */
+    private Image getSmokeImage(Entity entity, int pos) {
+        try {
+            // No smoke and fire for damage up to moderate
+<span class="nc bnc" id="L456" title="All 6 branches missed.">            if (dmgLevel == Entity.DMG_NONE </span>
+                    || dmgLevel == Entity.DMG_LIGHT
+                    || dmgLevel == Entity.DMG_MODERATE) {
+<span class="nc" id="L459">                return dmgEmpty;</span>
+            }
+
+            String path;
+<span class="nc bnc" id="L463" title="All 2 branches missed.">            if (pos &gt; -1) {</span>
+                // Multi-hex units get their own overlays
+<span class="nc bnc" id="L465" title="All 2 branches missed.">                path = dmgLevel == Entity.DMG_HEAVY ? PATH_SMOKEMULTI : PATH_FIREMULTI;</span>
+            } else {
+                // Three stacks of smoke and fire for wide and heavy units,
+                // two for slimmer and medium units and one for very slim
+                // and light units
+<span class="nc bnc" id="L470" title="All 4 branches missed.">                if (weight &gt; SMOKE_THREE &amp;&amp; !isSlim) {</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">                    path = dmgLevel == Entity.DMG_HEAVY ? PATH_SMOKE3 : PATH_FIRE3;</span>
+<span class="nc bnc" id="L472" title="All 4 branches missed.">                } else if (weight &gt; SMOKE_TWO &amp;&amp; !isVerySlim) {</span>
+<span class="nc bnc" id="L473" title="All 2 branches missed.">                    path = dmgLevel == Entity.DMG_HEAVY ? PATH_SMOKE2 : PATH_FIRE2;</span>
+                } else {
+<span class="nc bnc" id="L475" title="All 2 branches missed.">                    path = dmgLevel == Entity.DMG_HEAVY ? PATH_SMOKE1 : PATH_FIRE1;</span>
+                }
+            }
+            // Use the same smoke image for all positions of multi-hex units (pos = 0)!
+<span class="nc" id="L479">            return getIM(path, entity.getShortName(), 0); </span>
+<span class="nc" id="L480">        } catch (Exception e) {</span>
+<span class="nc" id="L481">            MegaMek.getLogger().error(&quot;Could not load smoke/fire image.&quot;, e);</span>
+        }
+<span class="nc" id="L483">        return null;</span>
+    }
+
+    /** 
+     * Returns a random image of all the images in the category (= directory) cat.
+     * To have reproducible images for individual units the image is chosen 
+     * based on the hash value of the name (and the hex in multi-hex units).
+     */
+    private static Image getIM(String cat, String name, int pos) throws Exception {
+<span class="nc" id="L492">        int img = Math.abs((name + pos).hashCode()) % getSize(DecalImages.getItemNames(cat));</span>
+<span class="nc" id="L493">        Iterator&lt;String&gt; iter = DecalImages.getItemNames(cat);</span>
+<span class="nc" id="L494">        String n = &quot;&quot;;</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">        for (int i = 0; i &lt;= img; i++) {</span>
+<span class="nc" id="L496">            n = iter.next();</span>
+        }
+<span class="nc" id="L498">        return (Image) DecalImages.getItem(cat, n);</span>
+    }
+    
+    /** Returns the size of the collection of an iterator. Local helper function for DirectoryItems. */
+    private static &lt;T&gt; int getSize(Iterator&lt;T&gt; iter) {
+<span class="nc" id="L503">        int result = 0;</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">        for (;iter.hasNext();iter.next(), result++);</span>
+<span class="nc" id="L505">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

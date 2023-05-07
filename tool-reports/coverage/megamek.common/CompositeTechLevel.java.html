@@ -1,0 +1,466 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CompositeTechLevel.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">CompositeTechLevel.java</span></div><h1>CompositeTechLevel.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2017 - The MegaMek Team
+ *
+ * This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software
+ * Foundation; either version 2 of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ */
+package megamek.common;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * Determines tech level dates based on tech progression of components.
+ * 
+ * @author Neoancient
+ *
+ */
+public class CompositeTechLevel implements ITechnology, Serializable {
+    private static final long serialVersionUID = -2591881133085092725L;    
+
+    private final boolean clan;
+    private final boolean mixed;
+    private final int introYear;
+    private final int techFaction;
+    private Integer experimental;
+    private Integer advanced;
+    private Integer standard;
+    private List&lt;DateRange&gt; extinct;
+    private int techRating;
+    private int[] availability;
+    private int earliest;
+    
+    // Provides a set tech level for non-era-based use.
+<span class="nc" id="L40">    private SimpleTechLevel staticTechLevel = SimpleTechLevel.INTRO;</span>
+    
+    /**
+     * @param initialTA - the base tech advancement for the composite equipment
+     * @param clan - whether the equipment tech base is Clan
+     * @param mixed - whether the equipment contains a mix of Clan and IS equipment
+     * @param introYear - the year the composite equipment is first available
+     */
+    public CompositeTechLevel(TechAdvancement initialTA,
+<span class="nc" id="L49">            boolean clan, boolean mixed, int introYear, int techFaction) {</span>
+<span class="nc" id="L50">        this.techFaction = techFaction;</span>
+<span class="nc" id="L51">        this.clan = clan;</span>
+<span class="nc" id="L52">        this.mixed = mixed;</span>
+<span class="nc" id="L53">        this.introYear = introYear;</span>
+<span class="nc" id="L54">        earliest = initialTA.getIntroductionDate(clan, techFaction);</span>
+<span class="nc" id="L55">        extinct = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L56" title="All 2 branches missed.">        int protoDate = mixed?initialTA.getPrototypeDate() : initialTA.getPrototypeDate(clan);</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">        int prodDate = mixed?initialTA.getProductionDate() : initialTA.getProductionDate(clan);</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">        int commonDate = mixed?initialTA.getCommonDate() : initialTA.getCommonDate(clan);</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        if (commonDate == DATE_NONE) {</span>
+<span class="nc" id="L60">            standard = null;</span>
+        } else {
+<span class="nc" id="L62">            standard = Math.max(commonDate, introYear);</span>
+        }
+<span class="nc bnc" id="L64" title="All 4 branches missed.">        if (prodDate == DATE_NONE</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">                || (standard != null &amp;&amp; standard &lt;= introYear)) {</span>
+<span class="nc" id="L66">            advanced = null;</span>
+        } else {
+<span class="nc" id="L68">            advanced = Math.max(prodDate, introYear);</span>
+        }
+<span class="nc bnc" id="L70" title="All 4 branches missed.">        if (protoDate == DATE_NONE</span>
+<span class="nc bnc" id="L71" title="All 4 branches missed.">                || (advanced != null &amp;&amp; advanced &lt;= introYear)</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">                || (standard != null &amp;&amp; standard &lt;= introYear)) {</span>
+<span class="nc" id="L73">            experimental = null;</span>
+        } else {
+<span class="nc" id="L75">            experimental = Math.max(protoDate, introYear);</span>
+        }
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        addExtinctionRange(mixed? initialTA.getExtinctionDate() : initialTA.getExtinctionDate(clan),</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">                mixed? initialTA.getReintroductionDate() : initialTA.getReintroductionDate(clan));</span>
+<span class="nc" id="L79">        techRating = initialTA.getTechRating();</span>
+<span class="nc" id="L80">        availability = new int[ERA_NUM];</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        for (int era = 0; era &lt; ERA_NUM; era++) {</span>
+<span class="nc" id="L82">            availability[era] = initialTA.getBaseAvailability(era);</span>
+        }
+<span class="nc" id="L84">        staticTechLevel = initialTA.getStaticTechLevel();</span>
+<span class="nc" id="L85">    }</span>
+    
+    /**
+     * @param en 
+     */
+    public CompositeTechLevel(Entity en, int techFaction) {
+<span class="nc" id="L91">        this(en.getConstructionTechAdvancement(), en.isClan(), en.isMixedTech(), en.getYear(), techFaction);</span>
+<span class="nc" id="L92">    }</span>
+    
+    /**
+     * @return - the experimental tech date range, formatted as a string
+     */
+    public String getExperimentalRange() {
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (experimental == null) {</span>
+<span class="nc" id="L99">            return &quot;-&quot;;</span>
+        }
+<span class="nc" id="L101">        int end = DATE_NONE;</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        if (advanced != null) {</span>
+<span class="nc" id="L103">            end = Math.max(experimental, advanced - 1);</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        } else if (standard != null) {</span>
+<span class="nc" id="L105">            end = Math.max(experimental, standard - 1);</span>
+        }
+<span class="nc" id="L107">        return new DateRange(experimental, end).toString();</span>
+    }
+    
+    /**
+     * @return - the advanced tech date range, formatted as a string
+     */
+    public String getAdvancedRange() {
+<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (advanced == null) {</span>
+<span class="nc" id="L115">            return &quot;-&quot;;</span>
+        }
+<span class="nc" id="L117">        int end = DATE_NONE;</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (standard != null) {</span>
+<span class="nc" id="L119">            end = Math.max(advanced, standard - 1);</span>
+        }
+<span class="nc" id="L121">        return new DateRange(advanced, end).toString();</span>
+    }
+    
+    /**
+     * @return - the standard tech date range, formatted as a string
+     */
+    public String getStandardRange() {
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        if (standard == null) {</span>
+<span class="nc" id="L129">            return &quot;-&quot;;</span>
+        }
+<span class="nc" id="L131">        return new DateRange(standard).toString();</span>
+    }
+    
+    /**
+     * @return - the range(s) of dates when the tech is extinct
+     */
+    @Override
+    public String getExtinctionRange() {
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (extinct.isEmpty()) {</span>
+<span class="nc" id="L140">            return &quot;-&quot;;</span>
+        }
+<span class="nc" id="L142">        return extinct.stream().map(DateRange::toString).collect(Collectors.joining(&quot;, &quot;));</span>
+    }
+    
+    /**
+     * Adjust the dates for various tech levels to account for the tech advancement of a new component.
+     * @param tech - the advancement for the new component
+     */
+    public void addComponent(ITechnology tech) {
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        int protoDate = mixed?tech.getPrototypeDate() : tech.getPrototypeDate(clan, techFaction);</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        int prodDate = mixed?tech.getProductionDate() : tech.getProductionDate(clan, techFaction);</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        int commonDate = mixed?tech.getCommonDate() : tech.getCommonDate(clan);</span>
+<span class="nc" id="L153">        earliest = Math.max(earliest, tech.getIntroductionDate(clan, techFaction));</span>
+        
+<span class="nc" id="L155">        staticTechLevel = SimpleTechLevel.max(staticTechLevel, tech.getStaticTechLevel());</span>
+        //If this record is blank we ignore it
+<span class="nc bnc" id="L157" title="All 6 branches missed.">        if (protoDate == DATE_NONE</span>
+                &amp;&amp; prodDate == DATE_NONE
+                &amp;&amp; commonDate == DATE_NONE) {
+<span class="nc" id="L160">            return;</span>
+        }
+
+        //No common date means minimum advanced; no common or production date means only experimental
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (commonDate == DATE_NONE) {</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">            if (standard != null) {</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">                if (advanced == null) {</span>
+<span class="nc" id="L167">                    advanced = standard;</span>
+                } else {
+<span class="nc" id="L169">                    advanced = Math.min(advanced, standard);</span>
+                }
+<span class="nc" id="L171">                standard = null;</span>
+            }
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            if (prodDate == DATE_NONE) {</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">                if (advanced != null) {</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">                    if (experimental == null) {</span>
+<span class="nc" id="L176">                        experimental = advanced;</span>
+                    } else {
+<span class="nc" id="L178">                        experimental = Math.min(experimental, advanced);</span>
+                    }
+<span class="nc" id="L180">                    advanced = null;</span>
+                }
+            }
+        }
+        
+<span class="nc bnc" id="L185" title="All 2 branches missed.">        if (protoDate != DATE_NONE) {</span>
+            /* If there was no previous prototype stage, part of either the advanced or standard
+             * tech ranges may need to be converted to experimental
+             */
+<span class="nc bnc" id="L189" title="All 2 branches missed.">            if (experimental == null) {</span>
+<span class="nc bnc" id="L190" title="All 4 branches missed.">                if (advanced != null &amp;&amp; prodDate &gt; advanced) {</span>
+<span class="nc" id="L191">                    experimental = advanced;</span>
+<span class="nc bnc" id="L192" title="All 4 branches missed.">                } else if (standard != null &amp;&amp; prodDate &gt; standard){</span>
+<span class="nc" id="L193">                    experimental = standard;</span>
+<span class="nc" id="L194">                    advanced = null;</span>
+                }
+            } else {
+<span class="nc" id="L197">                experimental = Math.max(experimental, protoDate);</span>
+            }
+        }
+        
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        if (prodDate != DATE_NONE) {</span>
+            /*If all previous tech had no advanced date but had a common date (either started common or
+             * went straight from prototype to common), a chunk of the previous standard range can
+             * become advanced.
+             */
+            
+<span class="nc bnc" id="L207" title="All 2 branches missed.">            if (advanced == null) {</span>
+<span class="nc bnc" id="L208" title="All 4 branches missed.">                if (standard != null &amp;&amp; commonDate &gt; standard) {</span>
+<span class="nc" id="L209">                    advanced = standard;</span>
+                }
+            } else {
+<span class="nc" id="L212">                advanced = Math.max(prodDate, advanced);</span>
+            }
+        }
+
+        //Unless previously set to minimum advanced, check to see if the common date needs to be later.
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        if (standard != null) {</span>
+<span class="nc" id="L218">            standard = Math.max(standard, commonDate);</span>
+        }
+        
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        addExtinctionRange(mixed?tech.getExtinctionDate() : tech.getExtinctionDate(clan, techFaction),</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">                mixed?tech.getReintroductionDate() : tech.getReintroductionDate(clan, techFaction));</span>
+        
+<span class="nc" id="L224">        techRating = Math.max(techRating, tech.getTechRating());</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">        for (int era = 0; era &lt; ERA_NUM; era++) {</span>
+<span class="nc" id="L226">            int av = tech.getBaseAvailability(era);</span>
+            // Clan mixed tech units cannot use IS tech introduced during SW until 3050.
+<span class="nc bnc" id="L228" title="All 4 branches missed.">            if (clan &amp;&amp; era == ERA_SW</span>
+<span class="nc bnc" id="L229" title="All 6 branches missed.">                    &amp;&amp; !tech.isClan()</span>
+                    &amp;&amp; (techFaction &lt; F_CLAN)
+                    &amp;&amp; (techFaction != F_CS)
+<span class="nc bnc" id="L232" title="All 2 branches missed.">                    &amp;&amp; ITechnology.getTechEra(tech.getIntroductionDate()) == ERA_SW) {</span>
+<span class="nc" id="L233">                av = RATING_X; </span>
+            }
+            // IS base cannot include Clan tech before 3050; after 3050 av is +1.
+<span class="nc bnc" id="L236" title="All 4 branches missed.">            if (!clan &amp;&amp; tech.isClan()) {</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">                if (era == ERA_SW) {</span>
+<span class="nc" id="L238">                    av = RATING_X;</span>
+                } else {
+<span class="nc" id="L240">                    av = Math.min(av + 1, RATING_X);</span>
+                }
+            }
+<span class="nc" id="L243">            availability[era] = Math.max(availability[era], av);</span>
+        }
+<span class="nc" id="L245">    }</span>
+    
+    /**
+     * @param year
+     * @return - the TechConstants tech level for a particular year
+     */
+    public int getTechLevel(int year) {
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        if (getStaticTechLevel() == SimpleTechLevel.UNOFFICIAL) {</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">            return clan? TechConstants.T_CLAN_UNOFFICIAL : TechConstants.T_IS_UNOFFICIAL;</span>
+        }
+<span class="nc bnc" id="L255" title="All 4 branches missed.">        if (standard != null &amp;&amp; year &gt;= standard) {</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">            if (clan) {</span>
+<span class="nc" id="L257">                return TechConstants.T_CLAN_TW;</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">            } else if (getStaticTechLevel() == SimpleTechLevel.INTRO) {</span>
+<span class="nc" id="L259">                return TechConstants.T_INTRO_BOXSET;</span>
+            } else {
+<span class="nc" id="L261">                return TechConstants.T_IS_TW_NON_BOX;</span>
+            }
+<span class="nc bnc" id="L263" title="All 4 branches missed.">        } else if (advanced != null &amp;&amp; year &gt;= advanced) {</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">            return clan? TechConstants.T_CLAN_ADVANCED : TechConstants.T_IS_ADVANCED;</span>
+<span class="nc bnc" id="L265" title="All 4 branches missed.">        } else if (experimental != null &amp;&amp; year &gt;= experimental) {</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">            return clan? TechConstants.T_CLAN_EXPERIMENTAL : TechConstants.T_IS_EXPERIMENTAL;</span>
+        }
+<span class="nc" id="L268">        return TechConstants.T_TECH_UNKNOWN;</span>
+    }
+    
+    /**
+     * Adds new range to collection of extinction ranges then checks for overlapping ranges
+     * and merges them.
+     * 
+     * @param start - first year of new extinction range
+     * @param end - reintroduction date of new extinction range, or DATE_NONE if never reintroduced
+     */
+    private void addExtinctionRange(int start, int end) {
+<span class="nc bnc" id="L279" title="All 6 branches missed.">        if (start == DATE_NONE</span>
+                || (end != DATE_NONE &amp;&amp; end &lt;= introYear)) {
+<span class="nc" id="L281">            return;</span>
+        }
+<span class="nc" id="L283">        start = Math.max(introYear, start);</span>
+<span class="nc" id="L284">        extinct.add(new DateRange(start, end));</span>
+<span class="nc" id="L285">        Collections.sort(extinct);</span>
+<span class="nc" id="L286">        List&lt;DateRange&gt; merged = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L287">        DateRange previous = null;</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">        for (DateRange dr : extinct) {</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">            if (previous == null) {</span>
+<span class="nc" id="L290">                merged.add(dr);</span>
+<span class="nc" id="L291">                previous = dr;</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">            } else if (previous.end == null) {</span>
+<span class="nc" id="L293">                break;</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">            } else if (dr.start &lt;= previous.end) {</span>
+<span class="nc bnc" id="L295" title="All 4 branches missed.">                if ((null == dr.end) || (previous.end &lt; dr.end)) {</span>
+<span class="nc" id="L296">                    previous.end = dr.end;</span>
+                }
+            } else {
+<span class="nc" id="L299">                previous = dr;</span>
+<span class="nc" id="L300">                merged.add(dr);</span>
+            }
+<span class="nc" id="L302">        }</span>
+<span class="nc" id="L303">        extinct = merged;</span>
+<span class="nc" id="L304">    }</span>
+    
+    private static class DateRange implements Serializable, Comparable&lt;DateRange&gt; {
+        private static final long serialVersionUID = 3144194494591950878L;
+        
+<span class="nc" id="L309">        Integer start = null;</span>
+<span class="nc" id="L310">        Integer end = null;</span>
+<span class="nc" id="L311">        boolean startApproximate = false;</span>
+<span class="nc" id="L312">        boolean endApproximate = false;</span>
+        
+<span class="nc" id="L314">        DateRange(int start, int end) {</span>
+<span class="nc" id="L315">            this.start = start;</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">            this.end = end == DATE_NONE? null : end;</span>
+<span class="nc" id="L317">        }</span>
+        
+<span class="nc" id="L319">        DateRange(int start) {</span>
+<span class="nc" id="L320">            this.start = start;</span>
+<span class="nc" id="L321">            this.end = null;</span>
+<span class="nc" id="L322">        }</span>
+        
+        String formatYear(int year, boolean approximate) {
+<span class="nc bnc" id="L325" title="All 2 branches missed.">            if (year == DATE_PS) {</span>
+<span class="nc" id="L326">                return &quot;PS&quot;;</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">            } else if (year == DATE_ES) {</span>
+<span class="nc" id="L328">                return &quot;ES&quot;;</span>
+            }
+<span class="nc bnc" id="L330" title="All 2 branches missed.">            if (approximate) {</span>
+<span class="nc" id="L331">                return &quot;~&quot; + year;</span>
+            } else {
+<span class="nc" id="L333">                return Integer.toString(year);</span>
+            }
+        }
+        
+        @Override
+        public String toString() {
+<span class="nc bnc" id="L339" title="All 2 branches missed.">            if (start == null) {</span>
+<span class="nc" id="L340">                return &quot;-&quot;;</span>
+            }
+<span class="nc" id="L342">            StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">            if (start != null) {</span>
+<span class="nc" id="L344">                sb.append(formatYear(start, startApproximate));</span>
+            } else {
+<span class="nc" id="L346">                sb.append(&quot;?&quot;);</span>
+            }
+
+<span class="nc bnc" id="L349" title="All 2 branches missed.">            if (end == null) {</span>
+<span class="nc" id="L350">                sb.append(&quot;+&quot;);</span>
+            } else {
+<span class="nc bnc" id="L352" title="All 2 branches missed.">                if (!end.equals(start)) {</span>
+<span class="nc" id="L353">                    sb.append(&quot;-&quot;).append(formatYear(end, endApproximate));</span>
+                }
+            }
+<span class="nc" id="L356">            return sb.toString();</span>
+        }
+        
+        @Override
+        public int compareTo(DateRange other) {
+<span class="nc" id="L361">            return start.compareTo(other.start);</span>
+        }
+    }
+    
+    @Override
+    public int getTechBase() {
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        return isClan()? TECH_BASE_CLAN : TECH_BASE_IS;</span>
+    }
+
+    @Override
+    public boolean isClan() {
+<span class="nc" id="L372">        return clan;</span>
+    }
+
+    @Override
+    public boolean isMixedTech() {
+<span class="nc" id="L377">        return mixed;</span>
+    }
+
+    @Override
+    public int getIntroductionDate() {
+<span class="nc" id="L382">        return introYear;</span>
+    }
+    
+    public int getEarliestTechDate() {
+<span class="nc" id="L386">        return earliest;</span>
+    }
+
+    @Override
+    public int getPrototypeDate() {
+<span class="nc bnc" id="L391" title="All 2 branches missed.">        return experimental == null? DATE_NONE : experimental;</span>
+    }
+
+    @Override
+    public int getProductionDate() {
+<span class="nc bnc" id="L396" title="All 2 branches missed.">        return advanced == null? DATE_NONE : advanced;</span>
+    }
+
+    @Override
+    public int getCommonDate() {
+<span class="nc bnc" id="L401" title="All 2 branches missed.">        return standard == null? DATE_NONE : standard;</span>
+    }
+
+    @Override
+    public int getExtinctionDate() {
+<span class="nc bnc" id="L406" title="All 2 branches missed.">        if (extinct.isEmpty()) {</span>
+<span class="nc" id="L407">            return DATE_NONE;</span>
+        } else {
+<span class="nc" id="L409">            return extinct.get(0).start;</span>
+        }
+    }
+
+    @Override
+    public int getReintroductionDate() {
+<span class="nc bnc" id="L415" title="All 2 branches missed.">        if (extinct.isEmpty()) {</span>
+<span class="nc" id="L416">            return DATE_NONE;</span>
+        } else {
+<span class="nc bnc" id="L418" title="All 2 branches missed.">            return extinct.get(0).end == null? DATE_NONE : extinct.get(0).end;</span>
+        }
+    }
+
+    @Override
+    public int getTechRating() {
+<span class="nc" id="L424">        return techRating;</span>
+    }
+
+    @Override
+    public int getBaseAvailability(int era) {
+<span class="nc bnc" id="L429" title="All 4 branches missed.">        if ((era &lt; 0) || (era &gt;= availability.length)</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">                || (ITechnology.getTechEra(introYear) &gt; era)) {</span>
+<span class="nc" id="L431">            return RATING_X;</span>
+        }
+<span class="nc" id="L433">        return availability[era];</span>
+    }
+    
+    @Override
+    public SimpleTechLevel getStaticTechLevel() {
+<span class="nc" id="L438">        return staticTechLevel;</span>
+    }
+
+    @Override
+    public int getIntroductionDate(boolean clan, int faction) {
+<span class="nc" id="L443">        return getIntroductionDate();</span>
+    }
+
+    @Override
+    public int getPrototypeDate(boolean clan, int faction) {
+<span class="nc" id="L448">        return getPrototypeDate();</span>
+    }
+
+    @Override
+    public int getProductionDate(boolean clan, int faction) {
+<span class="nc" id="L453">        return getProductionDate();</span>
+    }
+
+    @Override
+    public int getExtinctionDate(boolean clan, int faction) {
+<span class="nc" id="L458">        return getExtinctionDate();</span>
+    }
+
+    @Override
+    public int getReintroductionDate(boolean clan, int faction) {
+<span class="nc" id="L463">        return getReintroductionDate();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

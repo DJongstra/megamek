@@ -1,0 +1,992 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SharedUtility.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui</a> &gt; <span class="el_source">SharedUtility.java</span></div><h1>SharedUtility.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek -
+ * Copyright (C) 2008 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.ui;
+
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+
+import megamek.client.Client;
+import megamek.common.Building;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.EjectedCrew;
+import megamek.common.Entity;
+import megamek.common.EntityMovementMode;
+import megamek.common.EntityMovementType;
+import megamek.common.EscapePods;
+import megamek.common.IAero;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.Infantry;
+import megamek.common.Mech;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.MoveStep;
+import megamek.common.PilotingRollData;
+import megamek.common.Protomech;
+import megamek.common.QuadVee;
+import megamek.common.Tank;
+import megamek.common.TargetRoll;
+import megamek.common.Targetable;
+import megamek.common.TeleMissile;
+import megamek.common.Terrains;
+import megamek.common.VTOL;
+import megamek.common.options.OptionsConstants;
+import megamek.server.Server;
+
+<span class="nc" id="L50">public class SharedUtility {</span>
+
+    public static String doPSRCheck(MovePath md) {
+<span class="nc" id="L53">        return (String) doPSRCheck(md, true);</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public static List&lt;TargetRoll&gt; getPSRList(MovePath md) {
+        // certain types of entities, such as airborne aero units, do not require many of the checks
+        // carried out in the full PSR Check. So, we call a method that skips most of those.
+<span class="nc bnc" id="L60" title="All 4 branches missed.">        if(md.getEntity().isAirborne() &amp;&amp; md.getEntity().isAero()) {</span>
+<span class="nc" id="L61">            return (List&lt;TargetRoll&gt;) getAeroSpecificPSRList(md, false);</span>
+        } else {
+<span class="nc" id="L63">            return (List&lt;TargetRoll&gt;) doPSRCheck(md, false);</span>
+        }
+    }
+
+    /**
+     * Function that carries out PSR checks specific only to airborne aero units
+     * @param md The path to check
+     * @param stringResult Whether to return the report as a string
+     * @return Collection of PSRs that will be required for this activity
+     */
+    private static Object getAeroSpecificPSRList(MovePath md, boolean stringResult) {
+<span class="nc" id="L74">        StringBuffer nagReport = new StringBuffer();</span>
+<span class="nc" id="L75">        List&lt;TargetRoll&gt; psrList = new ArrayList&lt;TargetRoll&gt;();</span>
+
+<span class="nc" id="L77">        final Entity entity = md.getEntity();</span>
+<span class="nc" id="L78">        final IGame game = entity.getGame();</span>
+        // okay, proceed with movement calculations
+<span class="nc" id="L80">        Coords curPos = entity.getPosition();</span>
+<span class="nc" id="L81">        int curFacing = entity.getFacing();</span>
+<span class="nc" id="L82">        EntityMovementType moveType = EntityMovementType.MOVE_NONE;</span>
+<span class="nc" id="L83">        EntityMovementType overallMoveType = EntityMovementType.MOVE_NONE;</span>
+        
+        PilotingRollData rollTarget;
+
+        // Compile the move
+<span class="nc" id="L88">        md.clipToPossible();</span>
+
+<span class="nc" id="L90">        overallMoveType = md.getLastStepMovementType();</span>
+
+        // iterate through steps
+<span class="nc bnc" id="L93" title="All 2 branches missed.">        for (final Enumeration&lt;MoveStep&gt; i = md.getSteps(); i.hasMoreElements();) {</span>
+<span class="nc" id="L94">            final MoveStep step = i.nextElement();</span>
+            
+            // stop for illegal movement
+<span class="nc bnc" id="L97" title="All 2 branches missed.">            if (step.getMovementType(md.isEndStep(step)) == EntityMovementType.MOVE_ILLEGAL) {</span>
+<span class="nc" id="L98">                break;</span>
+            }
+
+            // check for more than one roll
+<span class="nc" id="L102">            IAero a = (IAero) entity;</span>
+<span class="nc" id="L103">            rollTarget = a.checkRolls(step, overallMoveType);</span>
+<span class="nc" id="L104">            checkNag(rollTarget, nagReport, psrList);</span>
+
+<span class="nc" id="L106">            rollTarget = a.checkManeuver(step, overallMoveType);</span>
+<span class="nc" id="L107">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // set most step parameters
+<span class="nc" id="L110">            moveType = step.getMovementType(md.isEndStep(step));</span>
+
+            // set last step parameters
+<span class="nc" id="L113">            curPos = step.getPosition();</span>
+<span class="nc" id="L114">            curFacing = step.getFacing();</span>
+
+            //check for vertical takeoff
+<span class="nc bnc" id="L117" title="All 2 branches missed.">            if (step.getType() == MoveStepType.VTAKEOFF) {</span>
+<span class="nc" id="L118">                rollTarget = ((IAero)entity).checkVerticalTakeOff();</span>
+<span class="nc" id="L119">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            //check for landing
+<span class="nc bnc" id="L123" title="All 2 branches missed.">            if (step.getType() == MoveStepType.LAND) {</span>
+<span class="nc" id="L124">                rollTarget = ((IAero) entity).checkLanding(moveType,</span>
+<span class="nc" id="L125">                        step.getVelocity(), curPos, curFacing, false);</span>
+<span class="nc" id="L126">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+            
+<span class="nc bnc" id="L129" title="All 2 branches missed.">            if (step.getType() == MoveStepType.VLAND) {</span>
+<span class="nc" id="L130">                rollTarget = ((IAero) entity).checkLanding(moveType,</span>
+<span class="nc" id="L131">                        step.getVelocity(), curPos, curFacing, true);</span>
+<span class="nc" id="L132">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            // Check for Ejecting
+<span class="nc bnc" id="L136" title="All 2 branches missed.">            if (step.getType() == MoveStepType.EJECT </span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">                    &amp;&amp; (entity.isFighter())) {</span>
+<span class="nc" id="L138">                rollTarget = Server.getEjectModifiers(game, entity, 0, false);</span>
+<span class="nc" id="L139">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+<span class="nc" id="L141">        }</span>
+
+        // check to see if thrust exceeded SI
+<span class="nc" id="L144">        IAero a = (IAero) entity;</span>
+<span class="nc" id="L145">        int thrust = md.getMpUsed();</span>
+<span class="nc" id="L146">        rollTarget = a.checkThrustSITotal(thrust, overallMoveType);</span>
+<span class="nc" id="L147">        checkNag(rollTarget, nagReport, psrList);</span>
+
+        // Atmospheric checks
+<span class="nc bnc" id="L150" title="All 4 branches missed.">        if (!game.getBoard().inSpace() &amp;&amp; !md.contains(MoveStepType.LAND)</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">                &amp;&amp; !md.contains(MoveStepType.VLAND)) {</span>
+            // check to see if velocity is 2x thrust
+<span class="nc" id="L153">            rollTarget = a.checkVelocityDouble(md.getFinalVelocity(),</span>
+                    overallMoveType);
+<span class="nc" id="L155">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // check to see if descended more than two hexes
+<span class="nc" id="L158">            rollTarget = a.checkDown(md.getFinalNDown(), overallMoveType);</span>
+<span class="nc" id="L159">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // stalling out
+<span class="nc" id="L162">            rollTarget = a.checkStall(md);</span>
+<span class="nc" id="L163">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // check for hovering
+<span class="nc" id="L166">            rollTarget = a.checkHover(md);</span>
+<span class="nc" id="L167">            checkNag(rollTarget, nagReport, psrList);</span>
+        }
+
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (stringResult) {</span>
+<span class="nc" id="L171">            return nagReport.toString();</span>
+        }
+<span class="nc" id="L173">        return psrList;</span>
+    }
+    
+    /**
+     * Checks to see if piloting skill rolls are needed for the currently
+     * selected movement. This code is basically a simplified version of
+     * Server.processMovement(), except that it just reads information (no
+     * writing). Note that MovePath.clipToPossible() is called though, which
+     * changes the md object.
+     */
+    private static Object doPSRCheck(MovePath md, boolean stringResult) {
+
+<span class="nc" id="L185">        StringBuffer nagReport = new StringBuffer();</span>
+<span class="nc" id="L186">        List&lt;TargetRoll&gt; psrList = new ArrayList&lt;TargetRoll&gt;();</span>
+
+<span class="nc" id="L188">        final Entity entity = md.getEntity();</span>
+<span class="nc" id="L189">        final IGame game = entity.getGame();</span>
+        // okay, proceed with movement calculations
+<span class="nc" id="L191">        Coords lastPos = entity.getPosition();</span>
+<span class="nc" id="L192">        Coords curPos = entity.getPosition();</span>
+<span class="nc" id="L193">        int lastElevation = entity.getElevation();</span>
+<span class="nc" id="L194">        int curElevation = entity.getElevation();</span>
+<span class="nc" id="L195">        int curFacing = entity.getFacing();</span>
+<span class="nc" id="L196">        int distance = 0;</span>
+<span class="nc" id="L197">        EntityMovementType moveType = EntityMovementType.MOVE_NONE;</span>
+<span class="nc" id="L198">        EntityMovementType overallMoveType = EntityMovementType.MOVE_NONE;</span>
+        boolean firstStep;
+<span class="nc" id="L200">        int prevFacing = curFacing;</span>
+<span class="nc" id="L201">        IHex prevHex = game.getBoard().getHex(curPos);</span>
+<span class="nc" id="L202">        final boolean isInfantry = (entity instanceof Infantry);</span>
+
+        PilotingRollData rollTarget;
+
+        // Compile the move
+<span class="nc" id="L207">        md.clipToPossible();</span>
+
+<span class="nc" id="L209">        overallMoveType = md.getLastStepMovementType();</span>
+
+        // iterate through steps
+<span class="nc" id="L212">        firstStep = true;</span>
+        /* Bug 754610: Revert fix for bug 702735. */
+<span class="nc" id="L214">        MoveStep prevStep = null;</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        for (final Enumeration&lt;MoveStep&gt; i = md.getSteps(); i.hasMoreElements();) {</span>
+<span class="nc" id="L216">            final MoveStep step = i.nextElement();</span>
+<span class="nc" id="L217">            boolean isPavementStep = step.isPavementStep();</span>
+
+            // stop for illegal movement
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (step.getMovementType(md.isEndStep(step)) == EntityMovementType.MOVE_ILLEGAL) {</span>
+<span class="nc" id="L221">                break;</span>
+            }
+
+<span class="nc bnc" id="L224" title="All 4 branches missed.">            if (entity.isAirborne() &amp;&amp; entity.isAero()) {</span>
+                // check for more than one roll
+<span class="nc" id="L226">                IAero a = (IAero) entity;</span>
+<span class="nc" id="L227">                rollTarget = a.checkRolls(step, overallMoveType);</span>
+<span class="nc" id="L228">                checkNag(rollTarget, nagReport, psrList);</span>
+
+<span class="nc" id="L230">                rollTarget = a.checkManeuver(step, overallMoveType);</span>
+<span class="nc" id="L231">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            // check piloting skill for getting up
+<span class="nc" id="L235">            rollTarget = entity.checkGetUp(step, overallMoveType);</span>
+<span class="nc" id="L236">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // set most step parameters
+<span class="nc" id="L239">            moveType = step.getMovementType(md.isEndStep(step));</span>
+<span class="nc" id="L240">            distance = step.getDistance();</span>
+
+            // set last step parameters
+<span class="nc" id="L243">            curPos = step.getPosition();</span>
+<span class="nc" id="L244">            curFacing = step.getFacing();</span>
+<span class="nc" id="L245">            curElevation = step.getElevation();</span>
+
+<span class="nc" id="L247">            final IHex curHex = game.getBoard().getHex(curPos);</span>
+
+            //check for vertical takeoff
+<span class="nc bnc" id="L250" title="All 2 branches missed.">            if ((step.getType() == MoveStepType.VTAKEOFF)</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">                    &amp;&amp; entity.isAero()) {</span>
+<span class="nc" id="L252">                rollTarget = ((IAero)entity).checkVerticalTakeOff();</span>
+<span class="nc" id="L253">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            //check for landing
+<span class="nc bnc" id="L257" title="All 2 branches missed.">            if ((step.getType() == MoveStepType.LAND)</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">                    &amp;&amp; entity.isAero()) {</span>
+<span class="nc" id="L259">                rollTarget = ((IAero) entity).checkLanding(moveType,</span>
+<span class="nc" id="L260">                        step.getVelocity(), curPos, curFacing, false);</span>
+<span class="nc" id="L261">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+<span class="nc bnc" id="L263" title="All 2 branches missed.">            if ((step.getType() == MoveStepType.VLAND)</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">                    &amp;&amp; entity.isAero()) {</span>
+<span class="nc" id="L265">                rollTarget = ((IAero) entity).checkLanding(moveType,</span>
+<span class="nc" id="L266">                        step.getVelocity(), curPos, curFacing, true);</span>
+<span class="nc" id="L267">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            // check for leap
+<span class="nc bnc" id="L271" title="All 6 branches missed.">            if (!lastPos.equals(curPos) &amp;&amp; (moveType != EntityMovementType.MOVE_JUMP) &amp;&amp; (entity instanceof Mech)</span>
+<span class="nc bnc" id="L272" title="All 4 branches missed.">                    &amp;&amp; !entity.isAirborne() &amp;&amp; (step.getClearance() &lt;= 0) // Don't check airborne LAMs</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">                    &amp;&amp; game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_LEAPING)) {</span>
+<span class="nc" id="L274">                int leapDistance = (lastElevation + game.getBoard().getHex(lastPos).getLevel())</span>
+<span class="nc" id="L275">                        - (curElevation + curHex.getLevel());</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">                if (leapDistance &gt; 2) {</span>
+<span class="nc" id="L277">                    rollTarget = entity.getBasePilotingRoll(moveType);</span>
+<span class="nc" id="L278">                    entity.addPilotingModifierForTerrain(rollTarget, curPos);</span>
+<span class="nc" id="L279">                    rollTarget.append(new PilotingRollData(entity.getId(), 2 * leapDistance, &quot;leaping (leg damage)&quot;));</span>
+<span class="nc" id="L280">                    SharedUtility.checkNag(rollTarget, nagReport, psrList);</span>
+<span class="nc" id="L281">                    rollTarget = entity.getBasePilotingRoll(moveType);</span>
+<span class="nc" id="L282">                    entity.addPilotingModifierForTerrain(rollTarget, curPos);</span>
+<span class="nc" id="L283">                    rollTarget.append(new PilotingRollData(entity.getId(), leapDistance, &quot;leaping (fall)&quot;));</span>
+<span class="nc" id="L284">                    SharedUtility.checkNag(rollTarget, nagReport, psrList);</span>
+                }
+            }
+
+            // Check for skid.
+<span class="nc" id="L289">            rollTarget = entity.checkSkid(moveType, prevHex, overallMoveType,</span>
+                    prevStep, step, prevFacing, curFacing, lastPos, curPos,
+                    isInfantry, distance - 1);
+<span class="nc" id="L292">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // check if we've moved into rubble
+<span class="nc" id="L295">            boolean isLastStep = md.getLastStep().equals(step);</span>
+<span class="nc" id="L296">            rollTarget = entity.checkRubbleMove(step, overallMoveType, curHex,</span>
+                    lastPos, curPos, isLastStep, isPavementStep);
+<span class="nc" id="L298">            checkNag(rollTarget, nagReport, psrList);</span>
+            
+            
+
+<span class="nc" id="L302">            int lightPenalty = entity.getGame().getPlanetaryConditions()</span>
+<span class="nc" id="L303">                    .getLightPilotPenalty();</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">            if (lightPenalty &gt; 0) {</span>
+<span class="nc" id="L305">                rollTarget.addModifier(lightPenalty, entity.getGame()</span>
+<span class="nc" id="L306">                        .getPlanetaryConditions().getLightDisplayableName());</span>
+            }
+
+            //check if we are moving recklessly
+<span class="nc" id="L310">            rollTarget = entity.checkRecklessMove(step, overallMoveType,</span>
+                    curHex, lastPos, curPos, prevHex);
+<span class="nc" id="L312">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // check for crossing ice
+<span class="nc bnc" id="L315" title="All 2 branches missed.">            if (curHex.containsTerrain(Terrains.ICE)</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                    &amp;&amp; curHex.containsTerrain(Terrains.WATER)</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">                    &amp;&amp; !(curPos.equals(lastPos))</span>
+<span class="nc bnc" id="L318" title="All 8 branches missed.">                    &amp;&amp; (step.getElevation() == 0)</span>
+                    &amp;&amp; (moveType != EntityMovementType.MOVE_JUMP)
+                    &amp;&amp; !(entity instanceof Infantry)
+                    &amp;&amp; !(isPavementStep &amp;&amp; curHex
+<span class="nc bnc" id="L322" title="All 2 branches missed.">                            .containsTerrain(Terrains.BRIDGE))) {</span>
+<span class="nc" id="L323">                nagReport.append(Messages.getString(&quot;MovementDisplay.IceMoving&quot;));</span>
+            }
+
+            // check if we've moved into water
+<span class="nc" id="L327">            rollTarget = entity.checkWaterMove(step, overallMoveType, curHex,</span>
+                    lastPos, curPos, isPavementStep);
+<span class="nc" id="L329">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // check for non-mech entering a fire
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            boolean underwater = curHex.containsTerrain(Terrains.WATER)</span>
+<span class="nc bnc" id="L333" title="All 2 branches missed.">                    &amp;&amp; (curHex.depth() &gt; 0)</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">                    &amp;&amp; (step.getElevation() &lt; curHex.surface());</span>
+<span class="nc bnc" id="L335" title="All 6 branches missed.">            if (curHex.containsTerrain(Terrains.FIRE) &amp;&amp; !underwater</span>
+<span class="nc bnc" id="L336" title="All 4 branches missed.">                    &amp;&amp; !(entity instanceof Mech) &amp;&amp; (step.getElevation() &lt;= 1)</span>
+                    &amp;&amp; (moveType != EntityMovementType.MOVE_JUMP)
+<span class="nc bnc" id="L338" title="All 2 branches missed.">                    &amp;&amp; !(curPos.equals(lastPos))) {</span>
+<span class="nc" id="L339">                nagReport.append(Messages.getString(</span>
+                        &quot;MovementDisplay.FireMoving&quot;,
+<span class="nc" id="L341">                        new Object[] { Integer.valueOf(8) }));</span>
+            }
+
+            // check for magma
+<span class="nc" id="L345">            int level = curHex.terrainLevel(Terrains.MAGMA);</span>
+<span class="nc bnc" id="L346" title="All 4 branches missed.">            if ((level == 1) &amp;&amp; (step.getElevation() == 0)</span>
+<span class="nc bnc" id="L347" title="All 4 branches missed.">                    &amp;&amp; (entity.getMovementMode() != EntityMovementMode.HOVER)</span>
+                    &amp;&amp; (moveType != EntityMovementType.MOVE_JUMP)
+<span class="nc bnc" id="L349" title="All 2 branches missed.">                    &amp;&amp; !(curPos.equals(lastPos))) {</span>
+<span class="nc" id="L350">                nagReport.append(Messages</span>
+<span class="nc" id="L351">                        .getString(&quot;MovementDisplay.MagmaCrustMoving&quot;));</span>
+<span class="nc bnc" id="L352" title="All 6 branches missed.">            } else if ((level == 2) &amp;&amp; (step.getElevation() == 0)</span>
+                    &amp;&amp; (moveType != EntityMovementType.MOVE_JUMP)
+<span class="nc bnc" id="L354" title="All 2 branches missed.">                    &amp;&amp; (entity.getMovementMode() != EntityMovementMode.HOVER)</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">                    &amp;&amp; (entity.getMovementMode() != EntityMovementMode.WIGE)</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">                    &amp;&amp; !(curPos.equals(lastPos))) {</span>
+<span class="nc" id="L357">                nagReport.append(Messages</span>
+<span class="nc" id="L358">                        .getString(&quot;MovementDisplay.MagmaLiquidMoving&quot;));</span>
+            }
+
+            // check for sideslip
+<span class="nc bnc" id="L362" title="All 2 branches missed.">            if ((entity instanceof VTOL)</span>
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                    || (entity.getMovementMode() == EntityMovementMode.HOVER)</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">                    || (entity.getMovementMode() == EntityMovementMode.WIGE</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                            &amp;&amp; step.getClearance() &gt; 0)) {</span>
+<span class="nc" id="L366">                rollTarget = entity.checkSideSlip(moveType, prevHex,</span>
+                        overallMoveType, prevStep, prevFacing, curFacing,
+                        lastPos, curPos, distance);
+<span class="nc" id="L369">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            // check if we've moved into swamp
+<span class="nc" id="L373">            rollTarget = entity.checkBogDown(step, overallMoveType, curHex,</span>
+                    lastPos, curPos, lastElevation, isPavementStep);
+<span class="nc" id="L375">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // Check if used more MPs than Mech/Vehicle would have w/o gravity
+<span class="nc bnc" id="L378" title="All 4 branches missed.">            if (!i.hasMoreElements() &amp;&amp; !firstStep) {</span>
+<span class="nc bnc" id="L379" title="All 4 branches missed.">                if ((entity instanceof Mech) || (entity instanceof Tank)) {</span>
+<span class="nc bnc" id="L380" title="All 12 branches missed.">                    if ((moveType == EntityMovementType.MOVE_WALK)</span>
+                            || (moveType == EntityMovementType.MOVE_VTOL_WALK)
+                            || (moveType == EntityMovementType.MOVE_RUN)
+                            || (moveType == EntityMovementType.MOVE_VTOL_RUN)
+                            || (moveType == EntityMovementType.MOVE_SPRINT)
+                            || (moveType == EntityMovementType.MOVE_VTOL_SPRINT)) {
+<span class="nc" id="L386">                        int limit = entity.getRunningGravityLimit();</span>
+<span class="nc bnc" id="L387" title="All 4 branches missed.">                        if (step.isOnlyPavement() &amp;&amp; entity.isEligibleForPavementBonus()) {</span>
+<span class="nc" id="L388">                            limit++;</span>
+                        }
+<span class="nc bnc" id="L390" title="All 2 branches missed.">                        if (step.getMpUsed() &gt; limit) {</span>
+<span class="nc" id="L391">                            rollTarget = entity.checkMovedTooFast(step, overallMoveType);</span>
+<span class="nc" id="L392">                            checkNag(rollTarget, nagReport, psrList);</span>
+                        }
+<span class="nc bnc" id="L394" title="All 2 branches missed.">                    } else if (moveType == EntityMovementType.MOVE_JUMP) {</span>
+<span class="nc" id="L395">                        int origWalkMP = entity.getWalkMP(false, false);</span>
+<span class="nc" id="L396">                        int gravWalkMP = entity.getWalkMP();</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">                        if (step.getMpUsed() &gt; entity.getJumpMP(false)) {</span>
+<span class="nc" id="L398">                            rollTarget = entity.checkMovedTooFast(step, overallMoveType);</span>
+<span class="nc" id="L399">                            checkNag(rollTarget, nagReport, psrList);</span>
+<span class="nc bnc" id="L400" title="All 4 branches missed.">                        } else if ((game.getPlanetaryConditions().getGravity() &gt; 1)</span>
+                                &amp;&amp; ((origWalkMP - gravWalkMP) &gt; 0)) {
+<span class="nc" id="L402">                            rollTarget = entity.getBasePilotingRoll(md.getLastStepMovementType());</span>
+<span class="nc" id="L403">                            entity.addPilotingModifierForTerrain(rollTarget, step);</span>
+<span class="nc" id="L404">                            int gravMod = game.getPlanetaryConditions()</span>
+<span class="nc" id="L405">                                    .getGravityPilotPenalty();</span>
+<span class="nc bnc" id="L406" title="All 4 branches missed.">                            if ((gravMod != 0) &amp;&amp; !game.getBoard().inSpace()) {</span>
+<span class="nc" id="L407">                                rollTarget.addModifier(gravMod, game</span>
+<span class="nc" id="L408">                                        .getPlanetaryConditions().getGravity()</span>
+                                        + &quot;G gravity&quot;);
+                            }
+<span class="nc" id="L411">                            rollTarget.append(new PilotingRollData(entity</span>
+<span class="nc" id="L412">                                    .getId(), 0, &quot;jumped in high gravity&quot;));</span>
+<span class="nc" id="L413">                            SharedUtility.checkNag(rollTarget, nagReport,</span>
+                                    psrList);
+                        }
+<span class="nc bnc" id="L416" title="All 2 branches missed.">                        if (step.getMpUsed() &gt; entity.getSprintMP(false, false, false)) {</span>
+<span class="nc" id="L417">                            rollTarget = entity.checkMovedTooFast(step, overallMoveType);</span>
+<span class="nc" id="L418">                            checkNag(rollTarget, nagReport, psrList);</span>
+                        }
+                    }
+                }
+            }
+            
+            // Sheer Cliffs, TO p.39
+            // Roads over cliffs cancel the cliff effects for units that move on roads
+<span class="nc bnc" id="L426" title="All 2 branches missed.">            boolean vehicleAffectedByCliff = entity instanceof Tank </span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">                    &amp;&amp; !entity.isAirborneVTOLorWIGE();</span>
+<span class="nc bnc" id="L428" title="All 2 branches missed.">            boolean quadveeVehMode = entity instanceof QuadVee</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">                    &amp;&amp; ((QuadVee)entity).getConversionMode() == QuadVee.CONV_MODE_VEHICLE;</span>
+<span class="nc bnc" id="L430" title="All 6 branches missed.">            boolean mechAffectedByCliff = (entity instanceof Mech || entity instanceof Protomech)</span>
+                    &amp;&amp; moveType != EntityMovementType.MOVE_JUMP
+<span class="nc bnc" id="L432" title="All 2 branches missed.">                    &amp;&amp; !entity.isAero();</span>
+            // Cliffs should only exist towards 1 or 2 level drops, check just to make sure
+            // Everything that does not have a 1 or 2 level drop shouldn't be handled as a cliff
+<span class="nc" id="L435">            int stepHeight = curElevation + curHex.getLevel() </span>
+<span class="nc" id="L436">                    - (lastElevation + prevHex.getLevel());</span>
+<span class="nc bnc" id="L437" title="All 2 branches missed.">            boolean isUpCliff = !lastPos.equals(curPos) </span>
+<span class="nc bnc" id="L438" title="All 6 branches missed.">                    &amp;&amp; curHex.hasCliffTopTowards(prevHex)</span>
+                    &amp;&amp; (stepHeight == 1 || stepHeight == 2);
+<span class="nc bnc" id="L440" title="All 2 branches missed.">            boolean isDownCliff = !lastPos.equals(curPos) </span>
+<span class="nc bnc" id="L441" title="All 6 branches missed.">                    &amp;&amp; prevHex.hasCliffTopTowards(curHex)</span>
+                    &amp;&amp; (stepHeight == -1 || stepHeight == -2);
+
+            // Vehicles (exc. WIGE/VTOL) moving down a cliff
+<span class="nc bnc" id="L445" title="All 6 branches missed.">            if (vehicleAffectedByCliff &amp;&amp; isDownCliff &amp;&amp; !isPavementStep) {</span>
+<span class="nc" id="L446">                rollTarget = entity.getBasePilotingRoll(moveType);</span>
+<span class="nc" id="L447">                rollTarget.append(new PilotingRollData(entity.getId(), 0, &quot;moving down a sheer cliff&quot;));</span>
+<span class="nc" id="L448">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            // Mechs moving down a cliff
+            // Quadvees in vee mode ignore PSRs to avoid falls, IO p.133
+            // Protomechs as Meks
+<span class="nc bnc" id="L454" title="All 8 branches missed.">            if (mechAffectedByCliff &amp;&amp; !quadveeVehMode &amp;&amp; isDownCliff &amp;&amp; !isPavementStep) {</span>
+<span class="nc" id="L455">                rollTarget = entity.getBasePilotingRoll(moveType);</span>
+<span class="nc" id="L456">                rollTarget.append(new PilotingRollData(entity.getId(), -stepHeight - 1, &quot;moving down a sheer cliff&quot;));</span>
+<span class="nc" id="L457">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            // Mechs moving up a cliff
+<span class="nc bnc" id="L461" title="All 8 branches missed.">            if (mechAffectedByCliff &amp;&amp; !quadveeVehMode &amp;&amp; isUpCliff &amp;&amp; !isPavementStep) {</span>
+<span class="nc" id="L462">                rollTarget = entity.getBasePilotingRoll(moveType);</span>
+<span class="nc" id="L463">                rollTarget.append(new PilotingRollData(entity.getId(), stepHeight, &quot;moving up a sheer cliff&quot;));</span>
+<span class="nc" id="L464">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            // Handle non-infantry moving into a building.
+<span class="nc" id="L468">            int buildingMove = entity.checkMovementInBuilding(step, prevStep,</span>
+                    curPos, lastPos);
+<span class="nc bnc" id="L470" title="All 4 branches missed.">            if ((buildingMove &gt; 1) &amp;&amp; !(entity instanceof Protomech)) {</span>
+
+                // Get the building being entered.
+<span class="nc" id="L473">                Building bldg = null;</span>
+<span class="nc" id="L474">                String reason =&quot;entering&quot;;</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">                if ((buildingMove &amp; 2) == 2) {</span>
+<span class="nc" id="L476">                    bldg = game.getBoard().getBuildingAt(curPos);</span>
+                }
+
+<span class="nc bnc" id="L479" title="All 2 branches missed.">                if (bldg != null) {</span>
+<span class="nc" id="L480">                    rollTarget = entity.rollMovementInBuilding(bldg, distance,</span>
+                            reason, overallMoveType);
+<span class="nc" id="L482">                    SharedUtility.checkNag(rollTarget, nagReport, psrList);</span>
+                }
+            }
+
+<span class="nc bnc" id="L486" title="All 2 branches missed.">            if (step.getType() == MoveStepType.GO_PRONE) {</span>
+<span class="nc" id="L487">                rollTarget = entity.checkDislodgeSwarmers(step, overallMoveType);</span>
+<span class="nc" id="L488">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+<span class="nc" id="L491">            IHex lastHex = game.getBoard().getHex(lastPos);</span>
+<span class="nc bnc" id="L492" title="All 2 branches missed.">            if (((step.getType() == MoveStepType.BACKWARDS)</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">                    || (step.getType() == MoveStepType.LATERAL_LEFT_BACKWARDS)</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">                    || (step.getType() == MoveStepType.LATERAL_RIGHT_BACKWARDS))</span>
+<span class="nc bnc" id="L495" title="All 4 branches missed.">                    &amp;&amp; !(md.isJumping() &amp;&amp; (entity.getJumpType() == Mech.JUMP_BOOSTER))</span>
+<span class="nc bnc" id="L496" title="All 4 branches missed.">                    &amp;&amp; (lastHex.getLevel() + lastElevation != (curHex.getLevel() + step.getElevation()))</span>
+                    &amp;&amp; !(entity instanceof VTOL)
+<span class="nc bnc" id="L498" title="All 2 branches missed.">                    &amp;&amp; !(md.getFinalClimbMode()</span>
+<span class="nc bnc" id="L499" title="All 2 branches missed.">                            &amp;&amp; curHex.containsTerrain(Terrains.BRIDGE) &amp;&amp; ((curHex</span>
+<span class="nc" id="L500">                            .terrainLevel(Terrains.BRIDGE_ELEV) + curHex</span>
+<span class="nc" id="L501">                            .getLevel()) == (prevHex.getLevel() + (prevHex</span>
+<span class="nc bnc" id="L502" title="All 2 branches missed.">                            .containsTerrain(Terrains.BRIDGE) ? prevHex</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">                            .terrainLevel(Terrains.BRIDGE_ELEV) : 0))))) {</span>
+<span class="nc" id="L504">                nagReport.append(Messages</span>
+<span class="nc" id="L505">                        .getString(&quot;MovementDisplay.BackWardsElevationChange&quot;));</span>
+<span class="nc" id="L506">                SharedUtility.checkNag(</span>
+<span class="nc" id="L507">                        entity.getBasePilotingRoll(overallMoveType), nagReport,</span>
+                        psrList);
+            }
+            
+            // Check for Ejecting
+<span class="nc bnc" id="L512" title="All 4 branches missed.">            if (step.getType() == MoveStepType.EJECT </span>
+                    &amp;&amp; (entity instanceof Mech)) {
+<span class="nc" id="L514">                rollTarget = Server.getEjectModifiers(game, entity, 0, false);</span>
+<span class="nc" id="L515">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+            
+<span class="nc bnc" id="L518" title="All 2 branches missed.">            if (step.getType() == MoveStepType.UNLOAD) {</span>
+<span class="nc" id="L519">                Targetable targ = step.getTarget(game);</span>
+<span class="nc bnc" id="L520" title="All 4 branches missed.">                if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_ZIPLINES)</span>
+                        &amp;&amp; (entity instanceof VTOL)
+<span class="nc bnc" id="L522" title="All 4 branches missed.">                        &amp;&amp; (md.getFinalElevation() &gt; 0)</span>
+                        &amp;&amp; (targ instanceof Infantry)
+<span class="nc bnc" id="L524" title="All 2 branches missed.">                        &amp;&amp; (((Entity)targ).getJumpMP() &lt; 1)</span>
+<span class="nc bnc" id="L525" title="All 2 branches missed.">                        &amp;&amp; !((Infantry) targ).isMechanized()) {</span>
+<span class="nc" id="L526">                    rollTarget = Server.getEjectModifiers(game, (Entity) targ, 0,</span>
+<span class="nc" id="L527">                            false, entity.getPosition(), &quot;zip lining&quot;);</span>
+                    // Factor in Elevation
+<span class="nc bnc" id="L529" title="All 2 branches missed.">                    if (entity.getElevation() &gt; 0) {</span>
+<span class="nc" id="L530">                        rollTarget.addModifier(entity.getElevation(), &quot;elevation&quot;);</span>
+                    }
+<span class="nc" id="L532">                    checkNag(rollTarget, nagReport, psrList);</span>
+                }
+            }
+            
+<span class="nc bnc" id="L536" title="All 2 branches missed.">            if (step.isTurning()) {</span>
+<span class="nc" id="L537">                rollTarget = entity.checkTurnModeFailure(overallMoveType,</span>
+<span class="nc bnc" id="L538" title="All 2 branches missed.">                        prevStep == null? 0 : prevStep.getNStraight(), md.getMpUsed(), curPos);</span>
+<span class="nc" id="L539">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+            
+<span class="nc bnc" id="L542" title="All 2 branches missed.">            if (step.getType() == MoveStepType.BOOTLEGGER) {</span>
+<span class="nc" id="L543">                rollTarget = entity.getBasePilotingRoll(overallMoveType);</span>
+<span class="nc" id="L544">                entity.addPilotingModifierForTerrain(rollTarget);</span>
+<span class="nc" id="L545">                rollTarget.addModifier(0, &quot;bootlegger maneuver&quot;);</span>
+<span class="nc" id="L546">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+
+            // update lastPos, prevStep, prevFacing &amp; prevHex
+<span class="nc bnc" id="L550" title="All 2 branches missed.">            if (!curPos.equals(lastPos)) {</span>
+<span class="nc" id="L551">                prevFacing = curFacing;</span>
+            }
+<span class="nc" id="L553">            lastPos = curPos;</span>
+<span class="nc" id="L554">            prevStep = step;</span>
+<span class="nc" id="L555">            prevHex = curHex;</span>
+<span class="nc" id="L556">            lastElevation = step.getElevation();</span>
+
+<span class="nc" id="L558">            firstStep = false;</span>
+<span class="nc" id="L559">        }</span>
+
+        // running with destroyed hip or gyro needs a check
+<span class="nc" id="L562">        rollTarget = entity.checkRunningWithDamage(overallMoveType);</span>
+<span class="nc" id="L563">        checkNag(rollTarget, nagReport, psrList);</span>
+
+        //if we sprinted with MASC or a supercharger, then we need a PSR
+<span class="nc" id="L566">        rollTarget = entity.checkSprintingWithMASC(overallMoveType, md.getMpUsed());</span>
+<span class="nc" id="L567">        checkNag(rollTarget, nagReport, psrList);</span>
+
+<span class="nc" id="L569">        rollTarget = entity.checkSprintingWithSupercharger(overallMoveType, md.getMpUsed());</span>
+<span class="nc" id="L570">        checkNag(rollTarget, nagReport, psrList);</span>
+
+<span class="nc" id="L572">        rollTarget = entity.checkUsingOverdrive(overallMoveType);</span>
+<span class="nc" id="L573">        checkNag(rollTarget, nagReport, psrList);</span>
+            
+<span class="nc" id="L575">        rollTarget = entity.checkGunningIt(overallMoveType);</span>
+<span class="nc" id="L576">        checkNag(rollTarget, nagReport, psrList);</span>
+
+        // but the danger isn't over yet! landing from a jump can be risky!
+<span class="nc bnc" id="L579" title="All 4 branches missed.">        if ((overallMoveType == EntityMovementType.MOVE_JUMP) &amp;&amp; !entity.isMakingDfa()) {</span>
+            // check for damaged criticals
+<span class="nc" id="L581">            rollTarget = entity.checkLandingWithDamage(overallMoveType);</span>
+<span class="nc" id="L582">            checkNag(rollTarget, nagReport, psrList);</span>
+            // check for landing with prototype JJs
+<span class="nc" id="L584">            rollTarget = entity.checkLandingWithPrototypeJJ(overallMoveType);</span>
+<span class="nc" id="L585">            checkNag(rollTarget, nagReport, psrList);</span>
+            // jumped into water?
+<span class="nc" id="L587">            IHex hex = game.getBoard().getHex(curPos);</span>
+            // check for jumping into heavy woods
+<span class="nc bnc" id="L589" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_PSR_JUMP_HEAVY_WOODS)) {</span>
+<span class="nc" id="L590">                rollTarget = entity.checkLandingInHeavyWoods(overallMoveType,</span>
+                        hex);
+<span class="nc" id="L592">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+<span class="nc" id="L594">            int waterLevel = hex.terrainLevel(Terrains.WATER);</span>
+<span class="nc bnc" id="L595" title="All 4 branches missed.">            if (hex.containsTerrain(Terrains.ICE) &amp;&amp; (waterLevel &gt; 0)) {</span>
+<span class="nc bnc" id="L596" title="All 2 branches missed.">                if(!(entity instanceof Infantry)) {</span>
+<span class="nc" id="L597">                    nagReport.append(Messages.getString(&quot;MovementDisplay.IceLanding&quot;));</span>
+                }
+<span class="nc bnc" id="L599" title="All 4 branches missed.">            } else if (!(prevStep.climbMode() &amp;&amp; hex.containsTerrain(Terrains.BRIDGE))) {</span>
+<span class="nc bnc" id="L600" title="All 2 branches missed.">                if (!(entity.getMovementMode() == EntityMovementMode.HOVER)) {</span>
+<span class="nc" id="L601">                    rollTarget = entity.checkWaterMove(waterLevel, overallMoveType);</span>
+<span class="nc" id="L602">                    checkNag(rollTarget, nagReport, psrList);</span>
+                }
+
+            }
+            
+            // check for magma
+<span class="nc" id="L608">            int level = hex.terrainLevel(Terrains.MAGMA);</span>
+<span class="nc bnc" id="L609" title="All 4 branches missed.">            if ((level == 1) &amp;&amp; (lastElevation == 0)) {</span>
+<span class="nc" id="L610">                nagReport.append(Messages.getString(&quot;MovementDisplay.MagmaCrustJumpLanding&quot;));</span>
+<span class="nc bnc" id="L611" title="All 4 branches missed.">            } else if ((level == 2) &amp;&amp; (lastElevation == 0)) {</span>
+<span class="nc" id="L612">                nagReport.append(Messages.getString(&quot;MovementDisplay.MagmaLiquidMoving&quot;));</span>
+            }
+
+        }
+
+<span class="nc bnc" id="L617" title="All 4 branches missed.">        if (entity.isAirborne() &amp;&amp; entity.isAero()) {</span>
+            // check to see if thrust exceeded SI
+<span class="nc" id="L619">            IAero a = (IAero) entity;</span>
+<span class="nc" id="L620">            int thrust = md.getMpUsed();</span>
+<span class="nc" id="L621">            rollTarget = a.checkThrustSITotal(thrust, overallMoveType);</span>
+<span class="nc" id="L622">            checkNag(rollTarget, nagReport, psrList);</span>
+
+            // Atmospheric checks
+<span class="nc bnc" id="L625" title="All 4 branches missed.">            if (!game.getBoard().inSpace() &amp;&amp; !md.contains(MoveStepType.LAND)</span>
+<span class="nc bnc" id="L626" title="All 2 branches missed.">                    &amp;&amp; !md.contains(MoveStepType.VLAND)) {</span>
+                // check to see if velocity is 2x thrust
+<span class="nc" id="L628">                rollTarget = a.checkVelocityDouble(md.getFinalVelocity(),</span>
+                        overallMoveType);
+<span class="nc" id="L630">                checkNag(rollTarget, nagReport, psrList);</span>
+
+                // check to see if descended more than two hexes
+<span class="nc" id="L633">                rollTarget = a.checkDown(md.getFinalNDown(), overallMoveType);</span>
+<span class="nc" id="L634">                checkNag(rollTarget, nagReport, psrList);</span>
+
+                // stalling out
+<span class="nc" id="L637">                rollTarget = a.checkStall(md);</span>
+<span class="nc" id="L638">                checkNag(rollTarget, nagReport, psrList);</span>
+
+                // check for hovering
+<span class="nc" id="L641">                rollTarget = a.checkHover(md);</span>
+<span class="nc" id="L642">                checkNag(rollTarget, nagReport, psrList);</span>
+            }
+        }
+
+<span class="nc bnc" id="L646" title="All 2 branches missed.">        if (stringResult) {</span>
+<span class="nc" id="L647">            return nagReport.toString();</span>
+        }
+<span class="nc" id="L649">        return psrList;</span>
+    }
+
+    /**
+     *
+     * @param rollTarget
+     * @param nagReport
+     * @param psrList
+     */
+    private static void checkNag(PilotingRollData rollTarget,
+            StringBuffer nagReport, List&lt;TargetRoll&gt; psrList) {
+<span class="nc bnc" id="L660" title="All 2 branches missed.">        if (rollTarget.getValue() != TargetRoll.CHECK_FALSE) {</span>
+<span class="nc" id="L661">            psrList.add(rollTarget);</span>
+<span class="nc" id="L662">            Object[] objs = new Object[] { rollTarget.getValueAsString(),</span>
+<span class="nc" id="L663">                    rollTarget.getDesc() };</span>
+<span class="nc" id="L664">            nagReport</span>
+<span class="nc" id="L665">                    .append(Messages.getString(&quot;MovementDisplay.addNag&quot;, objs));//$NON-NLS-1$</span>
+        }
+<span class="nc" id="L667">    }</span>
+
+    /**
+     * Checks to see if piloting skill rolls are needed for excessive use of
+     * thrust.
+     */
+    public static String doThrustCheck(MovePath md, Client client) {
+
+<span class="nc" id="L675">        StringBuffer nagReport = new StringBuffer();</span>
+<span class="nc" id="L676">        List&lt;TargetRoll&gt; psrList = new ArrayList&lt;TargetRoll&gt;();</span>
+
+<span class="nc bnc" id="L678" title="All 2 branches missed.">        if(client.getGame().useVectorMove()) {</span>
+<span class="nc" id="L679">            return nagReport.toString();</span>
+        }
+
+<span class="nc" id="L682">        final Entity entity = md.getEntity();</span>
+<span class="nc bnc" id="L683" title="All 2 branches missed.">        if(!entity.isAero()) {</span>
+<span class="nc" id="L684">            return nagReport.toString();</span>
+        }
+<span class="nc" id="L686">        EntityMovementType overallMoveType = EntityMovementType.MOVE_NONE;</span>
+
+<span class="nc" id="L688">        IAero a = (IAero) entity;</span>
+
+        PilotingRollData rollTarget;
+
+<span class="nc" id="L692">        overallMoveType = md.getLastStepMovementType();</span>
+
+        // cycle through movement. Collect thrust used until position changes.
+<span class="nc" id="L695">        int thrustUsed = 0;</span>
+<span class="nc" id="L696">        int j = 0;</span>
+<span class="nc bnc" id="L697" title="All 2 branches missed.">        for (final Enumeration&lt;MoveStep&gt; i = md.getSteps(); i.hasMoreElements();) {</span>
+<span class="nc" id="L698">            final MoveStep step = i.nextElement();</span>
+<span class="nc" id="L699">            j++;</span>
+            // how do I figure out last step?
+<span class="nc bnc" id="L701" title="All 4 branches missed.">            if ((step.getDistance() == 0) &amp;&amp; (md.length() != j)) {</span>
+<span class="nc" id="L702">                thrustUsed += step.getMp();</span>
+            } else {
+                // if this was the last move and distance was zero, then add
+                // thrust
+<span class="nc bnc" id="L706" title="All 4 branches missed.">                if ((step.getDistance() == 0) &amp;&amp; (md.length() == j)) {</span>
+<span class="nc" id="L707">                    thrustUsed += step.getMp();</span>
+                }
+                // then we moved to a new hex or the last step so check
+                // conditions
+                // structural damage
+<span class="nc" id="L712">                rollTarget = a.checkThrustSI(thrustUsed, overallMoveType);</span>
+<span class="nc" id="L713">                checkNag(rollTarget, nagReport, psrList);</span>
+
+                // check for pilot damage
+<span class="nc" id="L716">                int hits = entity.getCrew().getHits();</span>
+<span class="nc" id="L717">                int health = 6 - hits;</span>
+
+<span class="nc bnc" id="L719" title="All 2 branches missed.">                if (thrustUsed &gt; (2 * health)) {</span>
+<span class="nc" id="L720">                    int targetroll = 2 + (thrustUsed - (2 * health))</span>
+                            + (2 * hits);
+<span class="nc" id="L722">                    nagReport</span>
+<span class="nc" id="L723">                            .append(Messages.getString(</span>
+                                    &quot;MovementDisplay.addNag&quot;,
+                                    new Object[] {
+<span class="nc" id="L726">                                            Integer.toString(targetroll),</span>
+                                            &quot;Thrust exceeded twice pilot's health in single hex&quot; }));
+                }
+
+<span class="nc" id="L730">                thrustUsed = 0;</span>
+            }
+<span class="nc" id="L732">        }</span>
+
+<span class="nc" id="L734">        return nagReport.toString();</span>
+
+    }
+
+    public static MovePath moveAero(MovePath md, Client client) {
+<span class="nc" id="L739">        final Entity entity = md.getEntity();</span>
+<span class="nc" id="L740">        final IGame game = entity.getGame();</span>
+        // Don't process further unless the entity belongs in space
+<span class="nc bnc" id="L742" title="All 4 branches missed.">        if (!entity.isAero() &amp;&amp; !(entity instanceof EjectedCrew)) {</span>
+<span class="nc" id="L743">            return md;</span>
+        }
+        // Ejected crew/pilots and lifeboats can't move, so just add the inherited move steps and be done with it
+<span class="nc bnc" id="L746" title="All 6 branches missed.">        if (entity instanceof EjectedCrew || (entity instanceof EscapePods &amp;&amp; (entity.getOriginalWalkMP() &lt;= 0))) {</span>
+<span class="nc" id="L747">            md = addSteps(md, client);</span>
+<span class="nc" id="L748">            return md;</span>
+        }
+<span class="nc" id="L750">        IAero a = (IAero) entity;</span>
+
+        // need to check and see
+        // if the units current velocity is zero
+
+<span class="nc" id="L755">        boolean isRamming = false;</span>
+<span class="nc bnc" id="L756" title="All 2 branches missed.">        if ((md.getLastStep() != null)</span>
+<span class="nc bnc" id="L757" title="All 2 branches missed.">                &amp;&amp; (md.getLastStep().getType() == MoveStepType.RAM)) {</span>
+<span class="nc" id="L758">            isRamming = true;</span>
+        }
+
+        // if using advanced movement then I need to add on movement
+        // steps to get the vessel from point a to point b
+<span class="nc bnc" id="L763" title="All 2 branches missed.">        if (game.useVectorMove()) {</span>
+            // if the unit is ramming then this is already done
+<span class="nc bnc" id="L765" title="All 2 branches missed.">            if (!isRamming) {</span>
+<span class="nc" id="L766">                md = addSteps(md, client);</span>
+            }
+<span class="nc bnc" id="L768" title="All 2 branches missed.">        } else if (a.isOutControlTotal()) {</span>
+            // OOC units need a new movement path
+<span class="nc" id="L770">            MovePath oldmd = md;</span>
+<span class="nc" id="L771">            md = new MovePath(game, entity);</span>
+<span class="nc" id="L772">            int vel = a.getCurrentVelocity();</span>
+
+<span class="nc bnc" id="L774" title="All 2 branches missed.">            while (vel &gt; 0) {</span>
+<span class="nc" id="L775">                int steps = 1;</span>
+                //if moving on the ground map, then 16 hexes forward
+<span class="nc bnc" id="L777" title="All 2 branches missed.">                if(game.getBoard().onGround()) {</span>
+<span class="nc" id="L778">                    steps = 16;</span>
+                }
+<span class="nc bnc" id="L780" title="All 2 branches missed.">                while(steps &gt; 0 &amp;&amp;</span>
+<span class="nc bnc" id="L781" title="All 2 branches missed.">                        game.getBoard().contains(md.getFinalCoords())) {</span>
+<span class="nc" id="L782">                    md.addStep(MoveStepType.FORWARDS);</span>
+<span class="nc" id="L783">                    steps--;</span>
+                }
+<span class="nc bnc" id="L785" title="All 2 branches missed.">                if (!game.getBoard().contains(md.getFinalCoords())) {</span>
+<span class="nc" id="L786">                    md.removeLastStep();</span>
+<span class="nc bnc" id="L787" title="All 2 branches missed.">                    if(game.getOptions().booleanOption(OptionsConstants.ADVAERORULES_RETURN_FLYOVER)) {</span>
+                        //Telemissiles shouldn't get a return option
+<span class="nc bnc" id="L789" title="All 2 branches missed.">                        if (entity instanceof TeleMissile) {</span>
+<span class="nc" id="L790">                            md.addStep(MoveStepType.OFF);</span>
+                        } else {
+<span class="nc" id="L792">                            md.addStep(MoveStepType.RETURN);</span>
+                        }
+                    } else {
+<span class="nc" id="L795">                        md.addStep(MoveStepType.OFF);</span>
+                    }
+<span class="nc" id="L797">                    break;</span>
+                }
+<span class="nc bnc" id="L799" title="All 2 branches missed.">                if (a.isRandomMove()) {</span>
+<span class="nc" id="L800">                    int roll = Compute.d6(1);</span>
+<span class="nc bnc" id="L801" title="All 5 branches missed.">                    switch (roll) {</span>
+                    case 1:
+<span class="nc" id="L803">                        md.addStep(MoveStepType.TURN_LEFT);</span>
+<span class="nc" id="L804">                        md.addStep(MoveStepType.TURN_LEFT);</span>
+<span class="nc" id="L805">                        break;</span>
+                    case 2:
+<span class="nc" id="L807">                        md.addStep(MoveStepType.TURN_LEFT);</span>
+<span class="nc" id="L808">                        break;</span>
+                    case 5:
+<span class="nc" id="L810">                        md.addStep(MoveStepType.TURN_RIGHT);</span>
+<span class="nc" id="L811">                        break;</span>
+                    case 6:
+<span class="nc" id="L813">                        md.addStep(MoveStepType.TURN_RIGHT);</span>
+<span class="nc" id="L814">                        md.addStep(MoveStepType.TURN_RIGHT);</span>
+                        break;
+                    }
+                }
+<span class="nc" id="L818">                vel--;</span>
+<span class="nc" id="L819">            }</span>
+            // check to see if old movement path contained a launch
+<span class="nc bnc" id="L821" title="All 2 branches missed.">            if (oldmd.contains(MoveStepType.LAUNCH)) {</span>
+                // since launches have to be the last step
+<span class="nc" id="L823">                MoveStep lastStep = oldmd.getLastStep();</span>
+<span class="nc bnc" id="L824" title="All 2 branches missed.">                if (lastStep.getType() == MoveStepType.LAUNCH) {</span>
+<span class="nc" id="L825">                    md.addStep(lastStep.getType(), lastStep.getLaunched());</span>
+                }
+            }
+            // check to see if old movement path contained an undocking
+<span class="nc bnc" id="L829" title="All 2 branches missed.">            if (oldmd.contains(MoveStepType.UNDOCK)) {</span>
+                // since launches have to be the last step
+<span class="nc" id="L831">                MoveStep lastStep = oldmd.getLastStep();</span>
+<span class="nc bnc" id="L832" title="All 2 branches missed.">                if (lastStep.getType() == MoveStepType.UNDOCK) {</span>
+<span class="nc" id="L833">                    md.addStep(lastStep.getType(), lastStep.getLaunched());</span>
+                }
+            }
+        }
+<span class="nc" id="L837">        return md;</span>
+    }
+
+    /**
+     * Add steps for advanced vector movement based on the given vectors when
+     * splitting hexes, choose the hex with less tonnage in case OOC
+     */
+    private static MovePath addSteps(MovePath md, Client client) {
+<span class="nc" id="L845">        Entity en = md.getEntity();</span>
+<span class="nc" id="L846">        IGame game = en.getGame();</span>
+
+        // if the last step is a launch or recovery, then I want to keep that at
+        // the end
+<span class="nc" id="L850">        MoveStep lastStep = md.getLastStep();</span>
+<span class="nc bnc" id="L851" title="All 2 branches missed.">        if ((lastStep != null)</span>
+<span class="nc bnc" id="L852" title="All 2 branches missed.">                &amp;&amp; ((lastStep.getType() == MoveStepType.LAUNCH) || (lastStep</span>
+<span class="nc bnc" id="L853" title="All 2 branches missed.">                        .getType() == MoveStepType.RECOVER) || (lastStep</span>
+<span class="nc bnc" id="L854" title="All 2 branches missed.">                        .getType() == MoveStepType.UNDOCK))) {</span>
+<span class="nc" id="L855">            md.removeLastStep();</span>
+        }
+
+        // get the start and end
+<span class="nc" id="L859">        Coords start = en.getPosition();</span>
+<span class="nc" id="L860">        Coords end = Compute.getFinalPosition(start, md.getFinalVectors());</span>
+
+<span class="nc" id="L862">        boolean leftMap = false;</span>
+
+        // (see LosEffects.java)
+<span class="nc" id="L865">        ArrayList&lt;Coords&gt; in = Coords.intervening(start, end);</span>
+        // first check whether we are splitting hexes
+<span class="nc" id="L867">        boolean split = false;</span>
+<span class="nc" id="L868">        double degree = start.degree(end);</span>
+<span class="nc bnc" id="L869" title="All 2 branches missed.">        if ((degree % 60) == 30) {</span>
+<span class="nc" id="L870">            split = true;</span>
+<span class="nc" id="L871">            in = Coords.intervening(start, end, true);</span>
+        }
+
+<span class="nc" id="L874">        Coords current = start;</span>
+<span class="nc" id="L875">        int facing = md.getFinalFacing();</span>
+<span class="nc bnc" id="L876" title="All 2 branches missed.">        for (int i = 1; i &lt; in.size(); i++) {</span>
+
+<span class="nc" id="L878">            Coords c = in.get(i);</span>
+            // check for split hexes
+            // check for some number after a multiple of 3 (1,4,7,etc)
+<span class="nc bnc" id="L881" title="All 4 branches missed.">            if (((i % 3) == 1) &amp;&amp; split) {</span>
+
+<span class="nc" id="L883">                Coords left = in.get(i);</span>
+<span class="nc" id="L884">                Coords right = in.get(i + 1);</span>
+
+                // get the total tonnage in each hex
+<span class="nc" id="L887">                double leftTonnage = 0;</span>
+<span class="nc bnc" id="L888" title="All 2 branches missed.">                for (Entity ent : game.getEntitiesVector(left)) {</span>
+<span class="nc" id="L889">                    leftTonnage += ent.getWeight();</span>
+<span class="nc" id="L890">                }</span>
+                
+<span class="nc" id="L892">                double rightTonnage = 0;</span>
+<span class="nc bnc" id="L893" title="All 2 branches missed.">                for (Entity ent : game.getEntitiesVector(right)) {</span>
+<span class="nc" id="L894">                    rightTonnage += ent.getWeight();</span>
+<span class="nc" id="L895">                }</span>
+
+                // TODO: I will need to update this to account for asteroids
+
+                // I need to consider both of these passed through
+                // for purposes of bombing
+<span class="nc" id="L901">                en.addPassedThrough(right);</span>
+<span class="nc" id="L902">                en.addPassedThrough(left);</span>
+<span class="nc bnc" id="L903" title="All 2 branches missed.">                if(client !=  null) {</span>
+<span class="nc" id="L904">                    client.sendUpdateEntity(en);</span>
+                }
+
+                // if the left is preferred, increment i so next one is skipped
+<span class="nc bnc" id="L908" title="All 2 branches missed.">                if ((leftTonnage &lt; rightTonnage)</span>
+<span class="nc bnc" id="L909" title="All 2 branches missed.">                        || !game.getBoard().contains(right)) {</span>
+<span class="nc" id="L910">                    i++;</span>
+                } else {
+                    continue;
+                }
+            }
+
+<span class="nc bnc" id="L916" title="All 2 branches missed.">            if(!game.getBoard().contains(c)) {</span>
+<span class="nc bnc" id="L917" title="All 2 branches missed.">                if(game.getOptions().booleanOption(OptionsConstants.ADVAERORULES_RETURN_FLYOVER)) {</span>
+                    //Telemissiles shouldn't get a return option
+<span class="nc bnc" id="L919" title="All 2 branches missed.">                    if (en instanceof TeleMissile) {</span>
+<span class="nc" id="L920">                        md.addStep(MoveStepType.OFF);</span>
+                    } else {
+<span class="nc" id="L922">                        md.addStep(MoveStepType.RETURN);</span>
+                    }
+                } else {
+<span class="nc" id="L925">                    md.addStep(MoveStepType.OFF);</span>
+                }
+<span class="nc" id="L927">                leftMap = true;</span>
+<span class="nc" id="L928">                break;</span>
+            }
+
+            // which direction is this from the current hex?
+<span class="nc" id="L932">            int dir = current.direction(c);</span>
+            // what kind of step do I need to get there?
+<span class="nc" id="L934">            int diff = dir - facing;</span>
+<span class="nc bnc" id="L935" title="All 2 branches missed.">            if (diff == 0) {</span>
+<span class="nc" id="L936">                md.addStep(MoveStepType.FORWARDS);</span>
+<span class="nc bnc" id="L937" title="All 4 branches missed.">            } else if ((diff == 1) || (diff == -5)) {</span>
+<span class="nc" id="L938">                md.addStep(MoveStepType.LATERAL_RIGHT);</span>
+<span class="nc bnc" id="L939" title="All 4 branches missed.">            } else if ((diff == -2) || (diff == 4)) {</span>
+<span class="nc" id="L940">                md.addStep(MoveStepType.LATERAL_RIGHT_BACKWARDS);</span>
+<span class="nc bnc" id="L941" title="All 4 branches missed.">            } else if ((diff == -1) || (diff == 5)) {</span>
+<span class="nc" id="L942">                md.addStep(MoveStepType.LATERAL_LEFT);</span>
+<span class="nc bnc" id="L943" title="All 4 branches missed.">            } else if ((diff == 2) || (diff == -4)) {</span>
+<span class="nc" id="L944">                md.addStep(MoveStepType.LATERAL_LEFT_BACKWARDS);</span>
+<span class="nc bnc" id="L945" title="All 4 branches missed.">            } else if ((diff == 3) || (diff == -3)) {</span>
+<span class="nc" id="L946">                md.addStep(MoveStepType.BACKWARDS);</span>
+            }
+<span class="nc" id="L948">            current = c;</span>
+
+        }
+
+        // do I now need to add on the last step again?
+<span class="nc bnc" id="L953" title="All 6 branches missed.">        if (!leftMap &amp;&amp; (lastStep != null) &amp;&amp; (lastStep.getType() == MoveStepType.LAUNCH)) {</span>
+<span class="nc" id="L954">            md.addStep(MoveStepType.LAUNCH, lastStep.getLaunched());</span>
+        }
+        
+<span class="nc bnc" id="L957" title="All 6 branches missed.">        if (!leftMap &amp;&amp; (lastStep != null) &amp;&amp; (lastStep.getType() == MoveStepType.UNDOCK)) {</span>
+<span class="nc" id="L958">            md.addStep(MoveStepType.UNDOCK, lastStep.getLaunched());</span>
+        }
+
+<span class="nc bnc" id="L961" title="All 6 branches missed.">        if (!leftMap &amp;&amp; (lastStep != null) &amp;&amp; (lastStep.getType() == MoveStepType.RECOVER)) {</span>
+<span class="nc" id="L962">            md.addStep(MoveStepType.RECOVER, lastStep.getRecoveryUnit(), -1);</span>
+        }
+
+<span class="nc" id="L965">        return md;</span>
+    }
+
+    public static String[] getDisplayArray(List&lt;? extends Targetable&gt; entities) {
+<span class="nc" id="L969">        String[] retVal = new String[entities.size()];</span>
+<span class="nc" id="L970">        int i = 0;</span>
+<span class="nc bnc" id="L971" title="All 2 branches missed.">        for (Targetable ent : entities) {</span>
+<span class="nc" id="L972">            retVal[i++] = ent.getDisplayName();</span>
+<span class="nc" id="L973">        }</span>
+<span class="nc" id="L974">        return retVal;</span>
+    }
+
+    public static Targetable getTargetPicked(
+            List&lt;? extends Targetable&gt; targets, String input) {
+<span class="nc bnc" id="L979" title="All 2 branches missed.">        if (input == null) {</span>
+<span class="nc" id="L980">            return null;</span>
+        }
+<span class="nc bnc" id="L982" title="All 2 branches missed.">        for (Targetable ent : targets) {</span>
+<span class="nc bnc" id="L983" title="All 2 branches missed.">            if (input.equals(ent.getDisplayName())) {</span>
+<span class="nc" id="L984">                return ent;</span>
+            }
+<span class="nc" id="L986">        }</span>
+        // Should never get here!
+<span class="nc" id="L988">        return null;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

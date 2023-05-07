@@ -1,0 +1,1525 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>EntityListFile.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">EntityListFile.java</span></div><h1>EntityListFile.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2003, 2004, 2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.common;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.util.*;
+
+import megamek.MegaMek;
+import megamek.client.Client;
+import megamek.common.icons.AbstractIcon;
+import megamek.common.options.OptionsConstants;
+import megamek.common.options.PilotOptions;
+import megamek.common.util.StringUtil;
+import megamek.common.weapons.infantry.InfantryWeapon;
+
+/**
+ * This class provides static methods to save a list of &lt;code&gt;Entity&lt;/code&gt;s to,
+ * and load a list of &lt;code&gt;Entity&lt;/code&gt;s from a file.
+ */
+<span class="nc" id="L39">public class EntityListFile {</span>
+
+    /**
+     * Produce a string describing this armor value. Valid output values are any
+     * integer from 0 to 100, N/A, or Destroyed.
+     *
+     * @param points
+     *            - the &lt;code&gt;int&lt;/code&gt; value of the armor. This value may be
+     *            any valid value of entity armor (including NA, DOOMED, and
+     *            DESTROYED).
+     * @return a &lt;code&gt;String&lt;/code&gt; that matches the armor value.
+     */
+    private static String formatArmor(int points) {
+        // Is the armor destroyed or doomed?
+<span class="nc bnc" id="L53" title="All 4 branches missed.">        if ((points == IArmorState.ARMOR_DOOMED)</span>
+                || (points == IArmorState.ARMOR_DESTROYED)) {
+<span class="nc" id="L55">            return &quot;Destroyed&quot;;</span>
+        }
+
+        // Was there armor to begin with?
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        if (points == IArmorState.ARMOR_NA) {</span>
+<span class="nc" id="L60">            return &quot;N/A&quot;;</span>
+        }
+
+        // Translate the int to a String.
+<span class="nc" id="L64">        return String.valueOf(points);</span>
+    }
+
+    /**
+     * Produce a string describing the equipment in a critical slot.
+     *
+     * @param index
+     *            - the &lt;code&gt;String&lt;/code&gt; index of the slot. This value should
+     *            be a positive integer or &quot;N/A&quot;.
+     * @param mount
+     *            - the &lt;code&gt;Mounted&lt;/code&gt; object of the equipment. This value
+     *            should be &lt;code&gt;null&lt;/code&gt; for a slot with system equipment.
+     * @param isHit
+     *            - a &lt;code&gt;boolean&lt;/code&gt; that identifies this slot as having
+     *            taken a hit.
+     * @param isDestroyed
+     *            - a &lt;code&gt;boolean&lt;/code&gt; that identifies the equipment as
+     *            having been destroyed. Note that a single slot in a multi-slot
+     *            piece of equipment can be destroyed but not hit; it is still
+     *            available to absorb additional critical hits.
+     * @return a &lt;code&gt;String&lt;/code&gt; describing the slot.
+     */
+    private static String formatSlot(String index, Mounted mount,
+            boolean isHit, boolean isDestroyed, boolean isRepairable,
+            boolean isMissing, int indentLvl) {
+<span class="nc" id="L89">        StringBuffer output = new StringBuffer();</span>
+
+<span class="nc" id="L91">        output.append(&quot;         &lt;slot index=\&quot;&quot;);</span>
+<span class="nc" id="L92">        output.append(index);</span>
+<span class="nc" id="L93">        output.append(&quot;\&quot; type=\&quot;&quot;);</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if (mount == null) {</span>
+<span class="nc" id="L95">            output.append(&quot;System&quot;);</span>
+        } else {
+<span class="nc" id="L97">            output.append(mount.getType().getInternalName());</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">            if (mount.isRearMounted()) {</span>
+<span class="nc" id="L99">                output.append(&quot;\&quot; isRear=\&quot;true&quot;);</span>
+            }
+<span class="nc bnc" id="L101" title="All 2 branches missed.">            if (mount.isMechTurretMounted()) {</span>
+<span class="nc" id="L102">                output.append(&quot;\&quot; isTurreted=\&quot;true&quot;);</span>
+            }
+<span class="nc bnc" id="L104" title="All 2 branches missed.">            if (mount.getType() instanceof AmmoType) {</span>
+<span class="nc" id="L105">                output.append(&quot;\&quot; shots=\&quot;&quot;);</span>
+<span class="nc" id="L106">                output.append(String.valueOf(mount.getBaseShotsLeft()));</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">                if (mount.getEntity().usesWeaponBays() </span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">                        || mount.getEntity() instanceof Dropship) {</span>
+<span class="nc" id="L109">                    output.append(&quot;\&quot; capacity=\&quot;&quot;)</span>
+<span class="nc" id="L110">                        .append(String.valueOf(mount.getSize()));</span>
+                }
+            }
+<span class="nc bnc" id="L113" title="All 2 branches missed.">            if ((mount.getType() instanceof WeaponType)</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">                    &amp;&amp; (mount.getType()).hasFlag(WeaponType.F_ONESHOT)) {</span>
+<span class="nc" id="L115">                output.append(&quot;\&quot; munition=\&quot;&quot;);</span>
+<span class="nc" id="L116">                output.append(mount.getLinked().getType().getInternalName());</span>
+            }
+<span class="nc bnc" id="L118" title="All 2 branches missed.">            if (mount.getEntity().isSupportVehicle()</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">                    &amp;&amp; (mount.getType() instanceof InfantryWeapon)) {</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">                for (Mounted ammo = mount.getLinked(); ammo != null; ammo = ammo.getLinked()) {</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">                    if (((AmmoType) ammo.getType()).getMunitionType() == AmmoType.M_INFERNO) {</span>
+<span class="nc" id="L122">                        output.append(&quot;\&quot; inferno=\&quot;&quot;).append(ammo.getBaseShotsLeft())</span>
+<span class="nc" id="L123">                            .append(&quot;:&quot;).append(ammo.getOriginalShots());</span>
+                    } else {
+<span class="nc" id="L125">                        output.append(&quot;\&quot; standard=\&quot;&quot;).append(ammo.getBaseShotsLeft())</span>
+<span class="nc" id="L126">                                .append(&quot;:&quot;).append(ammo.getOriginalShots());</span>
+                    }
+                }
+            }
+<span class="nc bnc" id="L130" title="All 2 branches missed.">            if (mount.isRapidfire()) {</span>
+<span class="nc" id="L131">                output.append(&quot;\&quot; rfmg=\&quot;true&quot;);</span>
+            }
+<span class="nc bnc" id="L133" title="All 2 branches missed.">            if (mount.countQuirks() &gt; 0) {</span>
+<span class="nc" id="L134">                output.append(&quot;\&quot; quirks=\&quot;&quot;);</span>
+<span class="nc" id="L135">                output.append(String.valueOf(mount.getQuirkList(&quot;::&quot;)));</span>
+            }
+<span class="nc bnc" id="L137" title="All 2 branches missed.">            if(mount.isAnyMissingTroopers()) {</span>
+<span class="nc" id="L138">                output.append(&quot;\&quot; trooperMiss=\&quot;&quot;);</span>
+<span class="nc" id="L139">                output.append(String.valueOf(mount.getMissingTrooperString()));</span>
+            }
+        }
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (isHit) {</span>
+<span class="nc" id="L143">            output.append(&quot;\&quot; isHit=\&quot;&quot;);</span>
+<span class="nc" id="L144">            output.append(String.valueOf(isHit));</span>
+        }
+<span class="nc bnc" id="L146" title="All 6 branches missed.">        if (!isRepairable &amp;&amp; (isHit || isDestroyed)) {</span>
+<span class="nc" id="L147">            output.append(&quot;\&quot; isRepairable=\&quot;&quot;);</span>
+<span class="nc" id="L148">            output.append(String.valueOf(isRepairable));</span>
+        }
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (isMissing) {</span>
+<span class="nc" id="L151">            output.append(&quot;\&quot; isMissing=\&quot;&quot;);</span>
+<span class="nc" id="L152">            output.append(String.valueOf(isMissing));</span>
+        }
+<span class="nc" id="L154">        output.append(&quot;\&quot; isDestroyed=\&quot;&quot;);</span>
+<span class="nc" id="L155">        output.append(String.valueOf(isDestroyed));</span>
+<span class="nc" id="L156">        output.append(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L157">        output.append(CommonConstants.NL);</span>
+
+        // Return a String.
+<span class="nc" id="L160">        return output.toString();</span>
+    }
+
+    /**
+     * Helper function to indent based on an indent level
+     * @param level
+     * @return
+     */
+    public static String indentStr(int level) {
+<span class="nc" id="L169">        String retVal = &quot;&quot;;</span>
+
+<span class="nc bnc" id="L171" title="All 2 branches missed.">        for (int x=0; x&lt;level; x++)</span>
+<span class="nc" id="L172">            retVal += &quot;\t&quot;;</span>
+
+<span class="nc" id="L174">        return retVal;</span>
+    }
+
+    /**
+     * Helper function that generates a string identifying the state of the
+     * locations for an entity.
+     *
+     * @param entity
+     *            - the &lt;code&gt;Entity&lt;/code&gt; whose location state is needed
+     */
+    public static String getLocString(Entity entity, int indentLvl) {
+<span class="nc" id="L185">        boolean isMech = entity instanceof Mech;</span>
+<span class="nc bnc" id="L186" title="All 4 branches missed.">        boolean isNonSmallCraftAero = (entity instanceof Aero) &amp;&amp; !(entity instanceof SmallCraft);</span>
+<span class="nc" id="L187">        boolean haveSlot = false;</span>
+<span class="nc" id="L188">        StringBuffer output = new StringBuffer();</span>
+<span class="nc" id="L189">        StringBuffer thisLoc = new StringBuffer();</span>
+<span class="nc" id="L190">        boolean isDestroyed = false;</span>
+
+        // Walk through the locations for the entity,
+        // and only record damage and ammo.
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        for (int loc = 0; loc &lt; entity.locations(); loc++) {</span>
+            // Aero.LOC_WINGS and Aero.LOC_FUSELAGE are not &quot;real&quot;
+            // locations for the purpose of being destroyed or blown off,
+            // but they may contain equipment which should be used below.
+<span class="nc bnc" id="L198" title="All 4 branches missed.">            boolean isPseudoLocation = isNonSmallCraftAero &amp;&amp; (loc &gt;= Aero.LOC_WINGS);</span>
+
+            // if the location is blown off, remove it so we can get the real
+            // values
+<span class="nc" id="L202">            boolean blownOff = entity.isLocationBlownOff(loc);</span>
+
+            // Record destroyed locations.
+<span class="nc bnc" id="L205" title="All 6 branches missed.">            if (!(entity instanceof Aero)</span>
+                    &amp;&amp; !((entity instanceof Infantry) &amp;&amp; !(entity instanceof BattleArmor))
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                    &amp;&amp; (entity.getOInternal(loc) != IArmorState.ARMOR_NA)</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">                    &amp;&amp; (entity.getInternalForReal(loc) &lt;= 0)) {</span>
+<span class="nc" id="L209">                isDestroyed = true;</span>
+            }
+
+            //exact zeroes for BA should not be treated as destroyed as MHQ uses this to signify
+            //suits without pilots
+<span class="nc bnc" id="L214" title="All 4 branches missed.">            if(entity instanceof BattleArmor &amp;&amp; entity.getInternalForReal(loc) &gt;= 0) {</span>
+<span class="nc" id="L215">                isDestroyed = false;</span>
+            }
+
+<span class="nc bnc" id="L218" title="All 2 branches missed.">            if (isPseudoLocation) {</span>
+<span class="nc" id="L219">                isDestroyed = false;</span>
+<span class="nc" id="L220">                blownOff = false;</span>
+            }
+
+            // Record damage to armor and internal structure.
+            // Destroyed locations have lost all their armor and IS.
+<span class="nc bnc" id="L225" title="All 4 branches missed.">            if (!isDestroyed &amp;&amp; !isPseudoLocation) {</span>
+                int currentArmor;
+<span class="nc bnc" id="L227" title="All 2 branches missed.">                if (entity instanceof BattleArmor){</span>
+<span class="nc" id="L228">                    currentArmor = entity.getArmor(loc);</span>
+                } else {
+<span class="nc" id="L230">                    currentArmor = entity.getArmorForReal(loc);</span>
+                }
+<span class="nc bnc" id="L232" title="All 2 branches missed.">                if (entity.getOArmor(loc) != currentArmor) {</span>
+<span class="nc" id="L233">                    thisLoc.append(indentStr(indentLvl+1) + &quot;&lt;armor points=\&quot;&quot;);</span>
+<span class="nc" id="L234">                    thisLoc.append(EntityListFile.formatArmor(entity</span>
+<span class="nc" id="L235">                            .getArmorForReal(loc)));</span>
+<span class="nc" id="L236">                    thisLoc.append(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L237">                    thisLoc.append(CommonConstants.NL);</span>
+                }
+<span class="nc bnc" id="L239" title="All 2 branches missed.">                if (entity.getOInternal(loc) != entity.getInternalForReal(loc)) {</span>
+<span class="nc" id="L240">                    thisLoc.append(indentStr(indentLvl+1) + &quot;&lt;armor points=\&quot;&quot;);</span>
+<span class="nc" id="L241">                    thisLoc.append(EntityListFile.formatArmor(entity</span>
+<span class="nc" id="L242">                            .getInternalForReal(loc)));</span>
+<span class="nc" id="L243">                    thisLoc.append(&quot;\&quot; type=\&quot;Internal\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L244">                    thisLoc.append(CommonConstants.NL);</span>
+                }
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                if (entity.hasRearArmor(loc)</span>
+<span class="nc" id="L247">                        &amp;&amp; (entity.getOArmor(loc, true) != entity</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">                                .getArmorForReal(loc, true))) {</span>
+<span class="nc" id="L249">                    thisLoc.append(indentStr(indentLvl+1) + &quot;&lt;armor points=\&quot;&quot;);</span>
+<span class="nc" id="L250">                    thisLoc.append(EntityListFile.formatArmor(entity</span>
+<span class="nc" id="L251">                            .getArmorForReal(loc, true)));</span>
+<span class="nc" id="L252">                    thisLoc.append(&quot;\&quot; type=\&quot;Rear\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L253">                    thisLoc.append(CommonConstants.NL);</span>
+                }
+<span class="nc bnc" id="L255" title="All 2 branches missed.">                if (entity.getLocationStatus(loc) == ILocationExposureStatus.BREACHED) {</span>
+<span class="nc" id="L256">                    thisLoc.append(indentStr(indentLvl+1) + &quot;&lt;breached/&gt;&quot;);</span>
+<span class="nc" id="L257">                    thisLoc.append(CommonConstants.NL);</span>
+                }
+<span class="nc bnc" id="L259" title="All 2 branches missed.">                if (blownOff) {</span>
+<span class="nc" id="L260">                    thisLoc.append(indentStr(indentLvl+1) + &quot;&lt;blownOff/&gt;&quot;);</span>
+<span class="nc" id="L261">                    thisLoc.append(CommonConstants.NL);</span>
+                }
+            }
+
+            // 
+<span class="nc" id="L266">            Map&lt;Mounted, Integer&gt; baySlotMap = new HashMap&lt;&gt;();</span>
+            
+            // Walk through the slots in this location.
+<span class="nc bnc" id="L269" title="All 2 branches missed.">            for (int loop = 0; loop &lt; entity.getNumberOfCriticals(loc); loop++) {</span>
+
+                // Get this slot.
+<span class="nc" id="L272">                CriticalSlot slot = entity.getCritical(loc, loop);</span>
+
+                // Did we get a slot?
+<span class="nc bnc" id="L275" title="All 2 branches missed.">                if (null == slot) {</span>
+
+                    // Nope. Record missing actuators on Biped Mechs.
+<span class="nc bnc" id="L278" title="All 2 branches missed.">                    if (isMech</span>
+<span class="nc bnc" id="L279" title="All 10 branches missed.">                            &amp;&amp; !entity.entityIsQuad()</span>
+                            &amp;&amp; ((loc == Mech.LOC_RARM) || (loc == Mech.LOC_LARM))
+                            &amp;&amp; ((loop == 2) || (loop == 3))) {
+<span class="nc" id="L282">                        thisLoc.append(indentStr(indentLvl+1) + &quot;&lt;slot index=\&quot;&quot;);</span>
+<span class="nc" id="L283">                        thisLoc.append(String.valueOf(loop + 1));</span>
+<span class="nc" id="L284">                        thisLoc.append(&quot;\&quot; type=\&quot;Empty\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L285">                        thisLoc.append(CommonConstants.NL);</span>
+<span class="nc" id="L286">                        haveSlot = true;</span>
+                    }
+
+                } else {
+
+                    // Yup. If the equipment isn't a system, get it.
+<span class="nc" id="L292">                    Mounted mount = null;</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">                    if (CriticalSlot.TYPE_EQUIPMENT == slot.getType()) {</span>
+<span class="nc" id="L294">                        mount = slot.getMount();</span>
+                    }
+                    
+                    // if the &quot;equipment&quot; is a weapons bay, 
+                    // then let's make a note of it
+<span class="nc bnc" id="L299" title="All 6 branches missed.">                    if (entity.usesWeaponBays() &amp;&amp; mount != null &amp;&amp; mount.getBayAmmo().size() &gt; 0) {</span>
+<span class="nc" id="L300">                        baySlotMap.put(slot.getMount(), loop + 1);</span>
+                    }
+
+<span class="nc bnc" id="L303" title="All 4 branches missed.">                    if (mount != null &amp;&amp; mount.getType() instanceof BombType) {</span>
+<span class="nc" id="L304">                        continue;</span>
+                    }
+
+                    // Destroyed locations on Mechs that contain slots
+                    // that are missing but not hit or destroyed must
+                    // have been blown off.
+<span class="nc bnc" id="L310" title="All 6 branches missed.">                    if (!isDestroyed &amp;&amp; isMech &amp;&amp; slot.isMissing()</span>
+<span class="nc bnc" id="L311" title="All 4 branches missed.">                            &amp;&amp; !slot.isHit() &amp;&amp; !slot.isDestroyed()) {</span>
+<span class="nc" id="L312">                        thisLoc.append(EntityListFile.formatSlot(</span>
+<span class="nc" id="L313">                                String.valueOf(loop + 1), mount, slot.isHit(),</span>
+<span class="nc" id="L314">                                slot.isDestroyed(), slot.isRepairable(),</span>
+<span class="nc" id="L315">                                slot.isMissing(), indentLvl+1));</span>
+<span class="nc" id="L316">                        haveSlot = true;</span>
+                    }
+
+                    // Record damaged slots in undestroyed locations.
+<span class="nc bnc" id="L320" title="All 4 branches missed.">                    else if (!isDestroyed &amp;&amp; slot.isDamaged()) {</span>
+<span class="nc" id="L321">                        thisLoc.append(EntityListFile.formatSlot(</span>
+<span class="nc" id="L322">                                String.valueOf(loop + 1), mount, slot.isHit(),</span>
+<span class="nc" id="L323">                                slot.isDestroyed(), slot.isRepairable(),</span>
+<span class="nc" id="L324">                                slot.isMissing(), indentLvl+1));</span>
+<span class="nc" id="L325">                        haveSlot = true;</span>
+                    }
+
+                    // record any quirks
+<span class="nc bnc" id="L329" title="All 4 branches missed.">                    else if ((null != mount) &amp;&amp; (mount.countQuirks() &gt; 0)) {</span>
+<span class="nc" id="L330">                        thisLoc.append(EntityListFile.formatSlot(</span>
+<span class="nc" id="L331">                                String.valueOf(loop + 1), mount, slot.isHit(),</span>
+<span class="nc" id="L332">                                slot.isDestroyed(), slot.isRepairable(),</span>
+<span class="nc" id="L333">                                slot.isMissing(), indentLvl+1));</span>
+<span class="nc" id="L334">                        haveSlot = true;</span>
+                    }
+
+                    // Record Rapid Fire Machine Guns
+<span class="nc bnc" id="L338" title="All 4 branches missed.">                    else if ((mount != null) &amp;&amp; (mount.isRapidfire())) {</span>
+<span class="nc" id="L339">                        thisLoc.append(EntityListFile.formatSlot(</span>
+<span class="nc" id="L340">                                String.valueOf(loop + 1), mount, slot.isHit(),</span>
+<span class="nc" id="L341">                                slot.isDestroyed(), slot.isRepairable(),</span>
+<span class="nc" id="L342">                                slot.isMissing(), indentLvl+1));</span>
+<span class="nc" id="L343">                        haveSlot = true;</span>
+                    }
+
+                    // Record ammunition slots in undestroyed locations.
+                    // N.B. the slot CAN\&quot;T be damaged at this point.
+<span class="nc bnc" id="L348" title="All 4 branches missed.">                    else if (!isDestroyed &amp;&amp; (mount != null)</span>
+<span class="nc bnc" id="L349" title="All 2 branches missed.">                            &amp;&amp; (mount.getType() instanceof AmmoType)) {</span>
+                        
+<span class="nc" id="L351">                        String bayIndex = &quot;&quot;;</span>
+                        
+<span class="nc bnc" id="L353" title="All 2 branches missed.">                        for(Mounted bay : baySlotMap.keySet()) {</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">                            if(bay.ammoInBay(entity.getEquipmentNum(mount))) {</span>
+<span class="nc" id="L355">                                bayIndex = String.valueOf(baySlotMap.get(bay));</span>
+                            }
+<span class="nc" id="L357">                        }</span>
+                        
+<span class="nc" id="L359">                        thisLoc.append(indentStr(indentLvl+1) + &quot;&lt;slot index=\&quot;&quot;);</span>
+<span class="nc" id="L360">                        thisLoc.append(String.valueOf(loop + 1));</span>
+<span class="nc" id="L361">                        thisLoc.append(&quot;\&quot; type=\&quot;&quot;);</span>
+<span class="nc" id="L362">                        thisLoc.append(mount.getType().getInternalName());</span>
+<span class="nc" id="L363">                        thisLoc.append(&quot;\&quot; shots=\&quot;&quot;);</span>
+<span class="nc" id="L364">                        thisLoc.append(String.valueOf(mount.getBaseShotsLeft()));</span>
+                        
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                        if(!bayIndex.isEmpty()) {</span>
+<span class="nc" id="L367">                            thisLoc.append(&quot;\&quot; weaponsBayIndex=\&quot;&quot;);</span>
+<span class="nc" id="L368">                            thisLoc.append(bayIndex);</span>
+                        }
+                        
+<span class="nc" id="L371">                        thisLoc.append(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L372">                        thisLoc.append(CommonConstants.NL);</span>
+<span class="nc" id="L373">                        haveSlot = true;</span>
+<span class="nc" id="L374">                    }</span>
+
+                    // Record the munition type of oneshot launchers
+                    // and the ammunition shots of small SV weapons
+<span class="nc bnc" id="L378" title="All 4 branches missed.">                    else if (!isDestroyed &amp;&amp; (mount != null)</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">                            &amp;&amp; (mount.getType() instanceof WeaponType)</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">                            &amp;&amp; ((mount.getType()).hasFlag(WeaponType.F_ONESHOT)</span>
+<span class="nc bnc" id="L381" title="All 4 branches missed.">                            || (entity.isSupportVehicle() &amp;&amp; (mount.getType() instanceof InfantryWeapon)))) {</span>
+<span class="nc" id="L382">                        thisLoc.append(EntityListFile.formatSlot(</span>
+<span class="nc" id="L383">                                String.valueOf(loop + 1), mount, slot.isHit(),</span>
+<span class="nc" id="L384">                                slot.isDestroyed(), slot.isRepairable(),</span>
+<span class="nc" id="L385">                                slot.isMissing(), indentLvl+1));</span>
+<span class="nc" id="L386">                        haveSlot = true;</span>
+                    }
+
+                    // Record trooper missing equipment on BattleArmor
+<span class="nc bnc" id="L390" title="All 4 branches missed.">                    else if(null != mount &amp;&amp; mount.isAnyMissingTroopers()) {</span>
+<span class="nc" id="L391">                        thisLoc.append(EntityListFile.formatSlot(</span>
+<span class="nc" id="L392">                                String.valueOf(loop + 1), mount, slot.isHit(),</span>
+<span class="nc" id="L393">                                slot.isDestroyed(), slot.isRepairable(),</span>
+<span class="nc" id="L394">                                slot.isMissing(), indentLvl+1));</span>
+<span class="nc" id="L395">                        haveSlot = true;</span>
+                    }
+
+                } // End have-slot
+
+            } // Check the next slot in this location
+
+            // Stabilizer hit
+<span class="nc bnc" id="L403" title="All 2 branches missed.">            if ((entity instanceof Tank)</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">                    &amp;&amp; ((Tank) entity).isStabiliserHit(loc)) {</span>
+<span class="nc" id="L405">                thisLoc.append(indentStr(indentLvl+1) + &quot;&lt;stabilizer isHit=\&quot;true\&quot;/&gt;\n&quot;);</span>
+            }
+
+            // Protomechs only have system slots,
+            // so we have to handle the ammo specially.
+<span class="nc bnc" id="L410" title="All 2 branches missed.">            if (entity instanceof Protomech) {</span>
+<span class="nc bnc" id="L411" title="All 2 branches missed.">                for (Mounted mount : entity.getAmmo()) {</span>
+                    // Is this ammo in the current location?
+<span class="nc bnc" id="L413" title="All 2 branches missed.">                    if (mount.getLocation() == loc) {</span>
+<span class="nc" id="L414">                        thisLoc.append(EntityListFile.formatSlot(&quot;N/A&quot;, mount,</span>
+<span class="nc" id="L415">                        		mount.isHit(), mount.isDestroyed(), mount.isRepairable(), mount.isMissing(), indentLvl+1));</span>
+<span class="nc" id="L416">                        haveSlot = true;</span>
+                    }
+<span class="nc" id="L418">                } // Check the next ammo.</span>
+                // TODO: handle slotless equipment.
+            } // End is-proto
+
+            // GunEmplacements don't have system slots,
+            // so we have to handle the ammo specially.
+<span class="nc bnc" id="L424" title="All 2 branches missed.">            if (entity instanceof GunEmplacement) {</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">                for (Mounted mount : entity.getEquipment()) {</span>
+                    // Is this ammo in the current location?
+<span class="nc bnc" id="L427" title="All 2 branches missed.">                    if (mount.getLocation() == loc) {</span>
+<span class="nc" id="L428">                        thisLoc.append(EntityListFile.formatSlot(&quot;N/A&quot;, mount,</span>
+<span class="nc" id="L429">                                mount.isHit(), mount.isDestroyed(), mount.isRepairable(), mount.isMissing(), indentLvl+1));</span>
+<span class="nc" id="L430">                        haveSlot = true;</span>
+                    }
+<span class="nc" id="L432">                } // Check the next ammo.</span>
+                // TODO: handle slotless equipment.
+            } // End is-ge
+
+            // Did we record information for this location?
+<span class="nc bnc" id="L437" title="All 2 branches missed.">            if (thisLoc.length() &gt; 0) {</span>
+
+                // Add this location to the output string.
+<span class="nc" id="L440">                output.append(indentStr(indentLvl) + &quot;&lt;location index=\&quot;&quot;);</span>
+<span class="nc" id="L441">                output.append(String.valueOf(loc));</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">                if (isDestroyed) {</span>
+<span class="nc" id="L443">                    output.append(&quot;\&quot; isDestroyed=\&quot;true&quot;);</span>
+                }
+<span class="nc" id="L445">                output.append(&quot;\&quot;&gt; &quot;);</span>
+<span class="nc" id="L446">                output.append(entity.getLocationName(loc));</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">                if (blownOff) {</span>
+<span class="nc" id="L448">                    output.append(&quot; has been blown off.&quot;);</span>
+                }
+<span class="nc" id="L450">                output.append(CommonConstants.NL);</span>
+<span class="nc" id="L451">                output.append(thisLoc.toString());</span>
+<span class="nc" id="L452">                output.append(indentStr(indentLvl) + &quot;&lt;/location&gt;&quot;);</span>
+<span class="nc" id="L453">                output.append(CommonConstants.NL);</span>
+
+                // Reset the location buffer.
+<span class="nc" id="L456">                thisLoc = new StringBuffer();</span>
+<span class="nc" id="L457">                blownOff = false;</span>
+
+            } // End output-location
+
+            // If the location is completely destroyed, log it anyway.
+<span class="nc bnc" id="L462" title="All 2 branches missed.">            else if (isDestroyed) {</span>
+
+                // Add this location to the output string.
+<span class="nc" id="L465">                output.append(indentStr(indentLvl) + &quot;&lt;location index=\&quot;&quot;);</span>
+<span class="nc" id="L466">                output.append(String.valueOf(loc));</span>
+<span class="nc" id="L467">                output.append(&quot;\&quot; isDestroyed=\&quot;true\&quot; /&gt; &quot;);</span>
+<span class="nc" id="L468">                output.append(entity.getLocationName(loc));</span>
+<span class="nc" id="L469">                output.append(CommonConstants.NL);</span>
+
+            } // End location-completely-destroyed
+
+            // Reset the &quot;location is destroyed&quot; flag.
+<span class="nc" id="L474">            isDestroyed = false;</span>
+
+        } // Handle the next location
+
+        // If there is no location string, return a null.
+<span class="nc bnc" id="L479" title="All 2 branches missed.">        if (output.length() == 0) {</span>
+<span class="nc" id="L480">            return null;</span>
+        }
+
+        // If we recorded a slot, remind the player that slots start at 1.
+<span class="nc bnc" id="L484" title="All 2 branches missed.">        if (haveSlot) {</span>
+<span class="nc" id="L485">            output.insert(0, CommonConstants.NL);</span>
+<span class="nc" id="L486">            output.insert(0,</span>
+                    &quot;      The first slot in a location is at index=\&quot;1\&quot;.&quot;);
+
+            // Tanks do wierd things with ammo.
+<span class="nc bnc" id="L490" title="All 2 branches missed.">            if (entity instanceof Tank) {</span>
+<span class="nc" id="L491">                output.insert(0, CommonConstants.NL);</span>
+<span class="nc" id="L492">                output.insert(0,</span>
+                        &quot;      Tanks have special needs, so don't delete any ammo slots.&quot;);
+            }
+        }
+
+        // Convert the output into a String and return it.
+<span class="nc" id="L498">        return output.toString();</span>
+
+    } // End private static String getLocString( Entity )
+
+    /**
+     * Save the &lt;code&gt;Entity&lt;/code&gt;s in the list to the given file.
+     * &lt;p/&gt;
+     * The &lt;code&gt;Entity&lt;/code&gt;s\&quot; pilots, damage, ammo loads, ammo usage, and
+     * other campaign-related information are retained but data specific to a
+     * particular game is ignored.
+     *
+     * @param file
+     *            - The current contents of the file will be discarded and all
+     *            &lt;code&gt;Entity&lt;/code&gt;s in the list will be written to the file.
+     * @param list
+     *            - a &lt;code&gt;Vector&lt;/code&gt; containing &lt;code&gt;Entity&lt;/code&gt;s to be
+     *            stored in a file.
+     * @throws IOException
+     *             is thrown on any error.
+     */
+    public static void saveTo(File file, ArrayList&lt;Entity&gt; list)
+            throws IOException {
+
+        // Open up the file. Produce UTF-8 output.
+<span class="nc" id="L522">        Writer output = new BufferedWriter(new OutputStreamWriter(</span>
+                new FileOutputStream(file), &quot;UTF-8&quot;));
+
+        // Output the doctype and header stuff.
+<span class="nc" id="L526">        output.write(&quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;UTF-8\&quot;?&gt;&quot;);</span>
+<span class="nc" id="L527">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L528">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L529">        output.write(&quot;&lt;unit version=\&quot;&quot; + MegaMek.VERSION + &quot;\&quot; &gt;&quot;);</span>
+<span class="nc" id="L530">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L531">        output.write(CommonConstants.NL);</span>
+
+        try {
+<span class="nc" id="L534">            writeEntityList(output, list);</span>
+<span class="nc" id="L535">        } catch(IOException exception) {</span>
+<span class="nc" id="L536">            throw exception;</span>
+<span class="nc" id="L537">        }</span>
+
+
+        // Finish writing.
+<span class="nc" id="L541">        output.write(&quot;&lt;/unit&gt;&quot;);</span>
+<span class="nc" id="L542">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L543">        output.flush();</span>
+<span class="nc" id="L544">        output.close();</span>
+<span class="nc" id="L545">    }</span>
+
+    /**
+     * Save the entities from the game of client to the given file. This will create
+     * separate sections for salvage, devastated, and ejected crews in addition
+     * to the surviving units
+     * &lt;p/&gt;
+     * The &lt;code&gt;Entity&lt;/code&gt;s\&quot; pilots, damage, ammo loads, ammo usage, and
+     * other campaign-related information are retained but data specific to a
+     * particular game is ignored.
+     *
+     * @param file
+     *            - The current contents of the file will be discarded and all
+     *            &lt;code&gt;Entity&lt;/code&gt;s in the list will be written to the file.
+     * @param client
+     *            - a &lt;code&gt;Client&lt;/code&gt; containing the &lt;code&gt;Game&lt;/code&gt;s to be used
+     * @throws IOException
+     *             is thrown on any error.
+     */
+    public static void saveTo(File file, Client client)
+            throws IOException {
+
+<span class="nc bnc" id="L567" title="All 2 branches missed.">        if(null == client.getGame()) {</span>
+<span class="nc" id="L568">            return;</span>
+        }
+
+        // Open up the file. Produce UTF-8 output.
+<span class="nc" id="L572">        Writer output = new BufferedWriter(new OutputStreamWriter(</span>
+                new FileOutputStream(file), &quot;UTF-8&quot;));
+
+        // Output the doctype and header stuff.
+<span class="nc" id="L576">        output.write(&quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;UTF-8\&quot;?&gt;&quot;);</span>
+<span class="nc" id="L577">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L578">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L579">        output.write(&quot;&lt;record version=\&quot;&quot; + MegaMek.VERSION + &quot;\&quot; &gt;&quot;);</span>
+        
+<span class="nc" id="L581">        ArrayList&lt;Entity&gt; living = new ArrayList&lt;Entity&gt;();</span>
+<span class="nc" id="L582">        ArrayList&lt;Entity&gt; allied = new ArrayList&lt;Entity&gt;();</span>
+<span class="nc" id="L583">        ArrayList&lt;Entity&gt; salvage = new ArrayList&lt;Entity&gt;();</span>
+<span class="nc" id="L584">        ArrayList&lt;Entity&gt; retreated = new ArrayList&lt;Entity&gt;();</span>
+<span class="nc" id="L585">        ArrayList&lt;Entity&gt; devastated = new ArrayList&lt;Entity&gt;();</span>
+<span class="nc" id="L586">        Hashtable&lt;String, String&gt; kills = new Hashtable&lt;String, String&gt;();        </span>
+
+        //Sort entities into player's, enemies, and allies and add to survivors, salvage, and allies.
+<span class="nc" id="L589">        Iterator&lt;Entity&gt; entities = client.getGame().getEntities();</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">        while(entities.hasNext()) {</span>
+<span class="nc" id="L591">            Entity entity = entities.next();</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">            if (entity.getOwner().getId() == client.getLocalPlayer().getId()) {</span>
+<span class="nc" id="L593">            	living.add(entity);</span>
+<span class="nc bnc" id="L594" title="All 2 branches missed.">            } else if(entity.getOwner().isEnemyOf(client.getLocalPlayer())) {</span>
+<span class="nc bnc" id="L595" title="All 2 branches missed.">                 if(!entity.canEscape()) {</span>
+<span class="nc" id="L596">                     kills.put(entity.getDisplayName(), &quot;None&quot;);</span>
+                 }
+<span class="nc" id="L598">                 salvage.add(entity);</span>
+            } else {
+<span class="nc" id="L600">            	allied.add(entity);</span>
+            }
+<span class="nc" id="L602">        }</span>
+
+        // Be sure to include all units that have retreated in survivor and allied sections
+<span class="nc bnc" id="L605" title="All 2 branches missed.">        for (Enumeration&lt;Entity&gt; iter = client.getGame().getRetreatedEntities(); iter.hasMoreElements(); ) {</span>
+<span class="nc" id="L606">            Entity ent = iter.nextElement();</span>
+<span class="nc bnc" id="L607" title="All 2 branches missed.">            if (ent.getOwner().getId() == client.getLocalPlayer().getId()) {</span>
+<span class="nc" id="L608">            	living.add(ent);</span>
+<span class="nc bnc" id="L609" title="All 2 branches missed.">            } else if (!ent.getOwner().isEnemyOf(client.getLocalPlayer())) {</span>
+<span class="nc" id="L610">            	allied.add(ent);</span>
+            } else {
+<span class="nc" id="L612">            	retreated.add(ent);</span>
+            }
+<span class="nc" id="L614">        }</span>
+
+        //salvageable stuff
+<span class="nc" id="L617">        Enumeration&lt;Entity&gt; graveyard = client.getGame().getGraveyardEntities();</span>
+<span class="nc bnc" id="L618" title="All 2 branches missed.">        while (graveyard.hasMoreElements()) {</span>
+<span class="nc" id="L619">            Entity entity = graveyard.nextElement();</span>
+<span class="nc bnc" id="L620" title="All 2 branches missed.">            if(entity.getOwner().isEnemyOf(client.getLocalPlayer())) {</span>
+<span class="nc" id="L621">                Entity killer = client.getGame().getEntityFromAllSources(entity.getKillerId());</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">                if(null != killer</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">                        &amp;&amp; !killer.getExternalIdAsString().equals(&quot;-1&quot;)) {</span>
+<span class="nc" id="L624">                    kills.put(entity.getDisplayName(), killer.getExternalIdAsString());</span>
+                } else {
+<span class="nc" id="L626">                    kills.put(entity.getDisplayName(), &quot;None&quot;);</span>
+                }
+            }
+<span class="nc" id="L629">            salvage.add(entity);</span>
+<span class="nc" id="L630">        }</span>
+
+        //devastated units
+<span class="nc" id="L633">        Enumeration&lt;Entity&gt; devastation = client.getGame().getDevastatedEntities();</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">        while (devastation.hasMoreElements()) {</span>
+<span class="nc" id="L635">            Entity entity = devastation.nextElement();</span>
+<span class="nc bnc" id="L636" title="All 2 branches missed.">            if(entity.getOwner().isEnemyOf(client.getLocalPlayer())) {</span>
+<span class="nc" id="L637">                Entity killer = client.getGame().getEntityFromAllSources(entity.getKillerId());</span>
+<span class="nc bnc" id="L638" title="All 2 branches missed.">                if(null != killer</span>
+<span class="nc bnc" id="L639" title="All 2 branches missed.">                        &amp;&amp; !killer.getExternalIdAsString().equals(&quot;-1&quot;)) {</span>
+<span class="nc" id="L640">                    kills.put(entity.getDisplayName(), killer.getExternalIdAsString());</span>
+                } else {
+<span class="nc" id="L642">                    kills.put(entity.getDisplayName(), &quot;None&quot;);</span>
+                }
+            }
+<span class="nc" id="L645">            devastated.add(entity);</span>
+<span class="nc" id="L646">        }</span>
+        
+<span class="nc bnc" id="L648" title="All 2 branches missed.">        if(!living.isEmpty()) {</span>
+<span class="nc" id="L649">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L650">            output.write(indentStr(1) + &quot;&lt;survivors&gt;&quot;);</span>
+<span class="nc" id="L651">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L652">            output.write(CommonConstants.NL);</span>
+            try {
+<span class="nc" id="L654">                writeEntityList(output, living);</span>
+<span class="nc" id="L655">            } catch(IOException exception) {</span>
+<span class="nc" id="L656">                throw exception;</span>
+<span class="nc" id="L657">            }</span>
+            // Finish writing.
+<span class="nc" id="L659">            output.write(indentStr(1) + &quot;&lt;/survivors&gt;&quot;);</span>
+<span class="nc" id="L660">            output.write(CommonConstants.NL);</span>
+        }
+
+<span class="nc bnc" id="L663" title="All 2 branches missed.">        if(!allied.isEmpty()) {</span>
+<span class="nc" id="L664">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L665">            output.write(indentStr(1) + &quot;&lt;allies&gt;&quot;);</span>
+<span class="nc" id="L666">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L667">            output.write(CommonConstants.NL);</span>
+            try {
+<span class="nc" id="L669">                writeEntityList(output, allied);</span>
+<span class="nc" id="L670">            } catch(IOException exception) {</span>
+<span class="nc" id="L671">                throw exception;</span>
+<span class="nc" id="L672">            }</span>
+            // Finish writing.
+<span class="nc" id="L674">            output.write(indentStr(1) + &quot;&lt;/allies&gt;&quot;);</span>
+<span class="nc" id="L675">            output.write(CommonConstants.NL);</span>
+        }
+
+<span class="nc bnc" id="L678" title="All 2 branches missed.">        if(!salvage.isEmpty()) {</span>
+<span class="nc" id="L679">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L680">            output.write(indentStr(1) + &quot;&lt;salvage&gt;&quot;);</span>
+<span class="nc" id="L681">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L682">            output.write(CommonConstants.NL);</span>
+            try {
+<span class="nc" id="L684">                writeEntityList(output, salvage);</span>
+<span class="nc" id="L685">            } catch(IOException exception) {</span>
+<span class="nc" id="L686">                throw exception;</span>
+<span class="nc" id="L687">            }</span>
+            // Finish writing.
+<span class="nc" id="L689">            output.write(indentStr(1) + &quot;&lt;/salvage&gt;&quot;);</span>
+<span class="nc" id="L690">            output.write(CommonConstants.NL);</span>
+        }
+
+<span class="nc bnc" id="L693" title="All 2 branches missed.">        if(!retreated.isEmpty()) {</span>
+<span class="nc" id="L694">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L695">            output.write(indentStr(1) + &quot;&lt;retreated&gt;&quot;);</span>
+<span class="nc" id="L696">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L697">            output.write(CommonConstants.NL);</span>
+            try {
+<span class="nc" id="L699">                writeEntityList(output, retreated);</span>
+<span class="nc" id="L700">            } catch(IOException exception) {</span>
+<span class="nc" id="L701">                throw exception;</span>
+<span class="nc" id="L702">            }</span>
+            // Finish writing.
+<span class="nc" id="L704">            output.write(indentStr(1) + &quot;&lt;/retreated&gt;&quot;);</span>
+<span class="nc" id="L705">            output.write(CommonConstants.NL);</span>
+        }
+
+<span class="nc bnc" id="L708" title="All 2 branches missed.">        if(!devastated.isEmpty()) {</span>
+<span class="nc" id="L709">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L710">            output.write(indentStr(1) + &quot;&lt;devastated&gt;&quot;);</span>
+<span class="nc" id="L711">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L712">            output.write(CommonConstants.NL);</span>
+            try {
+<span class="nc" id="L714">                writeEntityList(output, devastated);</span>
+<span class="nc" id="L715">            } catch(IOException exception) {</span>
+<span class="nc" id="L716">                throw exception;</span>
+<span class="nc" id="L717">            }</span>
+            // Finish writing.
+<span class="nc" id="L719">            output.write(indentStr(1) + &quot;&lt;/devastated&gt;&quot;);</span>
+<span class="nc" id="L720">            output.write(CommonConstants.NL);</span>
+        }
+
+<span class="nc bnc" id="L723" title="All 2 branches missed.">        if(!kills.isEmpty()) {</span>
+<span class="nc" id="L724">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L725">            output.write(indentStr(1) + &quot;&lt;kills&gt;&quot;);</span>
+<span class="nc" id="L726">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L727">            output.write(CommonConstants.NL);</span>
+            try {
+<span class="nc" id="L729">                writeKills(output, kills);</span>
+<span class="nc" id="L730">            } catch(IOException exception) {</span>
+<span class="nc" id="L731">                throw exception;</span>
+<span class="nc" id="L732">            }</span>
+             // Finish writing.
+<span class="nc" id="L734">            output.write(indentStr(1) + &quot;&lt;/kills&gt;&quot;);</span>
+<span class="nc" id="L735">            output.write(CommonConstants.NL);</span>
+        }
+
+        // Finish writing.
+<span class="nc" id="L739">        output.write(&quot;&lt;/record&gt;&quot;);</span>
+<span class="nc" id="L740">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L741">        output.flush();</span>
+<span class="nc" id="L742">        output.close();</span>
+<span class="nc" id="L743">    }</span>
+
+    private static void writeKills(Writer output, Hashtable&lt;String,String&gt; kills) throws IOException {
+<span class="nc" id="L746">        int indentLvl = 2;</span>
+<span class="nc bnc" id="L747" title="All 2 branches missed.">        for(String killed : kills.keySet()) {</span>
+<span class="nc" id="L748">            output.write(indentStr(indentLvl) + &quot;&lt;kill killed=\&quot;&quot;);</span>
+<span class="nc" id="L749">            output.write(killed.replaceAll(&quot;\&quot;&quot;, &quot;&amp;quot;&quot;));</span>
+<span class="nc" id="L750">            output.write(&quot;\&quot; killer=\&quot;&quot;);</span>
+<span class="nc" id="L751">            output.write(kills.get(killed));</span>
+<span class="nc" id="L752">            output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L753">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L754">        }</span>
+<span class="nc" id="L755">    }</span>
+
+    private static void writeEntityList(Writer output, ArrayList&lt;Entity&gt; list) throws IOException {
+        // Walk through the list of entities.
+<span class="nc" id="L759">        Iterator&lt;Entity&gt; items = list.iterator();</span>
+<span class="nc bnc" id="L760" title="All 2 branches missed.">        while (items.hasNext()) {</span>
+<span class="nc" id="L761">            final Entity entity = items.next();</span>
+
+<span class="nc bnc" id="L763" title="All 2 branches missed.">            if (entity instanceof FighterSquadron) {</span>
+<span class="nc" id="L764">                continue;</span>
+            }
+<span class="nc" id="L766">            int indentLvl = 2;</span>
+
+            // Start writing this entity to the file.
+<span class="nc" id="L769">            output.write(indentStr(indentLvl) + &quot;&lt;entity chassis=\&quot;&quot;);</span>
+<span class="nc" id="L770">            output.write(entity.getChassis().replaceAll(&quot;\&quot;&quot;, &quot;&amp;quot;&quot;));</span>
+<span class="nc" id="L771">            output.write(&quot;\&quot; model=\&quot;&quot;);</span>
+<span class="nc" id="L772">            output.write(entity.getModel().replaceAll(&quot;\&quot;&quot;, &quot;&amp;quot;&quot;));</span>
+<span class="nc" id="L773">            output.write(&quot;\&quot; type=\&quot;&quot;);</span>
+<span class="nc" id="L774">            output.write(entity.getMovementModeAsString());</span>
+<span class="nc" id="L775">            output.write(&quot;\&quot; commander=\&quot;&quot;);</span>
+<span class="nc" id="L776">            output.write(String.valueOf(entity.isCommander()));</span>
+<span class="nc" id="L777">            output.write(&quot;\&quot; offboard=\&quot;&quot;);</span>
+<span class="nc" id="L778">            output.write(String.valueOf(entity.isOffBoard()));</span>
+<span class="nc bnc" id="L779" title="All 2 branches missed.">            if (entity.isOffBoard()) {</span>
+<span class="nc" id="L780">                output.write(&quot;\&quot; offboard_distance=\&quot;&quot;);</span>
+<span class="nc" id="L781">                output.write(String.valueOf(entity.getOffBoardDistance()));</span>
+<span class="nc" id="L782">                output.write(&quot;\&quot; offboard_direction=\&quot;&quot;);</span>
+<span class="nc" id="L783">                output.write(String.valueOf(entity.getOffBoardDirection()</span>
+<span class="nc" id="L784">                        .getValue()));</span>
+            }
+<span class="nc" id="L786">            output.write(&quot;\&quot; hidden=\&quot;&quot;);</span>
+<span class="nc" id="L787">            output.write(String.valueOf(entity.isHidden()));</span>
+<span class="nc" id="L788">            output.write(&quot;\&quot; deployment=\&quot;&quot;);</span>
+<span class="nc" id="L789">            output.write(String.valueOf(entity.getDeployRound()));</span>
+<span class="nc" id="L790">            output.write(&quot;\&quot; deploymentZone=\&quot;&quot;);</span>
+<span class="nc" id="L791">            output.write(String.valueOf(entity.getStartingPos(false)));</span>
+<span class="nc" id="L792">            output.write(&quot;\&quot; neverDeployed=\&quot;&quot;);</span>
+<span class="nc" id="L793">            output.write(String.valueOf(entity.wasNeverDeployed()));</span>
+<span class="nc bnc" id="L794" title="All 2 branches missed.">            if (entity.isAero()) {</span>
+<span class="nc" id="L795">                output.write(&quot;\&quot; velocity=\&quot;&quot;);</span>
+<span class="nc" id="L796">                output.write(((IAero)entity).getCurrentVelocity() + &quot;&quot;);</span>
+<span class="nc" id="L797">                output.write(&quot;\&quot; altitude=\&quot;&quot;);</span>
+<span class="nc" id="L798">                output.write(entity.getAltitude() + &quot;&quot;);</span>
+            }
+<span class="nc bnc" id="L800" title="All 2 branches missed.">            if (!entity.getExternalIdAsString().equals(&quot;-1&quot;)) {</span>
+<span class="nc" id="L801">                output.write(&quot;\&quot; externalId=\&quot;&quot;);</span>
+<span class="nc" id="L802">                output.write(entity.getExternalIdAsString());</span>
+            }
+<span class="nc bnc" id="L804" title="All 2 branches missed.">            if (entity.countQuirks() &gt; 0) {</span>
+<span class="nc" id="L805">                output.write(&quot;\&quot; quirks=\&quot;&quot;);</span>
+<span class="nc" id="L806">                output.write(String.valueOf(entity.getQuirkList(&quot;::&quot;)));</span>
+            }
+<span class="nc bnc" id="L808" title="All 2 branches missed.">            if (entity.getC3Master() != null) {</span>
+<span class="nc" id="L809">                output.write(&quot;\&quot; c3MasterIs=\&quot;&quot;);</span>
+<span class="nc" id="L810">                output.write(entity.getGame()</span>
+<span class="nc" id="L811">                        .getEntity(entity.getC3Master().getId())</span>
+<span class="nc" id="L812">                        .getC3UUIDAsString());</span>
+            }
+<span class="nc bnc" id="L814" title="All 6 branches missed.">            if (entity.hasC3() || entity.hasC3i() || entity.hasNavalC3()) {</span>
+<span class="nc" id="L815">                output.write(&quot;\&quot; c3UUID=\&quot;&quot;);</span>
+<span class="nc" id="L816">                output.write(entity.getC3UUIDAsString());</span>
+            }
+<span class="nc bnc" id="L818" title="All 2 branches missed.">            if (null != entity.getCamoCategory()) {</span>
+<span class="nc" id="L819">                output.write(&quot;\&quot; camoCategory=\&quot;&quot;);</span>
+<span class="nc" id="L820">                output.write(entity.getCamoCategory());</span>
+            }
+<span class="nc bnc" id="L822" title="All 2 branches missed.">            if (null != entity.getCamoFileName()) {</span>
+<span class="nc" id="L823">                output.write(&quot;\&quot; camoFileName=\&quot;&quot;);</span>
+<span class="nc" id="L824">                output.write(entity.getCamoFileName());</span>
+            }
+<span class="nc bnc" id="L826" title="All 4 branches missed.">            if(entity instanceof MechWarrior &amp;&amp; !((MechWarrior)entity).getPickedUpByExternalIdAsString().equals(&quot;-1&quot;)) {</span>
+<span class="nc" id="L827">                output.write(&quot;\&quot; pickUpId=\&quot;&quot;);</span>
+<span class="nc" id="L828">                output.write(((MechWarrior)entity).getPickedUpByExternalIdAsString());</span>
+            }
+
+            // Save some values for conventional infantry
+<span class="nc bnc" id="L832" title="All 4 branches missed.">            if ((entity instanceof Infantry)</span>
+                    &amp;&amp; !(entity instanceof BattleArmor)) {
+<span class="nc" id="L834">                Infantry inf = (Infantry) entity;</span>
+<span class="nc bnc" id="L835" title="All 2 branches missed.">                if (inf.getArmorDamageDivisor() != 1) {</span>
+<span class="nc" id="L836">                    output.write(&quot;\&quot; &quot; + MULParser.ARMOR_DIVISOR + &quot;=\&quot;&quot;);</span>
+<span class="nc" id="L837">                    output.write(inf.getArmorDamageDivisor() + &quot;&quot;);</span>
+                }
+<span class="nc bnc" id="L839" title="All 2 branches missed.">                if (inf.isArmorEncumbering()) {</span>
+<span class="nc" id="L840">                    output.write(&quot;\&quot; &quot; + MULParser.ARMOR_ENC + &quot;=\&quot;1&quot;);</span>
+                }
+<span class="nc bnc" id="L842" title="All 2 branches missed.">                if (inf.hasSpaceSuit()) {</span>
+<span class="nc" id="L843">                    output.write(&quot;\&quot; &quot; + MULParser.SPACESUIT + &quot;=\&quot;1&quot;);</span>
+                }
+<span class="nc bnc" id="L845" title="All 2 branches missed.">                if (inf.hasDEST()) {</span>
+<span class="nc" id="L846">                    output.write(&quot;\&quot; &quot; + MULParser.DEST_ARMOR + &quot;=\&quot;1&quot;);</span>
+                }
+<span class="nc bnc" id="L848" title="All 2 branches missed.">                if (inf.hasSneakCamo()) {</span>
+<span class="nc" id="L849">                    output.write(&quot;\&quot; &quot; + MULParser.SNEAK_CAMO + &quot;=\&quot;1&quot;);</span>
+                }
+<span class="nc bnc" id="L851" title="All 2 branches missed.">                if (inf.hasSneakIR()) {</span>
+<span class="nc" id="L852">                    output.write(&quot;\&quot; &quot; + MULParser.SNEAK_IR + &quot;=\&quot;1&quot;);</span>
+                }
+<span class="nc bnc" id="L854" title="All 2 branches missed.">                if (inf.hasSneakECM()) {</span>
+<span class="nc" id="L855">                    output.write(&quot;\&quot; &quot; + MULParser.SNEAK_ECM + &quot;=\&quot;1&quot;);</span>
+                }
+<span class="nc bnc" id="L857" title="All 2 branches missed.">                if (inf.getSpecializations() &gt; 0) {</span>
+<span class="nc" id="L858">                    output.write(&quot;\&quot; &quot; + MULParser.INF_SPEC + &quot;=\&quot;&quot;);</span>
+<span class="nc" id="L859">                    output.write(inf.getSpecializations() + &quot;&quot;);</span>
+                }
+            }
+<span class="nc" id="L862">            output.write(&quot;\&quot;&gt;&quot;);</span>
+<span class="nc" id="L863">            output.write(CommonConstants.NL);</span>
+
+            // Add the crew this entity.
+<span class="nc" id="L866">            final Crew crew = entity.getCrew();</span>
+<span class="nc bnc" id="L867" title="All 2 branches missed.">            if (crew.getSlotCount() &gt; 1) {</span>
+<span class="nc" id="L868">                output.write(indentStr(indentLvl+1) + &quot;&lt;crew crewType=\&quot;&quot;);</span>
+<span class="nc" id="L869">                output.write(crew.getCrewType().toString().toLowerCase());</span>
+<span class="nc" id="L870">                writeCrewAttributes(output, entity, crew);</span>
+<span class="nc" id="L871">                output.write(&quot;\&quot;&gt;&quot;);</span>
+<span class="nc" id="L872">                output.write(CommonConstants.NL);</span>
+                
+<span class="nc bnc" id="L874" title="All 2 branches missed.">                for (int pos = 0; pos &lt; crew.getSlotCount(); pos++) {</span>
+<span class="nc bnc" id="L875" title="All 2 branches missed.">                    if (crew.isMissing(pos)) {</span>
+<span class="nc" id="L876">                        continue;</span>
+                    }
+<span class="nc" id="L878">                    output.write(indentStr(indentLvl+2) + &quot;&lt;crewMember slot=\&quot;&quot; + pos);</span>
+<span class="nc" id="L879">                    writePilotAttributes(output, entity, crew, pos);</span>
+<span class="nc" id="L880">                    output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L881">                    output.write(CommonConstants.NL);</span>
+                }
+<span class="nc" id="L883">                output.write(indentStr(indentLvl+1) + &quot;&lt;/crew&gt;&quot;);</span>
+            } else {
+<span class="nc" id="L885">                output.write(indentStr(indentLvl+1) + &quot;&lt;pilot size=\&quot;&quot;);</span>
+<span class="nc" id="L886">                output.write(String.valueOf(crew.getSize()));</span>
+<span class="nc" id="L887">                writePilotAttributes(output, entity, crew, 0);</span>
+<span class="nc" id="L888">                writeCrewAttributes(output, entity, crew);</span>
+<span class="nc" id="L889">                output.write(&quot;\&quot;/&gt;&quot;);</span>
+            }
+<span class="nc" id="L891">            output.write(CommonConstants.NL);</span>
+
+            // If it's a tank, add a movement tag.
+<span class="nc bnc" id="L894" title="All 2 branches missed.">            if (entity instanceof Tank) {</span>
+<span class="nc" id="L895">                Tank tentity = (Tank) entity;</span>
+<span class="nc" id="L896">                output.write(EntityListFile.getMovementString(tentity));</span>
+<span class="nc bnc" id="L897" title="All 2 branches missed.">                if (tentity.isTurretLocked(tentity.getLocTurret())) {</span>
+<span class="nc" id="L898">                    output.write(EntityListFile.getTurretLockedString(tentity));</span>
+                }
+                // crits
+<span class="nc" id="L901">                output.write(EntityListFile.getTankCritString(tentity));</span>
+            }
+            
+            // Aero stuff that also applies to LAMs
+<span class="nc bnc" id="L905" title="All 2 branches missed.">            if (entity instanceof IAero) {</span>
+<span class="nc" id="L906">                IAero a = (IAero)entity;</span>
+                // fuel
+<span class="nc" id="L908">                output.write(indentStr(indentLvl+1) + &quot;&lt;fuel left=\&quot;&quot;);</span>
+<span class="nc" id="L909">                output.write(String.valueOf(a.getCurrentFuel()));</span>
+<span class="nc" id="L910">                output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L911">                output.write(CommonConstants.NL);</span>
+            }
+
+                // Write the Bomb Data if needed
+<span class="nc bnc" id="L915" title="All 2 branches missed.">            if (entity.isBomber()) {</span>
+<span class="nc" id="L916">                IBomber b = (IBomber)entity;</span>
+<span class="nc" id="L917">                int[] bombChoices = new int[BombType.B_NUM];</span>
+<span class="nc" id="L918">                bombChoices = b.getBombChoices();</span>
+<span class="nc bnc" id="L919" title="All 2 branches missed.">                if (bombChoices.length &gt; 0) {</span>
+<span class="nc" id="L920">                    output.write(indentStr(indentLvl+1) + &quot;&lt;bombs&gt;&quot;);</span>
+<span class="nc" id="L921">                    output.write(CommonConstants.NL);</span>
+<span class="nc bnc" id="L922" title="All 2 branches missed.">                    for (int type = 0; type &lt; BombType.B_NUM; type++) {</span>
+<span class="nc" id="L923">                        String typeName = BombType.getBombInternalName(type);</span>
+<span class="nc bnc" id="L924" title="All 2 branches missed.">                        if (bombChoices[type] &gt; 0) {</span>
+<span class="nc" id="L925">                            output.write(indentStr(indentLvl+2) + &quot;&lt;bomb type=\&quot;&quot;);</span>
+<span class="nc" id="L926">                            output.write(typeName);</span>
+<span class="nc" id="L927">                            output.write(&quot;\&quot; load=\&quot;&quot;);</span>
+<span class="nc" id="L928">                            output.write(String.valueOf(bombChoices[type]));</span>
+<span class="nc" id="L929">                            output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L930">                            output.write(CommonConstants.NL);</span>
+                        }
+                    }
+<span class="nc bnc" id="L933" title="All 2 branches missed.">                    for (Mounted m : b.getBombs()) {</span>
+<span class="nc bnc" id="L934" title="All 2 branches missed.">                        if (!(m.getType() instanceof BombType)) {</span>
+<span class="nc" id="L935">                            continue;</span>
+                        }
+<span class="nc" id="L937">                        output.write(indentStr(indentLvl+2) + &quot;&lt;bomb type=\&quot;&quot;);</span>
+<span class="nc" id="L938">                        output.write(m.getType().getShortName());</span>
+<span class="nc" id="L939">                        output.write(&quot;\&quot; load=\&quot;&quot;);</span>
+<span class="nc" id="L940">                        output.write(String.valueOf(m.getBaseShotsLeft()));</span>
+<span class="nc" id="L941">                        output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L942">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L943">                    }</span>
+<span class="nc" id="L944">                    output.write(indentStr(indentLvl+1) + &quot;&lt;/bombs&gt;&quot;);</span>
+<span class="nc" id="L945">                    output.write(CommonConstants.NL);</span>
+                }
+            }
+
+            // aero stuff that does not apply to LAMs
+<span class="nc bnc" id="L950" title="All 2 branches missed.">            if (entity instanceof Aero) {</span>
+<span class="nc" id="L951">                Aero a = (Aero) entity;</span>
+
+                // SI
+<span class="nc" id="L954">                output.write(indentStr(indentLvl+1) + &quot;&lt;structural integrity=\&quot;&quot;);</span>
+<span class="nc" id="L955">                output.write(String.valueOf(a.getSI()));</span>
+<span class="nc" id="L956">                output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L957">                output.write(CommonConstants.NL);</span>
+
+                // heat sinks
+<span class="nc" id="L960">                output.write(indentStr(indentLvl+1) + &quot;&lt;heat sinks=\&quot;&quot;);</span>
+<span class="nc" id="L961">                output.write(String.valueOf(a.getHeatSinks()));</span>
+<span class="nc" id="L962">                output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L963">                output.write(CommonConstants.NL);</span>
+
+                //large craft bays and doors. 
+<span class="nc bnc" id="L966" title="All 4 branches missed.">                if ((a instanceof Dropship) || (a instanceof Jumpship)) {</span>
+<span class="nc bnc" id="L967" title="All 2 branches missed.">                	for (Bay nextbay : a.getTransportBays()) {</span>
+<span class="nc" id="L968">                		output.write(indentStr(indentLvl+1) + &quot;&lt;transportBay index=\&quot;&quot; + nextbay.getBayNumber() + &quot;\&quot;&gt;&quot;);</span>
+<span class="nc" id="L969">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L970">                        output.write(indentStr(indentLvl + 2) + &quot;&lt;damage&gt;&quot; + nextbay.getBayDamage() + &quot;&lt;/damage&gt;&quot;);</span>
+<span class="nc" id="L971">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L972">                        output.write(indentStr(indentLvl + 2) + &quot;&lt;doors&gt;&quot; + nextbay.getCurrentDoors() + &quot;&lt;/doors&gt;&quot;);</span>
+<span class="nc" id="L973">                        output.write(CommonConstants.NL);</span>
+<span class="nc bnc" id="L974" title="All 2 branches missed.">                        for (Entity e : nextbay.getLoadedUnits()) {</span>
+<span class="nc" id="L975">                            output.write(indentStr(indentLvl + 2) + &quot;&lt;loaded&gt;&quot; + e.getId() + &quot;&lt;/loaded&gt;&quot;);</span>
+<span class="nc" id="L976">                            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L977">                        }</span>
+<span class="nc" id="L978">                		output.write(indentStr(indentLvl+1) + &quot;&lt;/transportBay&gt;&quot;);</span>
+<span class="nc" id="L979">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L980">                	}</span>
+                }
+
+                // jumpship, warship and space station stuff
+<span class="nc bnc" id="L984" title="All 2 branches missed.">                if (a instanceof Jumpship) {</span>
+<span class="nc" id="L985">                    Jumpship j = (Jumpship) a;</span>
+
+                    // kf integrity
+<span class="nc" id="L988">                    output.write(indentStr(indentLvl+1) + &quot;&lt;KF integrity=\&quot;&quot;);</span>
+<span class="nc" id="L989">                    output.write(String.valueOf(j.getKFIntegrity()));</span>
+<span class="nc" id="L990">                    output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L991">                    output.write(CommonConstants.NL);</span>
+
+                    // kf sail integrity
+<span class="nc" id="L994">                    output.write(indentStr(indentLvl+1) + &quot;&lt;sail integrity=\&quot;&quot;);</span>
+<span class="nc" id="L995">                    output.write(String.valueOf(j.getSailIntegrity()));</span>
+<span class="nc" id="L996">                    output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L997">                    output.write(CommonConstants.NL);</span>
+                }
+
+                // general aero crits
+<span class="nc" id="L1001">                output.write(EntityListFile.getAeroCritString(a));</span>
+                
+                // dropship only crits
+<span class="nc bnc" id="L1004" title="All 2 branches missed.">                if (a instanceof Dropship) {</span>
+<span class="nc" id="L1005">                	Dropship d = (Dropship) a;</span>
+<span class="nc" id="L1006">                	output.write(EntityListFile.getDropshipCritString(d));</span>
+                }
+
+            }
+
+<span class="nc bnc" id="L1011" title="All 2 branches missed.">            if (entity instanceof BattleArmor) {</span>
+<span class="nc" id="L1012">                BattleArmor ba = (BattleArmor) entity;</span>
+<span class="nc bnc" id="L1013" title="All 2 branches missed.">                for (Mounted m : entity.getEquipment()){</span>
+<span class="nc bnc" id="L1014" title="All 2 branches missed.">                    if (m.getType().hasFlag(MiscType.F_BA_MEA)){</span>
+<span class="nc" id="L1015">                        Mounted manipulator = null;</span>
+<span class="nc bnc" id="L1016" title="All 2 branches missed.">                        if (m.getBaMountLoc() == BattleArmor.MOUNT_LOC_LARM){</span>
+<span class="nc" id="L1017">                            manipulator = ba.getLeftManipulator();</span>
+<span class="nc bnc" id="L1018" title="All 2 branches missed.">                        } else if (m.getBaMountLoc()</span>
+                                == BattleArmor.MOUNT_LOC_RARM){
+<span class="nc" id="L1020">                            manipulator = ba.getRightManipulator();</span>
+                        }
+<span class="nc" id="L1022">                        output.write(indentStr(indentLvl+1) + &quot;&lt;modularEquipmentMount &quot;);</span>
+<span class="nc" id="L1023">                        output.write(&quot;baMEAMountLoc=\&quot;&quot; + m.getBaMountLoc()</span>
+                                + &quot;\&quot; &quot;);
+<span class="nc bnc" id="L1025" title="All 2 branches missed.">                        if (manipulator != null){</span>
+<span class="nc" id="L1026">                            output.write(&quot;baMEATypeName=\&quot;&quot;</span>
+<span class="nc" id="L1027">                                    + manipulator.getType().getInternalName()</span>
+                                    + &quot;\&quot; &quot;);
+                        }
+<span class="nc" id="L1030">                        output.write(&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1031">                        output.write(CommonConstants.NL);</span>
+<span class="nc bnc" id="L1032" title="All 2 branches missed.">                    } else if (m.getType().hasFlag(MiscType.F_AP_MOUNT)){</span>
+<span class="nc" id="L1033">                        int mountIdx = entity.getEquipmentNum(m);</span>
+<span class="nc" id="L1034">                        EquipmentType apType = null;</span>
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">                        if (m.getLinked() != null){</span>
+<span class="nc" id="L1036">                            apType = m.getLinked().getType();</span>
+                        }
+<span class="nc" id="L1038">                        output.write(indentStr(indentLvl+1) + &quot;&lt;antiPersonnelMount &quot;);</span>
+<span class="nc" id="L1039">                        output.write(&quot;baAPMMountNum=\&quot;&quot; + mountIdx + &quot;\&quot; &quot;);</span>
+<span class="nc bnc" id="L1040" title="All 2 branches missed.">                        if (apType != null){</span>
+<span class="nc" id="L1041">                            output.write(&quot;baAPMTypeName=\&quot;&quot;</span>
+<span class="nc" id="L1042">                                    + apType.getInternalName() + &quot;\&quot; &quot;);</span>
+                        }
+<span class="nc" id="L1044">                        output.write(&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1045">                        output.write(CommonConstants.NL);</span>
+                    }
+<span class="nc" id="L1047">                }</span>
+            }
+
+            // Add the locations of this entity (if any are needed).
+<span class="nc" id="L1051">            String loc = EntityListFile.getLocString(entity, indentLvl+1);</span>
+<span class="nc bnc" id="L1052" title="All 2 branches missed.">            if (null != loc) {</span>
+<span class="nc" id="L1053">                output.write(loc);</span>
+            }
+
+            // Write the C3i Data if needed
+<span class="nc bnc" id="L1057" title="All 2 branches missed.">            if (entity.hasC3i()) {</span>
+<span class="nc" id="L1058">                output.write(indentStr(indentLvl+1) + &quot;&lt;c3iset&gt;&quot;);</span>
+<span class="nc" id="L1059">                output.write(CommonConstants.NL);</span>
+<span class="nc" id="L1060">                Iterator&lt;Entity&gt; c3iList = list.iterator();</span>
+<span class="nc bnc" id="L1061" title="All 2 branches missed.">                while (c3iList.hasNext()) {</span>
+<span class="nc" id="L1062">                    final Entity C3iEntity = c3iList.next();</span>
+
+<span class="nc bnc" id="L1064" title="All 2 branches missed.">                    if (C3iEntity.onSameC3NetworkAs(entity, true)) {</span>
+<span class="nc" id="L1065">                        output.write(indentStr(indentLvl+1) + &quot;&lt;c3i_link link=\&quot;&quot;);</span>
+<span class="nc" id="L1066">                        output.write(C3iEntity.getC3UUIDAsString());</span>
+<span class="nc" id="L1067">                        output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1068">                        output.write(CommonConstants.NL);</span>
+                    }
+<span class="nc" id="L1070">                }</span>
+<span class="nc" id="L1071">                output.write(indentStr(indentLvl+1) + &quot;&lt;/c3iset&gt;&quot;);</span>
+<span class="nc" id="L1072">                output.write(CommonConstants.NL);</span>
+            }
+            
+            // Write the NC3 Data if needed
+<span class="nc bnc" id="L1076" title="All 2 branches missed.">            if (entity.hasNavalC3()) {</span>
+<span class="nc" id="L1077">                output.write(indentStr(indentLvl+1) + &quot;&lt;NC3set&gt;&quot;);</span>
+<span class="nc" id="L1078">                output.write(CommonConstants.NL);</span>
+<span class="nc" id="L1079">                Iterator&lt;Entity&gt; NC3List = list.iterator();</span>
+<span class="nc bnc" id="L1080" title="All 2 branches missed.">                while (NC3List.hasNext()) {</span>
+<span class="nc" id="L1081">                    final Entity NC3Entity = NC3List.next();</span>
+
+<span class="nc bnc" id="L1083" title="All 2 branches missed.">                    if (NC3Entity.onSameC3NetworkAs(entity, true)) {</span>
+<span class="nc" id="L1084">                        output.write(indentStr(indentLvl+1) + &quot;&lt;NC3_link link=\&quot;&quot;);</span>
+<span class="nc" id="L1085">                        output.write(NC3Entity.getC3UUIDAsString());</span>
+<span class="nc" id="L1086">                        output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1087">                        output.write(CommonConstants.NL);</span>
+                    }
+<span class="nc" id="L1089">                }</span>
+<span class="nc" id="L1090">                output.write(indentStr(indentLvl+1) + &quot;&lt;/NC3set&gt;&quot;);</span>
+<span class="nc" id="L1091">                output.write(CommonConstants.NL);</span>
+            }
+            
+            //Record if this entity is transported by another
+<span class="nc bnc" id="L1095" title="All 2 branches missed.">            if (entity.getTransportId() != Entity.NONE) {</span>
+<span class="nc" id="L1096">                output.write(indentStr(indentLvl+1) + &quot;&lt;Conveyance id=\&quot;&quot; + entity.getTransportId());</span>
+<span class="nc" id="L1097">                output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1098">                output.write(CommonConstants.NL);</span>
+            }
+            //Record this unit's id number
+<span class="nc bnc" id="L1101" title="All 2 branches missed.">            if (entity.getId() != Entity.NONE) {</span>
+<span class="nc" id="L1102">                output.write(indentStr(indentLvl+1) + &quot;&lt;Game id=\&quot;&quot; + entity.getId());</span>
+<span class="nc" id="L1103">                output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1104">                output.write(CommonConstants.NL);</span>
+            }
+            
+            //Write the escape craft data, if needed
+<span class="nc bnc" id="L1108" title="All 2 branches missed.">            if (entity instanceof Aero) {</span>
+<span class="nc" id="L1109">                Aero aero = (Aero) entity;</span>
+<span class="nc bnc" id="L1110" title="All 2 branches missed.">                if (!aero.getEscapeCraft().isEmpty()) {</span>
+<span class="nc bnc" id="L1111" title="All 2 branches missed.">                    for (String id : aero.getEscapeCraft()) {</span>
+<span class="nc" id="L1112">                        output.write(indentStr(indentLvl+1) + &quot;&lt;EscapeCraft id=\&quot;&quot; + id);</span>
+<span class="nc" id="L1113">                        output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1114">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L1115">                    }</span>
+                }
+            }
+<span class="nc bnc" id="L1118" title="All 2 branches missed.">            if (entity instanceof SmallCraft) {</span>
+<span class="nc" id="L1119">                SmallCraft craft = (SmallCraft) entity;</span>
+<span class="nc bnc" id="L1120" title="All 2 branches missed.">                if (!craft.getNOtherCrew().isEmpty()) {</span>
+<span class="nc" id="L1121">                    output.write(indentStr(indentLvl+1) + &quot;&lt;EscapedCrew&gt;&quot;);</span>
+<span class="nc" id="L1122">                    output.write(CommonConstants.NL);</span>
+<span class="nc bnc" id="L1123" title="All 2 branches missed.">                    for (String id : craft.getNOtherCrew().keySet()) {</span>
+<span class="nc" id="L1124">                        output.write(indentStr(indentLvl+2) + &quot;&lt;ship id=\&quot;&quot; + id + &quot;\&quot;&quot; + &quot; number=\&quot;&quot; + craft.getNOtherCrew().get(id));</span>
+<span class="nc" id="L1125">                        output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1126">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L1127">                    }</span>
+<span class="nc" id="L1128">                    output.write(indentStr(indentLvl+1) + &quot;&lt;/EscapedCrew&gt;&quot;);</span>
+<span class="nc" id="L1129">                    output.write(CommonConstants.NL);</span>
+                }
+<span class="nc bnc" id="L1131" title="All 2 branches missed.">                if (!craft.getPassengers().isEmpty()) {</span>
+<span class="nc" id="L1132">                    output.write(indentStr(indentLvl+1) + &quot;&lt;EscapedPassengers&gt;&quot;);</span>
+<span class="nc" id="L1133">                    output.write(CommonConstants.NL);</span>
+<span class="nc bnc" id="L1134" title="All 2 branches missed.">                    for (String id : craft.getPassengers().keySet()) {</span>
+<span class="nc" id="L1135">                        output.write(indentStr(indentLvl+2) + &quot;&lt;ship id=\&quot;&quot; + id + &quot;\&quot;&quot; + &quot; number=\&quot;&quot; + craft.getPassengers().get(id));</span>
+<span class="nc" id="L1136">                        output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1137">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L1138">                    }</span>
+<span class="nc" id="L1139">                    output.write(indentStr(indentLvl+1) + &quot;&lt;/EscapedPassengers&gt;&quot;);</span>
+<span class="nc" id="L1140">                    output.write(CommonConstants.NL);</span>
+                }
+<span class="nc bnc" id="L1142" title="All 2 branches missed.">                if (craft instanceof EscapePods) {                   </span>
+                    //Original number of pods, used to set the strength of a group of pods
+<span class="nc" id="L1144">                    output.write(indentStr(indentLvl+1) + &quot;&lt;ONumberOfPods number=\&quot;&quot; + craft.get0SI());</span>
+<span class="nc" id="L1145">                    output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1146">                    output.write(CommonConstants.NL);</span>
+                }
+                
+<span class="nc bnc" id="L1149" title="All 2 branches missed.">            } else if (entity instanceof EjectedCrew) {</span>
+<span class="nc" id="L1150">                EjectedCrew eCrew = (EjectedCrew) entity;</span>
+<span class="nc bnc" id="L1151" title="All 2 branches missed.">                if (!eCrew.getNOtherCrew().isEmpty()) {</span>
+<span class="nc" id="L1152">                    output.write(indentStr(indentLvl+1) + &quot;&lt;EscapedCrew&gt;&quot;);</span>
+<span class="nc" id="L1153">                    output.write(CommonConstants.NL);</span>
+<span class="nc bnc" id="L1154" title="All 2 branches missed.">                    for (String id : eCrew.getNOtherCrew().keySet()) {</span>
+<span class="nc" id="L1155">                        output.write(indentStr(indentLvl+2) + &quot;&lt;ship id=\&quot;&quot; + id + &quot;\&quot;&quot; + &quot; number=\&quot;&quot; + eCrew.getNOtherCrew().get(id));</span>
+<span class="nc" id="L1156">                        output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1157">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L1158">                    }</span>
+<span class="nc" id="L1159">                    output.write(indentStr(indentLvl+1) + &quot;&lt;/EscapedCrew&gt;&quot;);</span>
+<span class="nc" id="L1160">                    output.write(CommonConstants.NL);</span>
+                }
+<span class="nc bnc" id="L1162" title="All 2 branches missed.">                if (!eCrew.getPassengers().isEmpty()) {</span>
+<span class="nc" id="L1163">                    output.write(indentStr(indentLvl+1) + &quot;&lt;EscapedPassengers&gt;&quot;);</span>
+<span class="nc" id="L1164">                    output.write(CommonConstants.NL);</span>
+<span class="nc bnc" id="L1165" title="All 2 branches missed.">                    for (String id : eCrew.getPassengers().keySet()) {</span>
+<span class="nc" id="L1166">                        output.write(indentStr(indentLvl+2) + &quot;&lt;ship id=\&quot;&quot; + id + &quot;\&quot;&quot; + &quot; number=\&quot;&quot; + eCrew.getPassengers().get(id));</span>
+<span class="nc" id="L1167">                        output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1168">                        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L1169">                    }</span>
+<span class="nc" id="L1170">                    output.write(indentStr(indentLvl+1) + &quot;&lt;/EscapedPassengers&gt;&quot;);</span>
+<span class="nc" id="L1171">                    output.write(CommonConstants.NL);</span>
+                }
+                //Original number of men
+<span class="nc" id="L1174">                output.write(indentStr(indentLvl+1) + &quot;&lt;ONumberOfMen number=\&quot;&quot; + eCrew.getOInternal(Infantry.LOC_INFANTRY));</span>
+<span class="nc" id="L1175">                output.write(&quot;\&quot;/&gt;&quot;);</span>
+<span class="nc" id="L1176">                output.write(CommonConstants.NL);</span>
+            }
+
+            // Finish writing this entity to the file.
+<span class="nc" id="L1180">            output.write(indentStr(indentLvl) + &quot;&lt;/entity&gt;&quot;);</span>
+<span class="nc" id="L1181">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L1182">            output.write(CommonConstants.NL);</span>
+
+<span class="nc" id="L1184">        } // Handle the next entity</span>
+<span class="nc" id="L1185">    }</span>
+
+    /**
+     * Writes crew attributes that are tracked individually for multi-crew cockpits.
+     * 
+     * @param output
+     * @param entity
+     * @param crew
+     * @param pos
+     * @throws IOException
+     */
+    private static void writePilotAttributes(Writer output, final Entity entity, final Crew crew, int pos)
+            throws IOException {
+<span class="nc" id="L1198">        output.write(&quot;\&quot; name=\&quot;&quot; + crew.getName(pos).replaceAll(&quot;\&quot;&quot;, &quot;&amp;quot;&quot;));</span>
+<span class="nc" id="L1199">        output.write(&quot;\&quot; nick=\&quot;&quot;);</span>
+<span class="nc" id="L1200">        output.write(crew.getNickname(pos).replaceAll(&quot;\&quot;&quot;, &quot;&amp;quot;&quot;));</span>
+<span class="nc" id="L1201">        output.write(&quot;\&quot; gender=\&quot;&quot; + crew.getGender(pos).name());</span>
+
+<span class="nc bnc" id="L1203" title="All 2 branches missed.">        if ((null != entity.getGame())</span>
+<span class="nc" id="L1204">                &amp;&amp; entity.getGame().getOptions()</span>
+<span class="nc bnc" id="L1205" title="All 2 branches missed.">                        .booleanOption(OptionsConstants.RPG_RPG_GUNNERY)) {</span>
+<span class="nc" id="L1206">            output.write(&quot;\&quot; gunneryL=\&quot;&quot;);</span>
+<span class="nc" id="L1207">            output.write(String.valueOf(crew.getGunneryL(pos)));</span>
+<span class="nc" id="L1208">            output.write(&quot;\&quot; gunneryM=\&quot;&quot;);</span>
+<span class="nc" id="L1209">            output.write(String.valueOf(crew.getGunneryM(pos)));</span>
+<span class="nc" id="L1210">            output.write(&quot;\&quot; gunneryB=\&quot;&quot;);</span>
+<span class="nc" id="L1211">            output.write(String.valueOf(crew.getGunneryB(pos)));</span>
+        } else {
+<span class="nc" id="L1213">            output.write(&quot;\&quot; gunnery=\&quot;&quot;);</span>
+<span class="nc" id="L1214">            output.write(String.valueOf(crew.getGunnery(pos)));</span>
+        }
+<span class="nc" id="L1216">        output.write(&quot;\&quot; piloting=\&quot;&quot;);</span>
+<span class="nc" id="L1217">        output.write(String.valueOf(crew.getPiloting(pos)));</span>
+<span class="nc bnc" id="L1218" title="All 2 branches missed.">        if (crew instanceof LAMPilot) {</span>
+<span class="nc" id="L1219">            writeLAMAeroAttributes(output, (LAMPilot)crew,</span>
+<span class="nc bnc" id="L1220" title="All 2 branches missed.">                    (null != entity.getGame())</span>
+<span class="nc" id="L1221">                    &amp;&amp; entity.getGame().getOptions()</span>
+<span class="nc bnc" id="L1222" title="All 2 branches missed.">                    .booleanOption(OptionsConstants.RPG_RPG_GUNNERY));</span>
+        }
+<span class="nc bnc" id="L1224" title="All 2 branches missed.">        if ((null != entity.getGame())</span>
+<span class="nc" id="L1225">                &amp;&amp; entity.getGame().getOptions()</span>
+<span class="nc bnc" id="L1226" title="All 2 branches missed.">                        .booleanOption(OptionsConstants.RPG_ARTILLERY_SKILL)) {</span>
+<span class="nc" id="L1227">            output.write(&quot;\&quot; artillery=\&quot;&quot;);</span>
+<span class="nc" id="L1228">            output.write(String.valueOf(crew.getArtillery(pos)));</span>
+        }
+<span class="nc bnc" id="L1230" title="All 2 branches missed.">        if (crew.getToughness(0) != 0) {</span>
+<span class="nc" id="L1231">            output.write(&quot;\&quot; toughness=\&quot;&quot;);</span>
+<span class="nc" id="L1232">            output.write(String.valueOf(crew.getToughness(pos)));</span>
+        }
+<span class="nc bnc" id="L1234" title="All 4 branches missed.">        if (crew.isDead(pos) || (crew.getHits(pos) &gt; 5)) {</span>
+<span class="nc" id="L1235">            output.write(&quot;\&quot; hits=\&quot;Dead&quot;);</span>
+<span class="nc bnc" id="L1236" title="All 2 branches missed.">        } else if (crew.getHits(pos) &gt; 0) {</span>
+<span class="nc" id="L1237">            output.write(&quot;\&quot; hits=\&quot;&quot;);</span>
+<span class="nc" id="L1238">            output.write(String.valueOf(crew.getHits(pos)));</span>
+        }
+<span class="nc bnc" id="L1240" title="All 2 branches missed.">        if (!AbstractIcon.ROOT_CATEGORY.equals(crew.getPortraitCategory(pos))) {</span>
+<span class="nc" id="L1241">            output.write(&quot;\&quot; portraitCat=\&quot;&quot;);</span>
+<span class="nc" id="L1242">            output.write(crew.getPortraitCategory(pos));</span>
+        }
+<span class="nc bnc" id="L1244" title="All 2 branches missed.">        if (!AbstractIcon.DEFAULT_ICON_FILENAME.equals(crew.getPortraitFileName(pos))) {</span>
+<span class="nc" id="L1245">            output.write(&quot;\&quot; portraitFile=\&quot;&quot;);</span>
+<span class="nc" id="L1246">            output.write(crew.getPortraitFileName(pos));</span>
+        }
+<span class="nc bnc" id="L1248" title="All 2 branches missed.">        if (!crew.getExternalIdAsString(pos).equals(&quot;-1&quot;)) {</span>
+<span class="nc" id="L1249">            output.write(&quot;\&quot; externalId=\&quot;&quot;);</span>
+<span class="nc" id="L1250">            output.write(crew.getExternalIdAsString(pos));</span>
+        }
+
+<span class="nc" id="L1253">        String extraData = crew.writeExtraDataToXMLLine(pos);</span>
+<span class="nc bnc" id="L1254" title="All 2 branches missed.">        if (!StringUtil.isNullOrEmpty(extraData)) {</span>
+<span class="nc" id="L1255">            output.write(extraData);</span>
+        }
+<span class="nc" id="L1257">    }</span>
+    
+    private static void writeLAMAeroAttributes(Writer output, final LAMPilot crew,
+            boolean rpgGunnery) throws IOException {
+<span class="nc" id="L1261">        output.write(&quot;\&quot; gunneryAero=\&quot;&quot;);</span>
+<span class="nc" id="L1262">        output.write(String.valueOf(crew.getGunneryAero()));</span>
+<span class="nc bnc" id="L1263" title="All 2 branches missed.">        if (rpgGunnery) {</span>
+<span class="nc" id="L1264">            output.write(&quot;\&quot; gunneryAeroL=\&quot;&quot;);</span>
+<span class="nc" id="L1265">            output.write(String.valueOf(crew.getGunneryAeroL()));</span>
+<span class="nc" id="L1266">            output.write(&quot;\&quot; gunneryAeroM=\&quot;&quot;);</span>
+<span class="nc" id="L1267">            output.write(String.valueOf(crew.getGunneryAeroM()));</span>
+<span class="nc" id="L1268">            output.write(&quot;\&quot; gunneryAeroB=\&quot;&quot;);</span>
+<span class="nc" id="L1269">            output.write(String.valueOf(crew.getGunneryAeroB()));</span>
+        }
+<span class="nc" id="L1271">        output.write(&quot;\&quot; pilotingAero=\&quot;&quot;);</span>
+<span class="nc" id="L1272">        output.write(String.valueOf(crew.getPilotingAero()));</span>
+<span class="nc" id="L1273">    }    </span>
+
+    /**
+     * Writes attributes that pertain to entire crew.
+     * 
+     * @param output
+     * @param entity
+     * @param crew
+     * @throws IOException
+     */
+    private static void writeCrewAttributes(Writer output, final Entity entity, final Crew crew) throws IOException {
+<span class="nc bnc" id="L1284" title="All 2 branches missed.">        if (crew.getInitBonus() != 0) {</span>
+<span class="nc" id="L1285">            output.write(&quot;\&quot; initB=\&quot;&quot;);</span>
+<span class="nc" id="L1286">            output.write(String.valueOf(crew.getInitBonus()));</span>
+        }
+<span class="nc bnc" id="L1288" title="All 2 branches missed.">        if (crew.getCommandBonus() != 0) {</span>
+<span class="nc" id="L1289">            output.write(&quot;\&quot; commandB=\&quot;&quot;);</span>
+<span class="nc" id="L1290">            output.write(String.valueOf(crew.getCommandBonus()));</span>
+        }
+<span class="nc" id="L1292">        output.write(&quot;\&quot; ejected=\&quot;&quot;);</span>
+<span class="nc" id="L1293">        output.write(String.valueOf(crew.isEjected()));</span>
+<span class="nc bnc" id="L1294" title="All 2 branches missed.">        if (crew.countOptions(PilotOptions.LVL3_ADVANTAGES) &gt; 0) {</span>
+<span class="nc" id="L1295">            output.write(&quot;\&quot; advantages=\&quot;&quot;);</span>
+<span class="nc" id="L1296">            output.write(String.valueOf(crew.getOptionList(&quot;::&quot;,</span>
+                    PilotOptions.LVL3_ADVANTAGES)));
+        }
+<span class="nc bnc" id="L1299" title="All 2 branches missed.">        if (crew.countOptions(PilotOptions.EDGE_ADVANTAGES) &gt; 0) {</span>
+<span class="nc" id="L1300">            output.write(&quot;\&quot; edge=\&quot;&quot;);</span>
+<span class="nc" id="L1301">            output.write(String.valueOf(crew.getOptionList(&quot;::&quot;,</span>
+                    PilotOptions.EDGE_ADVANTAGES)));
+        }
+<span class="nc bnc" id="L1304" title="All 2 branches missed.">        if (crew.countOptions(PilotOptions.MD_ADVANTAGES) &gt; 0) {</span>
+<span class="nc" id="L1305">            output.write(&quot;\&quot; implants=\&quot;&quot;);</span>
+<span class="nc" id="L1306">            output.write(String.valueOf(crew.getOptionList(&quot;::&quot;,</span>
+                    PilotOptions.MD_ADVANTAGES)));
+        }
+<span class="nc bnc" id="L1309" title="All 2 branches missed.">        if (entity instanceof Mech) {</span>
+<span class="nc bnc" id="L1310" title="All 2 branches missed.">            if (((Mech) entity).isAutoEject()) {</span>
+<span class="nc" id="L1311">                output.write(&quot;\&quot; autoeject=\&quot;true&quot;);</span>
+            } else {
+<span class="nc" id="L1313">                output.write(&quot;\&quot; autoeject=\&quot;false&quot;);</span>
+            }
+<span class="nc bnc" id="L1315" title="All 2 branches missed.">            if (entity.game.getOptions().booleanOption(</span>
+                    OptionsConstants.RPG_CONDITIONAL_EJECTION)) {
+<span class="nc bnc" id="L1317" title="All 2 branches missed.">                if (((Mech) entity).isCondEjectAmmo()) {</span>
+<span class="nc" id="L1318">                    output.write(&quot;\&quot; condejectammo=\&quot;true&quot;);</span>
+                } else {
+<span class="nc" id="L1320">                    output.write(&quot;\&quot; condejectammo=\&quot;false&quot;);</span>
+                }
+<span class="nc bnc" id="L1322" title="All 2 branches missed.">                if (((Mech) entity).isCondEjectEngine()) {</span>
+<span class="nc" id="L1323">                    output.write(&quot;\&quot; condejectengine=\&quot;true&quot;);</span>
+                } else {
+<span class="nc" id="L1325">                    output.write(&quot;\&quot; condejectengine=\&quot;false&quot;);</span>
+                }
+<span class="nc bnc" id="L1327" title="All 2 branches missed.">                if (((Mech) entity).isCondEjectCTDest()) {</span>
+<span class="nc" id="L1328">                    output.write(&quot;\&quot; condejectctdest=\&quot;true&quot;);</span>
+                } else {
+<span class="nc" id="L1330">                    output.write(&quot;\&quot; condejectctdest=\&quot;false&quot;);</span>
+                }
+<span class="nc bnc" id="L1332" title="All 2 branches missed.">                if (((Mech) entity).isCondEjectHeadshot()) {</span>
+<span class="nc" id="L1333">                    output.write(&quot;\&quot; condejectctheadshot=\&quot;true&quot;);</span>
+                } else {
+<span class="nc" id="L1335">                    output.write(&quot;\&quot; condejectctheadshot=\&quot;false&quot;);</span>
+                }
+            }
+        }
+<span class="nc" id="L1339">    }</span>
+
+    private static String getTurretLockedString(Tank e) {
+<span class="nc" id="L1342">        String retval = &quot;      &lt;turretlock direction=\&quot;&quot;;</span>
+<span class="nc" id="L1343">        retval = retval.concat(Integer.toString(e.getSecondaryFacing()));</span>
+<span class="nc" id="L1344">        retval = retval.concat(&quot;\&quot;/&gt;\n&quot;);</span>
+<span class="nc" id="L1345">        return retval;</span>
+    }
+
+    private static String getMovementString(Tank e) {
+<span class="nc" id="L1349">        String retVal = &quot;      &lt;motive damage=\&quot;&quot;;</span>
+<span class="nc" id="L1350">        retVal = retVal.concat(Integer.toString(e.getMotiveDamage()));</span>
+<span class="nc" id="L1351">        retVal = retVal.concat(&quot;\&quot; penalty=\&quot;&quot;);</span>
+<span class="nc" id="L1352">        retVal = retVal.concat(Integer.toString(e.getMotivePenalty()));</span>
+<span class="nc" id="L1353">        retVal = retVal.concat(&quot;\&quot;/&gt;\n&quot;);</span>
+<span class="nc" id="L1354">        return retVal;</span>
+    }
+    
+    // Aero crits
+    private static String getAeroCritString(Aero a) {
+
+<span class="nc" id="L1360">        String retVal = &quot;      &lt;acriticals&quot;;</span>
+<span class="nc" id="L1361">        String critVal = &quot;&quot;;</span>
+
+        // crits
+<span class="nc bnc" id="L1364" title="All 2 branches missed.">        if (a.getAvionicsHits() &gt; 0) {</span>
+<span class="nc" id="L1365">            critVal = critVal.concat(&quot; avionics=\&quot;&quot;);</span>
+<span class="nc" id="L1366">            critVal = critVal.concat(Integer.toString(a.getAvionicsHits()));</span>
+<span class="nc" id="L1367">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1369" title="All 2 branches missed.">        if (a.getSensorHits() &gt; 0) {</span>
+<span class="nc" id="L1370">            critVal = critVal.concat(&quot; sensors=\&quot;&quot;);</span>
+<span class="nc" id="L1371">            critVal = critVal.concat(Integer.toString(a.getSensorHits()));</span>
+<span class="nc" id="L1372">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1374" title="All 2 branches missed.">        if (a.getEngineHits() &gt; 0) {</span>
+<span class="nc" id="L1375">            critVal = critVal.concat(&quot; engine=\&quot;&quot;);</span>
+<span class="nc" id="L1376">            critVal = critVal.concat(Integer.toString(a.getEngineHits()));</span>
+<span class="nc" id="L1377">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1379" title="All 2 branches missed.">        if (a.getFCSHits() &gt; 0) {</span>
+<span class="nc" id="L1380">            critVal = critVal.concat(&quot; fcs=\&quot;&quot;);</span>
+<span class="nc" id="L1381">            critVal = critVal.concat(Integer.toString(a.getFCSHits()));</span>
+<span class="nc" id="L1382">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1384" title="All 2 branches missed.">        if (a.getCICHits() &gt; 0) {</span>
+<span class="nc" id="L1385">            critVal = critVal.concat(&quot; cic=\&quot;&quot;);</span>
+<span class="nc" id="L1386">            critVal = critVal.concat(Integer.toString(a.getCICHits()));</span>
+<span class="nc" id="L1387">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1389" title="All 2 branches missed.">        if (a.getLeftThrustHits() &gt; 0) {</span>
+<span class="nc" id="L1390">            critVal = critVal.concat(&quot; leftThrust=\&quot;&quot;);</span>
+<span class="nc" id="L1391">            critVal = critVal.concat(Integer.toString(a.getLeftThrustHits()));</span>
+<span class="nc" id="L1392">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1394" title="All 2 branches missed.">        if (a.getRightThrustHits() &gt; 0) {</span>
+<span class="nc" id="L1395">            critVal = critVal.concat(&quot; rightThrust=\&quot;&quot;);</span>
+<span class="nc" id="L1396">            critVal = critVal.concat(Integer.toString(a.getRightThrustHits()));</span>
+<span class="nc" id="L1397">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1399" title="All 2 branches missed.">        if (!a.hasLifeSupport()) {</span>
+<span class="nc" id="L1400">            critVal = critVal.concat(&quot; lifeSupport=\&quot;none\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1402" title="All 2 branches missed.">        if (a.isGearHit()) {</span>
+<span class="nc" id="L1403">            critVal = critVal.concat(&quot; gear=\&quot;none\&quot;&quot;);</span>
+        }
+
+<span class="nc bnc" id="L1406" title="All 2 branches missed.">        if (!critVal.equals(&quot;&quot;)) {</span>
+            // then add beginning and end
+<span class="nc" id="L1408">            retVal = retVal.concat(critVal);</span>
+<span class="nc" id="L1409">            retVal = retVal.concat(&quot;/&gt;\n&quot;);</span>
+        } else {
+<span class="nc" id="L1411">            return critVal;</span>
+        }
+
+<span class="nc" id="L1414">        return retVal;</span>
+
+    }
+    // Dropship crits
+    private static String getDropshipCritString(Dropship a) {
+<span class="nc" id="L1419">    	String retVal = &quot;      &lt;dcriticals&quot;;</span>
+<span class="nc" id="L1420">    	String critVal = &quot;&quot;;</span>
+    	
+    	//crits
+<span class="nc bnc" id="L1423" title="All 2 branches missed.">    	if (a.isDockCollarDamaged()) {</span>
+<span class="nc" id="L1424">    		critVal = critVal.concat(&quot; dockingcollar=\&quot;none\&quot;&quot;);</span>
+    	}
+<span class="nc bnc" id="L1426" title="All 2 branches missed.">    	if (a.isKFBoomDamaged()) {</span>
+<span class="nc" id="L1427">    		critVal = critVal.concat(&quot; kfboom=\&quot;none\&quot;&quot;);</span>
+    	}
+    	
+<span class="nc bnc" id="L1430" title="All 2 branches missed.">        if (!critVal.equals(&quot;&quot;)) {</span>
+            // then add beginning and end
+<span class="nc" id="L1432">            retVal = retVal.concat(critVal);</span>
+<span class="nc" id="L1433">            retVal = retVal.concat(&quot;/&gt;\n&quot;);</span>
+        } else {
+<span class="nc" id="L1435">            return critVal;</span>
+        }
+
+<span class="nc" id="L1438">        return retVal;</span>
+    }
+
+    // Tank crits
+    private static String getTankCritString(Tank t) {
+
+<span class="nc" id="L1444">        String retVal = &quot;      &lt;tcriticals&quot;;</span>
+<span class="nc" id="L1445">        String critVal = &quot;&quot;;</span>
+
+        // crits
+<span class="nc bnc" id="L1448" title="All 2 branches missed.">        if (t.getSensorHits() &gt; 0) {</span>
+<span class="nc" id="L1449">            critVal = critVal.concat(&quot; sensors=\&quot;&quot;);</span>
+<span class="nc" id="L1450">            critVal = critVal.concat(Integer.toString(t.getSensorHits()));</span>
+<span class="nc" id="L1451">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+<span class="nc bnc" id="L1453" title="All 2 branches missed.">        if (t.isEngineHit()) {</span>
+<span class="nc" id="L1454">            critVal = critVal.concat(&quot; engine=\&quot;&quot;);</span>
+<span class="nc" id="L1455">            critVal = critVal.concat(&quot;hit&quot;);</span>
+<span class="nc" id="L1456">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+
+<span class="nc bnc" id="L1459" title="All 2 branches missed.">        if (t.isDriverHit()) {</span>
+<span class="nc" id="L1460">            critVal = critVal.concat(&quot; driver=\&quot;&quot;);</span>
+<span class="nc" id="L1461">            critVal = critVal.concat(&quot;hit&quot;);</span>
+<span class="nc" id="L1462">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+
+<span class="nc bnc" id="L1465" title="All 2 branches missed.">        if (t.isCommanderHit()) {</span>
+<span class="nc" id="L1466">            critVal = critVal.concat(&quot; commander=\&quot;&quot;);</span>
+<span class="nc" id="L1467">            critVal = critVal.concat(&quot;hit&quot;);</span>
+<span class="nc" id="L1468">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+<span class="nc bnc" id="L1469" title="All 2 branches missed.">        } else if (t.isUsingConsoleCommander()) {</span>
+<span class="nc" id="L1470">            critVal = critVal.concat(&quot; commander=\&quot;&quot;);</span>
+<span class="nc" id="L1471">            critVal = critVal.concat(&quot;console&quot;);</span>
+<span class="nc" id="L1472">            critVal = critVal.concat(&quot;\&quot;&quot;);</span>
+        }
+
+<span class="nc bnc" id="L1475" title="All 2 branches missed.">        if (!critVal.equals(&quot;&quot;)) {</span>
+            // then add beginning and end
+<span class="nc" id="L1477">            retVal = retVal.concat(critVal);</span>
+<span class="nc" id="L1478">            retVal = retVal.concat(&quot;/&gt;\n&quot;);</span>
+        } else {
+<span class="nc" id="L1480">            return critVal;</span>
+        }
+
+<span class="nc" id="L1483">        return retVal;</span>
+
+    }
+
+    /**
+     * Load a list of &lt;code&gt;Entity&lt;/code&gt;s from the given file.
+     * &lt;p/&gt;
+     * The &lt;code&gt;Entity&lt;/code&gt;s\&quot; pilots, damage, ammo loads, ammo usage, and
+     * other campaign-related information are retained but data specific to a
+     * particular game is ignored.
+     *
+     * @param file
+     *            - the &lt;code&gt;File&lt;/code&gt; to load from.
+     * @return A &lt;code&gt;Vector&lt;/code&gt; containing &lt;code&gt;Entity&lt;/code&gt;s loaded from
+     *         the file. This vector may be empty, but it will not be
+     *         &lt;code&gt;null&lt;/code&gt;.
+     * @throws IOException
+     *             is thrown on any error.
+     */
+    public static Vector&lt;Entity&gt; loadFrom(File file) throws IOException {
+
+        // Create an empty parser.
+<span class="nc" id="L1505">        MULParser parser = new MULParser();</span>
+
+        // Open up the file.
+<span class="nc" id="L1508">        InputStream listStream = new FileInputStream(file);</span>
+
+        // Read a Vector from the file.
+<span class="nc" id="L1511">        parser.parse(listStream);</span>
+<span class="nc" id="L1512">        listStream.close();</span>
+
+
+        // Was there any error in parsing?
+<span class="nc bnc" id="L1516" title="All 2 branches missed.">        if (parser.hasWarningMessage()) {</span>
+<span class="nc" id="L1517">            System.out.println(parser.getWarningMessage());</span>
+        }
+
+        // Return the entities.
+<span class="nc" id="L1521">        return parser.getEntities();</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

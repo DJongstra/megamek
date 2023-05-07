@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SpheroidPathFinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">SpheroidPathFinder.java</span></div><h1>SpheroidPathFinder.java</h1><pre class="source lang-java linenums">/*
+ * Copyright (c) 2019 The MegaMek Team. All rights reserved.
+ *
+ * This file is part of MekHQ.
+ *
+ * MekHQ is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * MekHQ is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with MekHQ.  If not, see &lt;http://www.gnu.org/licenses/&gt;.
+ */
+
+package megamek.common.pathfinder;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import megamek.client.bot.princess.AeroPathUtil;
+import megamek.common.Coords;
+import megamek.common.IAero;
+import megamek.common.IGame;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.logging.DefaultMmLogger;
+import megamek.common.logging.LogLevel;
+import megamek.common.logging.MMLogger;
+
+/**
+ * This set of classes is intended to be used by AI players to generate paths for units behaving
+ * like spheroid dropships in atmosphere. Remarkably similar to a jumping infantry unit.
+ * @author NickAragua
+ *
+ */
+public class SpheroidPathFinder {
+    private IGame game;
+    private List&lt;MovePath&gt; spheroidPaths;
+    private MMLogger logger;
+    private static final String LOGGER_CATEGORY = &quot;megamek.common.pathfinder.SpheroidPathFinder&quot;;
+    
+<span class="nc" id="L50">    private Set&lt;Coords&gt; visitedCoords = new HashSet&lt;&gt;();</span>
+    
+<span class="nc" id="L52">    private SpheroidPathFinder(IGame game) {</span>
+<span class="nc" id="L53">        this.game = game;</span>
+<span class="nc" id="L54">        getLogger().setLogLevel(LOGGER_CATEGORY, LogLevel.DEBUG);</span>
+<span class="nc" id="L55">    }</span>
+
+    public Collection&lt;MovePath&gt; getAllComputedPathsUncategorized() {
+<span class="nc" id="L58">        return spheroidPaths;</span>
+    }
+    
+    private MMLogger getLogger() {
+<span class="nc bnc" id="L62" title="All 2 branches missed.">        return logger == null ? logger = DefaultMmLogger.getInstance() : logger;</span>
+    }
+    
+    /**
+     * Computes paths to nodes in the graph.
+     * 
+     * @param startingEdge the starting node. Should be empty.
+     */
+    public void run(MovePath startingEdge) {
+        try {
+<span class="nc" id="L72">            spheroidPaths = new ArrayList&lt;MovePath&gt;();</span>
+
+            // can't do anything if the unit is out of control.
+<span class="nc bnc" id="L75" title="All 2 branches missed.">            if(((IAero) startingEdge.getEntity()).isOutControlTotal()) {</span>
+<span class="nc" id="L76">                return;</span>
+            }
+            
+            // total number of paths should be ~217 * n on a ground map or 7 * n on a low atmo map
+            // where n is the number of possible altitude changes
+<span class="nc" id="L81">            List&lt;MovePath&gt; altitudePaths = AeroPathUtil.generateValidAltitudeChanges(startingEdge);</span>
+<span class="nc" id="L82">            MovePath hoverPath = generateHoverPath(startingEdge);</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">            for(MovePath altitudePath : altitudePaths) {</span>
+                // since we are considering paths across multiple altitudes that cross the same coordinates
+                // we want to clear this out before every altitude to avoid discarding altitude changing paths
+                // so that our dropships can maneuver vertically if necessary.
+<span class="nc" id="L87">                visitedCoords.clear();</span>
+                
+                // we don't really want to consider a non-hovering path, we will add it as a special case
+<span class="nc bnc" id="L90" title="All 2 branches missed.">                if(altitudePath.length() != 0) {</span>
+<span class="nc" id="L91">                    spheroidPaths.addAll(generateChildren(altitudePath));</span>
+                } else {
+<span class="nc" id="L93">                    spheroidPaths.addAll(generateChildren(hoverPath));</span>
+                }
+<span class="nc" id="L95">            }</span>
+            
+<span class="nc" id="L97">            spheroidPaths.addAll(altitudePaths);</span>
+<span class="nc" id="L98">            spheroidPaths.add(hoverPath);</span>
+            
+<span class="nc" id="L100">            List&lt;MovePath&gt; validRotations = new ArrayList&lt;&gt;();</span>
+            // now that we've got all our possible destinations, make sure to try every possible rotation
+            // at the end of the path
+<span class="nc bnc" id="L103" title="All 2 branches missed.">            for(MovePath path : spheroidPaths) {</span>
+<span class="nc" id="L104">                validRotations.addAll(AeroPathUtil.generateValidRotations(path));</span>
+<span class="nc" id="L105">            }</span>
+            
+<span class="nc" id="L107">            spheroidPaths.addAll(validRotations);</span>
+            
+<span class="nc" id="L109">            visitedCoords.clear();</span>
+            
+            // add &quot;flee&quot; option if we haven't done anything else
+<span class="nc bnc" id="L112" title="All 2 branches missed.">            if(game.getBoard().isOnBoardEdge(startingEdge.getFinalCoords()) &amp;&amp;</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">                    startingEdge.getStepVector().size() == 0) {</span>
+<span class="nc" id="L114">                MovePath fleePath = startingEdge.clone();</span>
+<span class="nc" id="L115">                fleePath.addStep(MoveStepType.FLEE);</span>
+<span class="nc" id="L116">                spheroidPaths.add(fleePath);</span>
+            }
+<span class="nc" id="L118">        } catch (OutOfMemoryError e) {</span>
+            /*
+             * Some implementations can run out of memory if they consider and
+             * save in memory too many paths. Usually we can recover from this
+             * by ending prematurely while preserving already computed results.
+             */
+
+<span class="nc" id="L125">            final String memoryMessage = &quot;Not enough memory to analyse all options.&quot;//$NON-NLS-1$</span>
+                    + &quot; Try setting time limit to lower value, or &quot;//$NON-NLS-1$
+                    + &quot;increase java memory limit.&quot;;
+            
+<span class="nc" id="L129">            getLogger().error(memoryMessage, e);</span>
+<span class="nc" id="L130">        } catch(Exception e) {</span>
+<span class="nc" id="L131">            getLogger().error(e); //do something, don't just swallow the exception, good lord</span>
+<span class="nc" id="L132">        }</span>
+<span class="nc" id="L133">    }</span>
+    
+    public static SpheroidPathFinder getInstance(IGame game) {
+<span class="nc" id="L136">        SpheroidPathFinder ipf = new SpheroidPathFinder(game);</span>
+
+<span class="nc" id="L138">        return ipf;</span>
+    }
+    
+    private MovePath generateHoverPath(MovePath startingPath) {
+<span class="nc" id="L142">        MovePath hoverPath = startingPath.clone();</span>
+<span class="nc" id="L143">        hoverPath.addStep(MoveStepType.HOVER);</span>
+        
+        // if we can hover, then hover. If not (due to battle damage or whatever), then we fall down.
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        if(hoverPath.isMoveLegal()) {</span>
+<span class="nc" id="L147">            return hoverPath;</span>
+        } else {
+<span class="nc" id="L149">            hoverPath.removeLastStep();</span>
+<span class="nc" id="L150">            return hoverPath;</span>
+        }
+    }
+    
+    /**
+     * Recursive method that generates the possible child paths from the given path.
+     * Eliminates paths to hexes we've already visited.
+     * Generates *shortest* paths to destination hexes
+     * @param startingPath
+     * @return
+     */
+    private List&lt;MovePath&gt; generateChildren(MovePath startingPath) {
+<span class="nc" id="L162">        List&lt;MovePath&gt; retval = new ArrayList&lt;&gt;();</span>
+        
+        // terminator conditions:
+        // we've visited this hex already
+        // we've moved further than 1 hex on a low-atmo map
+        // we've moved further than 8 hexes on a ground map
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        if(visitedCoords.contains(startingPath.getFinalCoords()) ||</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">                (startingPath.getMpUsed() &gt; startingPath.getEntity().getRunMP())) {</span>
+<span class="nc" id="L170">            return retval;</span>
+        }
+        
+<span class="nc" id="L173">        visitedCoords.add(startingPath.getFinalCoords());</span>
+        
+        // generate all possible children, add them to list
+        // for units acting as in-atmo spheroid jumpships, facing changes are free, so children are always
+        // forward, left-forward, left-left-forward, right-forward, right-right-forward, right-right-right-forward
+        // there is never a reason to &quot;back up&quot;
+        // there are also very little built-in error control, since these things are flying
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        for(int direction = 0; direction &lt;= 5; direction++) {</span>
+<span class="nc" id="L181">            MovePath childPath = startingPath.clone();</span>
+            
+            // for each child, we first turn in the appropriate direction
+<span class="nc bnc" id="L184" title="All 2 branches missed.">            for(MoveStepType stepType : AeroPathUtil.TURNS.get(direction)) {</span>
+<span class="nc" id="L185">                childPath.addStep(stepType);</span>
+<span class="nc" id="L186">            }</span>
+            
+            // finally, move forward
+<span class="nc" id="L189">            childPath.addStep(MoveStepType.FORWARDS);</span>
+            
+            // having generated the child, we add it and (recursively) any of its children to the list of children to be returned            
+            // of course, if it winds up not being legal anyway for some other reason, then we discard it and move on
+<span class="nc bnc" id="L193" title="All 2 branches missed.">            if(!childPath.isMoveLegal()) {</span>
+<span class="nc" id="L194">                continue;</span>
+            }
+            
+<span class="nc" id="L197">            retval.add(childPath.clone());</span>
+<span class="nc" id="L198">            retval.addAll(generateChildren(childPath));</span>
+        }
+                
+<span class="nc" id="L201">        return retval;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

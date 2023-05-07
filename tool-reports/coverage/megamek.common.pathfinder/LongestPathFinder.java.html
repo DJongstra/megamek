@@ -1,0 +1,394 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LongestPathFinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">LongestPathFinder.java</span></div><h1>LongestPathFinder.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2014 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.pathfinder;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.List;
+
+import megamek.common.Coords;
+import megamek.common.IGame;
+import megamek.common.Infantry;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.MoveStep;
+import megamek.common.Tank;
+
+/**
+ * Path finder that specialises in finding paths that can enter a single hex
+ * multiple times. For example longest path searches.
+ *
+ * @author Saginatio
+ *
+ *
+ */
+public class LongestPathFinder extends MovePathFinder&lt;Deque&lt;MovePath&gt;&gt; {
+<span class="nc" id="L43">    private boolean aero = false;</span>
+
+    protected LongestPathFinder(EdgeRelaxer&lt;Deque&lt;MovePath&gt;, MovePath&gt; edgeRelaxer,
+            AdjacencyMap&lt;MovePath&gt; edgeAdjacencyMap, Comparator&lt;MovePath&gt; comparator,
+            IGame game) {
+<span class="nc" id="L48">        super(edgeRelaxer, edgeAdjacencyMap, comparator, game);</span>
+<span class="nc" id="L49">    }</span>
+
+    /**
+     * Produces a path finder that searches for all paths that travel the max
+     * distance ( since the last direction change ). This path finder also finds
+     * (shorter) longest paths that require less mp to travel.
+     *
+     * @param maxMP - the maximal movement points available for an entity
+     * @param stepType - if equal to MoveStepType.BACKWARDS, then searcher also
+     *            includes backward steps. Otherwise only forward movement is
+     *            allowed
+     * @param game
+     * @return a longest path finder
+     */
+    public static LongestPathFinder newInstanceOfLongestPath(int maxMP, MoveStepType stepType, IGame game) {
+<span class="nc" id="L64">        LongestPathFinder lpf = new LongestPathFinder(new LongestPathRelaxer(),</span>
+                new NextStepsAdjacencyMap(stepType),
+                new MovePathMinMPMaxDistanceComparator(),
+                game);
+<span class="nc" id="L68">        lpf.addFilter(new MovePathLengthFilter(maxMP));</span>
+<span class="nc" id="L69">        lpf.addFilter(new MovePathLegalityFilter(game));</span>
+<span class="nc" id="L70">        return lpf;</span>
+    }
+
+    /**
+     * Produces a path finder for aero units that searches for all paths that
+     * travel the max distance. On a ground map this can be very computational
+     * heavy.
+     *
+     * @param maxMP - the maximal thrust points available for an aero
+     * @param game
+     * @return a longest path finder for aeros
+     */
+    public static LongestPathFinder newInstanceOfAeroPath(int maxMP, IGame game) {
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        LongestPathFinder lpf = new LongestPathFinder(new AeroMultiPathRelaxer(!game.getBoard().inSpace()),</span>
+                new NextStepsAdjacencyMap(MoveStepType.FORWARDS),
+                new AeroMultiPathComparator(),
+                game);
+<span class="nc" id="L87">        lpf.aero = true;</span>
+<span class="nc" id="L88">        lpf.addFilter(new MovePathLengthFilter(maxMP));</span>
+<span class="nc" id="L89">        lpf.addFilter(new MovePathLegalityFilter(game));</span>
+<span class="nc" id="L90">        return lpf;</span>
+    }
+
+    /**
+     * Comparator that sorts MovePaths based on lexicographical order of pairs:&lt;br&gt;
+     *
+     *
+     * {@code ( movement points used; -(hexes moved) )}
+     *
+     */
+<span class="nc" id="L100">    public static class MovePathMinMPMaxDistanceComparator extends MovePathMPCostComparator {</span>
+        @Override
+        public int compare(MovePath first, MovePath second) {
+<span class="nc" id="L103">            int s = super.compare(first, second);</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">            if (s != 0) {</span>
+<span class="nc" id="L105">                return s;</span>
+            } else {
+<span class="nc" id="L107">                return second.getHexesMoved() - first.getHexesMoved();</span>
+            }
+        }
+    }
+
+    /**
+     * Relaxer for longest path movement. Current implementation needs
+     * Comparator that preserves MovePathMinMPMaxDistanceComparator contract.
+     *
+     * It adds a path to 'interesting' paths in a hex when candidate travelled
+     * more hexes.
+     *
+     */
+<span class="nc" id="L120">    static public class LongestPathRelaxer implements EdgeRelaxer&lt;Deque&lt;MovePath&gt;, MovePath&gt; {</span>
+        @Override
+        public Deque&lt;MovePath&gt; doRelax(Deque&lt;MovePath&gt; v, MovePath mpCandidate, Comparator&lt;MovePath&gt; comparator) {
+<span class="nc bnc" id="L123" title="All 2 branches missed.">            if (mpCandidate == null) {</span>
+<span class="nc" id="L124">                throw new NullPointerException();</span>
+            }
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            if (v == null) {</span>
+<span class="nc" id="L127">                return new ArrayDeque&lt;&gt;(Collections.singleton(mpCandidate));</span>
+            }
+<span class="nc bnc" id="L129" title="All 2 branches missed.">            while (!v.isEmpty()) { //we could get rid of this loop, since we require a proper comparator</span>
+<span class="nc" id="L130">                MovePath topMP = v.getLast();</span>
+
+                //standing up is always reasonable for mechs
+<span class="nc" id="L133">                boolean vprone = topMP.getFinalProne(), eprone = mpCandidate.getFinalProne();</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">                if (vprone != eprone) {</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">                    if (vprone) {</span>
+<span class="nc" id="L136">                        break;</span>
+                    } else {
+<span class="nc" id="L138">                        return null;</span>
+                    }
+                }
+<span class="nc bnc" id="L141" title="All 2 branches missed.">                if (!(topMP.getEntity() instanceof Tank)) {</span>
+<span class="nc" id="L142">                    boolean vhdown = topMP.getFinalHullDown(), ehdown = mpCandidate.getFinalHullDown();</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">                    if (vhdown != ehdown) {</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">                        if (vhdown) {</span>
+<span class="nc" id="L145">                            break;</span>
+                        } else {
+<span class="nc" id="L147">                            return null;</span>
+                        }
+                    }
+                }
+                /*
+                 * We require that the priority queue v of MovePath is sorted
+                 * lexicographically using product MPUsed x (-HexesMoved).
+                 */
+<span class="nc" id="L155">                int topMpUsed = topMP.getMpUsed(), mpCMpUsed = mpCandidate.getMpUsed();</span>
+
+<span class="nc bnc" id="L157" title="All 2 branches missed.">                if (topMpUsed &gt; mpCMpUsed) {</span>
+                    /*
+                     * topMP should have less or equal 'movement points used'
+                     * since it was taken from candidates priority queue earlier
+                     *
+                     * Current implementation of doRelax() assumes that v is
+                     * sorted in such way that this situation is impossible.
+                     */
+<span class="nc" id="L165">                    System.err.println(new IllegalStateException(</span>
+                            &quot;Top Move Path uses more MPs than Move Path Candidate.&quot;));
+<span class="nc" id="L167">                    return null;</span>
+                } else {
+<span class="nc bnc" id="L169" title="All 2 branches missed.">                    if (topMP.getHexesMoved() &gt; mpCandidate.getHexesMoved()) {</span>
+<span class="nc" id="L170">                        return null; //topMP path is longer and uses less or same mp.</span>
+                    }
+<span class="nc bnc" id="L172" title="All 2 branches missed.">                    if (topMP.getHexesMoved() == mpCandidate.getHexesMoved()) {</span>
+                        //we want to preserve both forward and backward movements
+                        //that end in the same spot with the same cost.
+<span class="nc" id="L175">                        MoveStep topStep = topMP.getLastStep();</span>
+<span class="nc bnc" id="L176" title="All 4 branches missed.">                        boolean topBackwards = topStep != null &amp;&amp; topStep.isThisStepBackwards();</span>
+<span class="nc" id="L177">                        MoveStep mpCandStep = mpCandidate.getLastStep();</span>
+<span class="nc bnc" id="L178" title="All 4 branches missed.">                        boolean mpCandBackwars = mpCandStep != null &amp;&amp; mpCandStep.isThisStepBackwards();</span>
+<span class="nc bnc" id="L179" title="All 4 branches missed.">                        if (!(topMP.getEntity() instanceof Infantry) &amp;&amp; topBackwards != mpCandBackwars) {</span>
+<span class="nc" id="L180">                            break;</span>
+                        }
+<span class="nc" id="L182">                        return null;</span>
+                    }
+
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                    if (topMpUsed == mpCMpUsed) {</span>
+                        //mpCandidate is not strictly better than topMp so we won't use it.
+<span class="nc" id="L187">                        return null;</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">                    } else if (topMpUsed &lt; mpCMpUsed) {</span>
+                        //topMP travels less but also uses less movement points so we should keep it
+                        //and add mpCandidate to the list of optimal longest paths.
+<span class="nc" id="L191">                        break;</span>
+                    }
+                }
+<span class="nc" id="L194">            }</span>
+<span class="nc" id="L195">            v.addLast(mpCandidate);</span>
+<span class="nc" id="L196">            return v;</span>
+        }
+
+    }
+
+    /**
+     * Comparator that sorts MovePaths based on lexicographical order of
+     * triples:&lt;br/&gt;
+     * {@code (hexes traveled; thrust used; 0-(hexes flown in a straight line) )}
+     * &lt;br/&gt;
+     * Works only with aeros.
+     *
+     */
+<span class="nc" id="L209">    public static class AeroMultiPathComparator implements Comparator&lt;MovePath&gt; {</span>
+        /**
+         * compares MovePaths based on lexicographical order of triples ( hexes
+         * traveled; thrust used; 0-( hexes flown in a straight line ) )
+         *
+         */
+        @Override
+        public int compare(MovePath mp1, MovePath mp2) {
+<span class="nc bnc" id="L217" title="All 2 branches missed.">            if (!mp1.getEntity().isAero()) {</span>
+<span class="nc" id="L218">                throw new IllegalArgumentException(&quot;wanted aero got:&quot; + mp1.getClass().toString());</span>
+            }
+            //we want to process shorter paths first
+<span class="nc" id="L221">            int dHT = mp1.getHexesMoved() - mp2.getHexesMoved();</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">            if (dHT != 0) {</span>
+<span class="nc" id="L223">                return dHT;</span>
+            }
+            //then those which used less thrust
+<span class="nc" id="L226">            int dMP = mp1.getMpUsed() - mp2.getMpUsed();</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">            if (dMP != 0) {</span>
+<span class="nc" id="L228">                return dMP;</span>
+            }
+            //lastly those with more hexes flown straight.
+<span class="nc" id="L231">            MoveStep lms1 = mp1.getLastStep(), lms2 = mp2.getLastStep();</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">            int hs1 = lms1 == null ? 0 : lms1.getNStraight();</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">            int hs2 = lms2 == null ? 0 : lms2.getNStraight();</span>
+<span class="nc" id="L234">            int dHS = hs1 - hs2;</span>
+
+<span class="nc" id="L236">            return -dHS;</span>
+        }
+    }
+
+    /**
+     * Relaxer for aero movement. Current implementation needs Comparator that
+     * preserves AeroMultiPathComparator contract.
+     *
+     * It adds a path to 'interesting' paths in a hex when: candidate 1)traveled
+     * more hexes or either 2a)thrust_used is less or 2b)straight_hexes_flown is
+     * greater than current top of the stack.
+     *
+     */
+    public static class AeroMultiPathRelaxer implements EdgeRelaxer&lt;Deque&lt;MovePath&gt;, MovePath&gt; {
+        boolean inAthmosphere;
+
+<span class="nc" id="L252">        private AeroMultiPathRelaxer(boolean inAthmosphere) {</span>
+<span class="nc" id="L253">            this.inAthmosphere = inAthmosphere;</span>
+<span class="nc" id="L254">        }</span>
+
+        @Override
+        public Deque&lt;MovePath&gt; doRelax(Deque&lt;MovePath&gt; v, MovePath mpCandidate, Comparator&lt;MovePath&gt; comparator) {
+<span class="nc bnc" id="L258" title="All 2 branches missed.">            if (mpCandidate == null)</span>
+<span class="nc" id="L259">                throw new NullPointerException();</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">            if (v == null) {</span>
+<span class="nc" id="L261">                return new ArrayDeque&lt;&gt;(Collections.singleton(mpCandidate));</span>
+            }
+<span class="nc" id="L263">            MovePath topMP = v.getLast();</span>
+
+            /*
+             * consider hexes travelled. If we enter the hex with different
+             * hexes travelled then totally different paths will emerge
+             */
+<span class="nc" id="L269">            int dHT = topMP.getHexesMoved() - mpCandidate.getHexesMoved();</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">            if (dHT &gt; 0) {</span>
+                /*
+                 * Current implementation of doRelax() assumes that v is sorted
+                 * in such way that this situation is impossible.
+                 */
+<span class="nc" id="L275">                System.err.println(new IllegalStateException(&quot;Top Move Path moved more than Move Path Candidate.&quot;));</span>
+            }
+<span class="nc bnc" id="L277" title="All 2 branches missed.">            if (dHT &lt; 0) {</span>
+<span class="nc" id="L278">                v.addLast(mpCandidate);</span>
+<span class="nc" id="L279">                return v;</span>
+            }
+
+            // assert( topMP.getHexesMoved() == mpCandidate.getHexesMoved() );
+<span class="nc" id="L283">            int dMP = topMP.getMpUsed() - mpCandidate.getMpUsed();</span>
+<span class="nc bnc" id="L284" title="All 2 branches missed.">            if (dMP &gt; 0) {</span>
+                /*
+                 * Current implementation of doRelax() assumes that v is sorted
+                 * in such way that this situation is impossible.
+                 */
+<span class="nc" id="L289">                System.err.println(new IllegalStateException(</span>
+                        &quot;Top Move Path uses more MPs than Move Path Candidate. &quot;
+                        + &quot;while traveling the same distance&quot;));
+            }
+
+            //assert( topMP thrust used is less or equal than candidates and hexesMoved are equal)
+<span class="nc bnc" id="L295" title="All 2 branches missed.">            if (!inAthmosphere) {</span>
+<span class="nc" id="L296">                return null; //there is no point considering hexes flown straight if we are not in athmo</span>
+            }
+
+            //while in athmosphere we should consider paths that have higher thrust used but flew more hexes straight
+<span class="nc" id="L300">            MoveStep topLastStep = topMP.getLastStep();</span>
+<span class="nc" id="L301">            MoveStep candidateLastStep = mpCandidate.getLastStep();</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">            int hs1 = topLastStep == null ? 0 : topLastStep.getNStraight();</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">            int hs2 = candidateLastStep == null ? 0 : candidateLastStep.getNStraight();</span>
+<span class="nc" id="L304">            int dHS = hs1 - hs2;</span>
+
+<span class="nc bnc" id="L306" title="All 2 branches missed.">            if (-dHS &gt; 0) {</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">                if (dMP &gt;= 0) {</span>
+<span class="nc" id="L308">                    System.err.println(new IllegalStateException(</span>
+                            &quot;Top Move Path uses more MPs than Move Path Candidate and &quot; +
+                            &quot;Top Move Path moves a shorter straight line distance.&quot;));
+                }
+<span class="nc bnc" id="L312" title="All 4 branches missed.">                if (topLastStep != null &amp;&amp; !topLastStep.dueFreeTurn()) {</span>
+<span class="nc" id="L313">                    v.add(mpCandidate);</span>
+<span class="nc" id="L314">                    return v;</span>
+                }
+            }
+
+<span class="nc" id="L318">            return null;</span>
+        }
+    }
+
+    /**
+     * Returns the longest move path to a hex at given coordinates. If multiple
+     * paths reach coords with different final facings, the best one is chosen.
+     * If none paths are present then {@code null} is returned.
+     *
+     * @param coords - the coordinates of the hex
+     * @return the shortest move path to hex at given coordinates
+     */
+    public MovePath getComputedPath(Coords coords) {
+<span class="nc" id="L331">        Deque&lt;MovePath&gt; q = getCost(coords, new Comparator&lt;Deque&lt;MovePath&gt;&gt;() {</span>
+            @Override
+            public int compare(Deque&lt;MovePath&gt; q1, Deque&lt;MovePath&gt; q2) {
+<span class="nc" id="L334">                MovePath mp1 = q1.getLast(), mp2 = q2.getLast();</span>
+<span class="nc" id="L335">                int t = mp2.getHexesMoved() - mp1.getHexesMoved();</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">                if (t != 0) {</span>
+<span class="nc" id="L337">                    return t;</span>
+                } else {
+<span class="nc" id="L339">                    return mp1.getMpUsed() - mp2.getMpUsed();</span>
+                }
+            }
+        });
+<span class="nc bnc" id="L343" title="All 2 branches missed.">        if (q != null) {</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">            if (!aero) {</span>
+<span class="nc" id="L345">                return q.getLast();</span>
+            } else {
+<span class="nc" id="L347">                ArrayDeque&lt;MovePath&gt; tq = new ArrayDeque&lt;&gt;(q);</span>
+<span class="nc" id="L348">                MovePath mp = tq.removeLast();</span>
+<span class="nc bnc" id="L349" title="All 2 branches missed.">                while (!tq.isEmpty()) {</span>
+<span class="nc" id="L350">                    MovePath qlast = tq.removeLast();</span>
+<span class="nc bnc" id="L351" title="All 4 branches missed.">                    if (mp.getHexesMoved() == qlast.getHexesMoved() &amp;&amp; mp.getMpUsed() &gt; qlast.getMpUsed()) {</span>
+<span class="nc" id="L352">                        mp = qlast;</span>
+                    } else {
+                        break;
+                    }
+<span class="nc" id="L356">                }</span>
+<span class="nc" id="L357">                return mp;</span>
+            }
+        } else
+<span class="nc" id="L360">            return null;</span>
+    }
+
+    /**
+     * Returns a map of all computed longest paths. This also includes paths
+     * that are shorter but use strictly less movement points.
+     *
+     * @return a map of all computed shortest paths.
+     */
+    public List&lt;MovePath&gt; getAllComputedPathsUnordered() {
+<span class="nc" id="L370">        Collection&lt;Deque&lt;MovePath&gt;&gt; queues = getPathCostMap().values();</span>
+<span class="nc" id="L371">        List&lt;MovePath&gt; l = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L372" title="All 2 branches missed.">        for (Deque&lt;MovePath&gt; q : queues) {</span>
+<span class="nc" id="L373">            l.addAll(q);</span>
+<span class="nc" id="L374">        }</span>
+<span class="nc" id="L375">        return l;</span>
+    }
+
+    /**
+     * Returns a map of all computed longest paths. This only includes one
+     * longest path to one Coords,Facing pair.
+     *
+     * @return a map of all computed shortest paths.
+     */
+    public List&lt;MovePath&gt; getLongestComputedPaths() {
+<span class="nc" id="L385">        Collection&lt;Deque&lt;MovePath&gt;&gt; queues = getPathCostMap().values();</span>
+<span class="nc" id="L386">        List&lt;MovePath&gt; l = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">        for (Deque&lt;MovePath&gt; q : queues) {</span>
+<span class="nc" id="L388">            l.add(q.getLast());</span>
+<span class="nc" id="L389">        }</span>
+<span class="nc" id="L390">        return l;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

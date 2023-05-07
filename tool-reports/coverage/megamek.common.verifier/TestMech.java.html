@@ -1,0 +1,1679 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TestMech.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.verifier</a> &gt; <span class="el_source">TestMech.java</span></div><h1>TestMech.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek -
+ * Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+/*
+ * Author: Reinhard Vicinus
+ */
+
+package megamek.common.verifier;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Vector;
+import java.util.stream.Collectors;
+
+import megamek.common.*;
+import megamek.common.annotations.Nullable;
+import megamek.common.util.StringUtil;
+import megamek.common.weapons.artillery.ArtilleryWeapon;
+import megamek.common.weapons.autocannons.ACWeapon;
+import megamek.common.weapons.autocannons.LBXACWeapon;
+import megamek.common.weapons.autocannons.UACWeapon;
+import megamek.common.weapons.gaussrifles.GaussWeapon;
+import megamek.common.weapons.lasers.EnergyWeapon;
+import megamek.common.weapons.ppc.PPCWeapon;
+
+public class TestMech extends TestEntity {
+
+<span class="nc" id="L46">    public enum MechJumpJets {</span>
+<span class="nc" id="L47">        JJ_STANDARD (EquipmentTypeLookup.JUMP_JET, true, Mech.JUMP_STANDARD),</span>
+<span class="nc" id="L48">        JJ_IMPROVED (EquipmentTypeLookup.IMPROVED_JUMP_JET, false, Mech.JUMP_IMPROVED),</span>
+<span class="nc" id="L49">        JJ_PROTOTYPE (EquipmentTypeLookup.PROTOTYPE_JUMP_JET, true, Mech.JUMP_PROTOTYPE),</span>
+<span class="nc" id="L50">        JJ_PROTOTYPE_IMPROVED (EquipmentTypeLookup.PROTOTYPE_IMPROVED_JJ, false, Mech.JUMP_PROTOTYPE_IMPROVED),</span>
+<span class="nc" id="L51">        JJ_UMU (EquipmentTypeLookup.MECH_UMU, false, Mech.JUMP_NONE),</span>
+<span class="nc" id="L52">        JJ_BOOSTER (EquipmentTypeLookup.MECH_JUMP_BOOSTER, true, Mech.JUMP_BOOSTER);</span>
+        
+        private String internalName;
+        private boolean industrial;
+        private int jumpType;
+        
+<span class="nc" id="L58">        MechJumpJets(String internalName, boolean industrial, int jumpType) {</span>
+<span class="nc" id="L59">            this.internalName = internalName;</span>
+<span class="nc" id="L60">            this.industrial = industrial;</span>
+<span class="nc" id="L61">            this.jumpType = jumpType;</span>
+<span class="nc" id="L62">        }</span>
+        
+        public String getName() {
+<span class="nc" id="L65">            return internalName;</span>
+        }
+        
+        public boolean canIndustrialUse() {
+<span class="nc" id="L69">            return industrial;</span>
+        }
+        
+        public int getJumpType() {
+<span class="nc" id="L73">            return jumpType;</span>
+        }
+        
+        public static List&lt;EquipmentType&gt; allJJs(boolean industrialOnly) {
+<span class="nc" id="L77">            List&lt;EquipmentType&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">            for (MechJumpJets jj : values()) {</span>
+<span class="nc bnc" id="L79" title="All 4 branches missed.">                if (jj.industrial || !industrialOnly) {</span>
+<span class="nc" id="L80">                    retVal.add(EquipmentType.get(jj.internalName));</span>
+                }
+            }
+<span class="nc" id="L83">            return retVal;</span>
+        }
+
+    }
+    
+    /**
+     * Filters all mech armor according to given tech constraints
+     *
+     * @param etype
+     * @param industrial
+     * @param techManager
+     * @return
+     */
+    public static List&lt;EquipmentType&gt; legalArmorsFor(long etype, boolean industrial, ITechManager techManager) {
+<span class="nc" id="L97">        List&lt;EquipmentType&gt; retVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        boolean industrialOnly = industrial</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">                &amp;&amp; (techManager.getTechLevel().ordinal() &lt; SimpleTechLevel.EXPERIMENTAL.ordinal());</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        boolean isLam = (etype &amp; Entity.ETYPE_LAND_AIR_MECH) != 0;</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        for (int at = 0; at &lt; EquipmentType.armorNames.length; at++) {</span>
+<span class="nc bnc" id="L102" title="All 6 branches missed.">            if ((at == EquipmentType.T_ARMOR_PATCHWORK)</span>
+                    || (isLam &amp;&amp; (at == EquipmentType.T_ARMOR_HARDENED))) {
+<span class="nc" id="L104">                continue;</span>
+            }
+<span class="nc" id="L106">            String name = EquipmentType.getArmorTypeName(at, techManager.useClanTechBase());</span>
+<span class="nc" id="L107">            EquipmentType eq = EquipmentType.get(name);</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">            if ((null != eq)</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">                    &amp;&amp; eq.hasFlag(MiscType.F_MECH_EQUIPMENT)</span>
+<span class="nc bnc" id="L110" title="All 4 branches missed.">                    &amp;&amp; techManager.isLegal(eq)</span>
+<span class="nc bnc" id="L111" title="All 4 branches missed.">                    &amp;&amp; (!isLam || (eq.getCriticals(null) == 0))</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">                    &amp;&amp; (!industrialOnly || ((MiscType)eq).isIndustrial())) {</span>
+<span class="nc" id="L113">                retVal.add(eq);</span>
+            }
+<span class="nc bnc" id="L115" title="All 2 branches missed.">            if (techManager.useMixedTech()) {</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">                name = EquipmentType.getArmorTypeName(at, !techManager.useClanTechBase());</span>
+<span class="nc" id="L117">                EquipmentType eq2 = EquipmentType.get(name);</span>
+<span class="nc bnc" id="L118" title="All 4 branches missed.">                if ((null != eq2) &amp;&amp; (eq != eq2)</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">                        &amp;&amp; eq2.hasFlag(MiscType.F_MECH_EQUIPMENT)</span>
+<span class="nc bnc" id="L120" title="All 4 branches missed.">                        &amp;&amp; techManager.isLegal(eq2)</span>
+<span class="nc bnc" id="L121" title="All 6 branches missed.">                        &amp;&amp; (!isLam || (eq2.getCriticals(null) == 0))</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">                        &amp;&amp; (!industrialOnly || ((null != eq) &amp;&amp; ((MiscType)eq).isIndustrial()))) {</span>
+<span class="nc" id="L123">                    retVal.add(eq2);</span>
+                }
+            }
+        }
+<span class="nc" id="L127">        return retVal;</span>
+    }
+    
+<span class="nc" id="L130">    private Mech mech = null;</span>
+
+    public TestMech(Mech mech, TestEntityOption option, String fileString) {
+<span class="nc" id="L133">        super(option, mech.getEngine(), getArmor(mech), getStructure(mech));</span>
+<span class="nc" id="L134">        this.mech = mech;</span>
+<span class="nc" id="L135">        this.fileString = fileString;</span>
+<span class="nc" id="L136">    }</span>
+
+    private static Structure getStructure(Mech mech) {
+<span class="nc" id="L139">        int type = mech.getStructureType();</span>
+<span class="nc" id="L140">        return new Structure(type, mech.isSuperHeavy(), mech.getMovementMode());</span>
+    }
+
+    private static Armor[] getArmor(Mech mech) {
+        Armor[] armor;
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        if (!mech.hasPatchworkArmor()) {</span>
+<span class="nc" id="L146">            armor = new Armor[1];</span>
+<span class="nc" id="L147">            int type = mech.getArmorType(1);</span>
+<span class="nc" id="L148">            int flag = 0;</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">            if (mech.isClanArmor(1)) {</span>
+<span class="nc" id="L150">                flag |= Armor.CLAN_ARMOR;</span>
+            }
+<span class="nc" id="L152">            armor[0] = new Armor(type, flag);</span>
+<span class="nc" id="L153">            return armor;</span>
+        } else {
+<span class="nc" id="L155">            armor = new Armor[mech.locations()];</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">            for (int i = 0; i &lt; mech.locations(); i++) {</span>
+<span class="nc" id="L157">                int type = mech.getArmorType(i);</span>
+<span class="nc" id="L158">                int flag = 0;</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">                if (mech.isClanArmor(i)) {</span>
+<span class="nc" id="L160">                    flag |= Armor.CLAN_ARMOR;</span>
+                }
+<span class="nc" id="L162">                armor[i] = new Armor(type, flag);</span>
+            }
+        }
+<span class="nc" id="L165">        return armor;</span>
+    }
+    
+    public static Integer maxJumpMP(Mech mech) {
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (mech.isSuperHeavy()) {</span>
+<span class="nc" id="L170">            return 0;</span>
+        }
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        if (mech.getJumpType() == Mech.JUMP_BOOSTER) {</span>
+<span class="nc" id="L173">            return null;</span>
+<span class="nc bnc" id="L174" title="All 6 branches missed.">        } else if (!mech.hasEngine() || (!mech.getEngine().isFusion() &amp;&amp; (mech.getEngine().getEngineType() != Engine.FISSION))) {</span>
+<span class="nc" id="L175">            return 0;</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        } else if ((mech.getJumpType() == Mech.JUMP_IMPROVED)</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">                || (mech.getJumpType() == Mech.JUMP_PROTOTYPE_IMPROVED)) {</span>
+<span class="nc" id="L178">            return (int)Math.ceil(mech.getOriginalWalkMP() * 1.5);</span>
+        } else {
+<span class="nc" id="L180">            return mech.getOriginalWalkMP();</span>
+        }
+    }
+
+    @Override
+    public Entity getEntity() {
+<span class="nc" id="L186">        return mech;</span>
+    }
+
+    @Override
+    public boolean isTank() {
+<span class="nc" id="L191">        return false;</span>
+    }
+
+    @Override
+    public boolean isMech() {
+<span class="nc" id="L196">        return true;</span>
+    }
+
+    @Override
+    public boolean isAero() {
+<span class="nc" id="L201">        return false;</span>
+    }
+
+    @Override
+    public boolean isSmallCraft() {
+<span class="nc" id="L206">        return false;</span>
+    }
+    
+    @Override
+    public boolean isAdvancedAerospace() {
+<span class="nc" id="L211">        return false;</span>
+    }
+    
+    @Override
+    public boolean isProtomech() {
+<span class="nc" id="L216">        return false;</span>
+    }
+
+    @Override
+    public double getWeightMisc() {
+        // LAM/QuadVee equipment is 10% of mass, rounded up to whole number (15% for bimodal LAM).
+        // IO p. 113 (LAM), 134 (QV)
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        if (mech instanceof LandAirMech) {</span>
+<span class="nc" id="L224">            return Math.ceil(mech.getWeight()) *</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">                    (((LandAirMech) mech).getLAMType() == LandAirMech.LAM_BIMODAL ? 0.15 : 0.1);</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">        } else if (mech instanceof QuadVee) {</span>
+<span class="nc" id="L227">            return Math.ceil(mech.getWeight() * 0.1);</span>
+        }
+<span class="nc" id="L229">        return 0.0;</span>
+    }
+
+    @Override
+    public double getWeightPowerAmp() {
+<span class="nc bnc" id="L234" title="All 2 branches missed.">        if (!mech.hasEngine()</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">                    || (mech.getEngine().getEngineType() == Engine.COMBUSTION_ENGINE)</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">                    || (mech.getEngine().getEngineType() == Engine.FUEL_CELL)) {</span>
+<span class="nc" id="L237">            double powerAmpWeight = 0;</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">            for (Mounted m : mech.getWeaponList()) {</span>
+<span class="nc" id="L239">                WeaponType wt = (WeaponType) m.getType();</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">                if (wt instanceof EnergyWeapon) {</span>
+<span class="nc" id="L241">                    powerAmpWeight += m.getTonnage();</span>
+                }
+<span class="nc bnc" id="L243" title="All 2 branches missed.">                if ((m.getLinkedBy() != null)</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">                        &amp;&amp; (m.getLinkedBy().getType() instanceof MiscType)</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">                        &amp;&amp; m.getLinkedBy().getType().hasFlag(MiscType.F_PPC_CAPACITOR)) {</span>
+<span class="nc" id="L246">                    powerAmpWeight += m.getLinkedBy().getTonnage();</span>
+                }
+<span class="nc" id="L248">            }</span>
+<span class="nc" id="L249">            return TestEntity.ceil(powerAmpWeight / 10f, getWeightCeilingPowerAmp());</span>
+        }
+<span class="nc" id="L251">        return 0;</span>
+    }
+    
+    public double getWeightCockpit() {
+<span class="nc" id="L255">        double weight = 3.0;</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">        if (mech.getCockpitType() == Mech.COCKPIT_SMALL) {</span>
+<span class="nc" id="L257">            weight = 2.0;</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_TORSO_MOUNTED) {</span>
+<span class="nc" id="L259">            weight = 4.0;</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_COMMAND_CONSOLE) {</span>
+            // Technically, it's two separate 3-ton pieces of equipment.
+            // We're ignoring that and returning the total, because it's easier.
+<span class="nc" id="L263">            weight = 6.0;</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_DUAL) {</span>
+            // Solaris VII - The Game World (German) This is not actually
+            // canonical as it
+            // has never been repeated in any English language source including
+            // Tech Manual
+<span class="nc" id="L269">            weight = 4.0;</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_PRIMITIVE) {</span>
+<span class="nc" id="L271">            weight = 5.0;</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_PRIMITIVE_INDUSTRIAL) {</span>
+<span class="nc" id="L273">            weight = 5.0;</span>
+<span class="nc bnc" id="L274" title="All 4 branches missed.">        } else if ((mech.getCockpitType() == Mech.COCKPIT_SUPERHEAVY) || (mech.getCockpitType() == Mech.COCKPIT_TRIPOD)) {</span>
+<span class="nc" id="L275">            weight = 4.0;</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_SUPERHEAVY_TRIPOD) {</span>
+<span class="nc" id="L277">            weight = 5.0;</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_INTERFACE) {</span>
+<span class="nc" id="L279">            weight = 4.0;</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_QUADVEE) {</span>
+<span class="nc" id="L281">            weight = 4.0;</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_SUPERHEAVY_COMMAND_CONSOLE) {</span>
+            // Like as normal command console, it is technically two seperate 4-ton and 3-ton pieces of equipment.
+<span class="nc" id="L284">            weight = 7.0;</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">        } else if (mech.getCockpitType() == Mech.COCKPIT_SMALL_COMMAND_CONSOLE) {</span>
+            // Like as normal command console, it is technically two seperate 2-ton and 3-ton pieces of equipment. 
+<span class="nc" id="L287">            weight = 5.0;</span>
+        }
+
+<span class="nc" id="L290">        return weight;</span>
+    }
+
+    public double getWeightGyro() {
+<span class="nc" id="L294">        double retVal = Math.ceil(engine.getRating() / 100.0f);</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        if (mech.getGyroType() == Mech.GYRO_XL) {</span>
+<span class="nc" id="L296">            retVal /= 2;</span>
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        } else if (mech.getGyroType() == Mech.GYRO_COMPACT) {</span>
+<span class="nc" id="L298">            retVal *= 1.5;</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">        } else if ((mech.getGyroType() == Mech.GYRO_HEAVY_DUTY)</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">                || (mech.getGyroType() == Mech.GYRO_SUPERHEAVY)) {</span>
+<span class="nc" id="L301">            retVal *= 2;</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">        } else if (mech.getGyroType() == Mech.GYRO_NONE) {</span>
+<span class="nc" id="L303">            retVal = 0;</span>
+        }
+<span class="nc" id="L305">        retVal = ceil(retVal, getWeightCeilingGyro());</span>
+<span class="nc" id="L306">        return retVal;</span>
+    }
+
+    @Override
+    public double getWeightControls() {
+<span class="nc" id="L311">        return getWeightCockpit() + getWeightGyro();</span>
+    }
+
+    @Override
+    public int getCountHeatSinks() {
+<span class="nc" id="L316">        return mech.heatSinks();</span>
+    }
+
+    @Override
+    public double getWeightHeatSinks() {
+<span class="nc" id="L321">        boolean hasCompact = false;</span>
+<span class="nc" id="L322">        double compactHsTons = 0;</span>
+<span class="nc bnc" id="L323" title="All 2 branches missed.">        for (Mounted misc : mech.getMisc()) {</span>
+<span class="nc bnc" id="L324" title="All 2 branches missed.">            if (misc.getType().hasFlag(MiscType.F_COMPACT_HEAT_SINK)) {</span>
+<span class="nc" id="L325">                hasCompact = true;</span>
+<span class="nc" id="L326">                compactHsTons += misc.getTonnage();</span>
+            }
+<span class="nc" id="L328">        }</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        if (hasCompact) {</span>
+<span class="nc" id="L330">            return compactHsTons</span>
+<span class="nc" id="L331">                    - (engine.getWeightFreeEngineHeatSinks() * 1.5f);</span>
+        } else {
+<span class="nc" id="L333">            return mech.heatSinks() - engine.getWeightFreeEngineHeatSinks();</span>
+        }
+    }
+
+    @Override
+    public boolean hasDoubleHeatSinks() {
+<span class="nc" id="L339">        return mech.hasDoubleHeatSinks();</span>
+    }
+
+    @Override
+    public String printWeightMisc() {
+<span class="nc" id="L344">        return &quot;&quot;;</span>
+    }
+
+    @Override
+    public String printWeightControls() {
+<span class="nc" id="L349">        StringBuffer retVal = new StringBuffer(StringUtil.makeLength(</span>
+<span class="nc" id="L350">                mech.getCockpitTypeString() + &quot;:&quot;, getPrintSize() - 5));</span>
+<span class="nc" id="L351">        retVal.append(makeWeightString(getWeightCockpit()));</span>
+<span class="nc" id="L352">        retVal.append(&quot;\n&quot;);</span>
+<span class="nc" id="L353">        retVal.append(StringUtil.makeLength(mech.getGyroTypeString() + &quot;:&quot;,</span>
+<span class="nc" id="L354">                getPrintSize() - 5));</span>
+<span class="nc" id="L355">        retVal.append(makeWeightString(getWeightGyro()));</span>
+<span class="nc" id="L356">        retVal.append(&quot;\n&quot;);</span>
+<span class="nc" id="L357">        return retVal.toString();</span>
+    }
+
+    public Mech getMech() {
+<span class="nc" id="L361">        return mech;</span>
+    }
+
+    public boolean isCockpitLocation(int location) {
+<span class="nc bnc" id="L365" title="All 2 branches missed.">        if (mech.getCockpitType() == Mech.COCKPIT_TORSO_MOUNTED</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                || mech.getCockpitType() == Mech.COCKPIT_VRRP) {</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">            return location == Mech.LOC_CT;</span>
+        }
+<span class="nc bnc" id="L369" title="All 2 branches missed.">        return location == Mech.LOC_HEAD;</span>
+    }
+    
+    public boolean isEngineLocation(int location) {
+<span class="nc" id="L373">        return mech.hasSystem(Mech.SYSTEM_ENGINE, location);</span>
+    }
+
+    public int countCriticalSlotsFromEquipInLocation(Entity entity, Mounted mount,
+            int location) {
+<span class="nc" id="L378">        int count = 0;</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">        for (int slots = 0; slots &lt; entity.getNumberOfCriticals(location); slots++) {</span>
+<span class="nc" id="L380">            CriticalSlot slot = entity.getCritical(location, slots);</span>
+<span class="nc bnc" id="L381" title="All 4 branches missed.">            if ((slot == null) || (slot.getType() == CriticalSlot.TYPE_SYSTEM)) {</span>
+<span class="nc" id="L382">                continue;</span>
+<span class="nc bnc" id="L383" title="All 2 branches missed.">            } else if (slot.getType() == CriticalSlot.TYPE_EQUIPMENT) {</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">                if (slot.getMount().equals(mount)) {</span>
+<span class="nc" id="L385">                    count++;</span>
+                }
+            } else {
+                // Ignore this?
+            }
+        }
+<span class="nc" id="L391">        return count;</span>
+    }
+
+    public boolean checkMiscSpreadAllocation(Entity entity, Mounted mounted,
+            StringBuffer buff) {
+<span class="nc" id="L396">        MiscType mt = (MiscType) mounted.getType();</span>
+<span class="nc bnc" id="L397" title="All 4 branches missed.">        if (mt.hasFlag(MiscType.F_STEALTH) &amp;&amp; !entity.hasPatchworkArmor()) {</span>
+            // stealth needs to have 2 crits in legs arm and side torso
+<span class="nc bnc" id="L399" title="All 2 branches missed.">            if (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                    Mech.LOC_LARM) != 2) {
+<span class="nc" id="L401">                buff.append(&quot;incorrect number of stealth crits in left arm\n&quot;);</span>
+<span class="nc" id="L402">                return false;</span>
+            }
+<span class="nc bnc" id="L404" title="All 2 branches missed.">            if (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                    Mech.LOC_RARM) != 2) {
+<span class="nc" id="L406">                buff.append(&quot;incorrect number of stealth crits in right arm\n&quot;);</span>
+<span class="nc" id="L407">                return false;</span>
+            }
+<span class="nc bnc" id="L409" title="All 2 branches missed.">            if (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                    Mech.LOC_LLEG) != 2) {
+<span class="nc" id="L411">                buff.append(&quot;incorrect number of stealth crits in left leg\n&quot;);</span>
+<span class="nc" id="L412">                return false;</span>
+            }
+<span class="nc bnc" id="L414" title="All 2 branches missed.">            if (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                    Mech.LOC_RLEG) != 2) {
+<span class="nc" id="L416">                buff.append(&quot;incorrect number of stealth crits in right leg\n&quot;);</span>
+<span class="nc" id="L417">                return false;</span>
+            }
+<span class="nc bnc" id="L419" title="All 2 branches missed.">            if (countCriticalSlotsFromEquipInLocation(entity, mounted, Mech.LOC_LT) != 2) {</span>
+<span class="nc" id="L420">                buff.append(&quot;incorrect number of stealth crits in left torso\n&quot;);</span>
+<span class="nc" id="L421">                return false;</span>
+            }
+<span class="nc bnc" id="L423" title="All 2 branches missed.">            if (countCriticalSlotsFromEquipInLocation(entity, mounted, Mech.LOC_RT) != 2) {</span>
+<span class="nc" id="L424">                buff.append(&quot;incorrect number of stealth crits in right torso\n&quot;);</span>
+<span class="nc" id="L425">                return false;</span>
+            }
+        }
+<span class="nc bnc" id="L428" title="All 2 branches missed.">        if (mt.hasFlag(MiscType.F_DRONE_CONTROL_CONSOLE)) {</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">            if (mounted.getLocation() != Mech.LOC_HEAD) {</span>
+<span class="nc" id="L430">                buff.append(&quot;Drone Control Console must be mounted in head&quot;);</span>
+<span class="nc" id="L431">                return false;</span>
+            }
+        }
+<span class="nc bnc" id="L434" title="All 2 branches missed.">        if (mt.hasFlag(MiscType.F_MOBILE_HPG)) {</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">            if ((countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                    Mech.LOC_LARM) &gt; 0)
+<span class="nc bnc" id="L437" title="All 2 branches missed.">                    || (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                            Mech.LOC_RARM) &gt; 0)
+<span class="nc bnc" id="L439" title="All 2 branches missed.">                    || (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                            Mech.LOC_HEAD) &gt; 0)
+<span class="nc bnc" id="L441" title="All 2 branches missed.">                    || (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                            Mech.LOC_LLEG) &gt; 0)
+<span class="nc bnc" id="L443" title="All 2 branches missed.">                    || (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                            Mech.LOC_RLEG) &gt; 0)) {
+<span class="nc" id="L445">                buff.append(&quot;ground mobile HPG must be mounted in torso locations\n&quot;);</span>
+            }
+        }
+<span class="nc bnc" id="L448" title="All 2 branches missed.">        if (mt.hasFlag(MiscType.F_ENVIRONMENTAL_SEALING)) {</span>
+            // environmental sealing needs to have 1 crit per location
+<span class="nc bnc" id="L450" title="All 2 branches missed.">            for (int locations = 0; locations &lt; entity.locations(); locations++) {</span>
+<span class="nc bnc" id="L451" title="All 2 branches missed.">                if (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                        locations) != 1) {
+<span class="nc" id="L453">                    buff.append(&quot;not an environmental sealing crit in each location\n&quot;);</span>
+<span class="nc" id="L454">                    return false;</span>
+                }
+            }
+        }
+<span class="nc bnc" id="L458" title="All 2 branches missed.">        if (mt.hasFlag(MiscType.F_BLUE_SHIELD)) {</span>
+            // blue shield needs to have 1 crit per location, except head
+<span class="nc bnc" id="L460" title="All 2 branches missed.">            for (int locations = 0; locations &lt; entity.locations(); locations++) {</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">                if (locations != Mech.LOC_HEAD) {</span>
+<span class="nc bnc" id="L462" title="All 2 branches missed.">                    if (countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                            locations) != 1) {
+<span class="nc" id="L464">                        buff.append(&quot;not a blue shield crit in each location except the head\n&quot;);</span>
+<span class="nc" id="L465">                        return false;</span>
+                    }
+                }
+
+            }
+        }
+<span class="nc bnc" id="L471" title="All 2 branches missed.">        if (mt.hasFlag(MiscType.F_PARTIAL_WING)) {</span>
+            // partial wing needs 3/4 crits in the side torsos
+<span class="nc bnc" id="L473" title="All 2 branches missed.">            if (countCriticalSlotsFromEquipInLocation(entity, mounted, Mech.LOC_LT) != ((TechConstants.isClan(mt</span>
+<span class="nc" id="L474">                    .getTechLevel(entity.getTechLevelYear()))) ? 3</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">                    : 4)) {</span>
+<span class="nc" id="L476">                buff.append(&quot;incorrect number of partial wing crits in left torso\n&quot;);</span>
+<span class="nc" id="L477">                return false;</span>
+            }
+<span class="nc bnc" id="L479" title="All 2 branches missed.">            if (countCriticalSlotsFromEquipInLocation(entity, mounted, Mech.LOC_RT) != ((TechConstants.isClan(mt</span>
+<span class="nc" id="L480">                    .getTechLevel(entity.getTechLevelYear()))) ? 3</span>
+<span class="nc bnc" id="L481" title="All 2 branches missed.">                    : 4)) {</span>
+<span class="nc" id="L482">                buff.append(&quot;incorrect number of partial wing crits in right torso\n&quot;);</span>
+<span class="nc" id="L483">                return false;</span>
+            }
+        }
+<span class="nc" id="L486">        return true;</span>
+    }
+
+    public boolean criticalSlotsAllocated(Entity entity, Mounted mounted,
+            Vector&lt;Serializable&gt; allocation, StringBuffer buff) {
+<span class="nc" id="L491">        int location = mounted.getLocation();</span>
+<span class="nc" id="L492">        EquipmentType et = mounted.getType();</span>
+<span class="nc" id="L493">        int criticals = 0;</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">        if (et instanceof MiscType) {</span>
+<span class="nc" id="L495">            criticals = calcMiscCrits((MiscType) et, mounted.getSize());</span>
+        } else {
+<span class="nc" id="L497">            criticals = mounted.getCriticals();</span>
+        }
+<span class="nc" id="L499">        int count = 0;</span>
+
+<span class="nc bnc" id="L501" title="All 2 branches missed.">        if (location == Entity.LOC_NONE) {</span>
+<span class="nc" id="L502">            return true;</span>
+        }
+
+<span class="nc bnc" id="L505" title="All 4 branches missed.">        if (et.isSpreadable() &amp;&amp; !et.getName().equals(&quot;Targeting Computer&quot;)) {</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">            for (int locations = 0; locations &lt; entity.locations(); locations++) {</span>
+<span class="nc" id="L507">                count += countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                        locations);
+            }
+        } else {
+<span class="nc" id="L511">            count = countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                    location);
+        }
+
+<span class="nc bnc" id="L515" title="All 4 branches missed.">        if ((et instanceof WeaponType) &amp;&amp; mounted.isSplit()) {</span>
+<span class="nc" id="L516">            int secCound = 0;</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">            for (int locations = 0; locations &lt; entity.locations(); locations++) {</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">                if (locations == location) {</span>
+<span class="nc" id="L519">                    continue;</span>
+                }
+
+<span class="nc" id="L522">                secCound = countCriticalSlotsFromEquipInLocation(entity, mounted,</span>
+                        locations);
+<span class="nc bnc" id="L524" title="All 2 branches missed.">                if ((secCound != 0)</span>
+<span class="nc bnc" id="L525" title="All 2 branches missed.">                        &amp;&amp; (location == Mech.mostRestrictiveLoc(locations,</span>
+                                location))) {
+<span class="nc" id="L527">                    count += secCound;</span>
+<span class="nc" id="L528">                    break;</span>
+                }
+            }
+        }
+
+<span class="nc bnc" id="L533" title="All 2 branches missed.">        if (count == criticals) {</span>
+<span class="nc" id="L534">            return true;</span>
+        }
+
+<span class="nc" id="L537">        allocation.addElement(mounted);</span>
+<span class="nc" id="L538">        allocation.addElement(Integer.valueOf(criticals));</span>
+<span class="nc" id="L539">        allocation.addElement(Integer.valueOf(count));</span>
+<span class="nc" id="L540">        return false;</span>
+    }
+
+    public boolean checkCriticalSlotsForEquipment(Mech mech,
+            Vector&lt;Mounted&gt; unallocated, Vector&lt;Serializable&gt; allocation,
+            Vector&lt;Integer&gt; heatSinks, StringBuffer buff) {
+<span class="nc" id="L546">        boolean legal = true;</span>
+<span class="nc" id="L547">        int countInternalHeatSinks = 0;</span>
+<span class="nc bnc" id="L548" title="All 2 branches missed.">        for (Mounted m : mech.getEquipment()) {</span>
+<span class="nc" id="L549">            int loc = m.getLocation();</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">            if (loc == Entity.LOC_NONE) {</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">                if ((m.getType() instanceof AmmoType)</span>
+<span class="nc bnc" id="L552" title="All 2 branches missed.">                        &amp;&amp; (m.getUsableShotsLeft() &lt;= 1)) {</span>
+<span class="nc" id="L553">                    continue;</span>
+                }
+<span class="nc bnc" id="L555" title="All 2 branches missed.">                if (m.getCriticals() == 0) {</span>
+<span class="nc" id="L556">                    continue;</span>
+                }
+<span class="nc bnc" id="L558" title="All 2 branches missed.">                if (!(m.getType() instanceof MiscType)) {</span>
+<span class="nc" id="L559">                    unallocated.addElement(m);</span>
+<span class="nc" id="L560">                    continue;</span>
+                }
+<span class="nc" id="L562">                MiscType mt = (MiscType) m.getType();</span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                if (mt.hasFlag(MiscType.F_HEAT_SINK)</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">                        || mt.hasFlag(MiscType.F_DOUBLE_HEAT_SINK)</span>
+<span class="nc bnc" id="L565" title="All 2 branches missed.">                        || mt.hasFlag(MiscType.F_IS_DOUBLE_HEAT_SINK_PROTOTYPE)) {</span>
+<span class="nc" id="L566">                    countInternalHeatSinks++;</span>
+                } else {
+<span class="nc" id="L568">                    unallocated.addElement(m);</span>
+<span class="nc" id="L569">                    continue;</span>
+                }
+            }
+            // Check for illegal allocations
+<span class="nc bnc" id="L573" title="All 8 branches missed.">            if (mech.isOmni()</span>
+                    &amp;&amp; (mech instanceof BipedMech)
+                    &amp;&amp; ((loc == Mech.LOC_LARM) || (loc == Mech.LOC_RARM))
+<span class="nc bnc" id="L576" title="All 2 branches missed.">                    &amp;&amp; ((m.getType() instanceof GaussWeapon)</span>
+<span class="nc bnc" id="L577" title="All 2 branches missed.">                            || (m.getType() instanceof ACWeapon)</span>
+<span class="nc bnc" id="L578" title="All 2 branches missed.">                            || (m.getType() instanceof UACWeapon)</span>
+<span class="nc bnc" id="L579" title="All 2 branches missed.">                            || (m.getType() instanceof LBXACWeapon) </span>
+<span class="nc bnc" id="L580" title="All 2 branches missed.">                            || (m.getType() instanceof PPCWeapon))) {</span>
+<span class="nc" id="L581">                String weapon = &quot;&quot;;</span>
+<span class="nc bnc" id="L582" title="All 2 branches missed.">                if (m.getType() instanceof GaussWeapon) {</span>
+<span class="nc" id="L583">                    weapon = &quot;gauss rifles&quot;; </span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">                } else if ((m.getType() instanceof ACWeapon) </span>
+<span class="nc bnc" id="L585" title="All 2 branches missed.">                        || (m.getType() instanceof UACWeapon)</span>
+<span class="nc bnc" id="L586" title="All 2 branches missed.">                        || (m.getType() instanceof LBXACWeapon)) {</span>
+<span class="nc" id="L587">                    weapon = &quot;autocannons&quot;;</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">                } else if (m.getType() instanceof PPCWeapon) {</span>
+<span class="nc" id="L589">                    weapon = &quot;PPCs&quot;;</span>
+                }
+<span class="nc bnc" id="L591" title="All 2 branches missed.">                if (mech.hasSystem(Mech.ACTUATOR_LOWER_ARM, loc)</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">                        || mech.hasSystem(Mech.ACTUATOR_HAND, loc)) {</span>
+<span class="nc" id="L593">                    buff.append(&quot;Omni mechs with arm mounted &quot;).append(weapon)</span>
+<span class="nc" id="L594">                            .append(&quot; cannot have lower armor or hand actuators!\n&quot;);</span>
+<span class="nc" id="L595">                    legal = false;</span>
+                }
+            }
+<span class="nc" id="L598">        }</span>
+<span class="nc bnc" id="L599" title="All 2 branches missed.">        if ((countInternalHeatSinks &gt; engine.integralHeatSinkCapacity(this.mech.hasCompactHeatSinks()))</span>
+<span class="nc bnc" id="L600" title="All 2 branches missed.">                || ((countInternalHeatSinks &lt; engine.integralHeatSinkCapacity(this.mech.hasCompactHeatSinks()))</span>
+<span class="nc bnc" id="L601" title="All 2 branches missed.">                        &amp;&amp; (countInternalHeatSinks != mech.heatSinks(false))</span>
+<span class="nc bnc" id="L602" title="All 2 branches missed.">                &amp;&amp; !mech.isOmni())) {</span>
+<span class="nc" id="L603">            heatSinks.addElement(countInternalHeatSinks);</span>
+        }
+<span class="nc" id="L605">        return legal;</span>
+    }
+
+    public boolean correctCriticals(StringBuffer buff) {
+<span class="nc" id="L609">        Vector&lt;Mounted&gt; unallocated = new Vector&lt;Mounted&gt;();</span>
+<span class="nc" id="L610">        Vector&lt;Serializable&gt; allocation = new Vector&lt;Serializable&gt;();</span>
+<span class="nc" id="L611">        Vector&lt;Integer&gt; heatSinks = new Vector&lt;Integer&gt;();</span>
+<span class="nc" id="L612">        boolean correct = checkCriticalSlotsForEquipment(mech, unallocated, allocation,</span>
+                heatSinks, buff);
+        /*
+         * StringBuffer critAlloc = new StringBuffer(); need to redo this, in
+         * MML, spread equipment gets one mounted per block that needs to be
+         * allocated for (Mounted m : mech.getEquipment()) { if
+         * ((m.getLocation() != Entity.LOC_NONE) &amp;&amp; (m.getType() instanceof
+         * MiscType)) { if (!checkMiscSpreadAllocation(mech, m, critAlloc)) {
+         * correct = false; buff.append(critAlloc.toString()); } } }
+         */
+
+<span class="nc bnc" id="L623" title="All 2 branches missed.">        if (!unallocated.isEmpty()) {</span>
+<span class="nc" id="L624">            buff.append(&quot;Unallocated Equipment:\n&quot;);</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">            for (Mounted mount : unallocated) {</span>
+<span class="nc" id="L626">                buff.append(mount.getType().getInternalName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L627">            }</span>
+<span class="nc" id="L628">            correct = false;</span>
+        }
+<span class="nc bnc" id="L630" title="All 2 branches missed.">        if (!allocation.isEmpty()) {</span>
+<span class="nc" id="L631">            buff.append(&quot;Allocated Equipment:\n&quot;);</span>
+<span class="nc" id="L632">            for (Enumeration&lt;Serializable&gt; serializableEnum = allocation</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">                    .elements(); serializableEnum.hasMoreElements();) {</span>
+<span class="nc" id="L634">                Mounted mount = (Mounted) serializableEnum.nextElement();</span>
+<span class="nc" id="L635">                int needCrits = ((Integer) serializableEnum.nextElement())</span>
+<span class="nc" id="L636">                        .intValue();</span>
+<span class="nc" id="L637">                int aktCrits = ((Integer) serializableEnum.nextElement())</span>
+<span class="nc" id="L638">                        .intValue();</span>
+<span class="nc" id="L639">                buff.append(mount.getType().getInternalName()).append(&quot; has &quot;)</span>
+<span class="nc" id="L640">                        .append(needCrits).append(&quot; Slots, but &quot;)</span>
+<span class="nc" id="L641">                        .append(aktCrits).append(&quot; Slots are allocated!&quot;)</span>
+<span class="nc" id="L642">                        .append(&quot;\n&quot;);</span>
+<span class="nc" id="L643">            }</span>
+<span class="nc" id="L644">            correct = false;</span>
+        }
+<span class="nc bnc" id="L646" title="All 2 branches missed.">        if (!heatSinks.isEmpty()) {</span>
+<span class="nc" id="L647">            int sinks = heatSinks.elements().nextElement();</span>
+<span class="nc" id="L648">            buff.append(sinks - engine.integralHeatSinkCapacity(mech</span>
+<span class="nc" id="L649">                    .hasCompactHeatSinks())).append(&quot; unallocated heat sinks\n&quot;);</span>
+<span class="nc" id="L650">            correct = false;</span>
+        }
+<span class="nc bnc" id="L652" title="All 2 branches missed.">        if (!checkSystemCriticals(buff)) {</span>
+<span class="nc" id="L653">            correct = false;</span>
+        }
+<span class="nc" id="L655">        return correct;</span>
+    }
+
+    private boolean checkSystemCriticals(StringBuffer buff) {
+        // Engine criticals
+<span class="nc" id="L660">        boolean engineCorrect = true;</span>
+<span class="nc" id="L661">        int requiredSideCrits = engine.getSideTorsoCriticalSlots().length;</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">        if ((requiredSideCrits != mech.getNumberOfCriticals(</span>
+                CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_ENGINE, Mech.LOC_LT))
+<span class="nc bnc" id="L664" title="All 2 branches missed.">                || (requiredSideCrits != mech.getNumberOfCriticals(</span>
+                        CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_ENGINE,
+                        Mech.LOC_RT))) {
+<span class="nc" id="L667">            engineCorrect = false;</span>
+        }
+<span class="nc" id="L669">        int requiredCTCrits = engine.getCenterTorsoCriticalSlots(mech.getGyroType()).length;</span>
+<span class="nc" id="L670">        if (requiredCTCrits != mech</span>
+<span class="nc bnc" id="L671" title="All 2 branches missed.">                .getNumberOfCriticals(CriticalSlot.TYPE_SYSTEM,</span>
+                        Mech.SYSTEM_ENGINE, Mech.LOC_CT)) {
+<span class="nc" id="L673">            engineCorrect = false;</span>
+        }
+<span class="nc bnc" id="L675" title="All 2 branches missed.">        if (!engineCorrect) {</span>
+<span class="nc" id="L676">            buff.append(&quot;Engine: Incorrect number of criticals allocated.\n&quot;);</span>
+        }
+
+<span class="nc bnc" id="L679" title="All 2 branches missed.">        if (!engineCorrect) {</span>
+<span class="nc" id="L680">            return false;</span>
+        }
+
+<span class="nc bnc" id="L683" title="All 2 branches missed.">        if (getMech().getGyroType() == Mech.GYRO_NONE</span>
+<span class="nc bnc" id="L684" title="All 2 branches missed.">                &amp;&amp; getMech().getCockpitType() != Mech.COCKPIT_INTERFACE) {</span>
+<span class="nc" id="L685">            buff.append(&quot;Missing Gyro!.\n&quot;);</span>
+<span class="nc" id="L686">            return false;</span>
+        }
+
+<span class="nc" id="L689">        return true;</span>
+    }
+
+    public String printArmorLocProp(int loc, int wert) {
+<span class="nc" id="L693">        return &quot; is greater than &quot; + Integer.toString(wert) + &quot;!&quot;;</span>
+    }
+
+    public boolean correctArmor(StringBuffer buff) {
+<span class="nc" id="L697">        boolean correct = true;</span>
+<span class="nc bnc" id="L698" title="All 2 branches missed.">        for (int loc = 0; loc &lt; mech.locations(); loc++) {</span>
+<span class="nc bnc" id="L699" title="All 2 branches missed.">            if (loc == Mech.LOC_HEAD) {</span>
+<span class="nc bnc" id="L700" title="All 8 branches missed.">                if (((mech.getOArmor(Mech.LOC_HEAD) &gt; 9) &amp;&amp; !mech.isSuperHeavy()) || ((mech.getOArmor(Mech.LOC_HEAD) &gt; 12) &amp;&amp; mech.isSuperHeavy())) {</span>
+<span class="nc" id="L701">                    buff.append(printArmorLocation(Mech.LOC_HEAD))</span>
+<span class="nc" id="L702">                            .append(printArmorLocProp(Mech.LOC_HEAD, 9))</span>
+<span class="nc" id="L703">                            .append(&quot;\n&quot;);</span>
+<span class="nc" id="L704">                    correct = false;</span>
+                }
+
+<span class="nc bnc" id="L707" title="All 2 branches missed.">            } else if ((mech.getOArmor(loc) + (mech.hasRearArmor(loc) ? mech</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">                    .getOArmor(loc, true) : 0)) &gt; (2 * mech.getOInternal(loc))) {</span>
+<span class="nc" id="L709">                buff.append(printArmorLocation(loc))</span>
+<span class="nc" id="L710">                        .append(printArmorLocProp(loc,</span>
+<span class="nc" id="L711">                                2 * mech.getOInternal(loc))).append(&quot;\n&quot;);</span>
+<span class="nc" id="L712">                correct = false;</span>
+            }
+        }
+
+<span class="nc bnc" id="L716" title="All 2 branches missed.">        if (!getEntity().hasPatchworkArmor()</span>
+<span class="nc bnc" id="L717" title="All 2 branches missed.">                &amp;&amp; (getEntity().getLabTotalArmorPoints() &lt; getEntity().getTotalOArmor())) {</span>
+<span class="nc" id="L718">            correct = false;</span>
+<span class="nc" id="L719">            buff.append(&quot;Too many armor points allocated&quot;);</span>
+        }
+
+<span class="nc" id="L722">        return correct;</span>
+    }
+
+    public boolean correctMovement(StringBuffer buff) {
+        // Mechanical Jump Boosts can be greater then Running as long as
+        // the unit can handle the weight.
+<span class="nc bnc" id="L728" title="All 2 branches missed.">        if ((mech.getJumpMP(false) &gt; mech.getOriginalRunMP())</span>
+<span class="nc bnc" id="L729" title="All 2 branches missed.">                &amp;&amp; !mech.hasJumpBoosters()</span>
+<span class="nc bnc" id="L730" title="All 2 branches missed.">                &amp;&amp; !mech.hasWorkingMisc(MiscType.F_PARTIAL_WING)) {</span>
+<span class="nc" id="L731">            buff.append(&quot;Jump MP exceeds run MP\n&quot;);</span>
+<span class="nc" id="L732">            return false;</span>
+        }
+<span class="nc bnc" id="L734" title="All 2 branches missed.">        if ((mech.getJumpMP(false) &gt; mech.getOriginalWalkMP())</span>
+<span class="nc bnc" id="L735" title="All 4 branches missed.">                &amp;&amp; (((mech.getJumpType() != Mech.JUMP_IMPROVED) &amp;&amp; (mech.getJumpType() != Mech.JUMP_PROTOTYPE_IMPROVED))</span>
+<span class="nc bnc" id="L736" title="All 2 branches missed.">                        &amp;&amp; !mech.hasWorkingMisc(MiscType.F_PARTIAL_WING) &amp;&amp; !mech</span>
+<span class="nc bnc" id="L737" title="All 2 branches missed.">                            .hasJumpBoosters())) {</span>
+<span class="nc" id="L738">            buff.append(&quot;Jump MP exceeds walk MP without IJJs\n&quot;);</span>
+<span class="nc" id="L739">            return false;</span>
+        }
+<span class="nc bnc" id="L741" title="All 4 branches missed.">        if ((mech instanceof LandAirMech) &amp;&amp; mech.getJumpMP(false) &lt; 3) {</span>
+<span class="nc" id="L742">            buff.append(&quot;LAMs must have at least 3 jumping MP.\n&quot;);</span>
+<span class="nc" id="L743">            return false;</span>
+        }
+<span class="nc" id="L745">        return true;</span>
+    }
+
+    @Override
+    public boolean correctEntity(StringBuffer buff) {
+<span class="nc" id="L750">        return correctEntity(buff, getEntity().getTechLevel());</span>
+    }
+
+    @Override
+    public boolean correctEntity(StringBuffer buff, int ammoTechLvl) {
+<span class="nc" id="L755">        boolean correct = true;</span>
+<span class="nc bnc" id="L756" title="All 2 branches missed.">        if (skip()) {</span>
+<span class="nc" id="L757">            return true;</span>
+        }
+<span class="nc bnc" id="L759" title="All 2 branches missed.">        if (!correctWeight(buff)) {</span>
+<span class="nc" id="L760">            buff.insert(0, printTechLevel() + printShortMovement());</span>
+<span class="nc" id="L761">            buff.append(printWeightCalculation());</span>
+<span class="nc" id="L762">            correct = false;</span>
+        }
+<span class="nc bnc" id="L764" title="All 2 branches missed.">        if (!engine.engineValid) {</span>
+<span class="nc" id="L765">            buff.append(engine.problem.toString()).append(&quot;\n\n&quot;);</span>
+<span class="nc" id="L766">            correct = false;</span>
+        }
+<span class="nc bnc" id="L768" title="All 2 branches missed.">        if (getCountHeatSinks() &lt; engine.getWeightFreeEngineHeatSinks()) {</span>
+<span class="nc" id="L769">            buff.append(&quot;Heat Sinks:\n&quot;);</span>
+<span class="nc" id="L770">            buff.append(&quot; Engine    &quot;</span>
+<span class="nc" id="L771">                    + engine.integralHeatSinkCapacity(mech</span>
+<span class="nc" id="L772">                            .hasCompactHeatSinks()) + &quot;\n&quot;);</span>
+<span class="nc" id="L773">            buff.append(&quot; Total     &quot; + getCountHeatSinks() + &quot;\n&quot;);</span>
+<span class="nc" id="L774">            buff.append(&quot; Required  &quot; + engine.getWeightFreeEngineHeatSinks()</span>
+                    + &quot;\n&quot;);
+<span class="nc" id="L776">            correct = false;</span>
+        }
+<span class="nc bnc" id="L778" title="All 4 branches missed.">        if (showCorrectArmor() &amp;&amp; !correctArmor(buff)) {</span>
+<span class="nc" id="L779">            correct = false;</span>
+        }
+<span class="nc bnc" id="L781" title="All 4 branches missed.">        if (showCorrectCritical() &amp;&amp; !correctCriticals(buff)) {</span>
+<span class="nc" id="L782">            correct = false;</span>
+        }
+<span class="nc bnc" id="L784" title="All 4 branches missed.">        if (showFailedEquip() &amp;&amp; hasFailedEquipment(buff)) {</span>
+<span class="nc" id="L785">            correct = false;</span>
+        }
+<span class="nc bnc" id="L787" title="All 2 branches missed.">        if (hasIllegalTechLevels(buff, ammoTechLvl)) {</span>
+<span class="nc" id="L788">            correct = false;</span>
+        }
+<span class="nc bnc" id="L790" title="All 4 branches missed.">        if (showIncorrectIntroYear() &amp;&amp; hasIncorrectIntroYear(buff)) {</span>
+<span class="nc" id="L791">            correct = false;</span>
+        }
+<span class="nc bnc" id="L793" title="All 2 branches missed.">        if (hasIllegalEquipmentCombinations(buff)) {</span>
+<span class="nc" id="L794">            correct = false;</span>
+        }
+<span class="nc bnc" id="L796" title="All 2 branches missed.">        for (Mounted misc : mech.getMisc()) {</span>
+<span class="nc bnc" id="L797" title="All 4 branches missed.">            correct = correct &amp;&amp; checkMiscSpreadAllocation(mech, misc, buff);</span>
+<span class="nc" id="L798">        }</span>
+<span class="nc bnc" id="L799" title="All 4 branches missed.">        correct = correct &amp;&amp; correctMovement(buff);</span>
+<span class="nc" id="L800">        return correct;</span>
+    }
+
+    @Override
+    public StringBuffer printEntity() {
+<span class="nc" id="L805">        StringBuffer buff = new StringBuffer();</span>
+<span class="nc" id="L806">        buff.append(&quot;Mech: &quot;).append(mech.getDisplayName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L807">        buff.append(&quot;Found in: &quot;).append(fileString).append(&quot;\n&quot;);</span>
+<span class="nc" id="L808">        buff.append(printTechLevel());</span>
+<span class="nc" id="L809">        buff.append(&quot;Intro year: &quot;).append(mech.getYear()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L810">        buff.append(printSource());</span>
+<span class="nc" id="L811">        buff.append(printShortMovement());</span>
+<span class="nc bnc" id="L812" title="All 2 branches missed.">        if (correctWeight(buff, true, true)) {</span>
+<span class="nc" id="L813">            buff.append(&quot;Weight: &quot;).append(getWeight()).append(&quot; (&quot;)</span>
+<span class="nc" id="L814">                    .append(calculateWeight()).append(&quot;)\n&quot;);</span>
+        }
+<span class="nc" id="L816">        buff.append(printWeightCalculation()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L817">        buff.append(printArmorPlacement());</span>
+<span class="nc" id="L818">        correctArmor(buff);</span>
+<span class="nc" id="L819">        buff.append(printLocations());</span>
+<span class="nc" id="L820">        correctCriticals(buff);</span>
+
+        // printArmor(buff);
+<span class="nc" id="L823">        printFailedEquipment(buff);</span>
+<span class="nc" id="L824">        return buff;</span>
+    }
+
+    @Override
+    public String getName() {
+<span class="nc" id="L829">        return &quot;Mech: &quot; + mech.getDisplayName();</span>
+    }
+
+    /**
+     * calculates the total weight of all armored components.
+     */
+    @Override
+    public double getArmoredComponentWeight() {
+<span class="nc" id="L837">        double weight = 0.0;</span>
+<span class="nc" id="L838">        double cockpitWeight = 0.0;</span>
+<span class="nc bnc" id="L839" title="All 2 branches missed.">        for (int location = Mech.LOC_HEAD; location &lt; mech.locations(); location++) {</span>
+<span class="nc bnc" id="L840" title="All 2 branches missed.">            for (int slot = 0; slot &lt; mech.getNumberOfCriticals(location); slot++) {</span>
+<span class="nc" id="L841">                CriticalSlot cs = mech.getCritical(location, slot);</span>
+<span class="nc bnc" id="L842" title="All 4 branches missed.">                if ((cs != null) &amp;&amp; cs.isArmored()) {</span>
+                    // Armored cockpit (including command console) adds 1 ton, regardless of number of slots
+<span class="nc bnc" id="L844" title="All 2 branches missed.">                    if ((cs.getType() == CriticalSlot.TYPE_SYSTEM)</span>
+<span class="nc bnc" id="L845" title="All 2 branches missed.">                            &amp;&amp; (cs.getIndex() == Mech.SYSTEM_COCKPIT)) {</span>
+<span class="nc" id="L846">                        cockpitWeight = 1.0;</span>
+                    } else {
+<span class="nc" id="L848">                        weight += 0.5;</span>
+                    }
+                }
+            }
+        }
+<span class="nc" id="L853">        return weight + cockpitWeight;</span>
+    }
+
+    /**
+     * Check if the unit has combinations of equipment which are not allowed in
+     * the construction rules.
+     *
+     * @param buff
+     *            diagnostics are appended to this
+     * @return true if the entity is illegal
+     */
+    @Override
+    public boolean hasIllegalEquipmentCombinations(StringBuffer buff) {
+<span class="nc" id="L866">        boolean illegal = super.hasIllegalEquipmentCombinations(buff);</span>
+        
+<span class="nc" id="L868">        boolean hasStealth = mech.hasStealth();</span>
+<span class="nc" id="L869">        boolean hasC3 = mech.hasC3();</span>
+<span class="nc" id="L870">        boolean hasHarjelII = false;</span>
+<span class="nc" id="L871">        boolean hasHarjelIII = false;</span>
+<span class="nc" id="L872">        boolean hasNullSig = false;</span>
+<span class="nc" id="L873">        boolean hasVoidSig = false;</span>
+<span class="nc" id="L874">        boolean hasTC = false;</span>
+<span class="nc" id="L875">        boolean hasMASC = false;</span>
+<span class="nc" id="L876">        boolean hasAES = false;</span>
+<span class="nc" id="L877">        EquipmentType advancedMyomer = null;</span>
+
+        //First we find all the equipment that is required or incompatible with other equipment,
+        //so we don't have to execute another loop each time one of those situations comes up.
+<span class="nc bnc" id="L881" title="All 2 branches missed.">        for (Mounted m : mech.getMisc()) {</span>
+<span class="nc" id="L882">            hasHarjelII |= m.getType().hasFlag(MiscType.F_HARJEL_II);</span>
+<span class="nc" id="L883">            hasHarjelIII |= m.getType().hasFlag(MiscType.F_HARJEL_III);</span>
+<span class="nc" id="L884">            hasNullSig |= m.getType().hasFlag(MiscType.F_NULLSIG);</span>
+<span class="nc" id="L885">            hasVoidSig |= m.getType().hasFlag(MiscType.F_VOIDSIG);</span>
+<span class="nc" id="L886">            hasTC |= m.getType().hasFlag(MiscType.F_TARGCOMP);</span>
+<span class="nc bnc" id="L887" title="All 2 branches missed.">            hasMASC |= m.getType().hasFlag(MiscType.F_MASC)</span>
+<span class="nc bnc" id="L888" title="All 2 branches missed.">                    &amp;&amp; !m.getType().hasSubType(MiscType.S_SUPERCHARGER);</span>
+<span class="nc" id="L889">            hasAES |= m.getType().hasFlag(MiscType.F_ACTUATOR_ENHANCEMENT_SYSTEM);</span>
+<span class="nc bnc" id="L890" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_TSM)</span>
+<span class="nc bnc" id="L891" title="All 2 branches missed.">                    || m.getType().hasFlag(MiscType.F_INDUSTRIAL_TSM)</span>
+<span class="nc bnc" id="L892" title="All 2 branches missed.">                    || m.getType().hasFlag(MiscType.F_SCM)) {</span>
+<span class="nc" id="L893">                advancedMyomer = m.getType();</span>
+            }
+<span class="nc" id="L895">        }</span>
+
+<span class="nc bnc" id="L897" title="All 2 branches missed.">        for (Mounted m : getEntity().getMisc()) {</span>
+<span class="nc" id="L898">            final MiscType misc = (MiscType)m.getType();</span>
+
+<span class="nc bnc" id="L900" title="All 4 branches missed.">            if (misc.hasFlag(MiscType.F_UMU) &amp;&amp; (mech.getJumpType() != Mech.JUMP_NONE)</span>
+<span class="nc bnc" id="L901" title="All 2 branches missed.">                    &amp;&amp; (mech.getJumpType() != Mech.JUMP_BOOSTER)) {</span>
+<span class="nc" id="L902">                illegal = true;</span>
+<span class="nc" id="L903">                buff.append(&quot;UMUs cannot be mounted with jump jets &quot;</span>
+                        + &quot;(jump boosters are legal)\n&quot;);
+            }
+
+<span class="nc bnc" id="L907" title="All 2 branches missed.">            if (misc.hasFlag(MiscType.F_MASC)</span>
+<span class="nc bnc" id="L908" title="All 2 branches missed.">                    &amp;&amp; misc.hasSubType(MiscType.S_SUPERCHARGER)) {</span>
+<span class="nc bnc" id="L909" title="All 2 branches missed.">                if (mech instanceof LandAirMech) {</span>
+<span class="nc" id="L910">                    buff.append(&quot;LAMs may not mount a supercharger\n&quot;);</span>
+<span class="nc" id="L911">                    illegal = true;</span>
+                }
+            }
+            
+<span class="nc bnc" id="L915" title="All 2 branches missed.">            if ((misc.hasFlag(MiscType.F_TSM)</span>
+<span class="nc bnc" id="L916" title="All 2 branches missed.">                    || misc.hasFlag(MiscType.F_INDUSTRIAL_TSM)</span>
+<span class="nc bnc" id="L917" title="All 4 branches missed.">                    || misc.hasFlag(MiscType.F_SCM))</span>
+                    &amp;&amp; (misc != advancedMyomer)) {
+<span class="nc" id="L919">                buff.append(&quot;Cannot mount more than one type of myomer.\n&quot;);</span>
+<span class="nc" id="L920">                illegal = true;</span>
+            }
+            
+<span class="nc bnc" id="L923" title="All 2 branches missed.">            if (misc.hasFlag(MiscType.F_REMOTE_DRONE_COMMAND_CONSOLE)) {</span>
+<span class="nc bnc" id="L924" title="All 2 branches missed.">                if (mech.getCockpitType() == Mech.COCKPIT_COMMAND_CONSOLE) {</span>
+<span class="nc" id="L925">                    buff.append(&quot;cockpit command console can't be combined with remote drone command console\n&quot;);</span>
+<span class="nc" id="L926">                    illegal = true;</span>
+                }
+            }
+
+<span class="nc bnc" id="L930" title="All 2 branches missed.">            if (misc.hasFlag(MiscType.F_CHAMELEON_SHIELD)) {</span>
+<span class="nc bnc" id="L931" title="All 2 branches missed.">                if (hasStealth) {</span>
+<span class="nc" id="L932">                    buff.append(&quot;Unit mounts both chameleon-light-polarization-system and stealth armor\n&quot;);</span>
+<span class="nc" id="L933">                    illegal = true;</span>
+                }
+<span class="nc bnc" id="L935" title="All 2 branches missed.">                if (hasVoidSig) {</span>
+<span class="nc" id="L936">                    buff.append(&quot;Unit mounts both void-signature-system and a chameleon light polarisation shield\n&quot;);</span>
+<span class="nc" id="L937">                    illegal = true;</span>
+                }
+            }
+
+<span class="nc bnc" id="L941" title="All 2 branches missed.">            if (misc.hasFlag(MiscType.F_LIGHT_FLUID_SUCTION_SYSTEM)</span>
+<span class="nc bnc" id="L942" title="All 2 branches missed.">                    &amp;&amp; !mech.isIndustrial()) {</span>
+<span class="nc" id="L943">                illegal = true;</span>
+<span class="nc" id="L944">                buff.append(&quot;BattleMech can't mount light fluid suction system\n&quot;);</span>
+            }
+
+<span class="nc bnc" id="L947" title="All 2 branches missed.">            if (!mech.entityIsQuad()) {</span>
+<span class="nc bnc" id="L948" title="All 2 branches missed.">                if (replacesHandActuator(misc)</span>
+<span class="nc bnc" id="L949" title="All 2 branches missed.">                        &amp;&amp; mech.hasSystem(Mech.ACTUATOR_HAND, m.getLocation())) {</span>
+<span class="nc" id="L950">                    illegal = true;</span>
+<span class="nc" id="L951">                    buff.append(&quot;Mech can only mount &quot;).append(misc.getName())</span>
+<span class="nc" id="L952">                            .append(&quot; in arm with no hand actuator.\n&quot;);</span>
+<span class="nc bnc" id="L953" title="All 4 branches missed.">                } else if (requiresHandActuator(misc) &amp;&amp; !mech.hasSystem(Mech.ACTUATOR_HAND, m.getLocation())) {</span>
+<span class="nc" id="L954">                    illegal = true;</span>
+<span class="nc" id="L955">                    buff.append(&quot;Mech requires a hand actuator in the arm that mounts &quot;).append(misc.getName()).append(&quot;\n&quot;);</span>
+<span class="nc bnc" id="L956" title="All 4 branches missed.">                } else if (requiresLowerArm(misc) &amp;&amp; !mech.hasSystem(Mech.ACTUATOR_LOWER_ARM, m.getLocation())) {</span>
+<span class="nc" id="L957">                    illegal = true;</span>
+<span class="nc" id="L958">                    buff.append(&quot;Mech requires a lower arm actuator in the arm that mounts &quot;).append(misc.getName()).append(&quot;\n&quot;);</span>
+                }
+            }
+<span class="nc bnc" id="L961" title="All 2 branches missed.">            if (misc.hasFlag(MiscType.F_HEAD_TURRET)</span>
+<span class="nc bnc" id="L962" title="All 2 branches missed.">                    &amp;&amp; isCockpitLocation(Mech.LOC_HEAD)) {</span>
+<span class="nc" id="L963">                illegal = true;</span>
+<span class="nc" id="L964">                buff.append(&quot;head turret requires torso mounted cockpit\n&quot;);</span>
+            }
+
+<span class="nc bnc" id="L967" title="All 4 branches missed.">            if (misc.hasFlag(MiscType.F_SHOULDER_TURRET) &amp;&amp; mech instanceof QuadMech) {</span>
+<span class="nc" id="L968">                illegal = true;</span>
+<span class="nc" id="L969">                buff.append(&quot;quad mechs can't mount shoulder turrets\n&quot;);</span>
+            }
+            
+<span class="nc bnc" id="L972" title="All 2 branches missed.">            if (misc.hasFlag(MiscType.F_SHOULDER_TURRET)) {</span>
+<span class="nc bnc" id="L973" title="All 2 branches missed.">                if (m.getLocation() != Mech.LOC_RT</span>
+<span class="nc bnc" id="L974" title="All 2 branches missed.">                        &amp;&amp; m.getLocation() != Mech.LOC_LT) {</span>
+<span class="nc bnc" id="L975" title="All 2 branches missed.">                    if (mech.countWorkingMisc(MiscType.F_SHOULDER_TURRET, m.getLocation()) &gt; 1) {</span>
+<span class="nc" id="L976">                        illegal = true;</span>
+<span class="nc" id="L977">                        buff.append(&quot;max of 1 shoulder turret per side torso\n&quot;);</span>
+                    }
+                }
+            }
+
+<span class="nc bnc" id="L982" title="All 2 branches missed.">            if (misc.hasFlag(MiscType.F_TRACKS)) {</span>
+<span class="nc bnc" id="L983" title="All 2 branches missed.">                if (mech instanceof QuadVee) {</span>
+<span class="nc" id="L984">                    if (misc.hasSubType(MiscType.S_QUADVEE_WHEELS)</span>
+<span class="nc bnc" id="L985" title="All 4 branches missed.">                            != (((QuadVee)mech).getMotiveType() == QuadVee.MOTIVE_WHEEL)) {</span>
+<span class="nc" id="L986">                        illegal = true;</span>
+<span class="nc" id="L987">                        buff.append(&quot;Motive equipment does not match QuadVee motive type.\n&quot;);</span>
+                    }
+<span class="nc bnc" id="L989" title="All 2 branches missed.">                } else if (misc.hasSubType(MiscType.S_QUADVEE_WHEELS)) {</span>
+<span class="nc" id="L990">                    illegal = true;</span>
+<span class="nc" id="L991">                    buff.append(&quot;Wheels can only be used on QuadVees.\n&quot;);</span>
+                }
+<span class="nc bnc" id="L993" title="All 2 branches missed.">                for (int loc = 0; loc &lt; mech.locations(); loc++) {</span>
+<span class="nc bnc" id="L994" title="All 2 branches missed.">                    if (mech.locationIsLeg(loc)</span>
+<span class="nc bnc" id="L995" title="All 2 branches missed.">                            &amp;&amp; countCriticalSlotsFromEquipInLocation(mech, m, loc) != 1) {</span>
+<span class="nc" id="L996">                        illegal = true;</span>
+<span class="nc" id="L997">                        buff.append(misc.getName()).append(&quot; require one critical slot in each leg.\n&quot;);</span>
+<span class="nc" id="L998">                        break;</span>
+                    }
+                }
+            }
+            
+<span class="nc bnc" id="L1003" title="All 2 branches missed.">            if (m.getType().hasFlag(MiscType.F_TALON)) {</span>
+<span class="nc bnc" id="L1004" title="All 2 branches missed.">                int slots = getMech().isSuperHeavy() ? 1 : 2;</span>
+<span class="nc bnc" id="L1005" title="All 2 branches missed.">                for (int loc = 0; loc &lt; mech.locations(); loc++) {</span>
+<span class="nc bnc" id="L1006" title="All 4 branches missed.">                    if (mech.locationIsLeg(loc) &amp;&amp; countCriticalSlotsFromEquipInLocation(mech, m, loc) != slots) {</span>
+<span class="nc" id="L1007">                        illegal = true;</span>
+<span class="nc" id="L1008">                        buff.append(&quot;Talons require &quot;).append(slots).append(&quot; critical slots in each leg.\n&quot;);</span>
+<span class="nc" id="L1009">                        break;</span>
+                    }
+                }
+            }
+
+<span class="nc bnc" id="L1014" title="All 2 branches missed.">            if (misc.hasFlag(MiscType.F_RAM_PLATE)) {</span>
+<span class="nc bnc" id="L1015" title="All 2 branches missed.">                if (!(mech instanceof QuadMech)) {</span>
+<span class="nc" id="L1016">                    buff.append(misc.getName()).append(&quot; can only be mounted on a quad mech.\n&quot;);</span>
+<span class="nc" id="L1017">                    illegal = true;</span>
+                }
+<span class="nc bnc" id="L1019" title="All 2 branches missed.">                if (!mech.hasReinforcedStructure()) {</span>
+<span class="nc" id="L1020">                    buff.append(misc.getName()).append(&quot; requires reinforced structure.\n&quot;);</span>
+<span class="nc" id="L1021">                    illegal = true;</span>
+                }
+<span class="nc bnc" id="L1023" title="All 2 branches missed.">                for (int loc = 0; loc &lt; mech.locations(); loc++) {</span>
+<span class="nc bnc" id="L1024" title="All 2 branches missed.">                    if (mech.locationIsTorso(loc)</span>
+<span class="nc bnc" id="L1025" title="All 2 branches missed.">                            &amp;&amp; countCriticalSlotsFromEquipInLocation(mech, m, loc) != 1) {</span>
+<span class="nc" id="L1026">                        illegal = true;</span>
+<span class="nc" id="L1027">                        buff.append(misc.getName()).append(&quot; requires one critical slot in each torso location.\n&quot;);</span>
+<span class="nc" id="L1028">                        break;</span>
+                    }
+                }
+            }
+
+<span class="nc bnc" id="L1033" title="All 2 branches missed.">            if (mech.isSuperHeavy()</span>
+<span class="nc bnc" id="L1034" title="All 2 branches missed.">                    &amp;&amp; (misc.hasFlag(MiscType.F_TSM)</span>
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_INDUSTRIAL_TSM)</span>
+<span class="nc bnc" id="L1036" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_SCM)</span>
+<span class="nc bnc" id="L1037" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_MASC)</span>
+<span class="nc bnc" id="L1038" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_JUMP_JET)</span>
+<span class="nc bnc" id="L1039" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_MECHANICAL_JUMP_BOOSTER)</span>
+<span class="nc bnc" id="L1040" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_UMU)</span>
+<span class="nc bnc" id="L1041" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_ACTUATOR_ENHANCEMENT_SYSTEM)</span>
+<span class="nc bnc" id="L1042" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_MODULAR_ARMOR)</span>
+<span class="nc bnc" id="L1043" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_PARTIAL_WING))) {</span>
+<span class="nc" id="L1044">                buff.append(&quot;Superheavy may not mount &quot;).append(m.getType().getName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1045">                illegal = true;</span>
+            }
+            
+<span class="nc bnc" id="L1048" title="All 2 branches missed.">            if (mech.isIndustrial()) {</span>
+<span class="nc bnc" id="L1049" title="All 2 branches missed.">                if (misc.hasFlag(MiscType.F_TSM)</span>
+<span class="nc bnc" id="L1050" title="All 2 branches missed.">                        || misc.hasFlag(MiscType.F_SCM)</span>
+<span class="nc bnc" id="L1051" title="All 4 branches missed.">                        || (misc.hasFlag(MiscType.F_MASC) &amp;&amp; !misc.hasSubType(MiscType.S_SUPERCHARGER))) {</span>
+<span class="nc" id="L1052">                    buff.append(&quot;industrial mech can't mount &quot;).append(misc.getName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1053">                    illegal = true;                    </span>
+                }
+<span class="nc bnc" id="L1055" title="All 2 branches missed.">                if ((mech.getCockpitType() == Mech.COCKPIT_INDUSTRIAL</span>
+<span class="nc bnc" id="L1056" title="All 2 branches missed.">                        || mech.getCockpitType() == Mech.COCKPIT_PRIMITIVE_INDUSTRIAL)</span>
+<span class="nc bnc" id="L1057" title="All 2 branches missed.">                    &amp;&amp; (misc.hasFlag(MiscType.F_TARGCOMP)</span>
+<span class="nc bnc" id="L1058" title="All 2 branches missed.">                        || misc.hasFlag(MiscType.F_ARTEMIS)</span>
+<span class="nc bnc" id="L1059" title="All 2 branches missed.">                        || misc.hasFlag(MiscType.F_ARTEMIS_PROTO)</span>
+<span class="nc bnc" id="L1060" title="All 2 branches missed.">                        || misc.hasFlag(MiscType.F_ARTEMIS_V)</span>
+<span class="nc bnc" id="L1061" title="All 2 branches missed.">                        || misc.hasFlag(MiscType.F_BAP))) {</span>
+<span class="nc" id="L1062">                    buff.append(&quot;Industrial mech without advanced fire control can't mount &quot;)</span>
+<span class="nc" id="L1063">                            .append(misc.getName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1064">                    illegal = true;                    </span>
+                }
+            } else {
+<span class="nc bnc" id="L1067" title="All 2 branches missed.">                if (misc.hasFlag(MiscType.F_INDUSTRIAL_TSM)</span>
+<span class="nc bnc" id="L1068" title="All 2 branches missed.">                        || misc.hasFlag(MiscType.F_ENVIRONMENTAL_SEALING)</span>
+<span class="nc bnc" id="L1069" title="All 2 branches missed.">                        || misc.hasFlag(MiscType.F_FUEL)) {</span>
+<span class="nc" id="L1070">                    buff.append(&quot;Non-industrial mech can't mount &quot;).append(misc.getName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1071">                    illegal = true;</span>
+                }
+            }
+            
+<span class="nc bnc" id="L1075" title="All 2 branches missed.">            if ((mech instanceof LandAirMech)</span>
+<span class="nc bnc" id="L1076" title="All 2 branches missed.">                    &amp;&amp; (misc.hasFlag(MiscType.F_MODULAR_ARMOR)</span>
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_JUMP_BOOSTER)</span>
+<span class="nc bnc" id="L1078" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_PARTIAL_WING)</span>
+<span class="nc bnc" id="L1079" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_DUMPER)</span>
+<span class="nc bnc" id="L1080" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_HEAVY_BRIDGE_LAYER)</span>
+<span class="nc bnc" id="L1081" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_MEDIUM_BRIDGE_LAYER)</span>
+<span class="nc bnc" id="L1082" title="All 2 branches missed.">                            || misc.hasFlag(MiscType.F_LIGHT_BRIDGE_LAYER)</span>
+<span class="nc bnc" id="L1083" title="All 2 branches missed.">                            || (misc.hasFlag(MiscType.F_CLUB)</span>
+<span class="nc bnc" id="L1084" title="All 2 branches missed.">                                    &amp;&amp; (misc.getSubType() == MiscType.S_BACKHOE)</span>
+<span class="nc bnc" id="L1085" title="All 2 branches missed.">                                    || (misc.getSubType() == MiscType.S_COMBINE)))) {</span>
+<span class="nc" id="L1086">                buff.append(&quot;LAMs may not mount &quot;).append(misc.getName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1087">                illegal = true;</span>
+            }
+<span class="nc" id="L1089">        }</span>
+        
+<span class="nc bnc" id="L1091" title="All 2 branches missed.">        if (mech.isSuperHeavy()) {</span>
+<span class="nc bnc" id="L1092" title="All 5 branches missed.">            switch (mech.hasEngine()? mech.getEngine().getEngineType() : Engine.NONE) {</span>
+                case Engine.NORMAL_ENGINE:
+                case Engine.LARGE_ENGINE:
+<span class="nc" id="L1095">                    break;</span>
+                case Engine.XL_ENGINE:
+                case Engine.XXL_ENGINE:
+                case Engine.COMPACT_ENGINE:
+                case Engine.LIGHT_ENGINE:
+<span class="nc bnc" id="L1100" title="All 2 branches missed.">                    if (mech.isIndustrial()) {</span>
+<span class="nc" id="L1101">                        buff.append(&quot;Superheavy industrialMechs can only use standard or large fusion engine\n&quot;);</span>
+<span class="nc" id="L1102">                        illegal = true;</span>
+                    }
+                    break;
+                default:
+<span class="nc" id="L1106">                    buff.append(&quot;Superheavy Mechs must use some type of fusion engine\n&quot;);</span>
+<span class="nc" id="L1107">                    illegal = true;</span>
+            }
+<span class="nc bnc" id="L1109" title="All 2 branches missed.">            if (mech.getGyroType() != Mech.GYRO_SUPERHEAVY) {</span>
+<span class="nc" id="L1110">                buff.append(&quot;Superheavy Mechs must use a superheavy gyro.\n&quot;);</span>
+<span class="nc" id="L1111">                illegal = true;</span>
+            }
+            
+<span class="nc bnc" id="L1114" title="All 2 branches missed.">            if (mech.getArmoredComponentBV() &gt; 0) {</span>
+<span class="nc" id="L1115">                buff.append(&quot;Superheavy Mechs cannot have armored components\n&quot;);</span>
+<span class="nc" id="L1116">                illegal = true;</span>
+            }
+            
+<span class="nc bnc" id="L1119" title="All 2 branches missed.">            if (mech instanceof QuadVee) {</span>
+<span class="nc" id="L1120">                buff.append(&quot;QuadVees cannot be constructed as superheavies.\n&quot;);</span>
+            }
+<span class="nc bnc" id="L1122" title="All 2 branches missed.">        } else if (mech.getGyroType() == Mech.GYRO_SUPERHEAVY) {</span>
+<span class="nc" id="L1123">            buff.append(&quot;Only superheavy Mechs can use a superheavy gyro.\n&quot;);</span>
+<span class="nc" id="L1124">            illegal = true;</span>
+        }
+        
+<span class="nc bnc" id="L1127" title="All 2 branches missed.">        if (mech.isIndustrial()) {</span>
+<span class="nc bnc" id="L1128" title="All 2 branches missed.">            if ((mech.getCockpitType() == Mech.COCKPIT_INDUSTRIAL</span>
+<span class="nc bnc" id="L1129" title="All 4 branches missed.">                    || mech.getCockpitType() == Mech.COCKPIT_PRIMITIVE_INDUSTRIAL) &amp;&amp; hasC3) {</span>
+<span class="nc" id="L1130">                buff.append(&quot;industrial mech without advanced fire control can't use c3 computer\n&quot;);</span>
+<span class="nc" id="L1131">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1133" title="All 2 branches missed.">            if ((mech.getJumpType() != Mech.JUMP_STANDARD)</span>
+<span class="nc bnc" id="L1134" title="All 2 branches missed.">                    &amp;&amp; (mech.getJumpType() != Mech.JUMP_NONE)</span>
+<span class="nc bnc" id="L1135" title="All 2 branches missed.">                    &amp;&amp; (mech.getJumpType() != Mech.JUMP_PROTOTYPE)</span>
+<span class="nc bnc" id="L1136" title="All 2 branches missed.">                    &amp;&amp; (mech.getJumpType() != Mech.JUMP_BOOSTER)) {</span>
+<span class="nc" id="L1137">                buff.append(&quot;industrial mechs can only mount standard jump jets or mechanical jump boosters\n&quot;);</span>
+<span class="nc" id="L1138">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1140" title="All 4 branches missed.">            if ((mech.getGyroType() != Mech.GYRO_STANDARD) &amp;&amp; (mech.getGyroType() != Mech.GYRO_SUPERHEAVY)) {</span>
+<span class="nc" id="L1141">                buff.append(&quot;industrial mechs can only mount standard gyros\n&quot;);</span>
+<span class="nc" id="L1142">                illegal = true;</span>
+            }
+        }
+        
+<span class="nc bnc" id="L1146" title="All 2 branches missed.">        if (mech.isPrimitive()) {</span>
+<span class="nc bnc" id="L1147" title="All 2 branches missed.">            if (mech.isOmni()) {</span>
+<span class="nc" id="L1148">                buff.append(&quot;primitive mechs can't be omnis\n&quot;);</span>
+<span class="nc" id="L1149">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1151" title="All 2 branches missed.">            if (!((mech.getStructureType() == EquipmentType.T_STRUCTURE_STANDARD) || (mech</span>
+<span class="nc bnc" id="L1152" title="All 2 branches missed.">                    .getStructureType() == EquipmentType.T_STRUCTURE_INDUSTRIAL))) {</span>
+<span class="nc" id="L1153">                buff.append(&quot;primitive mechs can't mount advanced inner structure\n&quot;);</span>
+<span class="nc" id="L1154">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1156" title="All 4 branches missed.">            if(mech.hasEngine() &amp;&amp; ((mech.getEngine().getEngineType() == Engine.XL_ENGINE)</span>
+<span class="nc bnc" id="L1157" title="All 2 branches missed.">                    || (mech.getEngine().getEngineType() == Engine.LIGHT_ENGINE)</span>
+<span class="nc bnc" id="L1158" title="All 2 branches missed.">                    || (mech.getEngine().getEngineType() == Engine.COMPACT_ENGINE)</span>
+<span class="nc bnc" id="L1159" title="All 2 branches missed.">                    || mech.getEngine().hasFlag(Engine.LARGE_ENGINE)</span>
+<span class="nc bnc" id="L1160" title="All 2 branches missed.">                    || (mech.getEngine().getEngineType() == Engine.XXL_ENGINE))) {</span>
+<span class="nc" id="L1161">                buff.append(&quot;primitive mechs can't mount XL, Light, Compact, XXL or Large Engines\n&quot;);</span>
+<span class="nc" id="L1162">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1164" title="All 2 branches missed.">            if (advancedMyomer != null) {</span>
+<span class="nc" id="L1165">                buff.append(&quot;primitive mechs can't mount advanced myomers\n&quot;);</span>
+<span class="nc" id="L1166">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1168" title="All 2 branches missed.">            if (mech.isIndustrial()) {</span>
+<span class="nc bnc" id="L1169" title="All 2 branches missed.">                if (mech.getArmorType(0) != EquipmentType.T_ARMOR_COMMERCIAL) {</span>
+<span class="nc" id="L1170">                    buff.append(&quot;primitive industrialmechs must mount commercial armor\n&quot;);</span>
+<span class="nc" id="L1171">                    illegal = true;</span>
+                }
+            } else {
+<span class="nc bnc" id="L1174" title="All 2 branches missed.">                if ((mech.getArmorType(0) != EquipmentType.T_ARMOR_PRIMITIVE)</span>
+<span class="nc bnc" id="L1175" title="All 2 branches missed.">                        &amp;&amp; (mech.getArmorType(0) != EquipmentType.T_ARMOR_INDUSTRIAL)) {</span>
+<span class="nc" id="L1176">                    buff.append(&quot;primitive battlemechs must mount primitive battlemech armor\n&quot;);</span>
+<span class="nc" id="L1177">                    illegal = true;</span>
+                }
+            }
+        }
+        
+<span class="nc bnc" id="L1182" title="All 2 branches missed.">        if (mech instanceof LandAirMech) {</span>
+<span class="nc bnc" id="L1183" title="All 2 branches missed.">            if (mech.isOmni()) {</span>
+<span class="nc" id="L1184">                buff.append(&quot;LAMs may not be constructed as omnis\n&quot;);</span>
+<span class="nc" id="L1185">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1187" title="All 2 branches missed.">            if (mech.getWeight() &gt; 55) {</span>
+<span class="nc" id="L1188">                buff.append(&quot;LAMs cannot be larger than 55 tons.\n&quot;);</span>
+<span class="nc" id="L1189">                illegal = true;</span>
+            }
+<span class="nc" id="L1191">            EquipmentType structure = EquipmentType.get(EquipmentType.getStructureTypeName(mech.getStructureType(),</span>
+<span class="nc" id="L1192">                    mech.isClan()));</span>
+<span class="nc bnc" id="L1193" title="All 2 branches missed.">            if (structure.getCriticals(mech) &gt; 0) {</span>
+<span class="nc" id="L1194">                buff.append(&quot;LAMs may not use &quot;).append(structure.getName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1195">                illegal = true;</span>
+            }
+            
+<span class="nc" id="L1198">            Set&lt;Integer&gt; ats = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1199" title="All 2 branches missed.">            for (int i = 0; i &lt; mech.locations(); i++) {</span>
+<span class="nc" id="L1200">                ats.add(mech.getArmorType(i));</span>
+            }
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">            for (int at : ats) {</span>
+<span class="nc bnc" id="L1203" title="All 2 branches missed.">                if (at == EquipmentType.T_ARMOR_HARDENED) {</span>
+<span class="nc" id="L1204">                    buff.append(&quot;LAMs cannot use hardened armor.\n&quot;);</span>
+<span class="nc" id="L1205">                    illegal = true;</span>
+                } else {
+<span class="nc" id="L1207">                    final EquipmentType eq = EquipmentType.get(EquipmentType.getArmorTypeName(at, mech.isClan()));</span>
+<span class="nc bnc" id="L1208" title="All 4 branches missed.">                    if (eq != null &amp;&amp; eq.getCriticals(mech) &gt; 0) {</span>
+<span class="nc" id="L1209">                        buff.append(&quot;LAMs cannot use &quot;).append(eq.getName()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L1210">                        illegal = true;</span>
+                    }
+                }
+<span class="nc" id="L1213">            }</span>
+<span class="nc bnc" id="L1214" title="All 2 branches missed.">            if (mech.countWorkingMisc(MiscType.F_BOMB_BAY) &gt; 20) {</span>
+<span class="nc" id="L1215">                buff.append(&quot;A LAM has a maximum of 20 bomb bays.\n&quot;);</span>
+<span class="nc" id="L1216">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1218" title="All 2 branches missed.">            if (isCockpitLocation(Mech.LOC_CT)) {</span>
+<span class="nc" id="L1219">                buff.append(&quot;LAMs may not use torso-mounted cockpits.\n&quot;);</span>
+<span class="nc" id="L1220">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1222" title="All 2 branches missed.">            if (mech.getNumberOfCriticals(CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_COCKPIT, Mech.LOC_HEAD) &gt; 1) {</span>
+<span class="nc" id="L1223">                buff.append(&quot;LAMs may not cockpits that require multiple critical slots.\n&quot;);</span>
+<span class="nc" id="L1224">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1226" title="All 2 branches missed.">            if (mech.getCockpitType() == Mech.COCKPIT_PRIMITIVE</span>
+<span class="nc bnc" id="L1227" title="All 2 branches missed.">                    || mech.getCockpitType() == Mech.COCKPIT_PRIMITIVE_INDUSTRIAL) {</span>
+<span class="nc" id="L1228">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1230" title="All 2 branches missed.">            if (mech.getGyroType() != Mech.GYRO_STANDARD</span>
+<span class="nc bnc" id="L1231" title="All 2 branches missed.">                    &amp;&amp; mech.getGyroType() != Mech.GYRO_COMPACT</span>
+<span class="nc bnc" id="L1232" title="All 2 branches missed.">                    &amp;&amp; mech.getGyroType() != Mech.GYRO_HEAVY_DUTY) {</span>
+<span class="nc" id="L1233">                buff.append(&quot;LAMs may not use &quot;).append(Mech.getGyroDisplayString(mech.getGyroType()))</span>
+<span class="nc" id="L1234">                .append(&quot;\n&quot;);</span>
+<span class="nc" id="L1235">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1237" title="All 2 branches missed.">            if (mech.getEngine().getEngineType() != Engine.NORMAL_ENGINE</span>
+<span class="nc bnc" id="L1238" title="All 2 branches missed.">                    &amp;&amp; mech.getEngine().getEngineType() != Engine.COMPACT_ENGINE) {</span>
+<span class="nc" id="L1239">                buff.append(&quot;LAMs may only use standard or compact fusion engines.\n&quot;);</span>
+<span class="nc" id="L1240">                illegal = true;</span>
+            }
+            
+<span class="nc" id="L1243">            Map&lt;EquipmentType,Set&lt;Integer&gt;&gt; spread = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1244" title="All 2 branches missed.">            for (Mounted m : mech.getEquipment()) {</span>
+<span class="nc bnc" id="L1245" title="All 2 branches missed.">                if (m.isSplit()) {</span>
+<span class="nc" id="L1246">                    buff.append(&quot;Cannot split &quot;).append(m.getType().getName())</span>
+<span class="nc" id="L1247">                        .append(&quot; between locations&quot;);</span>
+<span class="nc" id="L1248">                    illegal = true;</span>
+<span class="nc bnc" id="L1249" title="All 2 branches missed.">                } else if (m.getType() instanceof ArtilleryWeapon) {</span>
+<span class="nc" id="L1250">                    buff.append(&quot;LAMs cannot mount artillery weapons.\n&quot;);</span>
+<span class="nc" id="L1251">                    illegal = true;</span>
+<span class="nc bnc" id="L1252" title="All 2 branches missed.">                } else if (m.getType() instanceof WeaponType</span>
+<span class="nc bnc" id="L1253" title="All 2 branches missed.">                        &amp;&amp; ((((WeaponType)m.getType()).getAmmoType() == AmmoType.T_GAUSS_HEAVY)</span>
+<span class="nc bnc" id="L1254" title="All 2 branches missed.">                                || (((WeaponType)m.getType()).getAmmoType() == AmmoType.T_IGAUSS_HEAVY))) {</span>
+<span class="nc" id="L1255">                    buff.append(&quot;LAMs cannot mount heavy gauss rifles.\n&quot;);</span>
+<span class="nc" id="L1256">                    illegal = true;</span>
+<span class="nc bnc" id="L1257" title="All 2 branches missed.">                } else if ((m.getType() instanceof MiscType)</span>
+<span class="nc bnc" id="L1258" title="All 2 branches missed.">                        &amp;&amp; m.getType().hasFlag(MiscType.F_CLUB)) {</span>
+<span class="nc" id="L1259">                    buff.append(&quot;LAMs cannot be constructed with physical weapons.\n&quot;);</span>
+<span class="nc" id="L1260">                    illegal = true;</span>
+<span class="nc bnc" id="L1261" title="All 2 branches missed.">                } else if (m.getType().isSpreadable()) {</span>
+<span class="nc bnc" id="L1262" title="All 2 branches missed.">                    if (spread.containsKey(m.getType())) {</span>
+<span class="nc" id="L1263">                        spread.get(m.getType()).add(m.getLocation());</span>
+                    } else {
+<span class="nc" id="L1265">                        spread.put(m.getType(), new HashSet&lt;&gt;());</span>
+<span class="nc" id="L1266">                        spread.get(m.getType()).add(m.getLocation());</span>
+                    }
+                }
+<span class="nc" id="L1269">            }</span>
+<span class="nc bnc" id="L1270" title="All 2 branches missed.">            for (EquipmentType et : spread.keySet()) {</span>
+<span class="nc bnc" id="L1271" title="All 2 branches missed.">                if (spread.get(et).size() &gt; 1) {</span>
+<span class="nc" id="L1272">                    buff.append(et.getName()).append(&quot; must be allocated to a single location.\n&quot;);</span>
+<span class="nc" id="L1273">                    illegal = true;</span>
+                }
+<span class="nc" id="L1275">            }</span>
+<span class="nc bnc" id="L1276" title="All 2 branches missed.">            if (!mech.hasSystem(Mech.ACTUATOR_LOWER_ARM, Mech.LOC_RARM)</span>
+<span class="nc bnc" id="L1277" title="All 2 branches missed.">                    || !mech.hasSystem(Mech.ACTUATOR_LOWER_ARM, Mech.LOC_LARM)</span>
+<span class="nc bnc" id="L1278" title="All 2 branches missed.">                    || !mech.hasSystem(Mech.ACTUATOR_UPPER_ARM, Mech.LOC_RARM)</span>
+<span class="nc bnc" id="L1279" title="All 2 branches missed.">                    || !mech.hasSystem(Mech.ACTUATOR_UPPER_ARM, Mech.LOC_LARM)) {</span>
+<span class="nc" id="L1280">                buff.append(&quot;LAMs require upper and lower arm actuators in both arms.\n&quot;);</span>
+<span class="nc" id="L1281">                illegal = true;</span>
+            }
+        }
+        
+        //Make sure all base chassis heat sinks are allocated
+<span class="nc bnc" id="L1286" title="All 2 branches missed.">        if (mech.isOmni()) {</span>
+<span class="nc" id="L1287">            int total = 0;</span>
+<span class="nc" id="L1288">            int allocated = 0;</span>
+<span class="nc" id="L1289">            boolean compact = false;</span>
+<span class="nc bnc" id="L1290" title="All 2 branches missed.">            for (Mounted m : mech.getMisc()) {</span>
+<span class="nc bnc" id="L1291" title="All 2 branches missed.">                if (m.getType().hasFlag(MiscType.F_HEAT_SINK)</span>
+<span class="nc bnc" id="L1292" title="All 2 branches missed.">                            || m.getType().hasFlag(MiscType.F_DOUBLE_HEAT_SINK)</span>
+<span class="nc bnc" id="L1293" title="All 2 branches missed.">                            || m.getType().hasFlag(MiscType.F_IS_DOUBLE_HEAT_SINK_PROTOTYPE)) {</span>
+<span class="nc" id="L1294">                    total++;</span>
+<span class="nc" id="L1295">                    compact |= m.getType().hasFlag(MiscType.F_COMPACT_HEAT_SINK);</span>
+<span class="nc bnc" id="L1296" title="All 2 branches missed.">                    if (m.getLocation() != Entity.LOC_NONE) {</span>
+<span class="nc" id="L1297">                        allocated++;</span>
+                    }
+                }
+<span class="nc" id="L1300">            }</span>
+<span class="nc bnc" id="L1301" title="All 2 branches missed.">            int required = total - (mech.isOmni()?</span>
+<span class="nc" id="L1302">                    mech.getEngine().getBaseChassisHeatSinks(compact) :</span>
+<span class="nc" id="L1303">                        mech.getEngine().integralHeatSinkCapacity(compact));</span>
+<span class="nc bnc" id="L1304" title="All 2 branches missed.">            if (allocated &lt; required) {</span>
+<span class="nc" id="L1305">                illegal = true;</span>
+<span class="nc" id="L1306">                buff.append(&quot;Only &quot; + allocated + &quot; of the required &quot; + required + &quot; heat sinks are allocated to critical slots.&quot;);</span>
+            }
+        }
+        
+<span class="nc bnc" id="L1310" title="All 4 branches missed.">        if (hasMASC &amp;&amp; advancedMyomer != null) {</span>
+<span class="nc" id="L1311">            buff.append(&quot;MASC is incompatible with &quot; + advancedMyomer.getName() + &quot;\n&quot;);</span>
+<span class="nc" id="L1312">            illegal = true;</span>
+        }
+        
+<span class="nc bnc" id="L1315" title="All 2 branches missed.">        if (hasAES) {</span>
+<span class="nc bnc" id="L1316" title="All 2 branches missed.">            if (hasMASC) {</span>
+<span class="nc" id="L1317">                buff.append(&quot;AES is incompatible with MASC.\n&quot;);</span>
+<span class="nc" id="L1318">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1320" title="All 2 branches missed.">            if (hasTC) {</span>
+<span class="nc" id="L1321">                buff.append(&quot;AES is incompatible with Targeting computers.\n&quot;);</span>
+<span class="nc" id="L1322">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1324" title="All 2 branches missed.">            if (advancedMyomer != null) {</span>
+<span class="nc" id="L1325">                buff.append(&quot;AES is incompatible with advanced myomers.\n&quot;);</span>
+            }
+            //Find all locations with an AES and map the number in that location to the location index.
+<span class="nc" id="L1328">            Map&lt;Integer,Long&gt; byLocation = mech.getMisc().stream()</span>
+<span class="nc" id="L1329">                    .filter(m -&gt; m.getType().hasFlag(MiscType.F_ACTUATOR_ENHANCEMENT_SYSTEM))</span>
+<span class="nc" id="L1330">                    .collect(Collectors.groupingBy(Mounted::getLocation, Collectors.counting()));</span>
+<span class="nc" id="L1331">            boolean multiple = false;</span>
+<span class="nc" id="L1332">            boolean wrongLocation = false;</span>
+<span class="nc" id="L1333">            int legCount = 0;</span>
+<span class="nc bnc" id="L1334" title="All 2 branches missed.">            for (Integer loc : byLocation.keySet()) {</span>
+<span class="nc bnc" id="L1335" title="All 2 branches missed.">                if (mech.locationIsLeg(loc)) {</span>
+<span class="nc" id="L1336">                    legCount++;</span>
+<span class="nc bnc" id="L1337" title="All 2 branches missed.">                } else if (loc == Mech.LOC_HEAD</span>
+<span class="nc bnc" id="L1338" title="All 2 branches missed.">                        || loc == Mech.LOC_CT</span>
+<span class="nc bnc" id="L1339" title="All 2 branches missed.">                        || loc == Mech.LOC_LT</span>
+<span class="nc bnc" id="L1340" title="All 2 branches missed.">                        || loc == Mech.LOC_RT) {</span>
+<span class="nc" id="L1341">                    wrongLocation = true;</span>
+                }
+<span class="nc bnc" id="L1343" title="All 2 branches missed.">                multiple |= byLocation.get(loc) &gt; 1;</span>
+<span class="nc" id="L1344">            }</span>
+<span class="nc bnc" id="L1345" title="All 2 branches missed.">            if (multiple) {</span>
+<span class="nc" id="L1346">                buff.append(&quot;Only one AES can be mounted in a single location.\n&quot;);</span>
+<span class="nc" id="L1347">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1349" title="All 2 branches missed.">            if (wrongLocation) {</span>
+<span class="nc" id="L1350">                buff.append(&quot;AES can only be mounted in an arm or leg location.\n&quot;);</span>
+<span class="nc" id="L1351">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1353" title="All 2 branches missed.">            if (legCount &gt; 0) {</span>
+<span class="nc bnc" id="L1354" title="All 2 branches missed.">                for (int loc = 0; loc &lt; mech.locations(); loc++) {</span>
+<span class="nc bnc" id="L1355" title="All 2 branches missed.">                    if (mech.locationIsLeg(loc)) {</span>
+<span class="nc" id="L1356">                        legCount--;</span>
+                    }
+                }
+<span class="nc bnc" id="L1359" title="All 2 branches missed.">                if (legCount &lt; 0) {</span>
+<span class="nc" id="L1360">                    buff.append(&quot;If an AES is mounted in a leg, all legs must mount one.\n&quot;);</span>
+<span class="nc" id="L1361">                    illegal = true;</span>
+                }
+            }
+        }
+        
+<span class="nc bnc" id="L1366" title="All 2 branches missed.">        if (hasNullSig) {</span>
+<span class="nc bnc" id="L1367" title="All 2 branches missed.">            if (hasStealth) {</span>
+<span class="nc" id="L1368">                buff.append(&quot;Unit mounts both null-signature-system and stealth armor\n&quot;);</span>
+<span class="nc" id="L1369">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1371" title="All 2 branches missed.">            if (hasTC) {</span>
+<span class="nc" id="L1372">                buff.append(&quot;Unit mounts both null-signature-system and targeting computer\n&quot;);</span>
+<span class="nc" id="L1373">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1375" title="All 2 branches missed.">            if (hasVoidSig) {</span>
+<span class="nc" id="L1376">                buff.append(&quot;Unit mounts both null-signature-system and void-signature-system\n&quot;);</span>
+<span class="nc" id="L1377">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1379" title="All 2 branches missed.">            if (hasC3) {</span>
+<span class="nc" id="L1380">                buff.append(&quot;Unit mounts both null-signature-system and a c3 system\n&quot;);</span>
+<span class="nc" id="L1381">                illegal = true;</span>
+            }
+        }
+
+<span class="nc bnc" id="L1385" title="All 2 branches missed.">        if (hasVoidSig) {</span>
+<span class="nc bnc" id="L1386" title="All 2 branches missed.">            if (hasStealth) {</span>
+<span class="nc" id="L1387">                buff.append(&quot;Unit mounts both void-signature-system and stealth armor\n&quot;);</span>
+<span class="nc" id="L1388">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1390" title="All 2 branches missed.">            if (hasTC) {</span>
+<span class="nc" id="L1391">                buff.append(&quot;Unit mounts both void-signature-system and targeting computer\n&quot;);</span>
+<span class="nc" id="L1392">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1394" title="All 2 branches missed.">            if (hasC3) {</span>
+<span class="nc" id="L1395">                buff.append(&quot;Unit mounts both void-signature-system and a c3 system\n&quot;);</span>
+<span class="nc" id="L1396">                illegal = true;</span>
+            }
+        }
+
+<span class="nc bnc" id="L1400" title="All 4 branches missed.">        if (hasHarjelII &amp;&amp; hasHarjelIII) {</span>
+<span class="nc" id="L1401">            illegal = true;</span>
+<span class="nc" id="L1402">            buff.append(&quot;Can't mix HarJel II and HarJel III\n&quot;);</span>
+        }
+
+<span class="nc bnc" id="L1405" title="All 4 branches missed.">        if (hasHarjelII || hasHarjelIII) {</span>
+<span class="nc bnc" id="L1406" title="All 2 branches missed.">            if (mech.isIndustrial()) {</span>
+<span class="nc" id="L1407">                buff.append(&quot;Cannot mount HarJel repair system on IndustrialMech\n&quot;);</span>
+<span class="nc" id="L1408">                illegal = true;</span>
+            }
+<span class="nc bnc" id="L1410" title="All 2 branches missed.">            for (int loc = 0; loc &lt; mech.locations(); ++loc) {</span>
+<span class="nc" id="L1411">                int count = 0;</span>
+<span class="nc bnc" id="L1412" title="All 2 branches missed.">                for (Mounted m : mech.getMisc()) {</span>
+<span class="nc bnc" id="L1413" title="All 2 branches missed.">                    if ((m.getLocation() == loc)</span>
+<span class="nc bnc" id="L1414" title="All 2 branches missed.">                        &amp;&amp; (m.getType().hasFlag(MiscType.F_HARJEL_II)</span>
+<span class="nc bnc" id="L1415" title="All 2 branches missed.">                         || m.getType().hasFlag(MiscType.F_HARJEL_III))) {</span>
+<span class="nc" id="L1416">                        ++count;</span>
+                    }
+<span class="nc" id="L1418">                }</span>
+<span class="nc bnc" id="L1419" title="All 2 branches missed.">                if (count &gt; 1) {</span>
+<span class="nc" id="L1420">                    buff.append(&quot;Cannot mount multiple HarJel repair systems in a location\n&quot;);</span>
+<span class="nc" id="L1421">                    illegal = true;</span>
+                }
+<span class="nc bnc" id="L1423" title="All 2 branches missed.">                if (count == 1) {</span>
+<span class="nc" id="L1424">                    int armor = mech.getArmorType(loc);</span>
+<span class="nc bnc" id="L1425" title="All 2 branches missed.">                    switch (armor) {</span>
+                        case EquipmentType.T_ARMOR_STANDARD:
+                        case EquipmentType.T_ARMOR_FERRO_FIBROUS:
+                        case EquipmentType.T_ARMOR_LIGHT_FERRO:
+                        case EquipmentType.T_ARMOR_HEAVY_FERRO:
+                        case EquipmentType.T_ARMOR_HEAVY_INDUSTRIAL:
+                            // these armors are legal with HarJel
+<span class="nc" id="L1432">                            break;</span>
+                        default:
+<span class="nc" id="L1434">                            buff.append(&quot;Cannot mount HarJel repair system in location with this armor type\n&quot;);</span>
+<span class="nc" id="L1435">                            illegal = true;</span>
+                    }
+                }
+            }
+        }
+        
+<span class="nc bnc" id="L1441" title="All 2 branches missed.">        for (Mounted m : mech.getWeaponList()) {</span>
+<span class="nc bnc" id="L1442" title="All 2 branches missed.">            if ((((WeaponType) m.getType()).getAmmoType() == AmmoType.T_GAUSS_HEAVY)</span>
+<span class="nc bnc" id="L1443" title="All 2 branches missed.">                    || (((WeaponType) m.getType()).getAmmoType() == AmmoType.T_IGAUSS_HEAVY)) {</span>
+<span class="nc" id="L1444">                boolean torso = mech.locationIsTorso(m.getLocation());</span>
+<span class="nc bnc" id="L1445" title="All 2 branches missed.">                if (m.getSecondLocation() != Entity.LOC_NONE) {</span>
+<span class="nc bnc" id="L1446" title="All 4 branches missed.">                    torso = torso &amp;&amp; mech.locationIsTorso(m.getSecondLocation());</span>
+                }
+<span class="nc bnc" id="L1448" title="All 4 branches missed.">                if (!mech.isSuperHeavy() &amp;&amp; !torso) {</span>
+<span class="nc" id="L1449">                    buff.append(&quot;Heavy Gauss can only be mounted in a torso location.\n&quot;);</span>
+<span class="nc" id="L1450">                    illegal = true;</span>
+                }
+            }
+<span class="nc bnc" id="L1453" title="All 2 branches missed.">            if ((m.getType().hasFlag(WeaponType.F_TASER)</span>
+<span class="nc bnc" id="L1454" title="All 2 branches missed.">                    || m.getType().hasFlag(WeaponType.F_HYPER))</span>
+<span class="nc bnc" id="L1455" title="All 4 branches missed.">                    &amp;&amp; !(mech.hasEngine() &amp;&amp; mech.getEngine().isFusion())) {</span>
+<span class="nc" id="L1456">                buff.append(m.getType().getName()).append(&quot; needs fusion engine\n&quot;);</span>
+<span class="nc" id="L1457">                illegal = true;</span>
+            }
+<span class="nc" id="L1459">        }</span>
+
+<span class="nc bnc" id="L1461" title="All 6 branches missed.">        if (mech.hasWorkingWeapon(WeaponType.F_HYPER) &amp;&amp; !(mech.hasEngine() &amp;&amp; mech.getEngine().isFusion())) {</span>
+<span class="nc" id="L1462">            buff.append(&quot;RISC Hyper Laser needs fusion engine\n&quot;);</span>
+<span class="nc" id="L1463">            illegal = true;</span>
+        }
+        
+<span class="nc bnc" id="L1466" title="All 2 branches missed.">        if (mech.hasFullHeadEject()) {</span>
+<span class="nc bnc" id="L1467" title="All 2 branches missed.">            if ((mech.getCockpitType() == Mech.COCKPIT_TORSO_MOUNTED)</span>
+<span class="nc bnc" id="L1468" title="All 2 branches missed.">                    || (mech.getCockpitType() == Mech.COCKPIT_COMMAND_CONSOLE)) {</span>
+<span class="nc" id="L1469">                buff.append(&quot;full head ejection system incompatible with cockpit type\n&quot;);</span>
+<span class="nc" id="L1470">                illegal = true;</span>
+            }
+        }
+        
+        // only one sword/vibroblade per arm
+<span class="nc bnc" id="L1475" title="All 2 branches missed.">        for (int loc = Mech.LOC_RARM; loc &lt;= Mech.LOC_LARM; loc++) {</span>
+<span class="nc" id="L1476">            int count = 0;</span>
+<span class="nc bnc" id="L1477" title="All 2 branches missed.">            for (Mounted m : mech.getMisc()) {</span>
+<span class="nc bnc" id="L1478" title="All 2 branches missed.">                if (m.getLocation() == loc) {</span>
+<span class="nc bnc" id="L1479" title="All 2 branches missed.">                    if (m.getType().hasFlag(MiscType.F_CLUB)</span>
+<span class="nc bnc" id="L1480" title="All 2 branches missed.">                            &amp;&amp; (m.getType().hasSubType(MiscType.S_SWORD)</span>
+<span class="nc bnc" id="L1481" title="All 2 branches missed.">                                    || m.getType().hasSubType(</span>
+                                            MiscType.S_VIBRO_LARGE)
+<span class="nc bnc" id="L1483" title="All 2 branches missed.">                                    || m.getType().hasSubType(</span>
+                                            MiscType.S_VIBRO_MEDIUM) || m
+<span class="nc bnc" id="L1485" title="All 2 branches missed.">                                    .getType().hasSubType(</span>
+                                            MiscType.S_VIBRO_SMALL))) {
+<span class="nc" id="L1487">                        count++;</span>
+                    }
+                }
+<span class="nc" id="L1490">            }</span>
+<span class="nc bnc" id="L1491" title="All 2 branches missed.">            if (count &gt; 1) {</span>
+<span class="nc" id="L1492">                buff.append(&quot;only one sword/vibroblade per arm\n&quot;);</span>
+<span class="nc" id="L1493">                illegal = true;</span>
+            }
+        }
+        
+<span class="nc" id="L1497">        return illegal;</span>
+    }
+
+    /**
+     * @param misc A type of equipment
+     * @return     Whether the equipment replaces the hand actuator when mounted in an arm
+     */
+    public static boolean replacesHandActuator(MiscType misc) {
+<span class="nc bnc" id="L1505" title="All 2 branches missed.">        return misc.hasFlag(MiscType.F_SALVAGE_ARM)</span>
+<span class="nc bnc" id="L1506" title="All 2 branches missed.">                || misc.hasFlag(MiscType.F_HAND_WEAPON)</span>
+<span class="nc bnc" id="L1507" title="All 2 branches missed.">                || (misc.hasFlag(MiscType.F_CLUB)</span>
+<span class="nc bnc" id="L1508" title="All 2 branches missed.">                    &amp;&amp; (misc.hasSubType(MiscType.S_CHAINSAW)</span>
+<span class="nc bnc" id="L1509" title="All 2 branches missed.">                    || misc.hasSubType(MiscType.S_BACKHOE)</span>
+<span class="nc bnc" id="L1510" title="All 2 branches missed.">                    || misc.hasSubType(MiscType.S_DUAL_SAW)</span>
+<span class="nc bnc" id="L1511" title="All 2 branches missed.">                    || misc.hasSubType(MiscType.S_PILE_DRIVER)</span>
+<span class="nc bnc" id="L1512" title="All 2 branches missed.">                    || misc.hasSubType(MiscType.S_MINING_DRILL)</span>
+<span class="nc bnc" id="L1513" title="All 2 branches missed.">                    || misc.hasSubType(MiscType.S_ROCK_CUTTER)</span>
+<span class="nc bnc" id="L1514" title="All 2 branches missed.">                    || misc.hasSubType(MiscType.S_SPOT_WELDER)</span>
+<span class="nc bnc" id="L1515" title="All 2 branches missed.">                    || misc.hasSubType(MiscType.S_WRECKING_BALL)</span>
+<span class="nc bnc" id="L1516" title="All 2 branches missed.">                    || misc.hasSubType(MiscType.S_FLAIL)));</span>
+    }
+
+    /**
+     * @param misc A type of equipment that can be mounted in a mech arm
+     * @return     Whether the equipment requires the hand acutator
+     */
+    public static boolean requiresHandActuator(MiscType misc) {
+<span class="nc bnc" id="L1524" title="All 2 branches missed.">        return misc.hasFlag(MiscType.F_CLUB)</span>
+<span class="nc bnc" id="L1525" title="All 2 branches missed.">                &amp;&amp; misc.hasSubType(MiscType.S_CHAIN_WHIP</span>
+                | MiscType.S_HATCHET
+                | MiscType.S_MACE
+                | MiscType.S_SWORD
+                | MiscType.S_VIBRO_SMALL
+                | MiscType.S_VIBRO_MEDIUM
+                | MiscType.S_VIBRO_LARGE);
+    }
+
+    /**
+     * @param misc A type of equipment that can be mounted in a mech arm
+     * @return     Whether the equipment requires the lower arm acutator
+     */
+    public static boolean requiresLowerArm(MiscType misc) {
+<span class="nc bnc" id="L1539" title="All 2 branches missed.">        return replacesHandActuator(misc) ||</span>
+<span class="nc bnc" id="L1540" title="All 2 branches missed.">                (misc.hasFlag(MiscType.F_CLUB)</span>
+<span class="nc bnc" id="L1541" title="All 2 branches missed.">                &amp;&amp; misc.hasSubType(MiscType.S_LANCE | MiscType.S_RETRACTABLE_BLADE));</span>
+    }
+
+    /**
+     * @param mech      The Mech
+     * @param eq        The equipment
+     * @param location  A location index on the Entity
+     * @param buffer    If non-null and the location is invalid, will be appended with an explanation
+     * @return          Whether the equipment can be mounted in the location on the Mech
+     */
+    public static boolean isValidMechLocation(Mech mech, EquipmentType eq, int location, @Nullable StringBuffer buffer) {
+<span class="nc bnc" id="L1552" title="All 2 branches missed.">        if (eq instanceof MiscType) {</span>
+<span class="nc bnc" id="L1553" title="All 4 branches missed.">            if (eq.hasFlag(MiscType.F_CLUB) &amp;&amp; ((eq.getSubType() &amp;</span>
+                            (MiscType.S_DUAL_SAW | MiscType.S_PILE_DRIVER
+                                    | MiscType.S_WRECKING_BALL | MiscType.S_BACKHOE
+                                    | MiscType.S_COMBINE | MiscType.S_CHAINSAW
+                                    | MiscType.S_ROCK_CUTTER | MiscType.S_BUZZSAW
+                                    | MiscType.S_SPOT_WELDER | MiscType.S_PILE_DRIVER)) != 0)) {
+<span class="nc bnc" id="L1559" title="All 6 branches missed.">                if (mech.entityIsQuad() &amp;&amp; (location != Mech.LOC_LT) &amp;&amp; (location != Mech.LOC_RT)) {</span>
+<span class="nc bnc" id="L1560" title="All 2 branches missed.">                    if (buffer != null) {</span>
+<span class="nc" id="L1561">                        buffer.append(eq.getName()).append(&quot; must be mounted in a side torso.\n&quot;);</span>
+                    }
+<span class="nc" id="L1563">                    return false;</span>
+<span class="nc bnc" id="L1564" title="All 6 branches missed.">                } else if (!mech.entityIsQuad() &amp;&amp; (location != Mech.LOC_LARM) &amp;&amp; (location != Mech.LOC_RARM)) {</span>
+<span class="nc bnc" id="L1565" title="All 2 branches missed.">                    if (buffer != null) {</span>
+<span class="nc" id="L1566">                        buffer.append(eq.getName()).append(&quot; must be mounted in an arm.\n&quot;);</span>
+                    }
+<span class="nc" id="L1568">                    return false;</span>
+                }
+            }
+<span class="nc bnc" id="L1571" title="All 8 branches missed.">            if (eq.hasFlag(MiscType.F_SALVAGE_ARM) &amp;&amp; (mech.entityIsQuad()</span>
+                    || ((location != Mech.LOC_LARM) &amp;&amp; (location != Mech.LOC_RARM)))) {
+<span class="nc bnc" id="L1573" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1574">                    buffer.append(eq.getName()).append(&quot; must be mounted in an arm.\n&quot;);</span>
+                }
+<span class="nc" id="L1576">                return false;</span>
+            }
+<span class="nc bnc" id="L1578" title="All 4 branches missed.">            if (eq.hasFlag(MiscType.F_ACTUATOR_ENHANCEMENT_SYSTEM)</span>
+<span class="nc bnc" id="L1579" title="All 2 branches missed.">                    &amp;&amp; ((location == Mech.LOC_HEAD) || mech.locationIsTorso(location))) {</span>
+<span class="nc bnc" id="L1580" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1581">                    buffer.append(eq.getName()).append(&quot; must be mounted in an arm or leg location.\n&quot;);</span>
+                }
+<span class="nc" id="L1583">                return false;</span>
+            }
+<span class="nc bnc" id="L1585" title="All 4 branches missed.">            if (eq.hasFlag(MiscType.F_HEAD_TURRET) &amp;&amp; (location != Mech.LOC_CT)) {</span>
+<span class="nc bnc" id="L1586" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1587">                    buffer.append(eq.getName()).append(&quot; must be placed in the center torso.\n&quot;);</span>
+                }
+<span class="nc" id="L1589">                return false;</span>
+            }
+<span class="nc bnc" id="L1591" title="All 8 branches missed.">            if ((eq.hasFlag(MiscType.F_QUAD_TURRET) || eq.hasFlag(MiscType.F_SHOULDER_TURRET))</span>
+                    &amp;&amp; (location != Mech.LOC_RT) &amp;&amp; (location != Mech.LOC_LT)) {
+<span class="nc bnc" id="L1593" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1594">                    buffer.append(eq.getName()).append(&quot; must be placed in a side torso.\n&quot;);</span>
+                }
+<span class="nc" id="L1596">                return false;</span>
+            }
+<span class="nc bnc" id="L1598" title="All 4 branches missed.">            if (eq.hasFlag(MiscType.F_HARJEL) &amp;&amp; mech.hasSystem(Mech.SYSTEM_COCKPIT, location)) {</span>
+<span class="nc bnc" id="L1599" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1600">                    buffer.append(eq.getName()).append(&quot; cannot be placed in the same location as the cockpit.\n&quot;);</span>
+                }
+<span class="nc" id="L1602">                return false;</span>
+            }
+<span class="nc bnc" id="L1604" title="All 4 branches missed.">            if ((eq.hasFlag(MiscType.F_MASS) || eq.hasFlag(MiscType.F_REMOTE_DRONE_COMMAND_CONSOLE))</span>
+<span class="nc bnc" id="L1605" title="All 2 branches missed.">                    &amp;&amp; !mech.hasSystem(Mech.SYSTEM_COCKPIT, location)) {</span>
+<span class="nc bnc" id="L1606" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1607">                    buffer.append(eq.getName()).append(&quot; must be placed in the same location as the cockpit.\n&quot;);</span>
+                }
+<span class="nc" id="L1609">                return false;</span>
+            }
+<span class="nc bnc" id="L1611" title="All 4 branches missed.">            if (((eq.hasFlag(MiscType.F_MASC) &amp;&amp; eq.hasSubType(MiscType.S_SUPERCHARGER))</span>
+<span class="nc bnc" id="L1612" title="All 2 branches missed.">                    || eq.hasFlag(MiscType.F_EMERGENCY_COOLANT_SYSTEM))</span>
+<span class="nc bnc" id="L1613" title="All 2 branches missed.">                    &amp;&amp; !mech.hasSystem(Mech.SYSTEM_ENGINE, location)) {</span>
+<span class="nc bnc" id="L1614" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1615">                    buffer.append(eq.getName()).append(&quot; must be placed in the a location with an engine critical.\n&quot;);</span>
+                }
+<span class="nc" id="L1617">                return false;</span>
+            }
+<span class="nc bnc" id="L1619" title="All 6 branches missed.">            if ((eq.hasFlag(MiscType.F_FUEL) || (eq.hasFlag(MiscType.F_CASE) &amp;&amp; !eq.isClan())</span>
+<span class="nc bnc" id="L1620" title="All 4 branches missed.">                    || eq.hasFlag(MiscType.F_LIGHT_BRIDGE_LAYER) || eq.hasFlag(MiscType.F_MEDIUM_BRIDGE_LAYER)</span>
+<span class="nc bnc" id="L1621" title="All 4 branches missed.">                    || eq.hasFlag(MiscType.F_HEAVY_BRIDGE_LAYER) || eq.hasFlag(MiscType.F_LADDER))</span>
+<span class="nc bnc" id="L1622" title="All 2 branches missed.">                    &amp;&amp; !mech.locationIsTorso(location)) {</span>
+<span class="nc bnc" id="L1623" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1624">                    buffer.append(eq.getName()).append(&quot; must be placed in a torso location.\n&quot;);</span>
+                }
+<span class="nc" id="L1626">                return false;</span>
+            }
+<span class="nc bnc" id="L1628" title="All 6 branches missed.">            if (eq.hasFlag(MiscType.F_LIFTHOIST) &amp;&amp; ((location == Mech.LOC_HEAD) || mech.locationIsLeg(location))) {</span>
+<span class="nc bnc" id="L1629" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1630">                    buffer.append(eq.getName()).append(&quot; must be placed in a torso or arm location.\n&quot;);</span>
+                }
+<span class="nc" id="L1632">                return false;</span>
+            }
+<span class="nc bnc" id="L1634" title="All 2 branches missed.">            if (eq.hasFlag(MiscType.F_JUMP_JET)</span>
+<span class="nc bnc" id="L1635" title="All 4 branches missed.">                    &amp;&amp; !mech.locationIsLeg(location) &amp;&amp; !mech.locationIsTorso(location)) {</span>
+<span class="nc bnc" id="L1636" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1637">                    buffer.append(eq.getName()).append(&quot; must be placed in a torso or leg location.\n&quot;);</span>
+                }
+<span class="nc" id="L1639">                return false;</span>
+            }
+<span class="nc bnc" id="L1641" title="All 6 branches missed.">            if ((eq.hasFlag(MiscType.F_AP_POD) || eq.hasFlag(MiscType.F_TRACKS) || eq.hasFlag(MiscType.F_TALON))</span>
+<span class="nc bnc" id="L1642" title="All 2 branches missed.">                    &amp;&amp; !mech.locationIsLeg(location)) {</span>
+<span class="nc bnc" id="L1643" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1644">                    buffer.append(eq.getName()).append(&quot; must be placed in a leg location.\n&quot;);</span>
+                }
+<span class="nc" id="L1646">                return false;</span>
+            }
+<span class="nc bnc" id="L1648" title="All 4 branches missed.">            if (eq.hasFlag(MiscType.F_MODULAR_ARMOR) &amp;&amp; (location == Mech.LOC_HEAD)) {</span>
+<span class="nc bnc" id="L1649" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1650">                    buffer.append(eq.getName()).append(&quot; cannot be placed in the head.\n&quot;);</span>
+                }
+<span class="nc" id="L1652">                return false;</span>
+            }
+<span class="nc bnc" id="L1654" title="All 4 branches missed.">            if (eq.hasFlag(MiscType.F_EJECTION_SEAT) &amp;&amp; (location != Mech.LOC_HEAD)) {</span>
+<span class="nc bnc" id="L1655" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1656">                    buffer.append(eq.getName()).append(&quot; must be placed in the head.\n&quot;);</span>
+                }
+<span class="nc" id="L1658">                return false;</span>
+            }
+<span class="nc bnc" id="L1660" title="All 2 branches missed.">        } else if (eq instanceof WeaponType) {</span>
+<span class="nc bnc" id="L1661" title="All 4 branches missed.">            if (eq.hasFlag(WeaponType.F_VGL) &amp;&amp; !mech.locationIsTorso(location)) {</span>
+<span class="nc bnc" id="L1662" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1663">                    buffer.append(eq.getName()).append(&quot; must be placed in a torso location.\n&quot;);</span>
+                }
+<span class="nc" id="L1665">                return false;</span>
+            }
+<span class="nc bnc" id="L1667" title="All 2 branches missed.">            if (((((WeaponType) eq).getAmmoType() == AmmoType.T_GAUSS_HEAVY)</span>
+<span class="nc bnc" id="L1668" title="All 2 branches missed.">                    || ((WeaponType) eq).getAmmoType() == AmmoType.T_IGAUSS_HEAVY)</span>
+<span class="nc bnc" id="L1669" title="All 4 branches missed.">                    &amp;&amp; !mech.isSuperHeavy() &amp;&amp; !mech.locationIsTorso(location)) {</span>
+<span class="nc bnc" id="L1670" title="All 2 branches missed.">                if (buffer != null) {</span>
+<span class="nc" id="L1671">                    buffer.append(eq.getName()).append(&quot; must be placed in a torso location.\n&quot;);</span>
+                }
+<span class="nc" id="L1673">                return false;</span>
+            }
+        }
+<span class="nc" id="L1676">        return true;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

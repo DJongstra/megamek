@@ -1,0 +1,1875 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MapMenu.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing</a> &gt; <span class="el_source">MapMenu.java</span></div><h1>MapMenu.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.client.ui.swing;
+
+import java.awt.Component;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.StringTokenizer;
+import java.util.Vector;
+
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
+import javax.swing.UIManager;
+
+import megamek.client.Client;
+import megamek.client.ui.Messages;
+import megamek.client.ui.swing.boardview.BoardView1;
+import megamek.client.event.BoardViewEvent;
+import megamek.common.AmmoType;
+import megamek.common.BipedMech;
+import megamek.common.Building;
+import megamek.common.Building.DemolitionCharge;
+import megamek.common.BuildingTarget;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.EntityMovementType;
+import megamek.common.EquipmentMode;
+import megamek.common.HexTarget;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.IPlayer;
+import megamek.common.LandAirMech;
+import megamek.common.Mech;
+import megamek.common.MinefieldTarget;
+import megamek.common.MiscType;
+import megamek.common.Mounted;
+import megamek.common.QuadVee;
+import megamek.common.SpecialHexDisplay;
+import megamek.common.Tank;
+import megamek.common.TargetRoll;
+import megamek.common.Targetable;
+import megamek.common.Terrains;
+import megamek.common.ToHitData;
+import megamek.common.WeaponComparatorDamage;
+import megamek.common.WeaponType;
+import megamek.common.actions.BAVibroClawAttackAction;
+import megamek.common.actions.BreakGrappleAttackAction;
+import megamek.common.actions.GrappleAttackAction;
+import megamek.common.actions.WeaponAttackAction;
+import megamek.common.options.OptionsConstants;
+import megamek.common.weapons.other.CLFireExtinguisher;
+import megamek.common.weapons.other.ISFireExtinguisher;
+
+/**
+ * Context menu for the board.
+ */
+public class MapMenu extends JPopupMenu {
+
+    /**
+     *
+     */
+    private static final long serialVersionUID = 2879345079968414986L;
+
+    private Coords coords;
+    IGame game;
+    Component currentPanel;
+    private IBoard board;
+    Client client;
+    ClientGUI gui;
+    Entity selectedEntity;
+    Entity myEntity;
+<span class="nc" id="L92">    Targetable myTarget = null;</span>
+<span class="nc" id="L93">    private boolean hasMenu = false;</span>
+
+<span class="nc" id="L95">    public MapMenu(Coords coords, Client client, Component panel, ClientGUI gui) {</span>
+<span class="nc" id="L96">        this.coords = coords;</span>
+<span class="nc" id="L97">        game = client.getGame();</span>
+<span class="nc" id="L98">        currentPanel = panel;</span>
+<span class="nc" id="L99">        board = client.getBoard();</span>
+<span class="nc" id="L100">        this.client = client;</span>
+<span class="nc" id="L101">        this.gui = gui;</span>
+<span class="nc" id="L102">        selectedEntity = myEntity = game.getEntity(gui.getSelectedEntityNum());</span>
+
+<span class="nc" id="L104">        hasMenu = createMenu();</span>
+        // make popups not consume mouse events outside them
+        // so board dragging can start correctly when this menu is open
+<span class="nc" id="L107">        UIManager.put(&quot;PopupMenu.consumeEventOnClose&quot;, false);</span>
+<span class="nc" id="L108">    }</span>
+
+    private boolean canSelectEntities() {
+<span class="nc bnc" id="L111" title="All 10 branches missed.">        return client.isMyTurn()</span>
+               &amp;&amp; ((currentPanel instanceof FiringDisplay)
+                   || (currentPanel instanceof PhysicalDisplay)
+                   || (currentPanel instanceof MovementDisplay)
+                   || (currentPanel instanceof TargetingPhaseDisplay));
+    }
+
+    private boolean canTargetEntities() {
+<span class="nc bnc" id="L119" title="All 8 branches missed.">        return client.isMyTurn()</span>
+               &amp;&amp; ((currentPanel instanceof FiringDisplay)
+                   || (currentPanel instanceof PhysicalDisplay)
+                   || (currentPanel instanceof TargetingPhaseDisplay));
+    }
+
+    private boolean createMenu() {
+<span class="nc" id="L126">        removeAll();</span>
+<span class="nc" id="L127">        int itemCount = 0;</span>
+<span class="nc" id="L128">        JMenu menu = createSelectMenu();</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L130">            this.add(menu);</span>
+<span class="nc" id="L131">            itemCount++;</span>
+        }
+
+<span class="nc" id="L134">        menu = createViewMenu();</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">        if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L136">            this.add(menu);</span>
+<span class="nc" id="L137">            itemCount++;</span>
+        }
+
+<span class="nc bnc" id="L140" title="All 4 branches missed.">        if (client.isMyTurn() &amp;&amp; (myEntity != null)) {</span>
+<span class="nc" id="L141">            selectTarget();</span>
+
+<span class="nc" id="L143">            menu = createTargetMenu();</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">            if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L145">                this.add(menu);</span>
+<span class="nc" id="L146">                itemCount++;</span>
+            }
+
+<span class="nc bnc" id="L149" title="All 2 branches missed.">            if (currentPanel instanceof MovementDisplay) {</span>
+<span class="nc" id="L150">                menu = createMovementMenu(myEntity.getPosition().equals(coords));</span>
+
+<span class="nc bnc" id="L152" title="All 2 branches missed.">                if (itemCount &gt; 0) {</span>
+<span class="nc" id="L153">                    addSeparator();</span>
+<span class="nc" id="L154">                    itemCount++;</span>
+                }
+
+<span class="nc bnc" id="L157" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L158">                    this.add(menu);</span>
+<span class="nc" id="L159">                    itemCount++;</span>
+                }
+
+<span class="nc" id="L162">                menu = createTurnMenu();</span>
+
+<span class="nc bnc" id="L164" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L165">                    this.add(menu);</span>
+<span class="nc" id="L166">                    itemCount++;</span>
+                }
+
+<span class="nc" id="L169">                menu = createStandMenu();</span>
+
+<span class="nc bnc" id="L171" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L172">                    this.add(menu);</span>
+<span class="nc" id="L173">                    itemCount++;</span>
+                }
+
+<span class="nc" id="L176">                menu = createConvertMenu();</span>
+
+<span class="nc bnc" id="L178" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L179">                    this.add(menu);</span>
+<span class="nc" id="L180">                    itemCount++;</span>
+                }
+
+<span class="nc" id="L183">                menu = createPhysicalMenu(true);</span>
+
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L186">                    addSeparator();</span>
+<span class="nc" id="L187">                    this.add(menu);</span>
+<span class="nc" id="L188">                    itemCount++;</span>
+                }
+
+<span class="nc bnc" id="L191" title="All 2 branches missed.">            } else if (currentPanel instanceof TargetingPhaseDisplay) {</span>
+                
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                if (itemCount &gt; 0) {</span>
+<span class="nc" id="L194">                    addSeparator();</span>
+<span class="nc" id="L195">                    itemCount++;</span>
+                }
+                    
+<span class="nc" id="L198">                menu = createTorsoTwistMenu();</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L200">                    this.add(menu);</span>
+<span class="nc" id="L201">                    itemCount++;</span>
+                }
+
+<span class="nc" id="L204">                menu = createRotateTurretMenu();</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L206">                    this.add(menu);</span>
+<span class="nc" id="L207">                    itemCount++;</span>
+                }
+                
+<span class="nc bnc" id="L210" title="All 2 branches missed.">            } else if ((currentPanel instanceof FiringDisplay)) {</span>
+
+<span class="nc bnc" id="L212" title="All 2 branches missed.">                if (itemCount &gt; 0) {</span>
+<span class="nc" id="L213">                    addSeparator();</span>
+<span class="nc" id="L214">                    itemCount++;</span>
+                }
+
+<span class="nc" id="L217">                menu = createWeaponsFireMenu();</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L219">                    this.add(menu);</span>
+<span class="nc" id="L220">                    itemCount++;</span>
+                }
+
+<span class="nc" id="L223">                menu = createModeMenu();</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L225">                    this.add(menu);</span>
+<span class="nc" id="L226">                    itemCount++;</span>
+                }
+
+<span class="nc" id="L229">                menu = createTorsoTwistMenu();</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L231">                    this.add(menu);</span>
+<span class="nc" id="L232">                    itemCount++;</span>
+                }
+                
+<span class="nc" id="L235">                menu = createRotateTurretMenu();</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L237">                    this.add(menu);</span>
+<span class="nc" id="L238">                    itemCount++;</span>
+                }
+                
+<span class="nc bnc" id="L241" title="All 2 branches missed.">            } else if ((currentPanel instanceof PhysicalDisplay)) {</span>
+<span class="nc" id="L242">                menu = createPhysicalMenu(false);</span>
+
+<span class="nc bnc" id="L244" title="All 2 branches missed.">                if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L245">                    addSeparator();</span>
+<span class="nc" id="L246">                    this.add(menu);</span>
+<span class="nc" id="L247">                    itemCount++;</span>
+                }
+
+            }
+
+            // Traitor Command
+<span class="nc" id="L253">            JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L254">                    Messages.getString(&quot;MovementDisplay.Traitor&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L255">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_TRAITOR</span>
+<span class="nc" id="L256">                                          .getCmd());</span>
+<span class="nc" id="L257">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+                    try {
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                        if (currentPanel instanceof MovementDisplay) {</span>
+<span class="nc" id="L261">                            ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+                        }
+<span class="nc" id="L263">                    } catch (Exception ex) {</span>
+<span class="nc" id="L264">                        ex.printStackTrace();</span>
+<span class="nc" id="L265">                    }</span>
+<span class="nc" id="L266">                }</span>
+            });
+<span class="nc" id="L268">            this.add(item);</span>
+        }
+        
+<span class="nc" id="L271">        menu = touchOffExplosivesMenu();</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L273">            this.add(menu);</span>
+<span class="nc" id="L274">            itemCount++;</span>
+        }
+
+<span class="nc" id="L277">        menu = createSpecialHexDisplayMenu();</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">        if (menu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L279">            this.add(menu);</span>
+<span class="nc" id="L280">            itemCount++;</span>
+        }
+
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        return itemCount &gt; 0;</span>
+    }
+
+    private JMenuItem TargetMenuItem(Targetable t) {
+<span class="nc" id="L287">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L288">                Messages.getString(&quot;ClientGUI.targetMenuItem&quot;)</span>
+<span class="nc" id="L289">                + t.getDisplayName());</span>
+
+<span class="nc" id="L291">        String targetCode = &quot;&quot;;</span>
+
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        if (t instanceof Entity) {</span>
+<span class="nc" id="L294">            targetCode = &quot;E|&quot; + ((Entity) t).getId();</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        } else if (t instanceof BuildingTarget) {</span>
+<span class="nc" id="L296">            targetCode = &quot;B|&quot; + t.getPosition().getX() + &quot;|&quot; + t.getPosition().getY() + &quot;|&quot; + t.getTargetType();</span>
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        } else if (t instanceof MinefieldTarget) {</span>
+<span class="nc" id="L298">            targetCode = &quot;M|&quot; + t.getPosition().getX() + &quot;|&quot; + t.getPosition().getY();</span>
+        } else {
+<span class="nc" id="L300">            targetCode = &quot;H|&quot; + t.getPosition().getX() + &quot;|&quot; + t.getPosition().getY() + &quot;|&quot; + t.getTargetType();</span>
+        }
+
+<span class="nc" id="L303">        item.setActionCommand(targetCode);</span>
+<span class="nc" id="L304">        item.addActionListener(new ActionListener() {</span>
+
+            public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L307">                myTarget = decodeTargetInfo(e.getActionCommand());</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">                if (currentPanel instanceof FiringDisplay) {</span>
+<span class="nc" id="L309">                    ((FiringDisplay) currentPanel).target(myTarget);</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">                } else if (currentPanel instanceof PhysicalDisplay) {</span>
+<span class="nc" id="L311">                    ((PhysicalDisplay) currentPanel).target(myTarget);</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">                } else if (currentPanel instanceof TargetingPhaseDisplay) {</span>
+<span class="nc" id="L313">                    ((TargetingPhaseDisplay) currentPanel).target(myTarget);</span>
+                }
+<span class="nc" id="L315">            }</span>
+        });
+
+<span class="nc" id="L318">        return item;</span>
+    }
+
+    private JMenuItem createChargeMenuItem() {
+<span class="nc" id="L322">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L323">                Messages.getString(&quot;MovementDisplay.butCharge&quot;));</span>
+
+<span class="nc bnc" id="L325" title="All 2 branches missed.">        if (!client.getGame().getEntities(coords).hasNext()) {</span>
+<span class="nc" id="L326">            return null;</span>
+        }
+<span class="nc" id="L328">        item.setActionCommand(MovementDisplay.MoveCommand.MOVE_CHARGE.getCmd());</span>
+<span class="nc" id="L329">        item.addActionListener(new ActionListener() {</span>
+
+            public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L332">                plotCourse(e);</span>
+<span class="nc" id="L333">            }</span>
+        });
+
+<span class="nc" id="L336">        return item;</span>
+    }
+
+    private JMenuItem createDFAJMenuItem() {
+<span class="nc" id="L340">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L341">                Messages.getString(&quot;MovementDisplay.butDfa&quot;));</span>
+
+<span class="nc bnc" id="L343" title="All 2 branches missed.">        if (!client.getGame().getEntities(coords).hasNext()) {</span>
+<span class="nc" id="L344">            return null;</span>
+        }
+<span class="nc" id="L346">        item.setActionCommand(MovementDisplay.MoveCommand.MOVE_DFA.getCmd());</span>
+<span class="nc" id="L347">        item.addActionListener(new ActionListener() {</span>
+
+            public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L350">                plotCourse(e);</span>
+<span class="nc" id="L351">            }</span>
+        });
+
+<span class="nc" id="L354">        return item;</span>
+    }
+
+    private JMenuItem selectJMenuItem(Entity en) {
+<span class="nc" id="L358">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L359">                Messages.getString(&quot;ClientGUI.selectMenuItem&quot;)</span>
+<span class="nc" id="L360">                + en.getDisplayName());</span>
+
+<span class="nc" id="L362">        item.setActionCommand(Integer.toString(en.getId()));</span>
+<span class="nc" id="L363">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L366">                    Entity entity = game.getEntity(Integer.parseInt(e</span>
+<span class="nc" id="L367">                            .getActionCommand()));</span>
+<span class="nc" id="L368">                    selectedEntity = entity;</span>
+<span class="nc bnc" id="L369" title="All 2 branches missed.">                    if (currentPanel instanceof MovementDisplay) {</span>
+<span class="nc" id="L370">                        ((MovementDisplay) currentPanel)</span>
+<span class="nc" id="L371">                                .selectEntity(selectedEntity.getId());</span>
+<span class="nc bnc" id="L372" title="All 2 branches missed.">                    } else if (currentPanel instanceof FiringDisplay) {</span>
+<span class="nc" id="L373">                        ((FiringDisplay) currentPanel)</span>
+<span class="nc" id="L374">                                .selectEntity(selectedEntity.getId());</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">                    } else if (currentPanel instanceof PhysicalDisplay) {</span>
+<span class="nc" id="L376">                        ((PhysicalDisplay) currentPanel)</span>
+<span class="nc" id="L377">                                .selectEntity(selectedEntity.getId());</span>
+                    }
+<span class="nc" id="L379">                } catch (Exception ex) {</span>
+<span class="nc" id="L380">                    ex.printStackTrace();</span>
+<span class="nc" id="L381">                }</span>
+<span class="nc" id="L382">            }</span>
+        });
+
+<span class="nc" id="L385">        return item;</span>
+    }
+
+    private JMenuItem viewJMenuItem(Entity en) {
+<span class="nc" id="L389">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L390">                Messages.getString(&quot;ClientGUI.viewMenuItem&quot;)</span>
+<span class="nc" id="L391">                + en.getDisplayName());</span>
+
+<span class="nc" id="L393">        item.setActionCommand(Integer.toString(en.getId()));</span>
+<span class="nc" id="L394">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L397">                    selectedEntity = game.getEntity(Integer.parseInt(e</span>
+<span class="nc" id="L398">                            .getActionCommand()));</span>
+<span class="nc" id="L399">                    gui.setDisplayVisible(true);</span>
+<span class="nc" id="L400">                    gui.mechD.displayEntity(selectedEntity);</span>
+<span class="nc" id="L401">                } catch (Exception ex) {</span>
+<span class="nc" id="L402">                    ex.printStackTrace();</span>
+<span class="nc" id="L403">                }</span>
+<span class="nc" id="L404">            }</span>
+        });
+
+<span class="nc" id="L407">        return item;</span>
+    }
+
+    private JMenu touchOffExplosivesMenu() {
+<span class="nc" id="L411">        JMenu menu = new JMenu(&quot;Touch off explosives&quot;);</span>
+
+<span class="nc" id="L413">        Building bldg = client.getBoard().getBuildingAt(coords);</span>
+<span class="nc bnc" id="L414" title="All 2 branches missed.">        if ((bldg != null)) {</span>
+<span class="nc bnc" id="L415" title="All 2 branches missed.">            for (final DemolitionCharge charge : bldg.getDemolitionCharges()) {</span>
+<span class="nc bnc" id="L416" title="All 2 branches missed.">                if (charge.playerId == client.getLocalPlayer().getId()</span>
+<span class="nc bnc" id="L417" title="All 2 branches missed.">                        &amp;&amp; coords.equals(charge.pos)) {</span>
+<span class="nc" id="L418">                    JMenuItem item = new JMenuItem(charge.damage + &quot; Damage&quot;);</span>
+<span class="nc" id="L419">                    item.addActionListener(new ActionListener() {</span>
+                        public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L421">                            client.sendExplodeBuilding(charge);</span>
+<span class="nc" id="L422">                        }</span>
+                    });
+<span class="nc" id="L424">                    menu.add(item);</span>
+                }
+<span class="nc" id="L426">            }</span>
+        }
+<span class="nc" id="L428">        return menu;</span>
+    }
+
+    /**
+     * Create various menus related to &lt;code&gt;SpecialHexDisplay&lt;/code&gt;.
+     *
+     * @return
+     */
+    private JMenu createSpecialHexDisplayMenu() {
+<span class="nc" id="L437">        JMenu menu = new JMenu(&quot;Special Hex Display&quot;);</span>
+
+<span class="nc" id="L439">        final Collection&lt;SpecialHexDisplay&gt; shdList = game.getBoard()</span>
+<span class="nc" id="L440">                .getSpecialHexDisplay(coords);</span>
+
+<span class="nc" id="L442">        SpecialHexDisplay note = null;</span>
+<span class="nc bnc" id="L443" title="All 2 branches missed.">        if (shdList != null) {</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">            for (SpecialHexDisplay shd : shdList) {</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">                if (shd.getType() == SpecialHexDisplay.Type.PLAYER_NOTE</span>
+<span class="nc bnc" id="L446" title="All 2 branches missed.">                    &amp;&amp; shd.getOwner().equals(client.getLocalPlayer())) {</span>
+<span class="nc" id="L447">                    note = shd;</span>
+<span class="nc" id="L448">                    break;</span>
+                }
+<span class="nc" id="L450">            }</span>
+        }
+
+
+        final SpecialHexDisplay finalNote;
+<span class="nc bnc" id="L455" title="All 2 branches missed.">        if (note == null) {</span>
+<span class="nc" id="L456">            finalNote = new SpecialHexDisplay(</span>
+                    SpecialHexDisplay.Type.PLAYER_NOTE,
+<span class="nc" id="L458">                    SpecialHexDisplay.NO_ROUND, client.getLocalPlayer(), &quot;&quot;);</span>
+        } else {
+<span class="nc" id="L460">            finalNote = note;</span>
+        }
+<span class="nc" id="L462">        JMenuItem item = new JMenuItem(Messages.getString(&quot;NoteDialog.action&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L463">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L465">                NoteDialog nd = new NoteDialog(gui.frame, finalNote);</span>
+<span class="nc" id="L466">                gui.bv.setShouldIgnoreKeys(true);</span>
+<span class="nc" id="L467">                nd.setVisible(true);</span>
+<span class="nc" id="L468">                gui.bv.setShouldIgnoreKeys(false);</span>
+<span class="nc bnc" id="L469" title="All 2 branches missed.">                if (nd.isAccepted()) {</span>
+<span class="nc" id="L470">                    client.sendSpecialHexDisplayAppend(coords, finalNote);</span>
+                }
+<span class="nc" id="L472">            }</span>
+        });
+<span class="nc" id="L474">        menu.add(item);</span>
+
+<span class="nc bnc" id="L476" title="All 2 branches missed.">        if (note != null) {</span>
+<span class="nc" id="L477">            item = new JMenuItem(Messages.getString(&quot;NoteDialog.delete&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L478">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L480">                    client.sendSpecialHexDisplayDelete(coords, finalNote);</span>
+<span class="nc" id="L481">                }</span>
+            });
+        }
+<span class="nc" id="L484">        menu.add(item);</span>
+
+<span class="nc" id="L486">        return menu;</span>
+    }
+
+    private JMenu createSelectMenu() {
+<span class="nc" id="L490">        JMenu menu = new JMenu(&quot;Select&quot;);</span>
+        // add select options
+<span class="nc bnc" id="L492" title="All 2 branches missed.">        if (canSelectEntities()) {</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">            for (Entity entity : client.getGame().getEntitiesVector(coords,</span>
+<span class="nc" id="L494">                    canTargetEntities())) {</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">                if (client.getMyTurn().isValidEntity(entity, client.getGame())) {</span>
+<span class="nc" id="L496">                    menu.add(selectJMenuItem(entity));</span>
+                }
+<span class="nc" id="L498">            }</span>
+        }
+<span class="nc" id="L500">        return menu;</span>
+    }
+
+    private JMenu createViewMenu() {
+<span class="nc" id="L504">        JMenu menu = new JMenu(&quot;View&quot;);</span>
+<span class="nc" id="L505">        IGame game = client.getGame();</span>
+                
+<span class="nc" id="L507">        IPlayer localPlayer = client.getLocalPlayer();</span>
+        
+<span class="nc bnc" id="L509" title="All 2 branches missed.">        for (Entity entity : game.getEntitiesVector(coords, true)) {</span>
+            // Only add the unit if it's actually visible
+            //  With double blind on, the game may unseen units
+<span class="nc bnc" id="L512" title="All 2 branches missed.">            if (!entity.isSensorReturn(localPlayer)</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">                    &amp;&amp; entity.hasSeenEntity(localPlayer)) {</span>
+<span class="nc" id="L514">                menu.add(viewJMenuItem(entity));</span>
+            }
+<span class="nc" id="L516">        }</span>
+<span class="nc" id="L517">        return menu;</span>
+    }
+
+    private JMenu createMovementMenu(boolean entityInHex) {
+<span class="nc" id="L521">        JMenu menu = new JMenu(&quot;Movement&quot;);</span>
+
+<span class="nc bnc" id="L523" title="All 2 branches missed.">        if (myEntity == null) {</span>
+<span class="nc" id="L524">            return menu;</span>
+        }
+
+<span class="nc bnc" id="L527" title="All 2 branches missed.">        if (entityInHex) {</span>
+<span class="nc" id="L528">            JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L529">                    Messages.getString(&quot;MovementDisplay.MoveEnvelope&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L530">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_ENVELOPE</span>
+<span class="nc" id="L531">                                          .getCmd());</span>
+<span class="nc" id="L532">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+                    try {
+<span class="nc" id="L535">                        ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L536">                    } catch (Exception ex) {</span>
+<span class="nc" id="L537">                        ex.printStackTrace();</span>
+<span class="nc" id="L538">                    }</span>
+<span class="nc" id="L539">                }</span>
+            });
+<span class="nc" id="L541">            menu.add(item);</span>
+
+
+<span class="nc" id="L544">            item = new JMenuItem(Messages.getString(&quot;MovementDisplay.butWalk&quot;));</span>
+
+<span class="nc" id="L546">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_WALK.getCmd());</span>
+<span class="nc" id="L547">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+                    try {
+<span class="nc" id="L550">                        ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L551">                    } catch (Exception ex) {</span>
+<span class="nc" id="L552">                        ex.printStackTrace();</span>
+<span class="nc" id="L553">                    }</span>
+<span class="nc" id="L554">                }</span>
+            });
+<span class="nc" id="L556">            menu.add(item);</span>
+
+<span class="nc" id="L558">            item = new JMenuItem(Messages.getString(&quot;MovementDisplay.butBackup&quot;));</span>
+
+<span class="nc" id="L560">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_BACK_UP.getCmd());</span>
+<span class="nc" id="L561">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+                    try {
+<span class="nc" id="L564">                        ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L565">                    } catch (Exception ex) {</span>
+<span class="nc" id="L566">                        ex.printStackTrace();</span>
+<span class="nc" id="L567">                    }</span>
+<span class="nc" id="L568">                }</span>
+            });
+
+<span class="nc" id="L571">            menu.add(item);</span>
+
+<span class="nc bnc" id="L573" title="All 2 branches missed.">            if (myEntity.getJumpMP() &gt; 0) {</span>
+<span class="nc" id="L574">                item = new JMenuItem(</span>
+<span class="nc" id="L575">                        Messages.getString(&quot;CommonMenuBar.moveJump&quot;));</span>
+
+<span class="nc" id="L577">                item.setActionCommand(MovementDisplay.MoveCommand.MOVE_JUMP</span>
+<span class="nc" id="L578">                                              .getCmd());</span>
+<span class="nc" id="L579">                item.addActionListener(new ActionListener() {</span>
+                    public void actionPerformed(ActionEvent e) {
+                        try {
+<span class="nc" id="L582">                            ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L583">                        } catch (Exception ex) {</span>
+<span class="nc" id="L584">                            ex.printStackTrace();</span>
+<span class="nc" id="L585">                        }</span>
+<span class="nc" id="L586">                    }</span>
+                });
+<span class="nc" id="L588">                menu.add(item);</span>
+            }
+
+<span class="nc bnc" id="L591" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_EVADE)) {</span>
+<span class="nc" id="L592">                item = new JMenuItem(</span>
+<span class="nc" id="L593">                        Messages.getString(&quot;MovementDisplay.butEvade&quot;));</span>
+
+<span class="nc" id="L595">                item.setActionCommand(MovementDisplay.MoveCommand.MOVE_EVADE</span>
+<span class="nc" id="L596">                                              .getCmd());</span>
+<span class="nc" id="L597">                item.addActionListener(new ActionListener() {</span>
+                    public void actionPerformed(ActionEvent e) {
+                        try {
+<span class="nc" id="L600">                            ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L601">                        } catch (Exception ex) {</span>
+<span class="nc" id="L602">                            ex.printStackTrace();</span>
+<span class="nc" id="L603">                        }</span>
+<span class="nc" id="L604">                    }</span>
+                });
+<span class="nc" id="L606">                menu.add(item);</span>
+            }
+
+<span class="nc bnc" id="L609" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_VEHICLE_ADVANCED_MANEUVERS)) {</span>
+<span class="nc" id="L610">                item = new JMenuItem(</span>
+<span class="nc" id="L611">                        Messages.getString(&quot;MovementDisplay.butEvade&quot;));</span>
+
+<span class="nc" id="L613">                item.setActionCommand(MovementDisplay.MoveCommand.MOVE_BOOTLEGGER</span>
+<span class="nc" id="L614">                                              .getCmd());</span>
+<span class="nc" id="L615">                item.addActionListener(new ActionListener() {</span>
+                    public void actionPerformed(ActionEvent e) {
+                        try {
+<span class="nc" id="L618">                            ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L619">                        } catch (Exception ex) {</span>
+<span class="nc" id="L620">                            ex.printStackTrace();</span>
+<span class="nc" id="L621">                        }</span>
+<span class="nc" id="L622">                    }</span>
+                });
+<span class="nc" id="L624">                menu.add(item);</span>
+            }
+
+<span class="nc bnc" id="L627" title="All 2 branches missed.">            if (game.getPlanetaryConditions().isRecklessConditions()</span>
+<span class="nc bnc" id="L628" title="All 2 branches missed.">                &amp;&amp; !game.getBoard().inSpace()</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">                &amp;&amp; !game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_NO_NIGHT_MOVE_PEN)) {</span>
+<span class="nc" id="L630">                item = new JMenuItem(</span>
+<span class="nc" id="L631">                        Messages.getString(&quot;MovementDisplay.butReckless&quot;));</span>
+
+<span class="nc" id="L633">                item.setActionCommand(MovementDisplay.MoveCommand.MOVE_RECKLESS</span>
+<span class="nc" id="L634">                                              .getCmd());</span>
+<span class="nc" id="L635">                item.addActionListener(new ActionListener() {</span>
+                    public void actionPerformed(ActionEvent e) {
+                        try {
+<span class="nc" id="L638">                            ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L639">                        } catch (Exception ex) {</span>
+<span class="nc" id="L640">                            ex.printStackTrace();</span>
+<span class="nc" id="L641">                        }</span>
+<span class="nc" id="L642">                    }</span>
+                });
+<span class="nc" id="L644">                menu.add(item);</span>
+            }
+
+<span class="nc" id="L647">        } else {</span>
+
+<span class="nc" id="L649">            JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L650">                    Messages.getString(&quot;MovementDisplay.butWalk&quot;));</span>
+
+<span class="nc" id="L652">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_WALK</span>
+<span class="nc" id="L653">                                          .getCmd());</span>
+<span class="nc" id="L654">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+                    try {
+<span class="nc" id="L657">                        plotCourse(e);</span>
+<span class="nc" id="L658">                    } catch (Exception ex) {</span>
+<span class="nc" id="L659">                        ex.printStackTrace();</span>
+<span class="nc" id="L660">                    }</span>
+<span class="nc" id="L661">                }</span>
+            });
+
+<span class="nc" id="L664">            menu.add(item);</span>
+
+<span class="nc" id="L666">            item = new JMenuItem(</span>
+<span class="nc" id="L667">                    Messages.getString(&quot;MovementDisplay.butBackup&quot;));</span>
+
+<span class="nc" id="L669">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_BACK_UP</span>
+<span class="nc" id="L670">                                          .getCmd());</span>
+<span class="nc" id="L671">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+                    try {
+<span class="nc" id="L674">                        plotCourse(e);</span>
+<span class="nc" id="L675">                    } catch (Exception ex) {</span>
+<span class="nc" id="L676">                        ex.printStackTrace();</span>
+<span class="nc" id="L677">                    }</span>
+<span class="nc" id="L678">                }</span>
+            });
+
+<span class="nc" id="L681">            menu.add(item);</span>
+
+<span class="nc bnc" id="L683" title="All 2 branches missed.">            if (myEntity.getJumpMP() &gt; 0) {</span>
+<span class="nc" id="L684">                item = new JMenuItem(</span>
+<span class="nc" id="L685">                        Messages.getString(&quot;CommonMenuBar.moveJump&quot;));</span>
+
+<span class="nc" id="L687">                item.setActionCommand(MovementDisplay.MoveCommand.MOVE_JUMP</span>
+<span class="nc" id="L688">                                              .getCmd());</span>
+<span class="nc" id="L689">                item.addActionListener(new ActionListener() {</span>
+                    public void actionPerformed(ActionEvent e) {
+                        try {
+<span class="nc" id="L692">                            plotCourse(e);</span>
+<span class="nc" id="L693">                        } catch (Exception ex) {</span>
+<span class="nc" id="L694">                            ex.printStackTrace();</span>
+<span class="nc" id="L695">                        }</span>
+<span class="nc" id="L696">                    }</span>
+                });
+<span class="nc" id="L698">                menu.add(item);</span>
+            }
+
+<span class="nc" id="L701">            item = new JMenuItem(</span>
+<span class="nc" id="L702">                    Messages.getString(&quot;MovementDisplay.moveLongestRun&quot;)); //$NON-NLS-1$</span>
+
+<span class="nc" id="L704">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_LONGEST_RUN</span>
+<span class="nc" id="L705">                                          .getCmd());</span>
+<span class="nc" id="L706">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+                    try {
+<span class="nc" id="L709">                        plotCourse(e);</span>
+<span class="nc" id="L710">                    } catch (Exception ex) {</span>
+<span class="nc" id="L711">                        ex.printStackTrace();</span>
+<span class="nc" id="L712">                    }</span>
+<span class="nc" id="L713">                }</span>
+            });
+
+<span class="nc" id="L716">            menu.add(item);</span>
+
+<span class="nc" id="L718">            item = new JMenuItem(</span>
+<span class="nc" id="L719">                    Messages.getString(&quot;MovementDisplay.moveLongestWalk&quot;)); //$NON-NLS-1$</span>
+
+<span class="nc" id="L721">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_LONGEST_WALK</span>
+<span class="nc" id="L722">                                          .getCmd());</span>
+<span class="nc" id="L723">            item.addActionListener(new ActionListener() {</span>
+                public void actionPerformed(ActionEvent e) {
+                    try {
+<span class="nc" id="L726">                        plotCourse(e);</span>
+<span class="nc" id="L727">                    } catch (Exception ex) {</span>
+<span class="nc" id="L728">                        ex.printStackTrace();</span>
+<span class="nc" id="L729">                    }</span>
+<span class="nc" id="L730">                }</span>
+            });
+
+<span class="nc" id="L733">            menu.add(item);</span>
+
+<span class="nc bnc" id="L735" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_EVADE)) {</span>
+<span class="nc" id="L736">                item = new JMenuItem(</span>
+<span class="nc" id="L737">                        Messages.getString(&quot;MovementDisplay.butEvade&quot;));</span>
+
+<span class="nc" id="L739">                item.setActionCommand(MovementDisplay.MoveCommand.MOVE_EVADE</span>
+<span class="nc" id="L740">                                              .getCmd());</span>
+<span class="nc" id="L741">                item.addActionListener(new ActionListener() {</span>
+                    public void actionPerformed(ActionEvent e) {
+                        try {
+<span class="nc" id="L744">                            plotCourse(e);</span>
+<span class="nc" id="L745">                        } catch (Exception ex) {</span>
+<span class="nc" id="L746">                            ex.printStackTrace();</span>
+<span class="nc" id="L747">                        }</span>
+<span class="nc" id="L748">                    }</span>
+                });
+<span class="nc" id="L750">                menu.add(item);</span>
+            }
+
+<span class="nc bnc" id="L753" title="All 2 branches missed.">            if (game.getPlanetaryConditions().isRecklessConditions()</span>
+<span class="nc bnc" id="L754" title="All 2 branches missed.">                &amp;&amp; !game.getBoard().inSpace()</span>
+<span class="nc bnc" id="L755" title="All 2 branches missed.">                &amp;&amp; !game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_NO_NIGHT_MOVE_PEN)) {</span>
+<span class="nc" id="L756">                item = new JMenuItem(</span>
+<span class="nc" id="L757">                        Messages.getString(&quot;MovementDisplay.butReckless&quot;));</span>
+
+<span class="nc" id="L759">                item.setActionCommand(MovementDisplay.MoveCommand.MOVE_RECKLESS</span>
+<span class="nc" id="L760">                                              .getCmd());</span>
+<span class="nc" id="L761">                item.addActionListener(new ActionListener() {</span>
+                    public void actionPerformed(ActionEvent e) {
+                        try {
+<span class="nc" id="L764">                            plotCourse(e);</span>
+<span class="nc" id="L765">                        } catch (Exception ex) {</span>
+<span class="nc" id="L766">                            ex.printStackTrace();</span>
+<span class="nc" id="L767">                        }</span>
+<span class="nc" id="L768">                    }</span>
+                });
+<span class="nc" id="L770">                menu.add(item);</span>
+            }
+        }
+
+<span class="nc" id="L774">        return menu;</span>
+    }
+
+    private JMenu createTurnMenu() {
+<span class="nc" id="L778">        JMenu menu = new JMenu(Messages.getString(&quot;MovementDisplay.butTurn&quot;));</span>
+
+<span class="nc" id="L780">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L781">                Messages.getString(&quot;MovementDisplay.butTurnRight&quot;));</span>
+
+<span class="nc" id="L783">        item.setActionCommand(MovementDisplay.MoveCommand.MOVE_TURN_RIGHT</span>
+<span class="nc" id="L784">                                      .getCmd());</span>
+<span class="nc" id="L785">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L788">                    ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L789">                } catch (Exception ex) {</span>
+<span class="nc" id="L790">                    ex.printStackTrace();</span>
+<span class="nc" id="L791">                }</span>
+<span class="nc" id="L792">            }</span>
+        });
+<span class="nc" id="L794">        menu.add(item);</span>
+
+<span class="nc" id="L796">        item = new JMenuItem(Messages.getString(&quot;MovementDisplay.butTurnLeft&quot;));</span>
+
+<span class="nc" id="L798">        item.setActionCommand(MovementDisplay.MoveCommand.MOVE_TURN_LEFT</span>
+<span class="nc" id="L799">                                      .getCmd());</span>
+<span class="nc" id="L800">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L803">                    ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L804">                } catch (Exception ex) {</span>
+<span class="nc" id="L805">                    ex.printStackTrace();</span>
+<span class="nc" id="L806">                }</span>
+<span class="nc" id="L807">            }</span>
+        });
+<span class="nc" id="L809">        menu.add(item);</span>
+
+<span class="nc" id="L811">        item = new JMenuItem(&quot;About Face&quot;);</span>
+
+<span class="nc" id="L813">        item.setActionCommand(MovementDisplay.MoveCommand.MOVE_TURN_RIGHT</span>
+<span class="nc" id="L814">                                      .getCmd());</span>
+<span class="nc" id="L815">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L818">                    ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L819">                    ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L820">                    ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L821">                } catch (Exception ex) {</span>
+<span class="nc" id="L822">                    ex.printStackTrace();</span>
+<span class="nc" id="L823">                }</span>
+<span class="nc" id="L824">            }</span>
+        });
+<span class="nc" id="L826">        menu.add(item);</span>
+
+<span class="nc" id="L828">        return menu;</span>
+    }
+
+    private JMenu createWeaponsFireMenu() {
+<span class="nc" id="L832">        JMenu menu = new JMenu(&quot;Weapons&quot;);</span>
+
+        // Hidden entities are not allowed to shoot without being revealed
+        // so let's not give them the option
+<span class="nc bnc" id="L836" title="All 2 branches missed.">        if (myEntity.isHidden()) {</span>
+<span class="nc" id="L837">            return menu;</span>
+        }
+        
+<span class="nc" id="L840">        menu.add(createFireJMenuItem());</span>
+<span class="nc" id="L841">        menu.add(createSkipJMenuItem());</span>
+<span class="nc" id="L842">        menu.add(createAlphaStrikeJMenuItem());</span>
+
+<span class="nc bnc" id="L844" title="All 2 branches missed.">        if (myEntity.canFlipArms()) {</span>
+<span class="nc" id="L845">            menu.add(createFlipArmsJMenuItem());</span>
+        }
+
+<span class="nc" id="L848">        return menu;</span>
+    }
+
+    private JMenuItem createSkipJMenuItem() {
+<span class="nc" id="L852">        JMenuItem item = new JMenuItem(&quot;Skip&quot;);</span>
+<span class="nc" id="L853">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L856">                    ((FiringDisplay) currentPanel).nextWeapon();</span>
+<span class="nc" id="L857">                } catch (Exception ex) {</span>
+<span class="nc" id="L858">                    ex.printStackTrace();</span>
+<span class="nc" id="L859">                }</span>
+<span class="nc" id="L860">            }</span>
+        });
+
+<span class="nc" id="L863">        return item;</span>
+    }
+
+    private JMenuItem createAlphaStrikeJMenuItem() {
+<span class="nc" id="L867">        JMenuItem item = new JMenuItem(&quot;Alpha Strike&quot;);</span>
+<span class="nc" id="L868">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L871">                    FiringDisplay panel = (FiringDisplay) currentPanel;</span>
+                    // Get all weapons
+<span class="nc" id="L873">                    ArrayList&lt;Mounted&gt; weapons = myEntity.getWeaponList();</span>
+                    // We will need to map a Mounted to it's weapon number
+<span class="nc" id="L875">                    HashMap&lt;Mounted, Integer&gt; weapToId = </span>
+                            new HashMap&lt;Mounted, Integer&gt;();
+<span class="nc bnc" id="L877" title="All 2 branches missed.">                    for (Mounted weapon : weapons) {</span>
+<span class="nc" id="L878">                        weapToId.put(weapon, myEntity.getEquipmentNum(weapon));</span>
+<span class="nc" id="L879">                    }</span>
+                    // Sort weapons from high damage to low
+<span class="nc" id="L881">                    Collections.sort(weapons, new WeaponComparatorDamage(false));</span>
+                    
+<span class="nc" id="L883">                    Targetable target = panel.getTarget();</span>
+<span class="nc bnc" id="L884" title="All 2 branches missed.">                    for (Mounted weapon : weapons) {</span>
+                        // If the weapon has been used at all this turn, ignore
+<span class="nc bnc" id="L886" title="All 2 branches missed.">                        if (weapon.usedInPhase() != IGame.Phase.PHASE_UNKNOWN) {</span>
+<span class="nc" id="L887">                            continue;</span>
+                        }
+<span class="nc" id="L889">                        int weaponNum = weapToId.get(weapon);</span>
+                        // Used to determine if attack is valid
+<span class="nc" id="L891">                        WeaponAttackAction waa = new WeaponAttackAction(</span>
+<span class="nc" id="L892">                                myEntity.getId(), target.getTargetType(),</span>
+<span class="nc" id="L893">                                target.getTargetId(), weaponNum);</span>
+                        // Only fire weapons that have a chance to hit
+<span class="nc" id="L895">                        int toHitVal = waa.toHit(game).getValue(); </span>
+<span class="nc bnc" id="L896" title="All 4 branches missed.">                        if ((toHitVal != TargetRoll.IMPOSSIBLE)</span>
+                                &amp;&amp; (toHitVal &lt;= 12)) {
+<span class="nc" id="L898">                            gui.mechD.wPan.selectWeapon(weaponNum);</span>
+<span class="nc" id="L899">                            panel.fire();</span>
+                        }
+<span class="nc" id="L901">                    }</span>
+<span class="nc" id="L902">                } catch (Exception ex) {</span>
+<span class="nc" id="L903">                    ex.printStackTrace();</span>
+<span class="nc" id="L904">                }</span>
+<span class="nc" id="L905">            }</span>
+        });
+
+<span class="nc" id="L908">        return item;</span>
+    }
+
+    private JMenuItem createFlipArmsJMenuItem() {
+<span class="nc" id="L912">        JMenuItem item = new JMenuItem(&quot;Flip Arms&quot;);</span>
+
+<span class="nc" id="L914">        item.setActionCommand(Integer.toString(myEntity.getId()));</span>
+<span class="nc" id="L915">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L918">                    FiringDisplay display = (FiringDisplay) currentPanel;</span>
+
+<span class="nc" id="L920">                    int id = Integer.parseInt(e.getActionCommand());</span>
+<span class="nc bnc" id="L921" title="All 2 branches missed.">                    display.updateFlipArms(!game.getEntity(id).getArmsFlipped());</span>
+<span class="nc" id="L922">                } catch (Exception ex) {</span>
+<span class="nc" id="L923">                    ex.printStackTrace();</span>
+<span class="nc" id="L924">                }</span>
+<span class="nc" id="L925">            }</span>
+        });
+
+<span class="nc" id="L928">        return item;</span>
+    }
+
+    private JMenuItem createFireJMenuItem() {
+<span class="nc" id="L932">        JMenuItem item = new JMenuItem(&quot;Fire&quot;);</span>
+
+<span class="nc" id="L934">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L937">                    ((FiringDisplay) currentPanel).fire();</span>
+<span class="nc" id="L938">                } catch (Exception ex) {</span>
+<span class="nc" id="L939">                    ex.printStackTrace();</span>
+<span class="nc" id="L940">                }</span>
+<span class="nc" id="L941">            }</span>
+        });
+
+<span class="nc" id="L944">        return item;</span>
+    }
+
+    private JMenu createPhysicalMenu(boolean isMovementPhase) {
+<span class="nc" id="L948">        JMenu menu = new JMenu(&quot;Physicals&quot;);</span>
+
+<span class="nc bnc" id="L950" title="All 2 branches missed.">        if (isMovementPhase) {</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">            if (myEntity.canCharge()) {</span>
+
+<span class="nc" id="L953">                JMenuItem item = createChargeMenuItem();</span>
+
+<span class="nc bnc" id="L955" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L956">                    menu.add(item);</span>
+                }
+            }
+
+<span class="nc bnc" id="L960" title="All 2 branches missed.">            if (myEntity.canDFA()) {</span>
+<span class="nc" id="L961">                JMenuItem item = createDFAJMenuItem();</span>
+
+<span class="nc bnc" id="L963" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L964">                    menu.add(item);</span>
+                }
+<span class="nc" id="L966">            }</span>
+        } else {
+
+<span class="nc" id="L969">            JMenuItem item = null;</span>
+
+<span class="nc bnc" id="L971" title="All 4 branches missed.">            if (!myEntity.isHullDown() &amp;&amp; !myEntity.isProne()</span>
+<span class="nc bnc" id="L972" title="All 2 branches missed.">                &amp;&amp; !myEntity.hasHipCrit()) {</span>
+<span class="nc" id="L973">                item = createKickJMenuItem();</span>
+
+<span class="nc bnc" id="L975" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L976">                    menu.add(item);</span>
+                }
+
+<span class="nc" id="L979">                item = createTripJMenuItem();</span>
+
+<span class="nc bnc" id="L981" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L982">                    menu.add(item);</span>
+                }
+
+            }
+
+<span class="nc bnc" id="L987" title="All 2 branches missed.">            if ((myEntity instanceof BipedMech)</span>
+<span class="nc bnc" id="L988" title="All 2 branches missed.">                &amp;&amp; (!myEntity.isLocationBad(Mech.LOC_LARM) || !myEntity</span>
+<span class="nc bnc" id="L989" title="All 2 branches missed.">                    .isLocationBad(Mech.LOC_RARM))) {</span>
+<span class="nc" id="L990">                item = createPunchJMenuItem();</span>
+
+<span class="nc bnc" id="L992" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L993">                    menu.add(item);</span>
+                }
+
+            }
+
+<span class="nc bnc" id="L998" title="All 2 branches missed.">            if ((myEntity instanceof BipedMech)</span>
+<span class="nc bnc" id="L999" title="All 2 branches missed.">                &amp;&amp; !myEntity.isLocationBad(Mech.LOC_LARM)</span>
+<span class="nc bnc" id="L1000" title="All 2 branches missed.">                &amp;&amp; !myEntity.isLocationBad(Mech.LOC_RARM)) {</span>
+<span class="nc" id="L1001">                item = createPushJMenuItem();</span>
+
+<span class="nc bnc" id="L1003" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L1004">                    menu.add(item);</span>
+                }
+            }
+
+<span class="nc bnc" id="L1008" title="All 2 branches missed.">            if (myEntity.getJumpMP() &gt; 0) {</span>
+<span class="nc" id="L1009">                item = createJumpJetAttackJMenuItem();</span>
+
+<span class="nc bnc" id="L1011" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L1012">                    menu.add(item);</span>
+                }
+            }
+
+<span class="nc bnc" id="L1016" title="All 2 branches missed.">            if (myEntity.isProne()) {</span>
+<span class="nc" id="L1017">                item = createThrashJMenuItem();</span>
+
+<span class="nc bnc" id="L1019" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L1020">                    menu.add(item);</span>
+                }
+            }
+
+<span class="nc" id="L1024">            item = createDodgeJMenuItem();</span>
+
+<span class="nc bnc" id="L1026" title="All 2 branches missed.">            if (item != null) {</span>
+<span class="nc" id="L1027">                menu.add(item);</span>
+            }
+
+<span class="nc bnc" id="L1030" title="All 2 branches missed.">            if (myEntity.getClubs().size() &gt; 0) {</span>
+
+<span class="nc" id="L1032">                JMenu clubMenu = createClubMenu();</span>
+
+<span class="nc bnc" id="L1034" title="All 2 branches missed.">                if (clubMenu.getItemCount() &gt; 0) {</span>
+<span class="nc" id="L1035">                    menu.add(clubMenu);</span>
+                }
+            }
+
+<span class="nc" id="L1039">            ToHitData grap = GrappleAttackAction.toHit(client.getGame(),</span>
+<span class="nc" id="L1040">                                                       myEntity.getId(), myTarget);</span>
+<span class="nc" id="L1041">            ToHitData bgrap = BreakGrappleAttackAction.toHit(client.getGame(),</span>
+<span class="nc" id="L1042">                                                             myEntity.getId(), myTarget);</span>
+<span class="nc bnc" id="L1043" title="All 2 branches missed.">            if ((grap.getValue() != TargetRoll.IMPOSSIBLE)</span>
+<span class="nc bnc" id="L1044" title="All 2 branches missed.">                || (bgrap.getValue() != TargetRoll.IMPOSSIBLE)) {</span>
+
+<span class="nc" id="L1046">                item = createGrappleJMenuItem();</span>
+
+<span class="nc bnc" id="L1048" title="All 2 branches missed.">                if (item != null) {</span>
+<span class="nc" id="L1049">                    menu.add(item);</span>
+                }
+            }
+<span class="nc bnc" id="L1052" title="All 2 branches missed.">            if (myTarget != null) {</span>
+<span class="nc" id="L1053">                ToHitData vibro = BAVibroClawAttackAction.toHit(</span>
+<span class="nc" id="L1054">                        client.getGame(), myEntity.getId(), myTarget);</span>
+<span class="nc bnc" id="L1055" title="All 2 branches missed.">                if (vibro.getValue() != TargetRoll.IMPOSSIBLE) {</span>
+<span class="nc" id="L1056">                    item = createVibroClawMenuItem();</span>
+<span class="nc bnc" id="L1057" title="All 2 branches missed.">                    if (item != null) {</span>
+<span class="nc" id="L1058">                        menu.add(item);</span>
+                    }
+                }
+            }
+
+        }
+
+<span class="nc" id="L1065">        return menu;</span>
+    }
+
+    private JMenu createStandMenu() {
+<span class="nc" id="L1069">        JMenu menu = new JMenu();</span>
+
+<span class="nc bnc" id="L1071" title="All 2 branches missed.">        if (selectedEntity.isProne()) {</span>
+<span class="nc" id="L1072">            menu.setText(&quot;Stand&quot;);</span>
+<span class="nc" id="L1073">            menu.add(createStandJMenuItem(false));</span>
+
+<span class="nc bnc" id="L1075" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_CAREFUL_STAND)</span>
+<span class="nc bnc" id="L1076" title="All 4 branches missed.">                &amp;&amp; (myEntity.getWalkMP() &gt; 2)</span>
+                &amp;&amp; (myEntity.moved == EntityMovementType.MOVE_NONE)) {
+<span class="nc" id="L1078">                menu.add(createStandJMenuItem(true));</span>
+            }
+
+<span class="nc bnc" id="L1081" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_HULL_DOWN)) {</span>
+<span class="nc" id="L1082">                menu.add(createHullDownJMenuItem());</span>
+            }
+
+<span class="nc bnc" id="L1085" title="All 2 branches missed.">        } else if (selectedEntity.isHullDown()) {</span>
+<span class="nc" id="L1086">            menu.setText(&quot;Stand&quot;);</span>
+<span class="nc" id="L1087">            menu.add(createStandJMenuItem(false));</span>
+
+<span class="nc bnc" id="L1089" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_CAREFUL_STAND)) {</span>
+<span class="nc" id="L1090">                menu.add(createStandJMenuItem(true));</span>
+            }
+
+<span class="nc" id="L1093">            menu.add(createProneJMenuItem());</span>
+        } else {
+<span class="nc" id="L1095">            menu.setText(&quot;Prone&quot;);</span>
+<span class="nc" id="L1096">            menu.add(createProneJMenuItem());</span>
+
+<span class="nc bnc" id="L1098" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_HULL_DOWN)) {</span>
+<span class="nc" id="L1099">                menu.add(createHullDownJMenuItem());</span>
+            }
+        }
+
+<span class="nc" id="L1103">        return menu;</span>
+    }
+
+    private JMenuItem createStandJMenuItem(boolean carefulStand) {
+<span class="nc" id="L1107">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L1108">                Messages.getString(&quot;MovementDisplay.butUp&quot;));</span>
+
+<span class="nc bnc" id="L1110" title="All 2 branches missed.">        if (carefulStand) {</span>
+<span class="nc" id="L1111">            item.setText(&quot;Careful Stand&quot;);</span>
+<span class="nc" id="L1112">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_CAREFUL_STAND</span>
+<span class="nc" id="L1113">                                          .getCmd());</span>
+        } else {
+<span class="nc" id="L1115">            item.setActionCommand(MovementDisplay.MoveCommand.MOVE_GET_UP</span>
+<span class="nc" id="L1116">                                          .getCmd());</span>
+        }
+<span class="nc" id="L1118">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1121">                    ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L1122">                } catch (Exception ex) {</span>
+<span class="nc" id="L1123">                    ex.printStackTrace();</span>
+<span class="nc" id="L1124">                }</span>
+<span class="nc" id="L1125">            }</span>
+        });
+
+<span class="nc" id="L1128">        return item;</span>
+    }
+
+    private JMenuItem createHullDownJMenuItem() {
+<span class="nc" id="L1132">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L1133">                Messages.getString(&quot;MovementDisplay.butHullDown&quot;));</span>
+
+<span class="nc" id="L1135">        item.setActionCommand(MovementDisplay.MoveCommand.MOVE_HULL_DOWN</span>
+<span class="nc" id="L1136">                                      .getCmd());</span>
+<span class="nc" id="L1137">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1140">                    ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L1141">                } catch (Exception ex) {</span>
+<span class="nc" id="L1142">                    ex.printStackTrace();</span>
+<span class="nc" id="L1143">                }</span>
+<span class="nc" id="L1144">            }</span>
+        });
+
+<span class="nc" id="L1147">        return item;</span>
+    }
+
+    private JMenuItem createProneJMenuItem() {
+<span class="nc" id="L1151">        JMenuItem item = new JMenuItem(</span>
+<span class="nc" id="L1152">                Messages.getString(&quot;MovementDisplay.butDown&quot;));</span>
+
+<span class="nc" id="L1154">        item.setActionCommand(MovementDisplay.MoveCommand.MOVE_GO_PRONE</span>
+<span class="nc" id="L1155">                                      .getCmd());</span>
+<span class="nc" id="L1156">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1159">                    ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L1160">                } catch (Exception ex) {</span>
+<span class="nc" id="L1161">                    ex.printStackTrace();</span>
+<span class="nc" id="L1162">                }</span>
+<span class="nc" id="L1163">            }</span>
+        });
+
+<span class="nc" id="L1166">        return item;</span>
+    }
+
+    private JMenu createConvertMenu() {
+<span class="nc" id="L1170">        JMenu menu = new JMenu(Messages.getString(&quot;MovementDisplay.moveModeConvert&quot;));</span>
+        
+<span class="nc bnc" id="L1172" title="All 4 branches missed.">        if (myEntity instanceof Mech &amp;&amp; ((Mech)myEntity).hasTracks()) {</span>
+<span class="nc" id="L1173">            menu.add(createConvertMenuItem(&quot;MovementDisplay.moveModeLeg&quot;,</span>
+                    MovementDisplay.MoveCommand.MOVE_MODE_LEG, false));
+<span class="nc" id="L1175">            menu.add(createConvertMenuItem(&quot;MovementDisplay.moveModeTrack&quot;,</span>
+                    MovementDisplay.MoveCommand.MOVE_MODE_VEE, false));
+<span class="nc bnc" id="L1177" title="All 2 branches missed.">        } else if (myEntity instanceof QuadVee) {</span>
+<span class="nc" id="L1178">            menu.add(createConvertMenuItem(&quot;MovementDisplay.moveModeMech&quot;,</span>
+                    MovementDisplay.MoveCommand.MOVE_MODE_LEG,
+<span class="nc bnc" id="L1180" title="All 2 branches missed.">                    myEntity.getConversionMode() == QuadVee.CONV_MODE_MECH));</span>
+<span class="nc" id="L1181">            menu.add(createConvertMenuItem(&quot;MovementDisplay.moveModeVee&quot;,</span>
+                    MovementDisplay.MoveCommand.MOVE_MODE_VEE,
+<span class="nc bnc" id="L1183" title="All 2 branches missed.">                    myEntity.getConversionMode() == QuadVee.CONV_MODE_VEHICLE));            </span>
+<span class="nc bnc" id="L1184" title="All 2 branches missed.">        } else if (myEntity instanceof LandAirMech) {</span>
+<span class="nc" id="L1185">            int currentMode = myEntity.getConversionMode();</span>
+<span class="nc bnc" id="L1186" title="All 2 branches missed.">            JMenuItem item = createConvertMenuItem(&quot;MovementDisplay.moveModeMech&quot;,</span>
+                    MovementDisplay.MoveCommand.MOVE_MODE_LEG,
+                    currentMode == LandAirMech.CONV_MODE_MECH);
+<span class="nc bnc" id="L1189" title="All 2 branches missed.">            item.setEnabled(currentMode == LandAirMech.CONV_MODE_MECH</span>
+<span class="nc bnc" id="L1190" title="All 2 branches missed.">                    || ((LandAirMech)myEntity).canConvertTo(currentMode,</span>
+                            LandAirMech.CONV_MODE_MECH));
+<span class="nc" id="L1192">            menu.add(item);</span>
+<span class="nc bnc" id="L1193" title="All 2 branches missed.">            if (((LandAirMech)myEntity).getLAMType() == LandAirMech.LAM_STANDARD) {</span>
+<span class="nc bnc" id="L1194" title="All 2 branches missed.">                item = createConvertMenuItem(&quot;MovementDisplay.moveModeAirmech&quot;,</span>
+                        MovementDisplay.MoveCommand.MOVE_MODE_VEE,
+                        currentMode == LandAirMech.CONV_MODE_AIRMECH);
+<span class="nc bnc" id="L1197" title="All 2 branches missed.">                item.setEnabled(currentMode == LandAirMech.CONV_MODE_AIRMECH</span>
+<span class="nc bnc" id="L1198" title="All 2 branches missed.">                        || ((LandAirMech)myEntity).canConvertTo(currentMode,</span>
+                                LandAirMech.CONV_MODE_AIRMECH));
+<span class="nc" id="L1200">                menu.add(item);</span>
+            }
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">            item = createConvertMenuItem(&quot;MovementDisplay.moveModeFighter&quot;,</span>
+                    MovementDisplay.MoveCommand.MOVE_MODE_AIR,
+                    currentMode == LandAirMech.CONV_MODE_FIGHTER);
+<span class="nc bnc" id="L1205" title="All 2 branches missed.">            item.setEnabled(currentMode == LandAirMech.CONV_MODE_FIGHTER</span>
+<span class="nc bnc" id="L1206" title="All 2 branches missed.">                    || ((LandAirMech)myEntity).canConvertTo(currentMode,</span>
+                            LandAirMech.CONV_MODE_FIGHTER));
+<span class="nc" id="L1208">            menu.add(item);</span>
+        }
+<span class="nc" id="L1210">        return menu;</span>
+    }
+    
+    private JMenuItem createConvertMenuItem(String resourceKey, MovementDisplay.MoveCommand cmd,
+            boolean isCurrent) {
+<span class="nc" id="L1215">        String text = Messages.getString(resourceKey);</span>
+<span class="nc bnc" id="L1216" title="All 2 branches missed.">        if (isCurrent) {</span>
+<span class="nc" id="L1217">            text = &quot;No Conversion&quot;;</span>
+        }
+<span class="nc" id="L1219">        JMenuItem item = new JMenuItem(text);</span>
+<span class="nc" id="L1220">        item.setActionCommand(cmd.getCmd());</span>
+<span class="nc" id="L1221">        item.addActionListener(e -&gt; {</span>
+            try {
+<span class="nc" id="L1223">                ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+<span class="nc" id="L1224">            } catch (Exception ex) {</span>
+<span class="nc" id="L1225">                ex.printStackTrace();</span>
+<span class="nc" id="L1226">            }</span>
+<span class="nc" id="L1227">        });</span>
+<span class="nc" id="L1228">        return item;</span>
+    }
+
+    private JMenu createTargetMenu() {
+<span class="nc" id="L1232">        JMenu menu = new JMenu(&quot;Target&quot;);</span>
+
+        // If we can't target entities, nothing to do
+<span class="nc bnc" id="L1235" title="All 2 branches missed.">        if (!canTargetEntities()) {</span>
+<span class="nc" id="L1236">            return menu;</span>
+        }
+
+        // VTOLs/AirMechs making strafing or bombing attacks already declared the target hex(es)
+        // in the movement phase and cannot change them.
+<span class="nc bnc" id="L1241" title="All 2 branches missed.">        if (myEntity.isMakingVTOLGroundAttack()) {</span>
+<span class="nc" id="L1242">            menu.setEnabled(false);</span>
+<span class="nc" id="L1243">            return menu;</span>
+        }
+
+<span class="nc" id="L1246">        final boolean isFiringDisplay = (currentPanel instanceof FiringDisplay);</span>
+<span class="nc" id="L1247">        final boolean isTargetingDisplay = (currentPanel instanceof TargetingPhaseDisplay);</span>
+<span class="nc" id="L1248">        final boolean canStartFires = client.getGame().getOptions()</span>
+<span class="nc" id="L1249">                .booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_START_FIRE); //$NON-NLS-1$</span>
+        
+<span class="nc" id="L1251">        IPlayer localPlayer = client.getLocalPlayer();</span>
+        
+        // Add menu item to target each entity in the coords
+<span class="nc bnc" id="L1254" title="All 2 branches missed.">        for (Entity entity : client.getGame().getEntitiesVector(coords)) {</span>
+            // Only add the unit if it's actually visible
+            //  With double blind on, the game may have unseen units
+<span class="nc bnc" id="L1257" title="All 2 branches missed.">            if (!entity.isSensorReturn(localPlayer)</span>
+<span class="nc bnc" id="L1258" title="All 2 branches missed.">                    &amp;&amp; entity.hasSeenEntity(localPlayer)</span>
+<span class="nc bnc" id="L1259" title="All 2 branches missed.">                    &amp;&amp; !entity.isHidden()) {</span>
+<span class="nc" id="L1260">                menu.add(TargetMenuItem(entity));</span>
+            }
+<span class="nc" id="L1262">        }</span>
+
+<span class="nc" id="L1264">        IHex h = board.getHex(coords);</span>
+        // If the hex is null, we're done here
+<span class="nc bnc" id="L1266" title="All 2 branches missed.">        if (h == null) {</span>
+<span class="nc" id="L1267">            return menu;</span>
+        }
+
+        // Clearing hexes and igniting hexes
+<span class="nc bnc" id="L1271" title="All 6 branches missed.">        if (isFiringDisplay &amp;&amp; !board.inSpace() &amp;&amp; !board.inAtmosphere()) {</span>
+<span class="nc" id="L1272">            menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_CLEAR)));</span>
+<span class="nc bnc" id="L1273" title="All 2 branches missed.">            if (canStartFires</span>
+<span class="nc bnc" id="L1274" title="All 2 branches missed.">                &amp;&amp; (h.containsTerrain(Terrains.WOODS)</span>
+<span class="nc bnc" id="L1275" title="All 2 branches missed.">                    || h.containsTerrain(Terrains.JUNGLE)</span>
+<span class="nc bnc" id="L1276" title="All 2 branches missed.">                    || h.containsTerrain(Terrains.FIELDS)</span>
+<span class="nc bnc" id="L1277" title="All 2 branches missed.">                    || hasMunitionType(AmmoType.M_INFERNO)</span>
+<span class="nc bnc" id="L1278" title="All 2 branches missed.">                    || hasMunitionType(AmmoType.M_INFERNO_IV)</span>
+<span class="nc bnc" id="L1279" title="All 2 branches missed.">                    || hasMunitionType(AmmoType.M_THUNDER_INFERNO))) {</span>
+<span class="nc" id="L1280">                menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_IGNITE)));</span>
+            }
+            // Targeting fuel tanks
+        }
+<span class="nc bnc" id="L1284" title="All 2 branches missed.">        if (h.containsTerrain(Terrains.FUEL_TANK)) {</span>
+<span class="nc" id="L1285">            menu.add(TargetMenuItem(new BuildingTarget(coords, board, false)));</span>
+<span class="nc bnc" id="L1286" title="All 2 branches missed.">            if (canStartFires) {</span>
+<span class="nc" id="L1287">                menu.add(TargetMenuItem(new BuildingTarget(coords, board, true)));</span>
+            }
+            // Targeting buildings or bridges
+        }
+<span class="nc bnc" id="L1291" title="All 2 branches missed.">        if ((h.containsTerrain(Terrains.BUILDING)</span>
+<span class="nc bnc" id="L1292" title="All 2 branches missed.">             || h.containsTerrain(Terrains.BRIDGE))) {</span>
+<span class="nc" id="L1293">            menu.add(TargetMenuItem(new BuildingTarget(coords, board, false)));</span>
+<span class="nc bnc" id="L1294" title="All 2 branches missed.">            if (canStartFires) {</span>
+<span class="nc" id="L1295">                menu.add(TargetMenuItem(new BuildingTarget(coords, board, true)));</span>
+            }
+        }
+<span class="nc bnc" id="L1298" title="All 2 branches missed.">        if (isFiringDisplay) {</span>
+<span class="nc bnc" id="L1299" title="All 4 branches missed.">            if (board.inSpace() &amp;&amp; hasAmmoType(AmmoType.T_SCREEN_LAUNCHER)) {</span>
+<span class="nc" id="L1300">                menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_SCREEN)));</span>
+            } else {
+<span class="nc bnc" id="L1302" title="All 2 branches missed.">                if ((hasAmmoType(AmmoType.T_LRM)</span>
+<span class="nc bnc" id="L1303" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_LRM_IMP)</span>
+<span class="nc bnc" id="L1304" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_MML))</span>
+<span class="nc bnc" id="L1305" title="All 2 branches missed.">                    &amp;&amp; (hasMunitionType(AmmoType.M_FASCAM)</span>
+<span class="nc bnc" id="L1306" title="All 2 branches missed.">                        || hasMunitionType(AmmoType.M_THUNDER)</span>
+<span class="nc bnc" id="L1307" title="All 2 branches missed.">                        || hasMunitionType(AmmoType.M_THUNDER_ACTIVE)</span>
+<span class="nc bnc" id="L1308" title="All 2 branches missed.">                        || hasMunitionType(AmmoType.M_THUNDER_AUGMENTED)</span>
+<span class="nc bnc" id="L1309" title="All 2 branches missed.">                        || hasMunitionType(AmmoType.M_THUNDER_INFERNO)</span>
+<span class="nc bnc" id="L1310" title="All 2 branches missed.">                        || hasMunitionType(AmmoType.M_THUNDER_VIBRABOMB))) {</span>
+<span class="nc" id="L1311">                    menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_MINEFIELD_DELIVER)));</span>
+                }
+
+<span class="nc bnc" id="L1314" title="All 2 branches missed.">                if (hasMunitionType(AmmoType.M_FLARE)) {</span>
+<span class="nc" id="L1315">                    menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_FLARE_DELIVER)));</span>
+                }
+
+<span class="nc bnc" id="L1318" title="All 2 branches missed.">                if (hasAmmoType(AmmoType.T_BA_MICRO_BOMB)) {</span>
+<span class="nc" id="L1319">                    menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_BOMB)));</span>
+                }
+
+<span class="nc bnc" id="L1322" title="All 2 branches missed.">                if (hasWeaponFlag(WeaponType.F_DIVE_BOMB)</span>
+<span class="nc bnc" id="L1323" title="All 2 branches missed.">                    || hasWeaponFlag(WeaponType.F_ALT_BOMB)) {</span>
+<span class="nc" id="L1324">                    menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_AERO_BOMB)));</span>
+                }
+
+<span class="nc bnc" id="L1327" title="All 2 branches missed.">                if (hasAmmoType(AmmoType.T_ARROW_IV)</span>
+<span class="nc bnc" id="L1328" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_SNIPER)</span>
+<span class="nc bnc" id="L1329" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_CRUISE_MISSILE)</span>
+<span class="nc bnc" id="L1330" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_ALAMO)</span>
+<span class="nc bnc" id="L1331" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_KILLER_WHALE)</span>
+<span class="nc bnc" id="L1332" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_LONG_TOM)</span>
+<span class="nc bnc" id="L1333" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_THUMPER)</span>
+<span class="nc bnc" id="L1334" title="All 2 branches missed.">                        || hasAmmoType(AmmoType.T_BA_TUBE)) {</span>
+<span class="nc" id="L1335">                    menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_ARTILLERY)));</span>
+                }
+<span class="nc bnc" id="L1337" title="All 4 branches missed.">                if (canStartFires &amp;&amp; hasFireExtinguisher()</span>
+<span class="nc bnc" id="L1338" title="All 2 branches missed.">                    &amp;&amp; h.containsTerrain(Terrains.FIRE)) {</span>
+<span class="nc" id="L1339">                    menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_EXTINGUISH)));</span>
+                }
+            }
+        }
+        // Check for Mine Clearance
+<span class="nc bnc" id="L1344" title="All 4 branches missed.">        if (isFiringDisplay || isTargetingDisplay) {</span>
+<span class="nc bnc" id="L1345" title="All 2 branches missed.">            if (client.getGame().containsMinefield(coords)) {</span>
+<span class="nc" id="L1346">                menu.add(TargetMenuItem(new MinefieldTarget(coords, board)));</span>
+            }
+        }
+
+<span class="nc bnc" id="L1350" title="All 2 branches missed.">        if (isTargetingDisplay</span>
+<span class="nc bnc" id="L1351" title="All 2 branches missed.">            &amp;&amp; !board.inSpace()</span>
+<span class="nc bnc" id="L1352" title="All 2 branches missed.">            &amp;&amp; !board.inAtmosphere()</span>
+<span class="nc bnc" id="L1353" title="All 2 branches missed.">            &amp;&amp; (hasAmmoType(AmmoType.T_ARROW_IV)</span>
+<span class="nc bnc" id="L1354" title="All 2 branches missed.">                || hasAmmoType(AmmoType.T_SNIPER)</span>
+<span class="nc bnc" id="L1355" title="All 2 branches missed.">                || hasAmmoType(AmmoType.T_CRUISE_MISSILE)</span>
+<span class="nc bnc" id="L1356" title="All 2 branches missed.">                || hasAmmoType(AmmoType.T_ALAMO)</span>
+<span class="nc bnc" id="L1357" title="All 2 branches missed.">                || hasAmmoType(AmmoType.T_KILLER_WHALE)</span>
+<span class="nc bnc" id="L1358" title="All 2 branches missed.">                || hasAmmoType(AmmoType.T_LONG_TOM)</span>
+<span class="nc bnc" id="L1359" title="All 2 branches missed.">                || hasAmmoType(AmmoType.T_THUMPER)</span>
+<span class="nc bnc" id="L1360" title="All 2 branches missed.">                || hasAmmoType(AmmoType.T_BA_TUBE))) {</span>
+<span class="nc" id="L1361">            menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_ARTILLERY)));</span>
+        }
+        // Check for adding TAG targeting buildings and hexes
+<span class="nc bnc" id="L1364" title="All 6 branches missed.">        if (isTargetingDisplay &amp;&amp; myEntity.hasTAG() &amp;&amp; !board.inSpace()) {</span>
+<span class="nc" id="L1365">            menu.add(TargetMenuItem(new HexTarget(coords, board, Targetable.TYPE_HEX_TAG)));</span>
+<span class="nc bnc" id="L1366" title="All 2 branches missed.">            if (h.containsTerrain(Terrains.FUEL_TANK)</span>
+<span class="nc bnc" id="L1367" title="All 2 branches missed.">                || h.containsTerrain(Terrains.BUILDING)</span>
+<span class="nc bnc" id="L1368" title="All 2 branches missed.">                || h.containsTerrain(Terrains.BRIDGE)) {</span>
+<span class="nc" id="L1369">                menu.add(TargetMenuItem(new BuildingTarget(coords, board, Targetable.TYPE_BLDG_TAG)));</span>
+            }
+        }
+<span class="nc" id="L1372">        return menu;</span>
+    }
+
+    void plotCourse(ActionEvent e) {
+<span class="nc" id="L1376">        ((MovementDisplay) currentPanel).actionPerformed(e);</span>
+
+        // Cursor over the hex.
+<span class="nc" id="L1379">        ((BoardView1) gui.bv).mouseAction(coords, BoardViewEvent.BOARD_HEX_CURSOR, InputEvent.BUTTON1_MASK);</span>
+        // Click
+<span class="nc" id="L1381">        ((BoardView1) gui.bv).mouseAction(coords, BoardViewEvent.BOARD_HEX_CLICKED, InputEvent.BUTTON1_MASK);</span>
+<span class="nc" id="L1382">    }</span>
+
+    Targetable decodeTargetInfo(String info) {
+
+<span class="nc" id="L1386">        StringTokenizer target = new StringTokenizer(info, &quot;|&quot;);</span>
+<span class="nc" id="L1387">        String type = target.nextToken();</span>
+
+<span class="nc bnc" id="L1389" title="All 2 branches missed.">        if (type.equalsIgnoreCase(&quot;E&quot;)) {</span>
+<span class="nc" id="L1390">            return game.getEntity(Integer.parseInt(target.nextToken()));</span>
+        }
+
+<span class="nc" id="L1393">        Coords targetCoords = new Coords(Integer.parseInt(target.nextToken()),</span>
+<span class="nc" id="L1394">                                         Integer.parseInt(target.nextToken()));</span>
+
+<span class="nc bnc" id="L1396" title="All 2 branches missed.">        if (type.equals(&quot;B&quot;)) {</span>
+<span class="nc" id="L1397">            return new BuildingTarget(targetCoords, board,</span>
+<span class="nc" id="L1398">                                      Integer.parseInt(target.nextToken()));</span>
+        }
+
+<span class="nc bnc" id="L1401" title="All 2 branches missed.">        if (type.equals(&quot;M&quot;)) {</span>
+<span class="nc" id="L1402">            return new MinefieldTarget(targetCoords, board);</span>
+        }
+
+<span class="nc" id="L1405">        return new HexTarget(targetCoords, board, Integer.parseInt(target</span>
+<span class="nc" id="L1406">                                                                           .nextToken()));</span>
+    }
+
+    private boolean hasAmmoType(int ammoType) {
+
+<span class="nc bnc" id="L1411" title="All 2 branches missed.">        if (myEntity.getAmmo().size() &lt; 1) {</span>
+<span class="nc" id="L1412">            return false;</span>
+        }
+
+<span class="nc bnc" id="L1415" title="All 2 branches missed.">        for (Mounted ammo : myEntity.getAmmo()) {</span>
+<span class="nc bnc" id="L1416" title="All 2 branches missed.">            if (((AmmoType) ammo.getType()).getAmmoType() == ammoType) {</span>
+<span class="nc" id="L1417">                return true;</span>
+            }
+<span class="nc" id="L1419">        }</span>
+
+<span class="nc" id="L1421">        return false;</span>
+    }
+
+    private boolean hasWeaponFlag(BigInteger weaponFlag) {
+
+<span class="nc bnc" id="L1426" title="All 2 branches missed.">        if (myEntity.getWeaponList().size() &lt; 1) {</span>
+<span class="nc" id="L1427">            return false;</span>
+        }
+
+<span class="nc bnc" id="L1430" title="All 2 branches missed.">        for (Mounted wpn : myEntity.getWeaponList()) {</span>
+<span class="nc bnc" id="L1431" title="All 2 branches missed.">            if (((WeaponType) wpn.getType()).hasFlag(weaponFlag)) {</span>
+<span class="nc" id="L1432">                return true;</span>
+            }
+<span class="nc" id="L1434">        }</span>
+
+<span class="nc" id="L1436">        return false;</span>
+    }
+
+    private boolean hasMunitionType(long munition) {
+
+<span class="nc bnc" id="L1441" title="All 2 branches missed.">        if (myEntity.getAmmo().size() &lt; 1) {</span>
+<span class="nc" id="L1442">            return false;</span>
+        }
+
+<span class="nc bnc" id="L1445" title="All 2 branches missed.">        for (Mounted ammo : myEntity.getAmmo()) {</span>
+<span class="nc bnc" id="L1446" title="All 2 branches missed.">            if (((AmmoType) ammo.getType()).getMunitionType() == munition) {</span>
+<span class="nc" id="L1447">                return true;</span>
+            }
+<span class="nc" id="L1449">        }</span>
+
+<span class="nc" id="L1451">        return false;</span>
+    }
+
+    private boolean hasFireExtinguisher() {
+
+<span class="nc bnc" id="L1456" title="All 2 branches missed.">        if (myEntity.getWeaponList().size() &lt; 1) {</span>
+<span class="nc" id="L1457">            return false;</span>
+        }
+
+<span class="nc bnc" id="L1460" title="All 2 branches missed.">        for (Mounted weapon : myEntity.getWeaponList()) {</span>
+<span class="nc bnc" id="L1461" title="All 2 branches missed.">            if (((WeaponType) weapon.getType() instanceof ISFireExtinguisher)</span>
+<span class="nc bnc" id="L1462" title="All 2 branches missed.">                || ((WeaponType) weapon.getType() instanceof CLFireExtinguisher)) {</span>
+<span class="nc" id="L1463">                return true;</span>
+            }
+<span class="nc" id="L1465">        }</span>
+
+<span class="nc" id="L1467">        return false;</span>
+
+    }
+
+    private JMenuItem createTorsoTwistJMenuItem(int direction) {
+<span class="nc" id="L1472">        JMenuItem item = new JMenuItem();</span>
+
+<span class="nc bnc" id="L1474" title="All 2 branches missed.">        if (direction == 1) {</span>
+<span class="nc" id="L1475">            item.setText(&quot;Right&quot;);</span>
+        } else {
+<span class="nc" id="L1477">            item.setText(&quot;Left&quot;);</span>
+        }
+
+<span class="nc" id="L1480">        item.setActionCommand(Integer.toString(direction));</span>
+<span class="nc" id="L1481">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1484">                    int twistDir = Integer.parseInt(e.getActionCommand());</span>
+<span class="nc bnc" id="L1485" title="All 2 branches missed.">                    if (currentPanel instanceof FiringDisplay) {</span>
+<span class="nc" id="L1486">                        ((FiringDisplay) currentPanel).torsoTwist(twistDir);</span>
+<span class="nc bnc" id="L1487" title="All 2 branches missed.">                    } else if (currentPanel instanceof TargetingPhaseDisplay) {</span>
+<span class="nc" id="L1488">                        ((TargetingPhaseDisplay) currentPanel)</span>
+<span class="nc" id="L1489">                                .torsoTwist(twistDir);</span>
+                    }
+<span class="nc" id="L1491">                } catch (Exception ex) {</span>
+<span class="nc" id="L1492">                    ex.printStackTrace();</span>
+<span class="nc" id="L1493">                }</span>
+<span class="nc" id="L1494">            }</span>
+        });
+
+<span class="nc" id="L1497">        return item;</span>
+    }
+
+    private JMenuItem createTorsoTwistJMenuItem(Coords twistCoords) {
+<span class="nc" id="L1501">        JMenuItem item = new JMenuItem(&quot;Twist&quot;);</span>
+
+<span class="nc" id="L1503">        item.setActionCommand(twistCoords.getX() + &quot;|&quot; + twistCoords.getY());</span>
+<span class="nc" id="L1504">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1507">                    StringTokenizer result = new StringTokenizer(e</span>
+<span class="nc" id="L1508">                                                                         .getActionCommand(), &quot;|&quot;);</span>
+<span class="nc" id="L1509">                    Coords coord = new Coords(Integer.parseInt(result</span>
+<span class="nc" id="L1510">                                                                       .nextToken()), Integer.parseInt(result.nextToken()));</span>
+<span class="nc bnc" id="L1511" title="All 2 branches missed.">                    if (currentPanel instanceof FiringDisplay) {</span>
+<span class="nc" id="L1512">                        ((FiringDisplay) currentPanel).torsoTwist(coord);</span>
+<span class="nc bnc" id="L1513" title="All 2 branches missed.">                    } else if (currentPanel instanceof TargetingPhaseDisplay) {</span>
+<span class="nc" id="L1514">                        ((TargetingPhaseDisplay) currentPanel)</span>
+<span class="nc" id="L1515">                                .torsoTwist(coord);</span>
+                    }
+<span class="nc" id="L1517">                } catch (Exception ex) {</span>
+<span class="nc" id="L1518">                    ex.printStackTrace();</span>
+<span class="nc" id="L1519">                }</span>
+<span class="nc" id="L1520">            }</span>
+        });
+
+<span class="nc" id="L1523">        return item;</span>
+    }
+
+    private JMenuItem createRotateTurretJMenuItem(final Mech mech,
+                                                  final Mounted turret) {
+        String turretString;
+<span class="nc bnc" id="L1529" title="All 2 branches missed.">        if (turret.getType().hasFlag(MiscType.F_SHOULDER_TURRET)) {</span>
+<span class="nc" id="L1530">            turretString = &quot;Rotate Shoulder Turret (&quot;</span>
+<span class="nc" id="L1531">                           + mech.getLocationAbbr(turret.getLocation()) + &quot;)&quot;;</span>
+<span class="nc bnc" id="L1532" title="All 2 branches missed.">        } else if (turret.getType().hasFlag(MiscType.F_HEAD_TURRET)) {</span>
+<span class="nc" id="L1533">            turretString = &quot;Rotate Head Turret&quot;;</span>
+        } else {
+<span class="nc" id="L1535">            turretString = &quot;Rotate Quad Turret&quot;;</span>
+        }
+<span class="nc" id="L1537">        JMenuItem item = new JMenuItem(turretString);</span>
+<span class="nc" id="L1538">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent ae) {
+<span class="nc" id="L1540">                TurretFacingDialog tfe = new TurretFacingDialog(gui.frame,</span>
+                                                                mech, turret, gui);
+<span class="nc" id="L1542">                tfe.setVisible(true);</span>
+<span class="nc" id="L1543">            }</span>
+        });
+<span class="nc" id="L1545">        return item;</span>
+    }
+
+    private JMenuItem createRotateDualTurretJMenuItem(final Tank tank) {
+        String turretString;
+<span class="nc" id="L1550">        turretString = &quot;Rotate Front Turret&quot;;</span>
+<span class="nc" id="L1551">        JMenuItem item = new JMenuItem(turretString);</span>
+<span class="nc" id="L1552">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent ae) {
+<span class="nc" id="L1554">                TurretFacingDialog tfe = new TurretFacingDialog(gui.frame,</span>
+                                                                tank, gui);
+<span class="nc" id="L1556">                tfe.setVisible(true);</span>
+<span class="nc" id="L1557">            }</span>
+        });
+<span class="nc" id="L1559">        return item;</span>
+    }
+
+    private JMenu createTorsoTwistMenu() {
+<span class="nc" id="L1563">        JMenu menu = new JMenu();</span>
+
+<span class="nc bnc" id="L1565" title="All 2 branches missed.">        if (myEntity instanceof BipedMech) {</span>
+<span class="nc" id="L1566">            menu.setText(&quot;Torso Twist&quot;);</span>
+<span class="nc bnc" id="L1567" title="All 2 branches missed.">            if (coords.equals(myEntity.getPosition())) {</span>
+<span class="nc" id="L1568">                menu.add(createTorsoTwistJMenuItem(1));</span>
+<span class="nc" id="L1569">                menu.add(createTorsoTwistJMenuItem(0));</span>
+            } else {
+<span class="nc" id="L1571">                menu.add(createTorsoTwistJMenuItem(coords));</span>
+            }
+<span class="nc bnc" id="L1573" title="All 2 branches missed.">        } else if ((myEntity instanceof Tank)</span>
+<span class="nc bnc" id="L1574" title="All 2 branches missed.">                   &amp;&amp; (((Tank) myEntity).getInternal(((Tank) myEntity)</span>
+<span class="nc" id="L1575">                                                             .getLocTurret()) &gt; -1)) {</span>
+<span class="nc" id="L1576">            menu.setText(&quot;Turret Twist&quot;);</span>
+<span class="nc bnc" id="L1577" title="All 2 branches missed.">            if (coords.equals(myEntity.getPosition())) {</span>
+<span class="nc" id="L1578">                menu.add(createTorsoTwistJMenuItem(1));</span>
+<span class="nc" id="L1579">                menu.add(createTorsoTwistJMenuItem(0));</span>
+            } else {
+<span class="nc" id="L1581">                menu.add(createTorsoTwistJMenuItem(coords));</span>
+            }
+        }
+<span class="nc bnc" id="L1584" title="All 4 branches missed.">        if ((myEntity instanceof Tank) &amp;&amp; !((Tank) myEntity).hasNoDualTurret()) {</span>
+<span class="nc" id="L1585">            menu.add(createRotateDualTurretJMenuItem((Tank) myEntity));</span>
+        }
+
+<span class="nc" id="L1588">        return menu;</span>
+    }
+
+    private JMenu createRotateTurretMenu() {
+<span class="nc" id="L1592">        JMenu menu = new JMenu();</span>
+<span class="nc" id="L1593">        menu.setText(&quot;Turret Rotation&quot;);</span>
+<span class="nc bnc" id="L1594" title="All 2 branches missed.">        if (myEntity instanceof Mech) {</span>
+<span class="nc bnc" id="L1595" title="All 2 branches missed.">            for (Mounted mount : myEntity.getMisc()) {</span>
+<span class="nc bnc" id="L1596" title="All 2 branches missed.">                if (mount.getType().hasFlag(MiscType.F_SHOULDER_TURRET)</span>
+<span class="nc bnc" id="L1597" title="All 2 branches missed.">                    || mount.getType().hasFlag(MiscType.F_HEAD_TURRET)</span>
+<span class="nc bnc" id="L1598" title="All 2 branches missed.">                    || mount.getType().hasFlag(MiscType.F_QUAD_TURRET)) {</span>
+<span class="nc" id="L1599">                    menu.add(createRotateTurretJMenuItem((Mech) myEntity, mount));</span>
+                }
+<span class="nc" id="L1601">            }</span>
+        }
+<span class="nc" id="L1603">        return menu;</span>
+    }
+
+    private void selectTarget() {
+<span class="nc" id="L1607">        Vector&lt;Entity&gt; list = new Vector&lt;Entity&gt;();</span>
+
+<span class="nc" id="L1609">        IPlayer localPlayer = client.getLocalPlayer();</span>
+<span class="nc" id="L1610">        boolean friendlyFire = (game.getOptions()</span>
+<span class="nc" id="L1611">                .booleanOption(OptionsConstants.BASE_FRIENDLY_FIRE));</span>
+
+<span class="nc bnc" id="L1613" title="All 2 branches missed.">        for (Entity en : game.getEntitiesVector(coords)) {</span>
+            // Only add the unit if it's actually visible
+            //  With double blind on, the game may have unseen units
+<span class="nc bnc" id="L1616" title="All 6 branches missed.">            if ((en.isEnemyOf(myEntity) || friendlyFire) &amp;&amp; !en.equals(myEntity)</span>
+<span class="nc bnc" id="L1617" title="All 2 branches missed.">                    &amp;&amp; !en.isSensorReturn(localPlayer)</span>
+<span class="nc bnc" id="L1618" title="All 2 branches missed.">                    &amp;&amp; en.hasSeenEntity(localPlayer)</span>
+<span class="nc bnc" id="L1619" title="All 2 branches missed.">                    &amp;&amp; !en.isHidden()) {</span>
+<span class="nc" id="L1620">                list.add(en);</span>
+            }
+<span class="nc" id="L1622">        }</span>
+
+<span class="nc bnc" id="L1624" title="All 2 branches missed.">        if (list.size() == 1) {</span>
+<span class="nc" id="L1625">            myTarget = selectedEntity = list.firstElement();</span>
+
+            // gui.bv.centerOnHex(myTarget.getPosition());
+            // gui.getBoardView().select(myTarget.getPosition());
+
+<span class="nc bnc" id="L1630" title="All 2 branches missed.">            if (currentPanel instanceof FiringDisplay) {</span>
+<span class="nc" id="L1631">                FiringDisplay panel = (FiringDisplay) currentPanel;</span>
+<span class="nc" id="L1632">                panel.target(myTarget);</span>
+<span class="nc bnc" id="L1633" title="All 2 branches missed.">            } else if (currentPanel instanceof PhysicalDisplay) {</span>
+<span class="nc" id="L1634">                ((PhysicalDisplay) currentPanel).target(myTarget);</span>
+<span class="nc bnc" id="L1635" title="All 2 branches missed.">            } else if (currentPanel instanceof TargetingPhaseDisplay) {</span>
+<span class="nc" id="L1636">                ((TargetingPhaseDisplay) currentPanel).target(myTarget);</span>
+            }
+
+        }
+<span class="nc" id="L1640">    }</span>
+
+    private JMenu createModeMenu() {
+<span class="nc" id="L1643">        JMenu menu = new JMenu(&quot;Modes&quot;);</span>
+
+<span class="nc" id="L1645">        int weaponNum = gui.mechD.wPan.getSelectedWeaponNum();</span>
+<span class="nc" id="L1646">        Mounted mounted = myEntity.getEquipment(weaponNum);</span>
+
+<span class="nc bnc" id="L1648" title="All 4 branches missed.">        if ((mounted != null) &amp;&amp; mounted.getType().hasModes()) {</span>
+<span class="nc bnc" id="L1649" title="All 2 branches missed.">            for (int pos = 0; pos &lt; mounted.getType().getModesCount(); pos++) {</span>
+<span class="nc" id="L1650">                menu.add(createModeJMenuItem(mounted, pos));</span>
+            }
+        }
+
+<span class="nc" id="L1654">        return menu;</span>
+    }
+
+    private JMenuItem createModeJMenuItem(Mounted mounted, int position) {
+<span class="nc" id="L1658">        JMenuItem item = new JMenuItem();</span>
+
+<span class="nc" id="L1660">        EquipmentMode mode = mounted.getType().getMode(position);</span>
+
+<span class="nc bnc" id="L1662" title="All 2 branches missed.">        if (mode.equals(mounted.curMode())) {</span>
+<span class="nc" id="L1663">            item.setText(&quot;* &quot; + mode.getDisplayableName());</span>
+        } else {
+<span class="nc" id="L1665">            item.setText(mode.getDisplayableName());</span>
+        }
+
+<span class="nc" id="L1668">        item.setActionCommand(Integer.toString(position));</span>
+<span class="nc" id="L1669">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1672">                    int modePosition = Integer.parseInt(e.getActionCommand());</span>
+<span class="nc" id="L1673">                    int weaponNum = gui.mechD.wPan.getSelectedWeaponNum();</span>
+<span class="nc" id="L1674">                    Mounted equip = myEntity.getEquipment(weaponNum);</span>
+<span class="nc" id="L1675">                    equip.setMode(modePosition);</span>
+<span class="nc" id="L1676">                    client.sendModeChange(myEntity.getId(), weaponNum,</span>
+                                          modePosition);
+<span class="nc" id="L1678">                } catch (Exception ex) {</span>
+<span class="nc" id="L1679">                    ex.printStackTrace();</span>
+<span class="nc" id="L1680">                }</span>
+<span class="nc" id="L1681">            }</span>
+        });
+<span class="nc" id="L1683">        return item;</span>
+
+    }
+
+    private JMenuItem createPunchJMenuItem() {
+<span class="nc" id="L1688">        JMenuItem item = new JMenuItem(&quot;Punch&quot;);</span>
+
+<span class="nc" id="L1690">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1693">                    ((PhysicalDisplay) currentPanel).punch();</span>
+<span class="nc" id="L1694">                } catch (Exception ex) {</span>
+<span class="nc" id="L1695">                    ex.printStackTrace();</span>
+<span class="nc" id="L1696">                }</span>
+<span class="nc" id="L1697">            }</span>
+        });
+
+<span class="nc" id="L1700">        return item;</span>
+    }
+
+    private JMenuItem createKickJMenuItem() {
+<span class="nc" id="L1704">        JMenuItem item = new JMenuItem(&quot;Kick&quot;);</span>
+
+<span class="nc" id="L1706">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1709">                    ((PhysicalDisplay) currentPanel).kick();</span>
+<span class="nc" id="L1710">                } catch (Exception ex) {</span>
+<span class="nc" id="L1711">                    ex.printStackTrace();</span>
+<span class="nc" id="L1712">                }</span>
+<span class="nc" id="L1713">            }</span>
+        });
+
+<span class="nc" id="L1716">        return item;</span>
+    }
+
+    private JMenuItem createPushJMenuItem() {
+<span class="nc" id="L1720">        JMenuItem item = new JMenuItem(&quot;Push&quot;);</span>
+
+<span class="nc" id="L1722">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1725">                    ((PhysicalDisplay) currentPanel).push();</span>
+<span class="nc" id="L1726">                } catch (Exception ex) {</span>
+<span class="nc" id="L1727">                    ex.printStackTrace();</span>
+<span class="nc" id="L1728">                }</span>
+<span class="nc" id="L1729">            }</span>
+        });
+
+<span class="nc" id="L1732">        return item;</span>
+    }
+
+    private JMenuItem createVibroClawMenuItem() {
+<span class="nc" id="L1736">        JMenuItem item = new JMenuItem(&quot;Vibro Claw Attack&quot;);</span>
+
+<span class="nc" id="L1738">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1741">                    ((PhysicalDisplay) currentPanel).vibroclawatt();</span>
+<span class="nc" id="L1742">                } catch (Exception ex) {</span>
+<span class="nc" id="L1743">                    ex.printStackTrace();</span>
+<span class="nc" id="L1744">                }</span>
+<span class="nc" id="L1745">            }</span>
+        });
+
+<span class="nc" id="L1748">        return item;</span>
+    }
+
+    private JMenuItem createJumpJetAttackJMenuItem() {
+<span class="nc" id="L1752">        JMenuItem item = new JMenuItem(&quot;Jump Jet Attack&quot;);</span>
+
+<span class="nc" id="L1754">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1757">                    ((PhysicalDisplay) currentPanel).jumpjetatt();</span>
+<span class="nc" id="L1758">                } catch (Exception ex) {</span>
+<span class="nc" id="L1759">                    ex.printStackTrace();</span>
+<span class="nc" id="L1760">                }</span>
+<span class="nc" id="L1761">            }</span>
+        });
+
+<span class="nc" id="L1764">        return item;</span>
+    }
+
+    private JMenuItem createThrashJMenuItem() {
+<span class="nc" id="L1768">        JMenuItem item = new JMenuItem(&quot;Thrash&quot;);</span>
+
+<span class="nc" id="L1770">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1773">                    ((PhysicalDisplay) currentPanel).thrash();</span>
+<span class="nc" id="L1774">                } catch (Exception ex) {</span>
+<span class="nc" id="L1775">                    ex.printStackTrace();</span>
+<span class="nc" id="L1776">                }</span>
+<span class="nc" id="L1777">            }</span>
+        });
+
+<span class="nc" id="L1780">        return item;</span>
+    }
+
+    private JMenuItem createGrappleJMenuItem() {
+<span class="nc" id="L1784">        JMenuItem item = new JMenuItem(&quot;Grapple&quot;);</span>
+
+<span class="nc" id="L1786">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1789">                    ((PhysicalDisplay) currentPanel).doGrapple();</span>
+<span class="nc" id="L1790">                } catch (Exception ex) {</span>
+<span class="nc" id="L1791">                    ex.printStackTrace();</span>
+<span class="nc" id="L1792">                }</span>
+<span class="nc" id="L1793">            }</span>
+        });
+
+<span class="nc" id="L1796">        return item;</span>
+    }
+
+    private JMenuItem createTripJMenuItem() {
+<span class="nc" id="L1800">        JMenuItem item = new JMenuItem(&quot;Trip&quot;);</span>
+
+<span class="nc" id="L1802">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1805">                    ((PhysicalDisplay) currentPanel).trip();</span>
+<span class="nc" id="L1806">                } catch (Exception ex) {</span>
+<span class="nc" id="L1807">                    ex.printStackTrace();</span>
+<span class="nc" id="L1808">                }</span>
+<span class="nc" id="L1809">            }</span>
+        });
+
+<span class="nc" id="L1812">        return item;</span>
+    }
+
+    private JMenuItem createDodgeJMenuItem() {
+<span class="nc" id="L1816">        JMenuItem item = new JMenuItem(&quot;Dodge&quot;);</span>
+
+<span class="nc" id="L1818">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1821">                    ((PhysicalDisplay) currentPanel).dodge();</span>
+<span class="nc" id="L1822">                } catch (Exception ex) {</span>
+<span class="nc" id="L1823">                    ex.printStackTrace();</span>
+<span class="nc" id="L1824">                }</span>
+<span class="nc" id="L1825">            }</span>
+        });
+
+<span class="nc" id="L1828">        return item;</span>
+    }
+
+    private JMenu createClubMenu() {
+<span class="nc" id="L1832">        JMenu menu = new JMenu(&quot;Weapon&quot;);</span>
+
+<span class="nc bnc" id="L1834" title="All 2 branches missed.">        for (int pos = 0; pos &lt; myEntity.getClubs().size(); pos++) {</span>
+<span class="nc" id="L1835">            Mounted club = myEntity.getClubs().get(pos);</span>
+<span class="nc bnc" id="L1836" title="All 2 branches missed.">            if (!club.isDestroyed()) {</span>
+<span class="nc" id="L1837">                menu.add(createClubJMenuItem(club.getName(), pos));</span>
+            }
+        }
+<span class="nc" id="L1840">        return menu;</span>
+    }
+
+    private JMenuItem createClubJMenuItem(String clubName, int clubNumber) {
+<span class="nc" id="L1844">        JMenuItem item = new JMenuItem(clubName);</span>
+
+<span class="nc" id="L1846">        item.setActionCommand(Integer.toString(clubNumber));</span>
+<span class="nc" id="L1847">        item.addActionListener(new ActionListener() {</span>
+            public void actionPerformed(ActionEvent e) {
+                try {
+<span class="nc" id="L1850">                    Mounted club = myEntity.getClubs().get(</span>
+<span class="nc" id="L1851">                            Integer.parseInt(e.getActionCommand()));</span>
+<span class="nc" id="L1852">                    ((PhysicalDisplay) currentPanel).club(club);</span>
+<span class="nc" id="L1853">                } catch (Exception ex) {</span>
+<span class="nc" id="L1854">                    ex.printStackTrace();</span>
+<span class="nc" id="L1855">                }</span>
+<span class="nc" id="L1856">            }</span>
+        });
+
+<span class="nc" id="L1859">        return item;</span>
+    }
+
+    @Override
+    public void show(Component comp, int x, int y) {
+<span class="nc bnc" id="L1864" title="All 4 branches missed.">        if (client.isMyTurn() &amp;&amp; (myEntity != null)) {</span>
+<span class="nc" id="L1865">            selectTarget();</span>
+        }
+<span class="nc" id="L1867">        super.show(comp, x, y);</span>
+<span class="nc" id="L1868">    }</span>
+
+    public boolean getHasMenu() {
+<span class="nc" id="L1871">        return hasMenu;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

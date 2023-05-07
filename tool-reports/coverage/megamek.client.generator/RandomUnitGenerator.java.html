@@ -1,0 +1,553 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RandomUnitGenerator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.generator</a> &gt; <span class="el_source">RandomUnitGenerator.java</span></div><h1>RandomUnitGenerator.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.client.generator;
+
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Serializable;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Vector;
+import java.util.function.Predicate;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+import megamek.common.Configuration;
+import megamek.common.MechSummary;
+import megamek.common.MechSummaryCache;
+
+/**
+ * This class sets up a random unit generator that can then
+ * be used to read in user-created input files of random assignment tables
+ * &lt;p&gt;
+ * Files must be located in in the directory defined by {@link Configuration#armyTablesDir()}.
+ * All files should comma-delimited text files.
+ * &lt;/p&gt;
+ * &lt;p&gt;
+ * The first line of the file should contain the title of the RAT The second
+ * line of the file should give the unit type number corresponding to
+ * UnitType.java The remaining lines should be comma split. The first field
+ * should give the frequency of that unit and the second line should give the
+ * name of that unit written as &lt;Model&gt; &lt;Chassis&gt; Comment lines can also be
+ * added with &quot;#&quot;
+ * &lt;/p&gt;
+ *
+ * @author Jay Lawson
+ */
+public class RandomUnitGenerator implements Serializable {
+
+    /**
+     *
+     */
+    private static final long serialVersionUID = 5765118329881301375L;
+
+    // The RATs are stored in a hashmap of string vectors. The keys are the RAT
+    // names
+    // and the vectors just contain the unit names listed a number of times
+    // equal to
+    // the frequency
+    private Map&lt;String, RatEntry&gt; rats;
+    private static RandomUnitGenerator rug;
+<span class="nc" id="L76">    private static boolean interrupted = false;</span>
+<span class="nc" id="L77">    private static boolean dispose = false;</span>
+    private Thread loader;
+    private boolean initialized;
+    private boolean initializing;
+
+    private ArrayList&lt;ActionListener&gt; listeners;
+
+    /**
+     * Plain old data class used to represent nodes in a Random Assignment Table
+     * tree. RATs are grouped into categories based on directory structure, and
+     * will be displayed hierarchically to the user.
+     */
+    public static class RatTreeNode implements Comparable&lt;RatTreeNode&gt; {
+<span class="nc" id="L90">        public RatTreeNode(String name) {</span>
+<span class="nc" id="L91">            this.name = name;</span>
+<span class="nc" id="L92">            children = new Vector&lt;&gt;();</span>
+<span class="nc" id="L93">        }</span>
+
+        @Override
+        public int compareTo(RatTreeNode rtn) {
+<span class="nc" id="L97">            return name.compareTo(rtn.name);</span>
+        }
+
+        public String name;
+        public Vector&lt;RatTreeNode&gt; children;
+    }
+
+    /**
+     * Keeps track of a RAT entry, stores the name of a unit in the RAT, and
+     * its change of appearing (weight).
+     *
+     * @author arlith
+     *
+     */
+    protected class RatEntry {
+        private Vector&lt;String&gt; units;
+        private Vector&lt;Float&gt; weights;
+
+<span class="nc" id="L115">        RatEntry(){</span>
+<span class="nc" id="L116">            setUnits(new Vector&lt;String&gt;());</span>
+<span class="nc" id="L117">            setWeights(new Vector&lt;Float&gt;());</span>
+<span class="nc" id="L118">        }</span>
+
+        public Vector&lt;String&gt; getUnits() {
+<span class="nc" id="L121">            return units;</span>
+        }
+
+        public void setUnits(Vector&lt;String&gt; units) {
+<span class="nc" id="L125">            this.units = units;</span>
+<span class="nc" id="L126">        }</span>
+
+        public Vector&lt;Float&gt; getWeights() {
+<span class="nc" id="L129">            return weights;</span>
+        }
+
+        public void setWeights(Vector&lt;Float&gt; weights) {
+<span class="nc" id="L133">            this.weights = weights;</span>
+<span class="nc" id="L134">        }</span>
+    }
+
+    private RatTreeNode ratTree;
+
+    private String chosenRAT;
+
+<span class="nc" id="L141">    public RandomUnitGenerator() {</span>
+<span class="nc" id="L142">        chosenRAT = &quot;TW Heavy Mech (Kurita)&quot;;</span>
+<span class="nc" id="L143">        listeners = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L144">    }</span>
+
+    protected void initRats() {
+<span class="nc" id="L147">        rats = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L148">    }</span>
+
+    protected void initRatTree() {
+<span class="nc" id="L151">        ratTree = new RatTreeNode(&quot;Random Assignment Tables&quot;);</span>
+<span class="nc" id="L152">    }</span>
+
+    public synchronized void populateUnits() {
+<span class="nc" id="L155">        initRats();</span>
+<span class="nc" id="L156">        initRatTree();</span>
+
+        // Give the MSC some time to initialize
+<span class="nc" id="L159">        MechSummaryCache msc = MechSummaryCache.getInstance();</span>
+<span class="nc" id="L160">        long waitLimit = System.currentTimeMillis() + 3000; /* 3 seconds */</span>
+<span class="nc bnc" id="L161" title="All 6 branches missed.">        while( !interrupted &amp;&amp; !msc.isInitialized() &amp;&amp; waitLimit &gt; System.currentTimeMillis() ) {</span>
+            try {
+<span class="nc" id="L163">                Thread.sleep(50);</span>
+<span class="nc" id="L164">            } catch(InterruptedException e) {</span>
+                // Ignore
+<span class="nc" id="L166">            }</span>
+        }
+
+<span class="nc" id="L169">        loadRatsFromDirectory(Configuration.armyTablesDir(), msc);</span>
+<span class="nc" id="L170">        cleanupNode(ratTree);</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">        if (!interrupted) {</span>
+<span class="nc" id="L172">            rug.initialized = true;</span>
+<span class="nc" id="L173">            rug.notifyListenersOfInitialization();</span>
+        }
+
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (dispose) {</span>
+<span class="nc" id="L177">            clear();</span>
+<span class="nc" id="L178">            dispose = false;</span>
+        }
+<span class="nc" id="L180">    }</span>
+
+    public synchronized void registerListener(ActionListener l){
+<span class="nc" id="L183">        listeners.add(l);</span>
+<span class="nc" id="L184">    }</span>
+
+
+    // todo Not being used.  Is this really needed?
+    public synchronized void removeListener(ActionListener l){
+<span class="nc" id="L189">        listeners.remove(l);</span>
+<span class="nc" id="L190">    }</span>
+
+    /**
+     * Notifies all the listeners that initialization is finished
+     */
+    public void notifyListenersOfInitialization(){
+<span class="nc bnc" id="L196" title="All 2 branches missed.">        if (initialized){</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">            for (ActionListener l : listeners){</span>
+<span class="nc" id="L198">                l.actionPerformed(new ActionEvent(</span>
+                        this,ActionEvent.ACTION_PERFORMED,&quot;rugInitialized&quot;));
+<span class="nc" id="L200">            }</span>
+        }
+<span class="nc" id="L202">    }</span>
+
+    protected void addRat(String ratName, RatEntry ratEntry) {
+<span class="nc" id="L205">        rats.put(ratName, ratEntry);</span>
+<span class="nc" id="L206">    }</span>
+
+    private void readRat(InputStream is, RatTreeNode node, String fileName, MechSummaryCache msc) throws IOException {
+        try(
+<span class="nc" id="L210">        BufferedReader reader</span>
+<span class="nc" id="L211">                = new BufferedReader(new InputStreamReader(is, Charset.forName(&quot;UTF-8&quot;)))) { //$NON-NLS-1$</span>
+<span class="nc" id="L212">            int lineNumber = 0;</span>
+<span class="nc" id="L213">            String key = &quot;Huh&quot;; //$NON-NLS-1$</span>
+<span class="nc" id="L214">            float totalWeight = 0.0f;</span>
+<span class="nc" id="L215">            RatEntry re = new RatEntry();</span>
+<span class="nc" id="L216">            String line = null;</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">            while (null != (line = reader.readLine())) {</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">                if (interrupted) {</span>
+<span class="nc" id="L219">                    return;</span>
+                }
+<span class="nc bnc" id="L221" title="All 2 branches missed.">                if (line.startsWith(&quot;#&quot;)) { //$NON-NLS-1$</span>
+<span class="nc" id="L222">                    continue;</span>
+                }
+<span class="nc" id="L224">                lineNumber++;</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">                if (lineNumber == 1) {</span>
+<span class="nc" id="L226">                    key = line;</span>
+                } else {
+<span class="nc" id="L228">                    String[] values = line.split(&quot;,&quot;); //$NON-NLS-1$</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">                    if (values.length &lt; 2) {</span>
+<span class="nc" id="L230">                        System.err.println(String.format(&quot;Not enough fields in %s on %d&quot;, //$NON-NLS-1$</span>
+<span class="nc" id="L231">                            fileName, lineNumber));</span>
+<span class="nc" id="L232">                        continue;</span>
+                    }
+<span class="nc" id="L234">                    String name = values[0];</span>
+                    float weight;
+                    try {
+<span class="nc" id="L237">                        weight = Integer.parseInt(values[1].trim());</span>
+<span class="nc" id="L238">                    } catch (NumberFormatException nef) {</span>
+<span class="nc" id="L239">                        System.err.println(</span>
+<span class="nc" id="L240">                            String.format(&quot;The frequency field could not be interpreted on line %d of %s&quot;, //$NON-NLS-1$</span>
+<span class="nc" id="L241">                                lineNumber, fileName));</span>
+<span class="nc" id="L242">                        continue;</span>
+<span class="nc" id="L243">                    }</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">                    if( weight &lt;= 0.0f ) {</span>
+<span class="nc" id="L245">                        System.err.println(</span>
+<span class="nc" id="L246">                            String.format(&quot;The frequency field is zero or negative (%d) on line %d of %s&quot;, //$NON-NLS-1$</span>
+<span class="nc" id="L247">                                (int)Math.round(weight), lineNumber, fileName));</span>
+<span class="nc" id="L248">                        continue;</span>
+                    }
+
+                    // The @ symbol denotes a reference to another RAT rather than a unit.
+<span class="nc bnc" id="L252" title="All 4 branches missed.">                    if (!name.startsWith(&quot;@&quot;) &amp;&amp; (null == msc.getMech(name))) { //$NON-NLS-1$</span>
+<span class="nc" id="L253">                        System.err.println(</span>
+<span class="nc" id="L254">                            String.format(&quot;The unit %s could not be found in the %s RAT (%s)&quot;, //$NON-NLS-1$</span>
+                                name, key, fileName));
+<span class="nc" id="L256">                        continue;</span>
+                    }
+<span class="nc" id="L258">                    re.getUnits().add(name.intern());</span>
+<span class="nc" id="L259">                    re.getWeights().add(weight);</span>
+<span class="nc" id="L260">                    totalWeight += weight;</span>
+<span class="nc" id="L261">                }</span>
+            }
+
+            // Calculate total weights
+<span class="nc bnc" id="L265" title="All 2 branches missed.">            if (re.getUnits().size() &gt; 0) {</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">                for (int i = 0; i &lt; re.getWeights().size(); i++) {</span>
+<span class="nc" id="L267">                    re.getWeights().set(i, re.getWeights().get(i) / totalWeight);</span>
+                }
+<span class="nc" id="L269">                rats.put(key, re);</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">                if (null != node) {</span>
+<span class="nc" id="L271">                    node.children.add(new RatTreeNode(key));</span>
+                }
+            }
+<span class="nc" id="L274">        }</span>
+
+<span class="nc" id="L276">    }</span>
+
+    private RatTreeNode getNodeByPath(RatTreeNode root, String path) {
+<span class="nc" id="L279">        RatTreeNode result = root;</span>
+<span class="nc" id="L280">        String[] pathElements = path.split(&quot;/&quot;, -1); //$NON-NLS-1$</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        for( int i = 0; i &lt; pathElements.length - 1; ++ i ) {</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">            if( pathElements[i].length() == 0 ) {</span>
+<span class="nc" id="L283">                continue;</span>
+            }
+<span class="nc" id="L285">            RatTreeNode subNode = null;</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">            for( RatTreeNode rtn : result.children ) {</span>
+<span class="nc bnc" id="L287" title="All 2 branches missed.">                if( rtn.name.equals(pathElements[i]) ) {</span>
+<span class="nc" id="L288">                    subNode = rtn;</span>
+<span class="nc" id="L289">                    break;</span>
+                }
+<span class="nc" id="L291">            }</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">            if( null == subNode ) {</span>
+<span class="nc" id="L293">                subNode = new RatTreeNode(pathElements[i]);</span>
+<span class="nc" id="L294">                result.children.addElement(subNode);</span>
+            }
+<span class="nc" id="L296">            result = subNode;</span>
+        }
+<span class="nc" id="L298">        return result;</span>
+    }
+
+    private void cleanupNode(RatTreeNode node) {
+<span class="nc bnc" id="L302" title="All 2 branches missed.">        for(RatTreeNode child : node.children) {</span>
+<span class="nc" id="L303">               cleanupNode(child);</span>
+<span class="nc" id="L304">        }</span>
+<span class="nc" id="L305">        Collections.sort(node.children);</span>
+<span class="nc" id="L306">    }</span>
+
+    private void loadRatsFromDirectory(File dir, MechSummaryCache msc) {
+<span class="nc" id="L309">        loadRatsFromDirectory(dir, msc, ratTree);</span>
+<span class="nc" id="L310">    }</span>
+
+    private void loadRatsFromDirectory(File dir, MechSummaryCache msc, RatTreeNode node) {
+<span class="nc bnc" id="L313" title="All 2 branches missed.">        if (interrupted) {</span>
+<span class="nc" id="L314">            return;</span>
+        }
+
+<span class="nc bnc" id="L317" title="All 4 branches missed.">        if ((null == dir) || (null == node)) {</span>
+<span class="nc" id="L318">            return;</span>
+        }
+
+<span class="nc" id="L321">        File[] files = dir.listFiles();</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">        if (null == files) {</span>
+<span class="nc" id="L323">            return;</span>
+        }
+
+<span class="nc bnc" id="L326" title="All 2 branches missed.">        for (File ratFile : files) {</span>
+            // Check to see if we've been interrupted
+<span class="nc bnc" id="L328" title="All 2 branches missed.">            if (interrupted) {</span>
+<span class="nc" id="L329">                return;</span>
+            }
+<span class="nc" id="L331">            String ratFileNameLC = ratFile.getName().toLowerCase(Locale.ROOT);</span>
+
+<span class="nc bnc" id="L333" title="All 4 branches missed.">            if (ratFileNameLC.equals(&quot;_svn&quot;) || ratFileNameLC.equals(&quot;.svn&quot;)) { //$NON-NLS-1$ //$NON-NLS-2$</span>
+                // This is a Subversion work directory. Lets ignore it.
+<span class="nc" id="L335">                continue;</span>
+            }
+
+            // READ IN RATS
+<span class="nc bnc" id="L339" title="All 2 branches missed.">            if (ratFile.isDirectory()) {</span>
+<span class="nc" id="L340">                RatTreeNode newNode = getNodeByPath(node, ratFile.getName() + &quot;/&quot;); //$NON-NLS-1$</span>
+
+                // recursion is fun
+<span class="nc" id="L343">                loadRatsFromDirectory(ratFile, msc, newNode);</span>
+
+                // Prune empty nodes (this removes the &quot;Unofficial&quot; place holder)
+<span class="nc bnc" id="L346" title="All 2 branches missed.">                if (newNode.children.size() == 0) {</span>
+<span class="nc" id="L347">                    node.children.remove(newNode);</span>
+                }
+                continue;
+            }
+<span class="nc bnc" id="L351" title="All 2 branches missed.">            if( ratFileNameLC.endsWith(&quot;.zip&quot;) ) { //$NON-NLS-1$</span>
+<span class="nc" id="L352">                try(ZipFile zipFile = new ZipFile(ratFile)) {</span>
+<span class="nc" id="L353">                    Enumeration&lt;? extends ZipEntry&gt; entries = zipFile.entries();</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">                    while(entries.hasMoreElements()) {</span>
+<span class="nc" id="L355">                        ZipEntry entry = entries.nextElement();</span>
+<span class="nc" id="L356">                        String entryName = entry.getName();</span>
+<span class="nc bnc" id="L357" title="All 4 branches missed.">                        if(!entry.isDirectory() &amp;&amp; entryName.toLowerCase(Locale.ROOT).endsWith(&quot;.txt&quot;)) //$NON-NLS-1$</span>
+                        {
+<span class="nc" id="L359">                            RatTreeNode subNode = getNodeByPath(node, entryName);</span>
+<span class="nc" id="L360">                            try(InputStream zis = zipFile.getInputStream(entry))</span>
+                            {
+<span class="nc" id="L362">                                readRat(zis, subNode, ratFile.getName() + &quot;:&quot; + entryName, msc); //$NON-NLS-1$</span>
+                            }
+                        }
+<span class="nc" id="L365">                    }</span>
+<span class="nc" id="L366">                } catch(IOException e) {</span>
+<span class="nc" id="L367">                    System.err.println(String.format(&quot;Unable to load %s&quot;, ratFile.getName())); //$NON-NLS-1$</span>
+<span class="nc" id="L368">                }</span>
+            }
+<span class="nc bnc" id="L370" title="All 2 branches missed.">            if (!ratFileNameLC.endsWith(&quot;.txt&quot;)) { //$NON-NLS-1$</span>
+<span class="nc" id="L371">                continue;</span>
+            }
+<span class="nc" id="L373">            try(InputStream ratInputStream = new FileInputStream(ratFile)) {</span>
+<span class="nc" id="L374">                readRat(ratInputStream, node, ratFile.getName(), msc);</span>
+<span class="nc" id="L375">            } catch(IOException e) {</span>
+<span class="nc" id="L376">                System.err.println(String.format(&quot;Unable to load %s&quot;, ratFile.getName())); //$NON-NLS-1$</span>
+<span class="nc" id="L377">                System.err.println(e.getMessage());</span>
+<span class="nc" id="L378">                e.printStackTrace();</span>
+<span class="nc" id="L379">            }</span>
+        }
+<span class="nc" id="L381">    }</span>
+
+    /**
+     * Generate a list of units from the RAT
+     *
+     * @return - a string giving the name
+     */
+    public ArrayList&lt;MechSummary&gt; generate(int numRolls, String ratName) {
+<span class="nc" id="L389">    	return generate(numRolls, ratName, null);</span>
+    }
+
+	/**
+     * Generate a list of units from the RAT.
+	 *     
+	 * @param numRolls - the number of units to roll from the RAT
+	 * @param ratName - name of the RAT to roll on
+	 * @param filter - entries in the RAT must pass this condition to be included. If null, no filter is applied.
+     * @return - a list of units determined by the random rolls
+	 */
+    public ArrayList&lt;MechSummary&gt; generate(int numRolls, String ratName, Predicate&lt;MechSummary&gt; filter) {
+<span class="nc" id="L401">        ArrayList&lt;MechSummary&gt; units = new ArrayList&lt;&gt;();</span>
+
+        try {
+<span class="nc" id="L404">            int retryCount = 0;</span>
+            
+            // give the RATs a few seconds to load
+<span class="nc bnc" id="L407" title="All 4 branches missed.">            while(!initialized &amp;&amp; retryCount &lt; 5) {</span>
+                try {
+<span class="nc" id="L409">                    Thread.sleep(1000);</span>
+<span class="nc" id="L410">                } catch(Exception e) {</span>
+                    
+<span class="nc" id="L412">                }</span>
+                
+<span class="nc" id="L414">                retryCount++;</span>
+            }
+            
+<span class="nc" id="L417">            Map&lt;String, RatEntry&gt; ratMap = getRatMap();</span>
+<span class="nc bnc" id="L418" title="All 2 branches missed.">            if (null != ratMap) {</span>
+<span class="nc" id="L419">                RatEntry re = ratMap.get(ratName);</span>
+<span class="nc bnc" id="L420" title="All 2 branches missed.">                if (filter != null) {</span>
+<span class="nc" id="L421">                	RatEntry filtered = new RatEntry();</span>
+<span class="nc" id="L422">                	float totalWeight = 0.0f;</span>
+<span class="nc" id="L423">                	MechSummaryCache msc = MechSummaryCache.getInstance();</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">                	for (int i = 0; i &lt; re.getUnits().size(); i++) {</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">                		if (!re.getUnits().get(i).startsWith(&quot;@&quot;)) {</span>
+<span class="nc" id="L426">	                		MechSummary ms = msc.getMech(re.getUnits().get(i));</span>
+<span class="nc bnc" id="L427" title="All 4 branches missed.">	                		if (ms == null || !filter.test(ms)) {</span>
+<span class="nc" id="L428">	                			continue;</span>
+	                		}
+                		}
+<span class="nc" id="L431">            			filtered.getUnits().add(re.getUnits().get(i));</span>
+<span class="nc" id="L432">            			filtered.getWeights().add(re.getWeights().get(i));</span>
+<span class="nc" id="L433">            			totalWeight += re.getWeights().get(i);</span>
+                	}
+<span class="nc bnc" id="L435" title="All 2 branches missed.">                	for (int i = 0; i &lt; filtered.getWeights().size(); i++) {</span>
+<span class="nc" id="L436">                		filtered.getWeights().set(i, filtered.getWeights().get(i) / totalWeight);</span>
+                	}
+<span class="nc" id="L438">                	re = filtered;</span>
+                }
+<span class="nc bnc" id="L440" title="All 4 branches missed.">                if ((null != re) &amp;&amp; (re.getUnits().size() &gt; 0)) {</span>
+<span class="nc bnc" id="L441" title="All 2 branches missed.">                    for (int roll = 0; roll &lt; numRolls; roll++) {</span>
+<span class="nc" id="L442">                        double rand = getRandom();</span>
+<span class="nc" id="L443">                        int i = 0;</span>
+<span class="nc bnc" id="L444" title="All 4 branches missed.">                        while (i &lt; re.getWeights().size() &amp;&amp; rand &gt; re.getWeights().get(i)) {</span>
+<span class="nc" id="L445">                            rand -= re.getWeights().get(i);</span>
+<span class="nc" id="L446">                            i++;</span>
+                        }
+<span class="nc" id="L448">                        String name = re.getUnits().get(i);</span>
+
+                        // If this is a RAT reference, roll the unit on the referenced RAT.
+<span class="nc bnc" id="L451" title="All 2 branches missed.">                        if (name.startsWith(&quot;@&quot;)) {</span>
+<span class="nc" id="L452">                            units.addAll(generate(1, name.replaceFirst(&quot;@&quot;, &quot;&quot;), filter));</span>
+<span class="nc" id="L453">                            continue;</span>
+                        }
+
+<span class="nc" id="L456">                        MechSummary unit = getMechByName(name);</span>
+<span class="nc bnc" id="L457" title="All 2 branches missed.">                        if (null != unit) {</span>
+<span class="nc" id="L458">                            units.add(unit);</span>
+                        }
+                    }
+                }
+            }
+<span class="nc" id="L463">        } catch (Exception e) {</span>
+<span class="nc" id="L464">            e.printStackTrace();</span>
+<span class="nc" id="L465">        }</span>
+<span class="nc" id="L466">        return units;</span>
+    }
+
+    protected MechSummary getMechByName(String name) {
+<span class="nc" id="L470">        return MechSummaryCache.getInstance().getMech(name);</span>
+    }
+
+    protected double getRandom() {
+<span class="nc" id="L474">        return Math.random();</span>
+    }
+
+    public ArrayList&lt;MechSummary&gt; generate(int numRolls) {
+<span class="nc" id="L478">        return generate(numRolls, getChosenRAT(), null);</span>
+    }
+
+    public ArrayList&lt;MechSummary&gt; generate(int numRolls, Predicate&lt;MechSummary&gt; filter) {
+<span class="nc" id="L482">        return generate(numRolls, getChosenRAT(), filter);</span>
+    }
+
+    public Map&lt;String, RatEntry&gt; getRatMap() {
+<span class="nc" id="L486">        return new HashMap&lt;&gt;(rats);</span>
+    }
+
+    public String getChosenRAT() {
+<span class="nc" id="L490">        return chosenRAT;</span>
+    }
+
+    public void setChosenRAT(String s) {
+<span class="nc" id="L494">        chosenRAT = s;</span>
+<span class="nc" id="L495">    }</span>
+
+    public Iterator&lt;String&gt; getRatList() {
+<span class="nc bnc" id="L498" title="All 2 branches missed.">        if (null == rats) {</span>
+<span class="nc" id="L499">            return null;</span>
+        }
+<span class="nc" id="L501">        return rats.keySet().iterator();</span>
+    }
+
+    public RatTreeNode getRatTree() {
+<span class="nc" id="L505">        return ratTree;</span>
+    }
+
+    public void dispose() {
+<span class="nc" id="L509">        interrupted = true;</span>
+<span class="nc" id="L510">        dispose = true;</span>
+<span class="nc bnc" id="L511" title="All 2 branches missed.">        if (initialized){</span>
+<span class="nc" id="L512">            clear();</span>
+        }
+<span class="nc" id="L514">    }</span>
+
+    public void clear() {
+<span class="nc" id="L517">        rug = null;</span>
+<span class="nc" id="L518">        rats = null;</span>
+<span class="nc" id="L519">        ratTree = null;</span>
+<span class="nc" id="L520">        initialized = false;</span>
+<span class="nc" id="L521">        initializing = false;</span>
+<span class="nc" id="L522">    }</span>
+
+    public static synchronized RandomUnitGenerator getInstance() {
+<span class="nc bnc" id="L525" title="All 2 branches missed.">        if (null == rug) {</span>
+<span class="nc" id="L526">            rug = new RandomUnitGenerator();</span>
+        }
+<span class="nc bnc" id="L528" title="All 4 branches missed.">        if (!rug.initialized &amp;&amp; !rug.initializing) {</span>
+<span class="nc" id="L529">            rug.initializing = true;</span>
+<span class="nc" id="L530">            interrupted = false;</span>
+<span class="nc" id="L531">            dispose = false;</span>
+<span class="nc" id="L532">            rug.loader = new Thread(new Runnable() {</span>
+                public void run() {
+<span class="nc" id="L534">                    long start = System.currentTimeMillis();</span>
+<span class="nc" id="L535">                    rug.populateUnits();</span>
+<span class="nc" id="L536">                    long end = System.currentTimeMillis();</span>
+<span class="nc" id="L537">                    System.out.println(&quot;Loaded Rats in: &quot; + (end - start)</span>
+                            + &quot;ms.&quot;);
+<span class="nc" id="L539">                    System.out.flush();</span>
+<span class="nc" id="L540">                }</span>
+            }, &quot;Random Unit Generator unit populator&quot;);
+<span class="nc" id="L542">            rug.loader.setPriority(Thread.NORM_PRIORITY - 1);</span>
+<span class="nc" id="L543">            rug.loader.start();</span>
+        }
+<span class="nc" id="L545">        return rug;</span>
+    }
+
+    public boolean isInitialized() {
+<span class="nc" id="L549">        return initialized;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

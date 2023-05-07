@@ -1,0 +1,1395 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>HmvFile.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.loaders</a> &gt; <span class="el_source">HmvFile.java</span></div><h1>HmvFile.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2004 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.common.loaders;
+
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Objects;
+
+import megamek.common.AmmoType;
+import megamek.common.Engine;
+import megamek.common.Entity;
+import megamek.common.EntityMovementMode;
+import megamek.common.EquipmentType;
+import megamek.common.Mounted;
+import megamek.common.Tank;
+import megamek.common.TechConstants;
+import megamek.common.TroopSpace;
+import megamek.common.VTOL;
+import megamek.common.WeaponType;
+
+/**
+ * Based on the hmpread.c program and the MtfFile object. This class can not
+ * load any Mixed tech or Level 3 vehicles.
+ *
+ * @author &lt;a href=&quot;mailto:mnewcomb@sourceforge.net&quot;&gt;Michael Newcomb&lt;/a&gt;
+ */
+public class HmvFile implements IMechLoader {
+    private String name;
+    private String model;
+
+    private HMVMovementType movementType;
+    private int rulesLevel;
+    private int year;
+<span class="nc" id="L51">    private boolean isOmni = false;</span>
+    private HMVTechType techType;
+
+    private HMVTechType engineTechType;
+    private HMVTechType baseTechType;
+    private HMVTechType targetingComputerTechType;
+
+    private int engineRating;
+    private HMVEngineType engineType;
+
+    private int cruiseMP;
+    private int jumpMP;
+
+    private HMVArmorType armorType;
+    private HMVTechType armorTechType;
+
+    private int roundedInternalStructure;
+
+    private int turretArmor;
+    private int frontArmor;
+    private int leftArmor;
+    private int rightArmor;
+    private int rearArmor;
+
+    private int artemisType;
+
+<span class="nc" id="L77">    private Hashtable&lt;HMVWeaponLocation, Hashtable&lt;EquipmentType, Integer&gt;&gt; equipment = new Hashtable&lt;HMVWeaponLocation, Hashtable&lt;EquipmentType, Integer&gt;&gt;();</span>
+
+<span class="nc" id="L79">    private double troopSpace = 0;</span>
+
+    private String fluff;
+
+<span class="nc" id="L83">    private List&lt;String&gt; failedEquipment = new ArrayList&lt;String&gt;();</span>
+
+<span class="nc" id="L85">    private boolean hasTurret = false;</span>
+
+<span class="nc" id="L87">    public HmvFile(InputStream is) throws EntityLoadingException {</span>
+        try {
+<span class="nc" id="L89">            DataInputStream dis = new DataInputStream(is);</span>
+
+<span class="nc" id="L91">            byte[] buffer = new byte[5];</span>
+<span class="nc" id="L92">            dis.read(buffer);</span>
+
+            // version is never used.
+            // String version = new String(buffer);
+
+            // ??
+<span class="nc" id="L98">            dis.skipBytes(2);</span>
+
+<span class="nc" id="L100">            int type = readUnsignedShort(dis);</span>
+<span class="nc" id="L101">            movementType = HMVMovementType.getType(type);</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">            if (null == movementType) {</span>
+<span class="nc" id="L103">                throw new EntityLoadingException(&quot;Could not locate movement type for &quot; + type + &quot;.&quot;);</span>
+            }
+
+            // ??
+<span class="nc" id="L107">            dis.skipBytes(12);</span>
+
+<span class="nc" id="L109">            buffer = new byte[readUnsignedShort(dis)];</span>
+<span class="nc" id="L110">            dis.read(buffer);</span>
+<span class="nc" id="L111">            name = new String(buffer);</span>
+
+<span class="nc" id="L113">            buffer = new byte[readUnsignedShort(dis)];</span>
+<span class="nc" id="L114">            dis.read(buffer);</span>
+<span class="nc" id="L115">            model = new String(buffer);</span>
+
+            // This next one appears to be wrong. FIXME
+<span class="nc" id="L118">            rulesLevel = readUnsignedShort(dis);</span>
+
+<span class="nc" id="L120">            year = readUnsignedShort(dis);</span>
+
+            // ??
+<span class="nc" id="L123">            dis.skipBytes(8);</span>
+<span class="nc" id="L124">            type = readUnsignedByte(dis);</span>
+            // FIXME: this is not correct
+            // structureType = HMVStructureType.getType(type);
+            // ??
+<span class="nc" id="L128">            dis.skipBytes(23);</span>
+
+            // The &quot;bf2&quot; buffer contains the word &quot;omni&quot; for OmniVehicles.
+<span class="nc" id="L131">            int bf2Length = readUnsignedShort(dis);</span>
+<span class="nc" id="L132">            byte[] bf2Buffer = new byte[bf2Length];</span>
+<span class="nc" id="L133">            dis.read(bf2Buffer);</span>
+<span class="nc" id="L134">            isOmni = containsOmni(bf2Buffer);</span>
+
+<span class="nc" id="L136">            techType = HMVTechType.getType(readUnsignedShort(dis));</span>
+
+<span class="nc bnc" id="L138" title="All 2 branches missed.">            if (techType.equals(HMVTechType.MIXED)) {</span>
+                // THESE ARE GUESSES. Need example hmv files to verify.
+<span class="nc" id="L140">                baseTechType = HMVTechType.getType(readUnsignedShort(dis));</span>
+<span class="nc" id="L141">                engineTechType = HMVTechType.getType(readUnsignedShort(dis));</span>
+<span class="nc" id="L142">                targetingComputerTechType = HMVTechType.getType(readUnsignedShort(dis));</span>
+
+<span class="nc" id="L144">                armorTechType = HMVTechType.getType(readUnsignedShort(dis));</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">            } else if (techType.equals(HMVTechType.CLAN)) {</span>
+<span class="nc" id="L146">                engineTechType = HMVTechType.CLAN;</span>
+<span class="nc" id="L147">                baseTechType = HMVTechType.CLAN;</span>
+<span class="nc" id="L148">                targetingComputerTechType = HMVTechType.CLAN;</span>
+<span class="nc" id="L149">                armorTechType = HMVTechType.CLAN;</span>
+            } else {
+<span class="nc" id="L151">                engineTechType = HMVTechType.INNER_SPHERE;</span>
+<span class="nc" id="L152">                baseTechType = HMVTechType.INNER_SPHERE;</span>
+<span class="nc" id="L153">                targetingComputerTechType = HMVTechType.INNER_SPHERE;</span>
+<span class="nc" id="L154">                armorTechType = HMVTechType.INNER_SPHERE;</span>
+            }
+
+            // ??
+<span class="nc" id="L158">            dis.skipBytes(4);</span>
+
+<span class="nc" id="L160">            engineRating = readUnsignedShort(dis);</span>
+<span class="nc" id="L161">            engineType = HMVEngineType.getType(readUnsignedShort(dis));</span>
+
+<span class="nc" id="L163">            cruiseMP = readUnsignedShort(dis);</span>
+<span class="nc" id="L164">            jumpMP = readUnsignedShort(dis);</span>
+
+            // Even if we aren't using this, we need to read past its location.
+<span class="nc" id="L167">            readUnsignedShort(dis);</span>
+            // heatSinks = readUnsignedShort(dis);
+<span class="nc" id="L169">            armorType = HMVArmorType.getType(readUnsignedShort(dis));</span>
+
+<span class="nc" id="L171">            roundedInternalStructure = readUnsignedShort(dis);</span>
+
+<span class="nc" id="L173">            turretArmor = readUnsignedShort(dis);</span>
+
+<span class="nc bnc" id="L175" title="All 2 branches missed.">            if (turretArmor &gt; 0) {</span>
+<span class="nc" id="L176">                hasTurret = true;</span>
+            }
+
+            // internal structure again ??
+<span class="nc" id="L180">            dis.skipBytes(2);</span>
+
+<span class="nc" id="L182">            frontArmor = readUnsignedShort(dis);</span>
+
+            // internal structure again ??
+<span class="nc" id="L185">            dis.skipBytes(2);</span>
+
+<span class="nc" id="L187">            leftArmor = readUnsignedShort(dis);</span>
+
+            // internal structure again ??
+<span class="nc" id="L190">            dis.skipBytes(2);</span>
+
+<span class="nc" id="L192">            rightArmor = readUnsignedShort(dis);</span>
+
+            // internal structure again ??
+<span class="nc" id="L195">            dis.skipBytes(2);</span>
+
+<span class="nc" id="L197">            rearArmor = readUnsignedShort(dis);</span>
+            // ??
+<span class="nc bnc" id="L199" title="All 2 branches missed.">            if (isOmni) {</span>
+                // Skip 12 bytes for OmniVehicles
+<span class="nc" id="L201">                dis.skipBytes(12);</span>
+
+                // Decide whether or not the turret is a fixed weight
+<span class="nc" id="L204">                int lockedTurret = readUnsignedShort(dis);</span>
+
+<span class="nc bnc" id="L206" title="All 2 branches missed.">                if (lockedTurret == 2) {</span>
+                    // Skip something else?...
+<span class="nc" id="L208">                    dis.skipBytes(12);</span>
+                }
+<span class="nc" id="L210">            } else {</span>
+                // Skip 14 bytes for non-OmniVehicles
+<span class="nc" id="L212">                dis.skipBytes(14);</span>
+            }
+
+<span class="nc" id="L215">            int weapons = readUnsignedShort(dis);</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">            for (int i = 1; i &lt;= weapons; i++) {</span>
+<span class="nc" id="L217">                int weaponCount = readUnsignedShort(dis);</span>
+<span class="nc" id="L218">                int weaponType = readUnsignedShort(dis);</span>
+
+                // manufacturer name
+<span class="nc" id="L221">                dis.skipBytes(readUnsignedShort(dis));</span>
+
+<span class="nc" id="L223">                HMVWeaponLocation weaponLocation = HMVWeaponLocation.getType(readUnsignedShort(dis));</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">                if (weaponLocation == HMVWeaponLocation.TURRET) {</span>
+<span class="nc" id="L225">                    hasTurret = true;</span>
+                }
+
+<span class="nc" id="L228">                int weaponAmmo = readUnsignedShort(dis);</span>
+
+<span class="nc" id="L230">                EquipmentType equipmentType = getEquipmentType(weaponType, techType);</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">                if (equipmentType != null) {</span>
+<span class="nc" id="L232">                    addEquipmentType(equipmentType, weaponCount, weaponLocation);</span>
+
+<span class="nc bnc" id="L234" title="All 2 branches missed.">                    if (weaponAmmo &gt; 0) {</span>
+<span class="nc" id="L235">                        AmmoType ammoType = getAmmoType(weaponType, techType);</span>
+
+<span class="nc bnc" id="L237" title="All 2 branches missed.">                        if (ammoType != null) {</span>
+                            // Need to play games for half ton MG ammo.
+<span class="nc bnc" id="L239" title="All 4 branches missed.">                            if ((weaponAmmo &lt; ammoType.getShots()) || ((weaponAmmo % ammoType.getShots()) &gt; 0)) {</span>
+<span class="nc bnc" id="L240" title="All 4 branches missed.">                                switch (ammoType.getAmmoType()) {</span>
+                                    case AmmoType.T_MG:
+<span class="nc bnc" id="L242" title="All 2 branches missed.">                                        if (ammoType.getTechLevel(year) == TechConstants.T_INTRO_BOXSET) {</span>
+<span class="nc" id="L243">                                            ammoType = (AmmoType) EquipmentType.get(&quot;ISMG Ammo (100)&quot;);</span>
+                                        } else {
+<span class="nc" id="L245">                                            ammoType = (AmmoType) EquipmentType.get(&quot;CLMG Ammo (100)&quot;);</span>
+                                        }
+<span class="nc" id="L247">                                        break;</span>
+                                    case AmmoType.T_MG_LIGHT:
+<span class="nc" id="L249">                                        ammoType = (AmmoType) EquipmentType.get(&quot;CLLightMG Ammo (100)&quot;);</span>
+<span class="nc" id="L250">                                        break;</span>
+                                    case AmmoType.T_MG_HEAVY:
+<span class="nc" id="L252">                                        ammoType = (AmmoType) EquipmentType.get(&quot;CLHeavyMG Ammo (50)&quot;);</span>
+<span class="nc" id="L253">                                        break;</span>
+                                    default:
+                                        // Only MG ammo comes in half ton lots.
+<span class="nc" id="L256">                                        throw new EntityLoadingException(ammoType.getName() + &quot; has &quot; + ammoType.getShots() + &quot; shots per ton, but &quot; + name + &quot; &quot; + model + &quot; wants &quot; + weaponAmmo + &quot; shots.&quot;);</span>
+                                }
+                            }
+
+                            // Add as many copies of the AmmoType as needed.
+<span class="nc" id="L261">                            addEquipmentType(ammoType, weaponAmmo / ammoType.getShots(), HMVWeaponLocation.BODY);</span>
+
+                        } // End found-ammoType
+
+                    } // End have-rounds-of-ammo
+
+                } // End found-equipmentType
+
+                // ??
+<span class="nc" id="L270">                dis.skipBytes(4);</span>
+
+            } // Handle the next piece of equipment
+
+            // Read the amount of troop/cargo bays.
+<span class="nc" id="L275">            int bayCount = readUnsignedShort(dis);</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">            for (int loop = 0; loop &lt; bayCount; loop++) {</span>
+
+                // Read the size of this bay.
+                // dis.skipBytes(2);
+<span class="nc" id="L280">                float baySize = readFloat(dis);</span>
+
+                // bay name (this is free text, so we can't be certain if it is
+                // an infantry bay or something else)
+<span class="nc" id="L284">                dis.skipBytes(readUnsignedShort(dis));</span>
+
+                // Add the troopSpace of this bay to our running total.
+<span class="nc" id="L287">                troopSpace += baySize;</span>
+
+            } // Handle the next bay.
+
+<span class="nc" id="L291">            dis.skipBytes(12);</span>
+<span class="nc" id="L292">            int CASE = readUnsignedShort(dis);</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">            if (CASE == 0xFFFF) {</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">                if (techType.equals(HMVTechType.INNER_SPHERE)) {</span>
+<span class="nc" id="L295">                    addEquipmentType(EquipmentType.get(&quot;ISCASE&quot;), 1, HMVWeaponLocation.REAR);</span>
+                } else {
+<span class="nc" id="L297">                    addEquipmentType(EquipmentType.get(&quot;CLCASE&quot;), 1, HMVWeaponLocation.REAR);</span>
+                }
+            }
+<span class="nc" id="L300">            int targetingComp = readUnsignedShort(dis);</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">            if (targetingComp == 1) {</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">                if (targetingComputerTechType.equals(HMVTechType.CLAN)) {</span>
+<span class="nc" id="L303">                    addEquipmentType(EquipmentType.get(&quot;CLTargeting Computer&quot;), 1, HMVWeaponLocation.BODY);</span>
+                } else {
+<span class="nc" id="L305">                    addEquipmentType(EquipmentType.get(&quot;ISTargeting Computer&quot;), 1, HMVWeaponLocation.BODY);</span>
+                }
+            }
+
+<span class="nc" id="L309">            artemisType = readUnsignedShort(dis);</span>
+            // the artemis is a bit field: 1 = SRM artemis IV, 2 = LRM artemis
+            // IV,
+            // 4 = SRM artemis V, 8 = LRM artemis V
+<span class="nc" id="L313">            dis.skipBytes(4);</span>
+<span class="nc" id="L314">            int VTOLoptions = readUnsignedShort(dis);</span>
+            // Yuck, a decimal field: 10 = main/tail, 20 = dual, 30 = coax
+            // rotors
+            // 100 = beagle/clan AP, 200 = bloodhound/light AP, 300 = c3 slave
+            // mast mount
+<span class="nc" id="L319">            int mastEq = VTOLoptions / 100;</span>
+            // int rotorType = VTOLoptions % 100; //rorottype is never read
+            // TODO read rotottype from a file.
+            // Mast mounted equipment is not supported - put it in the rotor and
+            // hope for the best
+<span class="nc bnc" id="L324" title="All 2 branches missed.">            if (mastEq == 1) {</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">                if (baseTechType.equals(HMVTechType.CLAN)) {</span>
+<span class="nc" id="L326">                    addEquipmentType(EquipmentType.get(&quot;CLActiveProbe&quot;), 1, HMVWeaponLocation.TURRET);</span>
+                } else {
+<span class="nc" id="L328">                    addEquipmentType(EquipmentType.get(&quot;BeagleActiveProbe&quot;), 1, HMVWeaponLocation.TURRET);</span>
+                }
+<span class="nc bnc" id="L330" title="All 2 branches missed.">            } else if (mastEq == 2) {</span>
+<span class="nc bnc" id="L331" title="All 2 branches missed.">                if (baseTechType.equals(HMVTechType.CLAN)) {</span>
+<span class="nc" id="L332">                    addEquipmentType(EquipmentType.get(&quot;CLLightActiveProbe&quot;), 1, HMVWeaponLocation.TURRET);</span>
+                } else {
+<span class="nc" id="L334">                    addEquipmentType(EquipmentType.get(&quot;BloodhoundActiveProbe&quot;), 1, HMVWeaponLocation.TURRET);</span>
+                }
+<span class="nc bnc" id="L336" title="All 2 branches missed.">            } else if (mastEq == 3) {</span>
+<span class="nc" id="L337">                addEquipmentType(EquipmentType.get(&quot;ISC3SlaveUnit&quot;), 1, HMVWeaponLocation.TURRET);</span>
+            }
+<span class="nc" id="L339">            dis.skipBytes(4);</span>
+
+<span class="nc" id="L341">            int fluffSize = 0;</span>
+<span class="nc" id="L342">            fluff = &quot;Overview:\n\r&quot;;</span>
+<span class="nc" id="L343">            buffer = new byte[readUnsignedShort(dis)];</span>
+<span class="nc" id="L344">            dis.read(buffer);</span>
+<span class="nc" id="L345">            fluff += new String(buffer);</span>
+<span class="nc" id="L346">            fluffSize += new String(buffer).length();</span>
+
+<span class="nc" id="L348">            fluff += &quot;\n\rCapability:\n\r&quot;;</span>
+<span class="nc" id="L349">            buffer = new byte[readUnsignedShort(dis)];</span>
+<span class="nc" id="L350">            dis.read(buffer);</span>
+<span class="nc" id="L351">            fluff += new String(buffer);</span>
+<span class="nc" id="L352">            fluffSize += new String(buffer).length();</span>
+
+<span class="nc" id="L354">            fluff += &quot;\n\rBattle History:\n\r&quot;;</span>
+<span class="nc" id="L355">            buffer = new byte[readUnsignedShort(dis)];</span>
+<span class="nc" id="L356">            dis.read(buffer);</span>
+<span class="nc" id="L357">            fluff += new String(buffer);</span>
+<span class="nc" id="L358">            fluffSize += new String(buffer).length();</span>
+
+<span class="nc" id="L360">            fluff += &quot;\n\rVariants:\n\r&quot;;</span>
+<span class="nc" id="L361">            buffer = new byte[readUnsignedShort(dis)];</span>
+<span class="nc" id="L362">            dis.read(buffer);</span>
+<span class="nc" id="L363">            fluff += new String(buffer);</span>
+<span class="nc" id="L364">            fluffSize += new String(buffer).length();</span>
+
+<span class="nc" id="L366">            fluff += &quot;\n\rFamous Vehicles and Pilots:\n\r&quot;;</span>
+<span class="nc" id="L367">            buffer = new byte[readUnsignedShort(dis)];</span>
+<span class="nc" id="L368">            dis.read(buffer);</span>
+<span class="nc" id="L369">            fluff += new String(buffer);</span>
+<span class="nc" id="L370">            fluffSize += new String(buffer).length();</span>
+
+<span class="nc" id="L372">            fluff += &quot;\n\rDeployment:\n\r&quot;;</span>
+<span class="nc" id="L373">            buffer = new byte[readUnsignedShort(dis)];</span>
+<span class="nc" id="L374">            dis.read(buffer);</span>
+<span class="nc" id="L375">            fluff += new String(buffer);</span>
+<span class="nc" id="L376">            fluffSize += new String(buffer).length();</span>
+
+<span class="nc" id="L378">            dis.skipBytes(readUnsignedShort(dis)); // notes</span>
+
+            // just a catch all for small Fluffs anything well less then 10
+            // characters, per section, isn't worth printing.
+<span class="nc bnc" id="L382" title="All 2 branches missed.">            if (fluffSize &lt;= 60) {</span>
+<span class="nc" id="L383">                fluff = null;</span>
+            }
+
+<span class="nc" id="L386">            int supercharger = readUnsignedShort(dis);</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">            if (supercharger &gt; 0) {</span>
+<span class="nc" id="L388">                addEquipmentType(EquipmentType.get(&quot;Supercharger&quot;), 1, HMVWeaponLocation.BODY);</span>
+            }
+
+<span class="nc" id="L391">            dis.close();</span>
+<span class="nc" id="L392">        } catch (IOException ex) {</span>
+<span class="nc" id="L393">            ex.printStackTrace();</span>
+<span class="nc" id="L394">            throw new EntityLoadingException(&quot;I/O Error reading file&quot;);</span>
+<span class="nc" id="L395">        }</span>
+<span class="nc" id="L396">    }</span>
+
+    private short readUnsignedByte(DataInputStream dis) throws IOException {
+<span class="nc" id="L399">        short b = dis.readByte();</span>
+<span class="nc bnc" id="L400" title="All 2 branches missed.">        b += b &lt; 0 ? 256 : 0;</span>
+<span class="nc" id="L401">        return b;</span>
+    }
+
+    private int readUnsignedShort(DataInputStream dis) throws IOException {
+<span class="nc" id="L405">        int b2 = readUnsignedByte(dis);</span>
+
+<span class="nc" id="L407">        int b1 = readUnsignedByte(dis);</span>
+<span class="nc" id="L408">        b1 &lt;&lt;= 8;</span>
+
+<span class="nc" id="L410">        return b1 + b2;</span>
+    }
+
+    /**
+     * Read a single precision float from a file in little endian format
+     *
+     * @param dis
+     * @return
+     * @throws IOException
+     */
+    private float readFloat(DataInputStream dis) throws IOException {
+<span class="nc" id="L421">        int bits = dis.readInt();</span>
+        // Integer.reverseBytes is not supported in 1.4
+        // return Float.intBitsToFloat(Integer.reverseBytes(bits));
+<span class="nc" id="L424">        bits = ((bits &amp; 0xFF000000) &gt;&gt; 24) | ((bits &amp; 0x00FF0000) &gt;&gt; 8) | ((bits &amp; 0x0000FF00) &lt;&lt; 8) | ((bits &amp; 0x000000FF) &lt;&lt; 24);</span>
+<span class="nc" id="L425">        return Float.intBitsToFloat(bits);</span>
+    }
+
+    /**
+     * Determine if the buffer contains the &quot;is omni&quot; flag.
+     *
+     * @param buffer
+     *            the array of &lt;code&gt;byte&lt;/code&gt;s to be scanned.
+     * @return &lt;code&gt;true&lt;/code&gt; if the buffer contains the &quot;is omni&quot; flag.
+     */
+    private boolean containsOmni(byte[] buffer) {
+        int index;
+
+        // Look for the 4 byte flag.
+<span class="nc bnc" id="L439" title="All 2 branches missed.">        for (index = buffer.length - 4; index &gt;= 0; index--) {</span>
+<span class="nc bnc" id="L440" title="All 8 branches missed.">            if ((0x6f == buffer[index]) &amp;&amp; // 'o'</span>
+                    (0x6d == buffer[index + 1]) &amp;&amp; // 'm'
+                    (0x6e == buffer[index + 2]) &amp;&amp; // 'n'
+                    (0x69 == buffer[index + 3])) { // 'i'
+
+                // We found it!
+<span class="nc" id="L446">                return true;</span>
+            }
+        }
+
+        // We didn't find the &quot;is omni&quot; flag;
+<span class="nc" id="L451">        return false;</span>
+    }
+
+    public Entity getEntity() throws EntityLoadingException {
+        try {
+<span class="nc" id="L456">            Tank vehicle = null;</span>
+
+<span class="nc bnc" id="L458" title="All 12 branches missed.">            if ((movementType == HMVMovementType.TRACKED) || (movementType == HMVMovementType.WHEELED) || (movementType == HMVMovementType.HOVER) || (movementType == HMVMovementType.DISPLACEMENT_HULL) || (movementType == HMVMovementType.HYDROFOIL) || (movementType == HMVMovementType.SUBMARINE)) {</span>
+<span class="nc" id="L459">                vehicle = new Tank();</span>
+<span class="nc bnc" id="L460" title="All 2 branches missed.">            } else if (movementType == HMVMovementType.VTOL) {</span>
+<span class="nc" id="L461">                vehicle = new VTOL();</span>
+            } else {
+<span class="nc" id="L463">                throw new EntityLoadingException(&quot;Unsupported vehicle movement type:&quot; + movementType);</span>
+            }
+
+<span class="nc" id="L466">            vehicle.setChassis(name);</span>
+<span class="nc" id="L467">            vehicle.setModel(model);</span>
+<span class="nc" id="L468">            vehicle.setYear(year);</span>
+<span class="nc" id="L469">            vehicle.setOmni(isOmni);</span>
+<span class="nc" id="L470">            vehicle.getFluff().setCapabilities(fluff);</span>
+
+<span class="nc" id="L472">            int techLevel = TechConstants.T_IS_ADVANCED;</span>
+<span class="nc bnc" id="L473" title="All 2 branches missed.">            if (rulesLevel == 1) {</span>
+<span class="nc" id="L474">                techLevel = TechConstants.T_INTRO_BOXSET;</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">            } else if (rulesLevel == 2) {</span>
+<span class="nc bnc" id="L476" title="All 2 branches missed.">                techLevel = techType == HMVTechType.CLAN ? TechConstants.T_CLAN_TW : TechConstants.T_IS_TW_NON_BOX;</span>
+<span class="nc bnc" id="L477" title="All 2 branches missed.">            } else if (techType == HMVTechType.CLAN) {</span>
+<span class="nc" id="L478">                techLevel = TechConstants.T_CLAN_ADVANCED;</span>
+            }
+
+<span class="nc" id="L481">            vehicle.setTechLevel(techLevel);</span>
+
+<span class="nc bnc" id="L483" title="All 2 branches missed.">            if (vehicle instanceof VTOL) {</span>
+<span class="nc" id="L484">                vehicle.setMovementMode(EntityMovementMode.VTOL);</span>
+            } else {
+<span class="nc bnc" id="L486" title="All 10 branches missed.">                vehicle.setMovementMode(movementType == HMVMovementType.DISPLACEMENT_HULL ? EntityMovementMode.NAVAL : movementType == HMVMovementType.HYDROFOIL ? EntityMovementMode.HYDROFOIL : movementType == HMVMovementType.HOVER ? EntityMovementMode.HOVER : movementType == HMVMovementType.WHEELED ? EntityMovementMode.WHEELED : movementType == HMVMovementType.SUBMARINE ? EntityMovementMode.SUBMARINE : EntityMovementMode.TRACKED);</span>
+            }
+            //vehicle.setStructureType(EquipmentType.getStructureType(&quot;Standard&quot;, false));
+            // FIXME: structureType is being read wrong
+            // stupid not-consistent file format
+            // vehicle.setStructureType(EquipmentType.getStructureType(structureType.toString()));
+
+            // This next line sets the weight to a rounded value
+            // so that the suspension factor can be retrieved. The
+            // real weight is set below that. Why is tonnage not directly
+            // stated in the HMV file?!
+<span class="nc" id="L497">            vehicle.setWeight(roundedInternalStructure * 10); // temporary</span>
+<span class="nc" id="L498">            int suspensionFactor = vehicle.getSuspensionFactor();</span>
+<span class="nc" id="L499">            vehicle.setWeight((engineRating + suspensionFactor) / cruiseMP);</span>
+
+<span class="nc" id="L501">            int engineFlags = Engine.TANK_ENGINE;</span>
+<span class="nc bnc" id="L502" title="All 4 branches missed.">            if ((techType == HMVTechType.CLAN) || (engineTechType == HMVTechType.CLAN)) {</span>
+<span class="nc" id="L503">                engineFlags |= Engine.CLAN_ENGINE;</span>
+            }
+<span class="nc" id="L505">            vehicle.setEngine(new Engine(engineRating, Engine.getEngineTypeByString(engineType.toString()), engineFlags));</span>
+
+<span class="nc" id="L507">            vehicle.setOriginalWalkMP(cruiseMP);</span>
+<span class="nc" id="L508">            vehicle.setOriginalJumpMP(jumpMP);</span>
+
+            // hmmm...
+<span class="nc bnc" id="L511" title="All 2 branches missed.">            vehicle.setHasNoTurret(!hasTurret);</span>
+            // HMV vehicles NEVER have dual turrets.
+<span class="nc" id="L513">            vehicle.setHasNoDualTurret(true);</span>
+
+<span class="nc" id="L515">            vehicle.autoSetInternal();</span>
+<span class="nc bnc" id="L516" title="All 2 branches missed.">            vehicle.setArmorType(vehicle.isClan()?&quot;Clan &quot;:&quot;IS &quot;+armorType.toString());</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">            if (armorTechType == HMVTechType.CLAN) {</span>
+<span class="nc bnc" id="L518" title="All 3 branches missed.">                switch (rulesLevel) {</span>
+                    case 2:
+<span class="nc" id="L520">                        vehicle.setArmorTechLevel(TechConstants.T_CLAN_TW);</span>
+<span class="nc" id="L521">                        break;</span>
+                    case 3:
+<span class="nc" id="L523">                        vehicle.setArmorTechLevel(TechConstants.T_CLAN_ADVANCED);</span>
+<span class="nc" id="L524">                        break;</span>
+                    default:
+<span class="nc" id="L526">                        throw new EntityLoadingException(&quot;Unsupported tech level: &quot; + rulesLevel);</span>
+                }
+            } else {
+<span class="nc bnc" id="L529" title="All 4 branches missed.">                switch (rulesLevel) {</span>
+                    case 1:
+<span class="nc" id="L531">                        vehicle.setArmorTechLevel(TechConstants.T_INTRO_BOXSET);</span>
+<span class="nc" id="L532">                        break;</span>
+                    case 2:
+<span class="nc" id="L534">                        vehicle.setArmorTechLevel(TechConstants.T_IS_TW_NON_BOX);</span>
+<span class="nc" id="L535">                        break;</span>
+                    case 3:
+<span class="nc" id="L537">                        vehicle.setArmorTechLevel(TechConstants.T_IS_ADVANCED);</span>
+<span class="nc" id="L538">                        break;</span>
+                    default:
+<span class="nc" id="L540">                        throw new EntityLoadingException(&quot;Unsupported tech level: &quot; + rulesLevel);</span>
+                }
+            }
+
+<span class="nc" id="L544">            vehicle.initializeArmor(frontArmor, Tank.LOC_FRONT);</span>
+<span class="nc" id="L545">            vehicle.initializeArmor(leftArmor, Tank.LOC_LEFT);</span>
+<span class="nc" id="L546">            vehicle.initializeArmor(rightArmor, Tank.LOC_RIGHT);</span>
+<span class="nc" id="L547">            vehicle.initializeArmor(rearArmor, Tank.LOC_REAR);</span>
+<span class="nc bnc" id="L548" title="All 2 branches missed.">            if (vehicle instanceof VTOL) {</span>
+<span class="nc" id="L549">                vehicle.initializeArmor(turretArmor, VTOL.LOC_ROTOR);</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">            } else if (!vehicle.hasNoTurret()) {</span>
+<span class="nc" id="L551">                vehicle.initializeArmor(turretArmor, Tank.LOC_TURRET);</span>
+            }
+
+<span class="nc" id="L554">            addEquipment(vehicle, HMVWeaponLocation.FRONT, Tank.LOC_FRONT);</span>
+<span class="nc" id="L555">            addEquipment(vehicle, HMVWeaponLocation.LEFT, Tank.LOC_LEFT);</span>
+<span class="nc" id="L556">            addEquipment(vehicle, HMVWeaponLocation.RIGHT, Tank.LOC_RIGHT);</span>
+<span class="nc" id="L557">            addEquipment(vehicle, HMVWeaponLocation.REAR, Tank.LOC_REAR);</span>
+<span class="nc bnc" id="L558" title="All 2 branches missed.">            if (!vehicle.hasNoTurret()) {</span>
+<span class="nc" id="L559">                addEquipment(vehicle, HMVWeaponLocation.TURRET, Tank.LOC_TURRET);</span>
+            }
+
+<span class="nc" id="L562">            addEquipment(vehicle, HMVWeaponLocation.BODY, Tank.LOC_BODY);</span>
+
+            // Do we have any infantry/cargo bays?
+<span class="nc bnc" id="L565" title="All 2 branches missed.">            if (troopSpace &gt; 0) {</span>
+<span class="nc" id="L566">                vehicle.addTransporter(new TroopSpace(troopSpace));</span>
+            }
+
+<span class="nc" id="L569">            addFailedEquipment(vehicle);</span>
+
+<span class="nc" id="L571">            return vehicle;</span>
+<span class="nc" id="L572">        } catch (Exception e) {</span>
+            // System.out.println(structureType.toString());
+<span class="nc" id="L574">            e.printStackTrace();</span>
+<span class="nc" id="L575">            throw new EntityLoadingException(e.getMessage());</span>
+        }
+    }
+
+    private void addEquipmentType(EquipmentType equipmentType, int weaponCount, HMVWeaponLocation weaponLocation) {
+<span class="nc" id="L580">        Hashtable&lt;EquipmentType, Integer&gt; equipmentAtLocation = equipment.get(weaponLocation);</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">        if (equipmentAtLocation == null) {</span>
+<span class="nc" id="L582">            equipmentAtLocation = new Hashtable&lt;EquipmentType, Integer&gt;();</span>
+<span class="nc" id="L583">            equipment.put(weaponLocation, equipmentAtLocation);</span>
+        }
+<span class="nc" id="L585">        Integer prevCount = equipmentAtLocation.get(equipmentType);</span>
+<span class="nc bnc" id="L586" title="All 2 branches missed.">        if (null != prevCount) {</span>
+<span class="nc" id="L587">            weaponCount += prevCount.intValue();</span>
+        }
+<span class="nc" id="L589">        equipmentAtLocation.put(equipmentType, Integer.valueOf(weaponCount));</span>
+<span class="nc" id="L590">    }</span>
+
+    private void addEquipment(Tank tank, HMVWeaponLocation weaponLocation, int location) throws Exception {
+<span class="nc" id="L593">        Hashtable&lt;EquipmentType, Integer&gt; equipmentAtLocation = equipment.get(weaponLocation);</span>
+<span class="nc bnc" id="L594" title="All 2 branches missed.">        if (equipmentAtLocation != null) {</span>
+<span class="nc bnc" id="L595" title="All 2 branches missed.">            for (Enumeration&lt;EquipmentType&gt; e = equipmentAtLocation.keys(); e.hasMoreElements();) {</span>
+<span class="nc" id="L596">                EquipmentType equipmentType = e.nextElement();</span>
+<span class="nc" id="L597">                Integer count = equipmentAtLocation.get(equipmentType);</span>
+
+<span class="nc bnc" id="L599" title="All 2 branches missed.">                for (int i = 0; i &lt; count.intValue(); i++) {</span>
+                    // for experimental or unofficial equipment, we need
+                    // to adjust the mech's techlevel, because HMV only
+                    // knows lvl1/2/3
+<span class="nc bnc" id="L603" title="All 4 branches missed.">                    if ((equipmentType.getTechLevel(year) &gt; tank.getTechLevel()) &amp;&amp; (tank.getTechLevel() &gt;= TechConstants.T_IS_ADVANCED)) {</span>
+<span class="nc" id="L604">                        boolean isClan = tank.isClan();</span>
+<span class="nc bnc" id="L605" title="All 4 branches missed.">                        if ((equipmentType.getTechLevel(year) == TechConstants.T_IS_EXPERIMENTAL) || (equipmentType.getTechLevel(year) == TechConstants.T_CLAN_EXPERIMENTAL)) {</span>
+<span class="nc bnc" id="L606" title="All 2 branches missed.">                            tank.setTechLevel(isClan ? TechConstants.T_CLAN_EXPERIMENTAL : TechConstants.T_IS_EXPERIMENTAL);</span>
+<span class="nc bnc" id="L607" title="All 4 branches missed.">                        } else if ((equipmentType.getTechLevel(year) == TechConstants.T_IS_UNOFFICIAL) || (equipmentType.getTechLevel(year) == TechConstants.T_CLAN_UNOFFICIAL)) {</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">                            tank.setTechLevel(isClan ? TechConstants.T_CLAN_UNOFFICIAL : TechConstants.T_IS_UNOFFICIAL);</span>
+                        }
+                    }
+<span class="nc" id="L611">                    Mounted weapon = tank.addEquipment(equipmentType, location);</span>
+
+                    // Add artemis?
+                    // Note this is done here because SRM without artemis and
+                    // LRM with artemis
+                    // can be in the same location on a tank. (and might be
+                    // mislinked)
+<span class="nc bnc" id="L618" title="All 4 branches missed.">                    if ((artemisType != 0) &amp;&amp; (equipmentType instanceof WeaponType)) {</span>
+<span class="nc" id="L619">                        String artemis = null;</span>
+<span class="nc" id="L620">                        int ammoType = ((WeaponType) equipmentType).getAmmoType();</span>
+<span class="nc bnc" id="L621" title="All 2 branches missed.">                        if (ammoType == AmmoType.T_LRM) {</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">                            if ((artemisType &amp; 2) == 2) {</span>
+<span class="nc" id="L623">                                artemis = &quot;ArtemisIV&quot;;</span>
+<span class="nc bnc" id="L624" title="All 2 branches missed.">                            } else if ((artemisType &amp; 8) == 8) {</span>
+<span class="nc" id="L625">                                artemis = &quot;ArtemisV&quot;;</span>
+                            }
+<span class="nc bnc" id="L627" title="All 2 branches missed.">                        } else if (ammoType == AmmoType.T_SRM) {</span>
+<span class="nc bnc" id="L628" title="All 2 branches missed.">                            if ((artemisType &amp; 1) == 1) {</span>
+<span class="nc" id="L629">                                artemis = &quot;ArtemisIV&quot;;</span>
+<span class="nc bnc" id="L630" title="All 2 branches missed.">                            } else if ((artemisType &amp; 4) == 4) {</span>
+<span class="nc" id="L631">                                artemis = &quot;ArtemisV&quot;;</span>
+                            }
+                        }
+<span class="nc bnc" id="L634" title="All 2 branches missed.">                        if (artemis != null) {</span>
+                            EquipmentType artEq;
+<span class="nc bnc" id="L636" title="All 4 branches missed.">                            if ((equipmentType.getTechLevel(year) == TechConstants.T_CLAN_TW) || (equipmentType.getTechLevel(year) == TechConstants.T_CLAN_ADVANCED)) {</span>
+<span class="nc" id="L637">                                artEq = EquipmentType.get(&quot;CL&quot; + artemis);</span>
+                            } else {
+<span class="nc" id="L639">                                artEq = EquipmentType.get(&quot;IS&quot; + artemis);</span>
+                            }
+<span class="nc bnc" id="L641" title="All 2 branches missed.">                            if (artEq != null) {</span>
+<span class="nc" id="L642">                                Mounted fcs = tank.addEquipment(artEq, location);</span>
+<span class="nc" id="L643">                                fcs.setLinked(weapon);</span>
+                            }
+                        }
+                    }
+                }
+<span class="nc" id="L648">            }</span>
+        }
+<span class="nc" id="L650">    }</span>
+
+    private void addFailedEquipment(Tank tank) {
+<span class="nc bnc" id="L653" title="All 2 branches missed.">        for (String s : failedEquipment) {</span>
+<span class="nc" id="L654">            tank.addFailedEquipment(s);</span>
+<span class="nc" id="L655">        }</span>
+<span class="nc" id="L656">    }</span>
+
+<span class="nc" id="L658">    private static final Hashtable&lt;HMVTechType, Hashtable&lt;Long, String&gt;&gt; EQUIPMENT = new Hashtable&lt;HMVTechType, Hashtable&lt;Long, String&gt;&gt;();</span>
+<span class="nc" id="L659">    private static final Hashtable&lt;HMVTechType, Hashtable&lt;Long, String&gt;&gt; AMMO = new Hashtable&lt;HMVTechType, Hashtable&lt;Long, String&gt;&gt;();</span>
+    static {
+        // inner sphere equipment
+        // note all weapons should be matched by an ammo entry with the same
+        // index
+        //
+<span class="nc" id="L665">        Hashtable&lt;Long, String&gt; isEquipment = new Hashtable&lt;Long, String&gt;();</span>
+<span class="nc" id="L666">        EQUIPMENT.put(HMVTechType.INNER_SPHERE, isEquipment);</span>
+<span class="nc" id="L667">        isEquipment.put(Long.valueOf(0x0A), &quot;ISDouble Heat Sink&quot;);</span>
+<span class="nc" id="L668">        isEquipment.put(Long.valueOf(0x0B), &quot;Jump Jet&quot;);</span>
+<span class="nc" id="L669">        isEquipment.put(Long.valueOf(0x12), &quot;ISTargeting Computer&quot;);</span>
+<span class="nc" id="L670">        isEquipment.put(Long.valueOf(0x14), &quot;Endo Steel&quot;);</span>
+<span class="nc" id="L671">        isEquipment.put(Long.valueOf(0x15), &quot;Ferro-Fibrous&quot;);</span>
+<span class="nc" id="L672">        isEquipment.put(Long.valueOf(0x17), &quot;ISMASC&quot;);</span>
+<span class="nc" id="L673">        isEquipment.put(Long.valueOf(0x18), &quot;ISArtemisIV&quot;);</span>
+<span class="nc" id="L674">        isEquipment.put(Long.valueOf(0x19), &quot;ISCASE&quot;);</span>
+<span class="nc" id="L675">        isEquipment.put(Long.valueOf(0x33), &quot;ISERLargeLaser&quot;);</span>
+<span class="nc" id="L676">        isEquipment.put(Long.valueOf(0x34), &quot;ISERPPC&quot;);</span>
+<span class="nc" id="L677">        isEquipment.put(Long.valueOf(0x35), &quot;ISFlamer&quot;);</span>
+<span class="nc" id="L678">        isEquipment.put(Long.valueOf(0x36), &quot;ISLaserAMS&quot;);</span>
+<span class="nc" id="L679">        isEquipment.put(Long.valueOf(0x37), &quot;ISLargeLaser&quot;);</span>
+<span class="nc" id="L680">        isEquipment.put(Long.valueOf(0x38), &quot;ISMediumLaser&quot;);</span>
+<span class="nc" id="L681">        isEquipment.put(Long.valueOf(0x39), &quot;ISSmallLaser&quot;);</span>
+<span class="nc" id="L682">        isEquipment.put(Long.valueOf(0x3A), &quot;ISPPC&quot;);</span>
+<span class="nc" id="L683">        isEquipment.put(Long.valueOf(0x3B), &quot;ISLargePulseLaser&quot;);</span>
+<span class="nc" id="L684">        isEquipment.put(Long.valueOf(0x3C), &quot;ISMediumPulseLaser&quot;);</span>
+<span class="nc" id="L685">        isEquipment.put(Long.valueOf(0x3D), &quot;ISSmallPulseLaser&quot;);</span>
+<span class="nc" id="L686">        isEquipment.put(Long.valueOf(0x3E), &quot;ISAC2&quot;);</span>
+<span class="nc" id="L687">        isEquipment.put(Long.valueOf(0x3F), &quot;ISAC5&quot;);</span>
+<span class="nc" id="L688">        isEquipment.put(Long.valueOf(0x40), &quot;ISAC10&quot;);</span>
+<span class="nc" id="L689">        isEquipment.put(Long.valueOf(0x41), &quot;ISAC20&quot;);</span>
+<span class="nc" id="L690">        isEquipment.put(Long.valueOf(0x42), &quot;ISAntiMissileSystem&quot;);</span>
+<span class="nc" id="L691">        isEquipment.put(Long.valueOf(0x43), &quot;Long Tom Cannon&quot;);</span>
+<span class="nc" id="L692">        isEquipment.put(Long.valueOf(0x44), &quot;Sniper Cannon&quot;);</span>
+<span class="nc" id="L693">        isEquipment.put(Long.valueOf(0x45), &quot;Thumper Cannon&quot;);</span>
+<span class="nc" id="L694">        isEquipment.put(Long.valueOf(0x46), &quot;ISLightGaussRifle&quot;);</span>
+<span class="nc" id="L695">        isEquipment.put(Long.valueOf(0x47), &quot;ISGaussRifle&quot;);</span>
+<span class="nc" id="L696">        isEquipment.put(Long.valueOf(0x48), &quot;ISLargeXPulseLaser&quot;);</span>
+<span class="nc" id="L697">        isEquipment.put(Long.valueOf(0x49), &quot;ISMediumXPulseLaser&quot;);</span>
+<span class="nc" id="L698">        isEquipment.put(Long.valueOf(0x4A), &quot;ISSmallXPulseLaser&quot;);</span>
+<span class="nc" id="L699">        isEquipment.put(Long.valueOf(0x4B), &quot;ISLBXAC2&quot;);</span>
+<span class="nc" id="L700">        isEquipment.put(Long.valueOf(0x4C), &quot;ISLBXAC5&quot;);</span>
+<span class="nc" id="L701">        isEquipment.put(Long.valueOf(0x4D), &quot;ISLBXAC10&quot;);</span>
+<span class="nc" id="L702">        isEquipment.put(Long.valueOf(0x4E), &quot;ISLBXAC20&quot;);</span>
+<span class="nc" id="L703">        isEquipment.put(Long.valueOf(0x4F), &quot;ISMachine Gun&quot;);</span>
+<span class="nc" id="L704">        isEquipment.put(Long.valueOf(0x50), &quot;ISLAC2&quot;);</span>
+<span class="nc" id="L705">        isEquipment.put(Long.valueOf(0x51), &quot;ISLAC5&quot;);</span>
+<span class="nc" id="L706">        isEquipment.put(Long.valueOf(0x52), &quot;ISHeavyFlamer&quot;);</span>
+<span class="nc" id="L707">        isEquipment.put(Long.valueOf(0x53), &quot;ISPPCCapacitor&quot;);</span>
+<span class="nc" id="L708">        isEquipment.put(Long.valueOf(0x54), &quot;ISUltraAC2&quot;);</span>
+<span class="nc" id="L709">        isEquipment.put(Long.valueOf(0x55), &quot;ISUltraAC5&quot;);</span>
+<span class="nc" id="L710">        isEquipment.put(Long.valueOf(0x56), &quot;ISUltraAC10&quot;);</span>
+<span class="nc" id="L711">        isEquipment.put(Long.valueOf(0x57), &quot;ISUltraAC20&quot;);</span>
+<span class="nc" id="L712">        isEquipment.put(Long.valueOf(0x59), &quot;ISPPCCapacitor&quot;);</span>
+<span class="nc" id="L713">        isEquipment.put(Long.valueOf(0x5A), &quot;ISERMediumLaser&quot;);</span>
+<span class="nc" id="L714">        isEquipment.put(Long.valueOf(0x5B), &quot;ISERSmallLaser&quot;);</span>
+<span class="nc" id="L715">        isEquipment.put(Long.valueOf(0x5C), &quot;ISAntiPersonnelPod&quot;);</span>
+
+<span class="nc" id="L717">        isEquipment.put(Long.valueOf(0x60), &quot;ISLRM5&quot;);</span>
+<span class="nc" id="L718">        isEquipment.put(Long.valueOf(0x61), &quot;ISLRM10&quot;);</span>
+<span class="nc" id="L719">        isEquipment.put(Long.valueOf(0x62), &quot;ISLRM15&quot;);</span>
+<span class="nc" id="L720">        isEquipment.put(Long.valueOf(0x63), &quot;ISLRM20&quot;);</span>
+<span class="nc" id="L721">        isEquipment.put(Long.valueOf(0x66), &quot;ISImprovedNarc&quot;);</span>
+<span class="nc" id="L722">        isEquipment.put(Long.valueOf(0x67), &quot;ISSRM2&quot;);</span>
+<span class="nc" id="L723">        isEquipment.put(Long.valueOf(0x68), &quot;ISSRM4&quot;);</span>
+<span class="nc" id="L724">        isEquipment.put(Long.valueOf(0x69), &quot;ISSRM6&quot;);</span>
+<span class="nc" id="L725">        isEquipment.put(Long.valueOf(0x6A), &quot;ISStreakSRM2&quot;);</span>
+<span class="nc" id="L726">        isEquipment.put(Long.valueOf(0x6B), &quot;ISStreakSRM4&quot;);</span>
+<span class="nc" id="L727">        isEquipment.put(Long.valueOf(0x6C), &quot;ISStreakSRM6&quot;);</span>
+<span class="nc" id="L728">        isEquipment.put(Long.valueOf(0x6D), &quot;ISThunderbolt5&quot;);</span>
+<span class="nc" id="L729">        isEquipment.put(Long.valueOf(0x6E), &quot;ISThunderbolt10&quot;);</span>
+<span class="nc" id="L730">        isEquipment.put(Long.valueOf(0x6F), &quot;ISThunderbolt15&quot;);</span>
+<span class="nc" id="L731">        isEquipment.put(Long.valueOf(0x70), &quot;ISThunderbolt20&quot;);</span>
+<span class="nc" id="L732">        isEquipment.put(Long.valueOf(0x71), &quot;ISArrowIVSystem&quot;);</span>
+<span class="nc" id="L733">        isEquipment.put(Long.valueOf(0x72), &quot;ISAngelECMSuite&quot;);</span>
+<span class="nc" id="L734">        isEquipment.put(Long.valueOf(0x73), &quot;ISBeagleActiveProbe&quot;);</span>
+<span class="nc" id="L735">        isEquipment.put(Long.valueOf(0x74), &quot;ISBloodhoundActiveProbe&quot;);</span>
+<span class="nc" id="L736">        isEquipment.put(Long.valueOf(0x75), &quot;ISC3MasterComputer&quot;);</span>
+<span class="nc" id="L737">        isEquipment.put(Long.valueOf(0x76), &quot;ISC3SlaveUnit&quot;);</span>
+<span class="nc" id="L738">        isEquipment.put(Long.valueOf(0x77), &quot;ISImprovedC3CPU&quot;);</span>
+<span class="nc" id="L739">        isEquipment.put(Long.valueOf(0x78), &quot;ISGuardianECM&quot;);</span>
+<span class="nc" id="L740">        isEquipment.put(Long.valueOf(0x79), &quot;ISNarcBeacon&quot;);</span>
+<span class="nc" id="L741">        isEquipment.put(Long.valueOf(0x7A), &quot;ISTAG&quot;);</span>
+<span class="nc" id="L742">        isEquipment.put(Long.valueOf(0x7B), &quot;ISLRM5 (OS)&quot;);</span>
+<span class="nc" id="L743">        isEquipment.put(Long.valueOf(0x7C), &quot;ISLRM10 (OS)&quot;);</span>
+<span class="nc" id="L744">        isEquipment.put(Long.valueOf(0x7D), &quot;ISLRM15 (OS)&quot;);</span>
+<span class="nc" id="L745">        isEquipment.put(Long.valueOf(0x7E), &quot;ISLRM20 (OS)&quot;);</span>
+<span class="nc" id="L746">        isEquipment.put(Long.valueOf(0x7F), &quot;ISSRM2 (OS)&quot;);</span>
+<span class="nc" id="L747">        isEquipment.put(Long.valueOf(0x80), &quot;ISSRM4 (OS)&quot;);</span>
+<span class="nc" id="L748">        isEquipment.put(Long.valueOf(0x81), &quot;ISSRM6 (OS)&quot;);</span>
+<span class="nc" id="L749">        isEquipment.put(Long.valueOf(0x82), &quot;ISStreakSRM2 (OS)&quot;);</span>
+<span class="nc" id="L750">        isEquipment.put(Long.valueOf(0x83), &quot;ISStreakSRM4 (OS)&quot;);</span>
+<span class="nc" id="L751">        isEquipment.put(Long.valueOf(0x84), &quot;ISStreakSRM6 (OS)&quot;);</span>
+<span class="nc" id="L752">        isEquipment.put(Long.valueOf(0x85), &quot;ISVehicleFlamer&quot;);</span>
+<span class="nc" id="L753">        isEquipment.put(Long.valueOf(0x86), &quot;ISLongTomArtillery&quot;);</span>
+<span class="nc" id="L754">        isEquipment.put(Long.valueOf(0x87), &quot;ISSniperArtillery&quot;);</span>
+<span class="nc" id="L755">        isEquipment.put(Long.valueOf(0x88), &quot;ISThumperArtillery&quot;);</span>
+<span class="nc" id="L756">        isEquipment.put(Long.valueOf(0x89), &quot;ISMRM10&quot;);</span>
+<span class="nc" id="L757">        isEquipment.put(Long.valueOf(0x8A), &quot;ISMRM20&quot;);</span>
+<span class="nc" id="L758">        isEquipment.put(Long.valueOf(0x8B), &quot;ISMRM30&quot;);</span>
+<span class="nc" id="L759">        isEquipment.put(Long.valueOf(0x8C), &quot;ISMRM40&quot;);</span>
+<span class="nc" id="L760">        isEquipment.put(Long.valueOf(0x8E), &quot;ISMRM10 (OS)&quot;);</span>
+<span class="nc" id="L761">        isEquipment.put(Long.valueOf(0x8F), &quot;ISMRM20 (OS)&quot;);</span>
+<span class="nc" id="L762">        isEquipment.put(Long.valueOf(0x90), &quot;ISMRM30 (OS)&quot;);</span>
+<span class="nc" id="L763">        isEquipment.put(Long.valueOf(0x91), &quot;ISMRM40 (OS)&quot;);</span>
+<span class="nc" id="L764">        isEquipment.put(Long.valueOf(0x92), &quot;ISLRTorpedo5&quot;);</span>
+<span class="nc" id="L765">        isEquipment.put(Long.valueOf(0x93), &quot;ISLRTorpedo10&quot;);</span>
+<span class="nc" id="L766">        isEquipment.put(Long.valueOf(0x94), &quot;ISLRTorpedo15&quot;);</span>
+<span class="nc" id="L767">        isEquipment.put(Long.valueOf(0x95), &quot;ISLRTorpedo20&quot;);</span>
+<span class="nc" id="L768">        isEquipment.put(Long.valueOf(0x96), &quot;ISSRT2&quot;);</span>
+<span class="nc" id="L769">        isEquipment.put(Long.valueOf(0x97), &quot;ISSRT4&quot;);</span>
+<span class="nc" id="L770">        isEquipment.put(Long.valueOf(0x98), &quot;ISSRT6&quot;);</span>
+<span class="nc" id="L771">        isEquipment.put(Long.valueOf(0x99), &quot;ISLRM5 (I-OS)&quot;);</span>
+<span class="nc" id="L772">        isEquipment.put(Long.valueOf(0x9A), &quot;ISLRM10 (I-OS)&quot;);</span>
+<span class="nc" id="L773">        isEquipment.put(Long.valueOf(0x9B), &quot;ISLRM15 (I-OS)&quot;);</span>
+<span class="nc" id="L774">        isEquipment.put(Long.valueOf(0x9C), &quot;ISLRM20 (I-OS)&quot;);</span>
+<span class="nc" id="L775">        isEquipment.put(Long.valueOf(0x9D), &quot;ISSRM2 (I-OS)&quot;);</span>
+<span class="nc" id="L776">        isEquipment.put(Long.valueOf(0x9E), &quot;ISSRM4 (I-OS)&quot;);</span>
+<span class="nc" id="L777">        isEquipment.put(Long.valueOf(0x9f), &quot;ISSRM6 (I-OS)&quot;);</span>
+<span class="nc" id="L778">        isEquipment.put(Long.valueOf(0xA0), &quot;ISStreakSRM2 (I-OS)&quot;);</span>
+<span class="nc" id="L779">        isEquipment.put(Long.valueOf(0xA1), &quot;ISStreakSRM4 (I-OS)&quot;);</span>
+<span class="nc" id="L780">        isEquipment.put(Long.valueOf(0xA2), &quot;ISStreakSRM6 (I-OS)&quot;);</span>
+<span class="nc" id="L781">        isEquipment.put(Long.valueOf(0xA3), &quot;ISMRM10 (I-OS)&quot;);</span>
+<span class="nc" id="L782">        isEquipment.put(Long.valueOf(0xA4), &quot;ISMRM20 (I-OS)&quot;);</span>
+<span class="nc" id="L783">        isEquipment.put(Long.valueOf(0xA5), &quot;ISMRM30 (I-OS)&quot;);</span>
+<span class="nc" id="L784">        isEquipment.put(Long.valueOf(0xA6), &quot;ISMRM40 (I-OS)&quot;);</span>
+<span class="nc" id="L785">        isEquipment.put(Long.valueOf(0x108), &quot;ISTHBLBXAC2&quot;);</span>
+<span class="nc" id="L786">        isEquipment.put(Long.valueOf(0x109), &quot;ISTHBLBXAC5&quot;);</span>
+<span class="nc" id="L787">        isEquipment.put(Long.valueOf(0x10A), &quot;ISTHBLBXAC20&quot;);</span>
+<span class="nc" id="L788">        isEquipment.put(Long.valueOf(0x10B), &quot;ISUltraAC2 (THB)&quot;);</span>
+<span class="nc" id="L789">        isEquipment.put(Long.valueOf(0x10C), &quot;ISUltraAC10 (THB)&quot;);</span>
+<span class="nc" id="L790">        isEquipment.put(Long.valueOf(0x10D), &quot;ISUltraAC20 (THB)&quot;);</span>
+<span class="nc" id="L791">        isEquipment.put(Long.valueOf(0x11D), &quot;ISTHBAngelECMSuite&quot;);</span>
+<span class="nc" id="L792">        isEquipment.put(Long.valueOf(0x11e), &quot;ISTHBBloodhoundActiveProbe&quot;);</span>
+<span class="nc" id="L793">        isEquipment.put(Long.valueOf(0x121), &quot;ISRotaryAC2&quot;);</span>
+<span class="nc" id="L794">        isEquipment.put(Long.valueOf(0x122), &quot;ISRotaryAC5&quot;);</span>
+<span class="nc" id="L795">        isEquipment.put(Long.valueOf(0x123), &quot;ISHeavyGaussRifle&quot;);</span>
+<span class="nc" id="L796">        isEquipment.put(Long.valueOf(0x12B), &quot;ISRocketLauncher10&quot;);</span>
+<span class="nc" id="L797">        isEquipment.put(Long.valueOf(0x12C), &quot;ISRocketLauncher15&quot;);</span>
+<span class="nc" id="L798">        isEquipment.put(Long.valueOf(0x12D), &quot;ISRocketLauncher20&quot;);</span>
+
+<span class="nc" id="L800">        Hashtable&lt;Long, String&gt; isAmmo = new Hashtable&lt;Long, String&gt;();</span>
+<span class="nc" id="L801">        AMMO.put(HMVTechType.INNER_SPHERE, isAmmo);</span>
+<span class="nc" id="L802">        isAmmo.put(Long.valueOf(0x3E), &quot;ISAC2 Ammo&quot;);</span>
+<span class="nc" id="L803">        isAmmo.put(Long.valueOf(0x3F), &quot;ISAC5 Ammo&quot;);</span>
+<span class="nc" id="L804">        isAmmo.put(Long.valueOf(0x40), &quot;ISAC10 Ammo&quot;);</span>
+<span class="nc" id="L805">        isAmmo.put(Long.valueOf(0x41), &quot;ISAC20 Ammo&quot;);</span>
+<span class="nc" id="L806">        isAmmo.put(Long.valueOf(0x42), &quot;ISAMS Ammo&quot;);</span>
+<span class="nc" id="L807">        isAmmo.put(Long.valueOf(0x43), &quot;Long Tom Cannon Ammo&quot;);</span>
+<span class="nc" id="L808">        isAmmo.put(Long.valueOf(0x44), &quot;Sniper Cannon Ammo&quot;);</span>
+<span class="nc" id="L809">        isAmmo.put(Long.valueOf(0x45), &quot;Thumper Cannon Ammo&quot;);</span>
+<span class="nc" id="L810">        isAmmo.put(Long.valueOf(0x46), &quot;ISLightGauss Ammo&quot;);</span>
+<span class="nc" id="L811">        isAmmo.put(Long.valueOf(0x47), &quot;ISGauss Ammo&quot;);</span>
+<span class="nc" id="L812">        isAmmo.put(Long.valueOf(0x4B), &quot;ISLBXAC2 Ammo&quot;);</span>
+<span class="nc" id="L813">        isAmmo.put(Long.valueOf(0x4C), &quot;ISLBXAC5 Ammo&quot;);</span>
+<span class="nc" id="L814">        isAmmo.put(Long.valueOf(0x4D), &quot;ISLBXAC10 Ammo&quot;);</span>
+<span class="nc" id="L815">        isAmmo.put(Long.valueOf(0x4E), &quot;ISLBXAC20 Ammo&quot;);</span>
+<span class="nc" id="L816">        isAmmo.put(Long.valueOf(0x4F), &quot;ISMG Ammo (200)&quot;);</span>
+<span class="nc" id="L817">        isAmmo.put(Long.valueOf(0x50), &quot;ISLAC2 Ammo&quot;);</span>
+<span class="nc" id="L818">        isAmmo.put(Long.valueOf(0x51), &quot;ISLAC5 Ammo&quot;);</span>
+<span class="nc" id="L819">        isAmmo.put(Long.valueOf(0x52), &quot;ISHeavyFlamer Ammo&quot;);</span>
+<span class="nc" id="L820">        isAmmo.put(Long.valueOf(0x54), &quot;ISUltraAC2 Ammo&quot;);</span>
+<span class="nc" id="L821">        isAmmo.put(Long.valueOf(0x55), &quot;ISUltraAC5 Ammo&quot;);</span>
+<span class="nc" id="L822">        isAmmo.put(Long.valueOf(0x56), &quot;ISUltraAC10 Ammo&quot;);</span>
+<span class="nc" id="L823">        isAmmo.put(Long.valueOf(0x57), &quot;ISUltraAC20 Ammo&quot;);</span>
+
+<span class="nc" id="L825">        isAmmo.put(Long.valueOf(0x60), &quot;ISLRM5 Ammo&quot;);</span>
+<span class="nc" id="L826">        isAmmo.put(Long.valueOf(0x61), &quot;ISLRM10 Ammo&quot;);</span>
+<span class="nc" id="L827">        isAmmo.put(Long.valueOf(0x62), &quot;ISLRM15 Ammo&quot;);</span>
+<span class="nc" id="L828">        isAmmo.put(Long.valueOf(0x63), &quot;ISLRM20 Ammo&quot;);</span>
+<span class="nc" id="L829">        isAmmo.put(Long.valueOf(0x66), &quot;ISiNarc Pods&quot;);</span>
+<span class="nc" id="L830">        isAmmo.put(Long.valueOf(0x67), &quot;ISSRM2 Ammo&quot;);</span>
+<span class="nc" id="L831">        isAmmo.put(Long.valueOf(0x68), &quot;ISSRM4 Ammo&quot;);</span>
+<span class="nc" id="L832">        isAmmo.put(Long.valueOf(0x69), &quot;ISSRM6 Ammo&quot;);</span>
+<span class="nc" id="L833">        isAmmo.put(Long.valueOf(0x6A), &quot;ISStreakSRM2 Ammo&quot;);</span>
+<span class="nc" id="L834">        isAmmo.put(Long.valueOf(0x6B), &quot;ISStreakSRM4 Ammo&quot;);</span>
+<span class="nc" id="L835">        isAmmo.put(Long.valueOf(0x6C), &quot;ISStreakSRM6 Ammo&quot;);</span>
+<span class="nc" id="L836">        isAmmo.put(Long.valueOf(0x6D), &quot;ISThunderbolt5 Ammo&quot;);</span>
+<span class="nc" id="L837">        isAmmo.put(Long.valueOf(0x6E), &quot;ISThunderbolt10 Ammo&quot;);</span>
+<span class="nc" id="L838">        isAmmo.put(Long.valueOf(0x6F), &quot;ISThunderbolt15 Ammo&quot;);</span>
+<span class="nc" id="L839">        isAmmo.put(Long.valueOf(0x70), &quot;ISThunderbolt20 Ammo&quot;);</span>
+<span class="nc" id="L840">        isAmmo.put(Long.valueOf(0x71), &quot;ISArrowIV Ammo&quot;);</span>
+<span class="nc" id="L841">        isAmmo.put(Long.valueOf(0x79), &quot;ISNarc Pods&quot;);</span>
+<span class="nc" id="L842">        isAmmo.put(Long.valueOf(0x85), &quot;ISVehicleFlamer Ammo&quot;);</span>
+<span class="nc" id="L843">        isAmmo.put(Long.valueOf(0x86), &quot;ISLongTom Ammo&quot;);</span>
+<span class="nc" id="L844">        isAmmo.put(Long.valueOf(0x87), &quot;ISSniper Ammo&quot;);</span>
+<span class="nc" id="L845">        isAmmo.put(Long.valueOf(0x88), &quot;ISThumper Ammo&quot;);</span>
+<span class="nc" id="L846">        isAmmo.put(Long.valueOf(0x89), &quot;ISMRM10 Ammo&quot;);</span>
+<span class="nc" id="L847">        isAmmo.put(Long.valueOf(0x8A), &quot;ISMRM20 Ammo&quot;);</span>
+<span class="nc" id="L848">        isAmmo.put(Long.valueOf(0x8B), &quot;ISMRM30 Ammo&quot;);</span>
+<span class="nc" id="L849">        isAmmo.put(Long.valueOf(0x8C), &quot;ISMRM40 Ammo&quot;);</span>
+<span class="nc" id="L850">        isAmmo.put(Long.valueOf(0x92), &quot;ISLRTorpedo5 Ammo&quot;);</span>
+<span class="nc" id="L851">        isAmmo.put(Long.valueOf(0x93), &quot;ISLRTorpedo10 Ammo&quot;);</span>
+<span class="nc" id="L852">        isAmmo.put(Long.valueOf(0x94), &quot;ISLRTorpedo15 Ammo&quot;);</span>
+<span class="nc" id="L853">        isAmmo.put(Long.valueOf(0x95), &quot;ISLRTorpedo20 Ammo&quot;);</span>
+<span class="nc" id="L854">        isAmmo.put(Long.valueOf(0x96), &quot;ISSRT2 Ammo&quot;);</span>
+<span class="nc" id="L855">        isAmmo.put(Long.valueOf(0x97), &quot;ISSRT4 Ammo&quot;);</span>
+<span class="nc" id="L856">        isAmmo.put(Long.valueOf(0x98), &quot;ISSRT6 Ammo&quot;);</span>
+<span class="nc" id="L857">        isAmmo.put(Long.valueOf(0x108), &quot;ISTHBLBXAC2 Ammo&quot;);</span>
+<span class="nc" id="L858">        isAmmo.put(Long.valueOf(0x109), &quot;ISTHBLBXAC5 Ammo&quot;);</span>
+<span class="nc" id="L859">        isAmmo.put(Long.valueOf(0x10A), &quot;ISTHBLBXAC20 Ammo&quot;);</span>
+<span class="nc" id="L860">        isAmmo.put(Long.valueOf(0x10B), &quot;ISUltraAC2 (THB) Ammo&quot;);</span>
+<span class="nc" id="L861">        isAmmo.put(Long.valueOf(0x10C), &quot;ISUltraAC10 (THB) Ammo&quot;);</span>
+<span class="nc" id="L862">        isAmmo.put(Long.valueOf(0x10D), &quot;ISUltraAC20 (THB) Ammo&quot;);</span>
+<span class="nc" id="L863">        isAmmo.put(Long.valueOf(0x121), &quot;ISRotaryAC2 Ammo&quot;);</span>
+<span class="nc" id="L864">        isAmmo.put(Long.valueOf(0x122), &quot;ISRotaryAC5 Ammo&quot;);</span>
+<span class="nc" id="L865">        isAmmo.put(Long.valueOf(0x123), &quot;ISHeavyGauss Ammo&quot;);</span>
+
+        // clan criticals
+        //
+<span class="nc" id="L869">        Hashtable&lt;Long, String&gt; clanEquipment = new Hashtable&lt;Long, String&gt;();</span>
+<span class="nc" id="L870">        EQUIPMENT.put(HMVTechType.CLAN, clanEquipment);</span>
+<span class="nc" id="L871">        clanEquipment.put(Long.valueOf(0x0A), &quot;CLDouble Heat Sink&quot;);</span>
+<span class="nc" id="L872">        clanEquipment.put(Long.valueOf(0x0B), &quot;Jump Jet&quot;);</span>
+<span class="nc" id="L873">        clanEquipment.put(Long.valueOf(0x12), &quot;CLTargeting Computer&quot;);</span>
+<span class="nc" id="L874">        clanEquipment.put(Long.valueOf(0x14), &quot;Endo Steel&quot;);</span>
+<span class="nc" id="L875">        clanEquipment.put(Long.valueOf(0x15), &quot;Ferro-Fibrous&quot;);</span>
+<span class="nc" id="L876">        clanEquipment.put(Long.valueOf(0x17), &quot;CLMASC&quot;);</span>
+<span class="nc" id="L877">        clanEquipment.put(Long.valueOf(0x18), &quot;CLArtemisIV&quot;);</span>
+<span class="nc" id="L878">        clanEquipment.put(Long.valueOf(0x33), &quot;CLERLargeLaser&quot;);</span>
+<span class="nc" id="L879">        clanEquipment.put(Long.valueOf(0x34), &quot;CLERMediumLaser&quot;);</span>
+<span class="nc" id="L880">        clanEquipment.put(Long.valueOf(0x35), &quot;CLERSmallLaser&quot;);</span>
+<span class="nc" id="L881">        clanEquipment.put(Long.valueOf(0x36), &quot;CLERPPC&quot;);</span>
+<span class="nc" id="L882">        clanEquipment.put(Long.valueOf(0x39), &quot;CLSmallLaser&quot;);</span>
+<span class="nc" id="L883">        clanEquipment.put(Long.valueOf(0x37), &quot;CLFlamer&quot;);</span>
+<span class="nc" id="L884">        clanEquipment.put(Long.valueOf(0x38), &quot;CLMediumLaser&quot;);</span>
+<span class="nc" id="L885">        clanEquipment.put(Long.valueOf(0x3A), &quot;CLPPC&quot;);</span>
+<span class="nc" id="L886">        clanEquipment.put(Long.valueOf(0x3C), &quot;CLLargePulseLaser&quot;);</span>
+<span class="nc" id="L887">        clanEquipment.put(Long.valueOf(0x3D), &quot;CLMediumPulseLaser&quot;);</span>
+<span class="nc" id="L888">        clanEquipment.put(Long.valueOf(0x3E), &quot;CLSmallPulseLaser&quot;);</span>
+<span class="nc" id="L889">        clanEquipment.put(Long.valueOf(0x3F), &quot;CLAngelECMSuite&quot;);</span>
+<span class="nc" id="L890">        clanEquipment.put(Long.valueOf(0x40), &quot;CLAntiMissileSystem&quot;);</span>
+<span class="nc" id="L891">        clanEquipment.put(Long.valueOf(0x41), &quot;CLGaussRifle&quot;);</span>
+<span class="nc" id="L892">        clanEquipment.put(Long.valueOf(0x42), &quot;CLLBXAC2&quot;);</span>
+<span class="nc" id="L893">        clanEquipment.put(Long.valueOf(0x43), &quot;CLLBXAC5&quot;);</span>
+<span class="nc" id="L894">        clanEquipment.put(Long.valueOf(0x44), &quot;CLLBXAC10&quot;);</span>
+<span class="nc" id="L895">        clanEquipment.put(Long.valueOf(0x45), &quot;CLLBXAC20&quot;);</span>
+<span class="nc" id="L896">        clanEquipment.put(Long.valueOf(0x46), &quot;CLMG&quot;);</span>
+<span class="nc" id="L897">        clanEquipment.put(Long.valueOf(0x47), &quot;CLUltraAC2&quot;);</span>
+<span class="nc" id="L898">        clanEquipment.put(Long.valueOf(0x48), &quot;CLUltraAC5&quot;);</span>
+<span class="nc" id="L899">        clanEquipment.put(Long.valueOf(0x49), &quot;CLUltraAC10&quot;);</span>
+<span class="nc" id="L900">        clanEquipment.put(Long.valueOf(0x4A), &quot;CLUltraAC20&quot;);</span>
+<span class="nc" id="L901">        clanEquipment.put(Long.valueOf(0x4B), &quot;CLLRM5&quot;);</span>
+<span class="nc" id="L902">        clanEquipment.put(Long.valueOf(0x4C), &quot;CLLRM10&quot;);</span>
+<span class="nc" id="L903">        clanEquipment.put(Long.valueOf(0x4D), &quot;CLLRM15&quot;);</span>
+<span class="nc" id="L904">        clanEquipment.put(Long.valueOf(0x4E), &quot;CLLRM20&quot;);</span>
+<span class="nc" id="L905">        clanEquipment.put(Long.valueOf(0x4F), &quot;CLSRM2&quot;);</span>
+<span class="nc" id="L906">        clanEquipment.put(Long.valueOf(0x50), &quot;CLSRM4&quot;);</span>
+<span class="nc" id="L907">        clanEquipment.put(Long.valueOf(0x51), &quot;CLSRM6&quot;);</span>
+<span class="nc" id="L908">        clanEquipment.put(Long.valueOf(0x52), &quot;CLStreakSRM2&quot;);</span>
+<span class="nc" id="L909">        clanEquipment.put(Long.valueOf(0x53), &quot;CLStreakSRM4&quot;);</span>
+<span class="nc" id="L910">        clanEquipment.put(Long.valueOf(0x54), &quot;CLStreakSRM6&quot;);</span>
+<span class="nc" id="L911">        clanEquipment.put(Long.valueOf(0x55), &quot;CLArrowIVSystem&quot;);</span>
+<span class="nc" id="L912">        clanEquipment.put(Long.valueOf(0x56), &quot;CLAntiPersonnelPod&quot;);</span>
+<span class="nc" id="L913">        clanEquipment.put(Long.valueOf(0x57), &quot;CLActiveProbe&quot;);</span>
+<span class="nc" id="L914">        clanEquipment.put(Long.valueOf(0x58), &quot;CLECMSuite&quot;);</span>
+<span class="nc" id="L915">        clanEquipment.put(Long.valueOf(0x59), &quot;CLNarcBeacon&quot;);</span>
+<span class="nc" id="L916">        clanEquipment.put(Long.valueOf(0x5A), &quot;CLTAG&quot;);</span>
+<span class="nc" id="L917">        clanEquipment.put(Long.valueOf(0x5B), &quot;CLERMicroLaser&quot;);</span>
+<span class="nc" id="L918">        clanEquipment.put(Long.valueOf(0x5C), &quot;CLLRM5 (OS)&quot;);</span>
+<span class="nc" id="L919">        clanEquipment.put(Long.valueOf(0x5D), &quot;CLLRM10 (OS)&quot;);</span>
+<span class="nc" id="L920">        clanEquipment.put(Long.valueOf(0x5E), &quot;CLLRM15 (OS)&quot;);</span>
+<span class="nc" id="L921">        clanEquipment.put(Long.valueOf(0x5F), &quot;CLLRM20 (OS)&quot;);</span>
+<span class="nc" id="L922">        clanEquipment.put(Long.valueOf(0x60), &quot;CLSRM2 (OS)&quot;);</span>
+<span class="nc" id="L923">        clanEquipment.put(Long.valueOf(0x61), &quot;CLSRM4 (OS)&quot;);</span>
+<span class="nc" id="L924">        clanEquipment.put(Long.valueOf(0x62), &quot;CLSRM6 (OS)&quot;);</span>
+<span class="nc" id="L925">        clanEquipment.put(Long.valueOf(0x63), &quot;CLStreakSRM2 (OS)&quot;);</span>
+<span class="nc" id="L926">        clanEquipment.put(Long.valueOf(0x64), &quot;CLStreakSRM4 (OS)&quot;);</span>
+<span class="nc" id="L927">        clanEquipment.put(Long.valueOf(0x65), &quot;CLStreakSRM6 (OS)&quot;);</span>
+<span class="nc" id="L928">        clanEquipment.put(Long.valueOf(0x66), &quot;CLVehicleFlamer&quot;);</span>
+<span class="nc" id="L929">        clanEquipment.put(Long.valueOf(0x67), &quot;CLLongTomArtillery&quot;);</span>
+<span class="nc" id="L930">        clanEquipment.put(Long.valueOf(0x68), &quot;CLSniperArtillery&quot;);</span>
+<span class="nc" id="L931">        clanEquipment.put(Long.valueOf(0x69), &quot;CLThumperArtillery&quot;);</span>
+<span class="nc" id="L932">        clanEquipment.put(Long.valueOf(0x6A), &quot;CLLRTorpedo5&quot;);</span>
+<span class="nc" id="L933">        clanEquipment.put(Long.valueOf(0x6B), &quot;CLLRTorpedo10&quot;);</span>
+<span class="nc" id="L934">        clanEquipment.put(Long.valueOf(0x6C), &quot;CLLRTorpedo15&quot;);</span>
+<span class="nc" id="L935">        clanEquipment.put(Long.valueOf(0x6D), &quot;CLLRTorpedo20&quot;);</span>
+<span class="nc" id="L936">        clanEquipment.put(Long.valueOf(0x6E), &quot;CLSRT2&quot;);</span>
+<span class="nc" id="L937">        clanEquipment.put(Long.valueOf(0x6F), &quot;CLSRT4&quot;);</span>
+<span class="nc" id="L938">        clanEquipment.put(Long.valueOf(0x70), &quot;CLSRT6&quot;);</span>
+<span class="nc" id="L939">        clanEquipment.put(Long.valueOf(0x7B), &quot;CLLRM5 (OS)&quot;);</span>
+<span class="nc" id="L940">        clanEquipment.put(Long.valueOf(0x7C), &quot;CLLRM10 (OS)&quot;);</span>
+<span class="nc" id="L941">        clanEquipment.put(Long.valueOf(0x7D), &quot;CLLRM15 (OS)&quot;);</span>
+<span class="nc" id="L942">        clanEquipment.put(Long.valueOf(0x7E), &quot;CLLRM20 (OS)&quot;);</span>
+<span class="nc" id="L943">        clanEquipment.put(Long.valueOf(0x7F), &quot;CLSRM2 (OS)&quot;);</span>
+<span class="nc" id="L944">        clanEquipment.put(Long.valueOf(0x80), &quot;CLHeavyLargeLaser&quot;);</span>
+<span class="nc" id="L945">        clanEquipment.put(Long.valueOf(0x81), &quot;CLHeavyMediumLaser&quot;);</span>
+<span class="nc" id="L946">        clanEquipment.put(Long.valueOf(0x82), &quot;CLHeavySmallLaser&quot;);</span>
+<span class="nc" id="L947">        clanEquipment.put(Long.valueOf(0x85), &quot;CLVehicleFlamer&quot;); // ?</span>
+<span class="nc" id="L948">        clanEquipment.put(Long.valueOf(0x92), &quot;CLLRTorpedo5&quot;);</span>
+<span class="nc" id="L949">        clanEquipment.put(Long.valueOf(0x93), &quot;CLLRTorpedo10&quot;);</span>
+<span class="nc" id="L950">        clanEquipment.put(Long.valueOf(0x94), &quot;CLLRTorpedo15&quot;);</span>
+<span class="nc" id="L951">        clanEquipment.put(Long.valueOf(0x95), &quot;CLLRTorpedo20&quot;);</span>
+<span class="nc" id="L952">        clanEquipment.put(Long.valueOf(0x96), &quot;CLSRT2&quot;);</span>
+<span class="nc" id="L953">        clanEquipment.put(Long.valueOf(0x97), &quot;CLSRT4&quot;);</span>
+<span class="nc" id="L954">        clanEquipment.put(Long.valueOf(0x98), &quot;CLSRT6&quot;);</span>
+<span class="nc" id="L955">        clanEquipment.put(Long.valueOf(0xA8), &quot;CLMicroPulseLaser&quot;);</span>
+<span class="nc" id="L956">        clanEquipment.put(Long.valueOf(0xAD), &quot;CLLightMG&quot;);</span>
+<span class="nc" id="L957">        clanEquipment.put(Long.valueOf(0xAE), &quot;CLHeavyMG&quot;);</span>
+<span class="nc" id="L958">        clanEquipment.put(Long.valueOf(0xAF), &quot;CLLightActiveProbe&quot;);</span>
+<span class="nc" id="L959">        clanEquipment.put(Long.valueOf(0xB4), &quot;CLLightTAG&quot;);</span>
+<span class="nc" id="L960">        clanEquipment.put(Long.valueOf(0xFC), &quot;CLATM3&quot;);</span>
+<span class="nc" id="L961">        clanEquipment.put(Long.valueOf(0xFD), &quot;CLATM6&quot;);</span>
+<span class="nc" id="L962">        clanEquipment.put(Long.valueOf(0xFE), &quot;CLATM9&quot;);</span>
+<span class="nc" id="L963">        clanEquipment.put(Long.valueOf(0xFF), &quot;CLATM12&quot;);</span>
+
+<span class="nc" id="L965">        Hashtable&lt;Long, String&gt; clAmmo = new Hashtable&lt;Long, String&gt;();</span>
+<span class="nc" id="L966">        AMMO.put(HMVTechType.CLAN, clAmmo);</span>
+<span class="nc" id="L967">        clAmmo.put(Long.valueOf(0x40), &quot;CLAMS Ammo&quot;);</span>
+<span class="nc" id="L968">        clAmmo.put(Long.valueOf(0x41), &quot;CLGauss Ammo&quot;);</span>
+<span class="nc" id="L969">        clAmmo.put(Long.valueOf(0x42), &quot;CLLBXAC2 Ammo&quot;);</span>
+<span class="nc" id="L970">        clAmmo.put(Long.valueOf(0x43), &quot;CLLBXAC5 Ammo&quot;);</span>
+<span class="nc" id="L971">        clAmmo.put(Long.valueOf(0x44), &quot;CLLBXAC10 Ammo&quot;);</span>
+<span class="nc" id="L972">        clAmmo.put(Long.valueOf(0x45), &quot;CLLBXAC20 Ammo&quot;);</span>
+<span class="nc" id="L973">        clAmmo.put(Long.valueOf(0x46), &quot;CLMG Ammo (200)&quot;);</span>
+<span class="nc" id="L974">        clAmmo.put(Long.valueOf(0x47), &quot;CLUltraAC2 Ammo&quot;);</span>
+<span class="nc" id="L975">        clAmmo.put(Long.valueOf(0x48), &quot;CLUltraAC5 Ammo&quot;);</span>
+<span class="nc" id="L976">        clAmmo.put(Long.valueOf(0x49), &quot;CLUltraAC10 Ammo&quot;);</span>
+<span class="nc" id="L977">        clAmmo.put(Long.valueOf(0x4A), &quot;CLUltraAC20 Ammo&quot;);</span>
+<span class="nc" id="L978">        clAmmo.put(Long.valueOf(0x4B), &quot;CLLRM5 Ammo&quot;);</span>
+<span class="nc" id="L979">        clAmmo.put(Long.valueOf(0x4C), &quot;CLLRM10 Ammo&quot;);</span>
+<span class="nc" id="L980">        clAmmo.put(Long.valueOf(0x4D), &quot;CLLRM15 Ammo&quot;);</span>
+<span class="nc" id="L981">        clAmmo.put(Long.valueOf(0x4E), &quot;CLLRM20 Ammo&quot;);</span>
+<span class="nc" id="L982">        clAmmo.put(Long.valueOf(0x4F), &quot;CLSRM2 Ammo&quot;);</span>
+<span class="nc" id="L983">        clAmmo.put(Long.valueOf(0x50), &quot;CLSRM4 Ammo&quot;);</span>
+<span class="nc" id="L984">        clAmmo.put(Long.valueOf(0x51), &quot;CLSRM6 Ammo&quot;);</span>
+<span class="nc" id="L985">        clAmmo.put(Long.valueOf(0x52), &quot;CLStreakSRM2 Ammo&quot;);</span>
+<span class="nc" id="L986">        clAmmo.put(Long.valueOf(0x53), &quot;CLStreakSRM4 Ammo&quot;);</span>
+<span class="nc" id="L987">        clAmmo.put(Long.valueOf(0x54), &quot;CLStreakSRM6 Ammo&quot;);</span>
+<span class="nc" id="L988">        clAmmo.put(Long.valueOf(0x55), &quot;CLArrowIV Ammo&quot;);</span>
+<span class="nc" id="L989">        clAmmo.put(Long.valueOf(0x66), &quot;CLVehicleFlamer Ammo&quot;);</span>
+<span class="nc" id="L990">        clAmmo.put(Long.valueOf(0x67), &quot;CLLongTomArtillery Ammo&quot;);</span>
+<span class="nc" id="L991">        clAmmo.put(Long.valueOf(0x68), &quot;CLSniperArtillery Ammo&quot;);</span>
+<span class="nc" id="L992">        clAmmo.put(Long.valueOf(0x69), &quot;CLThumperArtillery Ammo&quot;);</span>
+<span class="nc" id="L993">        clAmmo.put(Long.valueOf(0x6A), &quot;CLTorpedoLRM5 Ammo&quot;);</span>
+<span class="nc" id="L994">        clAmmo.put(Long.valueOf(0x6B), &quot;CLTorpedoLRM10 Ammo&quot;);</span>
+<span class="nc" id="L995">        clAmmo.put(Long.valueOf(0x6C), &quot;CLTorpedoLRM15 Ammo&quot;);</span>
+<span class="nc" id="L996">        clAmmo.put(Long.valueOf(0x6D), &quot;CLTorpedoLRM20 Ammo&quot;);</span>
+<span class="nc" id="L997">        clAmmo.put(Long.valueOf(0x6E), &quot;CLTorpedoSRM2 Ammo&quot;);</span>
+<span class="nc" id="L998">        clAmmo.put(Long.valueOf(0x6F), &quot;CLTorpedoSRM4 Ammo&quot;);</span>
+<span class="nc" id="L999">        clAmmo.put(Long.valueOf(0x70), &quot;CLTorpedoSRM6 Ammo&quot;);</span>
+<span class="nc" id="L1000">        clAmmo.put(Long.valueOf(0x85), &quot;CLVehicleFlamer Ammo&quot;); // ?</span>
+<span class="nc" id="L1001">        clAmmo.put(Long.valueOf(0x92), &quot;CLTorpedoLRM5 Ammo&quot;);</span>
+<span class="nc" id="L1002">        clAmmo.put(Long.valueOf(0x93), &quot;CLTorpedoLRM10 Ammo&quot;);</span>
+<span class="nc" id="L1003">        clAmmo.put(Long.valueOf(0x94), &quot;CLTorpedoLRM15 Ammo&quot;);</span>
+<span class="nc" id="L1004">        clAmmo.put(Long.valueOf(0x95), &quot;CLTorpedoLRM20 Ammo&quot;);</span>
+<span class="nc" id="L1005">        clAmmo.put(Long.valueOf(0x96), &quot;CLTorpedoSRM2 Ammo&quot;);</span>
+<span class="nc" id="L1006">        clAmmo.put(Long.valueOf(0x97), &quot;CLTorpedoSRM4 Ammo&quot;);</span>
+<span class="nc" id="L1007">        clAmmo.put(Long.valueOf(0x98), &quot;CLTorpedoSRM6 Ammo&quot;);</span>
+<span class="nc" id="L1008">        clAmmo.put(Long.valueOf(0xAD), &quot;CLLightMG Ammo (200)&quot;);</span>
+<span class="nc" id="L1009">        clAmmo.put(Long.valueOf(0xAE), &quot;CLHeavyMG Ammo (100)&quot;);</span>
+<span class="nc" id="L1010">        clAmmo.put(Long.valueOf(0xFC), &quot;CLATM3 Ammo&quot;);</span>
+<span class="nc" id="L1011">        clAmmo.put(Long.valueOf(0xFD), &quot;CLATM6 Ammo&quot;);</span>
+<span class="nc" id="L1012">        clAmmo.put(Long.valueOf(0xFE), &quot;CLATM9 Ammo&quot;);</span>
+<span class="nc" id="L1013">        clAmmo.put(Long.valueOf(0xFF), &quot;CLATM12 Ammo&quot;);</span>
+
+        // mixed *seems* to be the same as IS-base for HMP files
+<span class="nc" id="L1016">        Hashtable&lt;Long, String&gt; mixedEquipment = new Hashtable&lt;Long, String&gt;(isEquipment);</span>
+<span class="nc" id="L1017">        EQUIPMENT.put(HMVTechType.MIXED, mixedEquipment);</span>
+<span class="nc" id="L1018">        mixedEquipment.put(Long.valueOf(0x58), &quot;CLERMicroLaser&quot;);</span>
+<span class="nc" id="L1019">        mixedEquipment.put(Long.valueOf(0x5E), &quot;CLLightMG&quot;);</span>
+<span class="nc" id="L1020">        mixedEquipment.put(Long.valueOf(0x5F), &quot;CLHeavyMG&quot;);</span>
+<span class="nc" id="L1021">        mixedEquipment.put(Long.valueOf(0x64), &quot;CLLightActiveProbe&quot;);</span>
+<span class="nc" id="L1022">        mixedEquipment.put(Long.valueOf(0x65), &quot;CLLightTAG&quot;);</span>
+<span class="nc" id="L1023">        mixedEquipment.put(Long.valueOf(0xA7), &quot;CLERLargeLaser&quot;);</span>
+<span class="nc" id="L1024">        mixedEquipment.put(Long.valueOf(0xA8), &quot;CLERMediumLaser&quot;);</span>
+<span class="nc" id="L1025">        mixedEquipment.put(Long.valueOf(0xA9), &quot;CLERSmallLaser&quot;);</span>
+
+<span class="nc" id="L1027">        mixedEquipment.put(Long.valueOf(0xAA), &quot;CLERPPC&quot;);</span>
+<span class="nc" id="L1028">        mixedEquipment.put(Long.valueOf(0xAB), &quot;CLFlamer&quot;);</span>
+
+<span class="nc" id="L1030">        mixedEquipment.put(Long.valueOf(0xB0), &quot;CLLargePulseLaser&quot;);</span>
+<span class="nc" id="L1031">        mixedEquipment.put(Long.valueOf(0xB1), &quot;CLMediumPulseLaser&quot;);</span>
+<span class="nc" id="L1032">        mixedEquipment.put(Long.valueOf(0xB2), &quot;CLSmallPulseLaser&quot;);</span>
+
+<span class="nc" id="L1034">        mixedEquipment.put(Long.valueOf(0xB4), &quot;CLAntiMissileSystem&quot;);</span>
+<span class="nc" id="L1035">        mixedEquipment.put(Long.valueOf(0xB5), &quot;CLGaussRifle&quot;);</span>
+<span class="nc" id="L1036">        mixedEquipment.put(Long.valueOf(0xB6), &quot;CLLBXAC2&quot;);</span>
+<span class="nc" id="L1037">        mixedEquipment.put(Long.valueOf(0xB7), &quot;CLLBXAC5&quot;);</span>
+<span class="nc" id="L1038">        mixedEquipment.put(Long.valueOf(0xB8), &quot;CLLBXAC10&quot;);</span>
+<span class="nc" id="L1039">        mixedEquipment.put(Long.valueOf(0xB9), &quot;CLLBXAC20&quot;);</span>
+<span class="nc" id="L1040">        mixedEquipment.put(Long.valueOf(0xBA), &quot;CLMG&quot;);</span>
+<span class="nc" id="L1041">        mixedEquipment.put(Long.valueOf(0xBB), &quot;CLUltraAC2&quot;);</span>
+<span class="nc" id="L1042">        mixedEquipment.put(Long.valueOf(0xBC), &quot;CLUltraAC5&quot;);</span>
+<span class="nc" id="L1043">        mixedEquipment.put(Long.valueOf(0xBD), &quot;CLUltraAC10&quot;);</span>
+<span class="nc" id="L1044">        mixedEquipment.put(Long.valueOf(0xBE), &quot;CLUltraAC20&quot;);</span>
+<span class="nc" id="L1045">        mixedEquipment.put(Long.valueOf(0xBF), &quot;CLLRM5&quot;);</span>
+<span class="nc" id="L1046">        mixedEquipment.put(Long.valueOf(0xC0), &quot;CLLRM10&quot;);</span>
+<span class="nc" id="L1047">        mixedEquipment.put(Long.valueOf(0xC1), &quot;CLLRM15&quot;);</span>
+<span class="nc" id="L1048">        mixedEquipment.put(Long.valueOf(0xC2), &quot;CLLRM20&quot;);</span>
+<span class="nc" id="L1049">        mixedEquipment.put(Long.valueOf(0xC3), &quot;CLSRM2&quot;);</span>
+<span class="nc" id="L1050">        mixedEquipment.put(Long.valueOf(0xC4), &quot;CLSRM4&quot;);</span>
+<span class="nc" id="L1051">        mixedEquipment.put(Long.valueOf(0xC5), &quot;CLSRM6&quot;);</span>
+<span class="nc" id="L1052">        mixedEquipment.put(Long.valueOf(0xC6), &quot;CLStreakSRM2&quot;);</span>
+<span class="nc" id="L1053">        mixedEquipment.put(Long.valueOf(0xC7), &quot;CLStreakSRM4&quot;);</span>
+<span class="nc" id="L1054">        mixedEquipment.put(Long.valueOf(0xC8), &quot;CLStreakSRM6&quot;);</span>
+<span class="nc" id="L1055">        mixedEquipment.put(Long.valueOf(0xC9), &quot;CLArrowIVSystem&quot;);</span>
+<span class="nc" id="L1056">        mixedEquipment.put(Long.valueOf(0xCA), &quot;CLAntiPersonnelPod&quot;);</span>
+<span class="nc" id="L1057">        mixedEquipment.put(Long.valueOf(0xCB), &quot;CLActiveProbe&quot;);</span>
+<span class="nc" id="L1058">        mixedEquipment.put(Long.valueOf(0xCC), &quot;CLECMSuite&quot;);</span>
+<span class="nc" id="L1059">        mixedEquipment.put(Long.valueOf(0xCD), &quot;CLNarcBeacon&quot;);</span>
+<span class="nc" id="L1060">        mixedEquipment.put(Long.valueOf(0xCE), &quot;CLTAG&quot;);</span>
+
+<span class="nc" id="L1062">        mixedEquipment.put(Long.valueOf(0xD0), &quot;CLLRM5 (OS)&quot;);</span>
+<span class="nc" id="L1063">        mixedEquipment.put(Long.valueOf(0xD1), &quot;CLLRM10 (OS)&quot;);</span>
+<span class="nc" id="L1064">        mixedEquipment.put(Long.valueOf(0xD2), &quot;CLLRM15 (OS)&quot;);</span>
+<span class="nc" id="L1065">        mixedEquipment.put(Long.valueOf(0xD3), &quot;CLLRM20 (OS)&quot;);</span>
+<span class="nc" id="L1066">        mixedEquipment.put(Long.valueOf(0xD4), &quot;CLSRM2 (OS)&quot;);</span>
+<span class="nc" id="L1067">        mixedEquipment.put(Long.valueOf(0xD5), &quot;CLSRM2 (OS)&quot;);</span>
+<span class="nc" id="L1068">        mixedEquipment.put(Long.valueOf(0xD6), &quot;CLSRM2 (OS)&quot;);</span>
+<span class="nc" id="L1069">        mixedEquipment.put(Long.valueOf(0xD7), &quot;CLStreakSRM2 (OS)&quot;);</span>
+<span class="nc" id="L1070">        mixedEquipment.put(Long.valueOf(0xD8), &quot;CLStreakSRM4 (OS)&quot;);</span>
+<span class="nc" id="L1071">        mixedEquipment.put(Long.valueOf(0xD9), &quot;CLStreakSRM6 (OS)&quot;);</span>
+<span class="nc" id="L1072">        mixedEquipment.put(Long.valueOf(0xDA), &quot;CLVehicleFlamer&quot;);</span>
+<span class="nc" id="L1073">        mixedEquipment.put(Long.valueOf(0xDB), &quot;CLLongTomArtillery&quot;);</span>
+<span class="nc" id="L1074">        mixedEquipment.put(Long.valueOf(0xDC), &quot;CLSniperArtillery&quot;);</span>
+<span class="nc" id="L1075">        mixedEquipment.put(Long.valueOf(0xDD), &quot;CLThumperArtillery&quot;);</span>
+<span class="nc" id="L1076">        mixedEquipment.put(Long.valueOf(0xDE), &quot;CLLRTorpedo5&quot;);</span>
+<span class="nc" id="L1077">        mixedEquipment.put(Long.valueOf(0xDF), &quot;CLLRTorpedo10&quot;);</span>
+<span class="nc" id="L1078">        mixedEquipment.put(Long.valueOf(0xE0), &quot;CLLRTorpedo15&quot;);</span>
+<span class="nc" id="L1079">        mixedEquipment.put(Long.valueOf(0xE1), &quot;CLLRTorpedo20&quot;);</span>
+<span class="nc" id="L1080">        mixedEquipment.put(Long.valueOf(0xE2), &quot;CLSRT2&quot;);</span>
+<span class="nc" id="L1081">        mixedEquipment.put(Long.valueOf(0xE3), &quot;CLSRT4&quot;);</span>
+<span class="nc" id="L1082">        mixedEquipment.put(Long.valueOf(0xE4), &quot;CLSRT6&quot;);</span>
+
+<span class="nc" id="L1084">        mixedEquipment.put(Long.valueOf(0xF4), &quot;CLHeavyLargeLaser&quot;);</span>
+<span class="nc" id="L1085">        mixedEquipment.put(Long.valueOf(0xF5), &quot;CLHeavyMediumLaser&quot;);</span>
+<span class="nc" id="L1086">        mixedEquipment.put(Long.valueOf(0xF6), &quot;CLHeavySmallLaser&quot;);</span>
+
+<span class="nc" id="L1088">        mixedEquipment.put(Long.valueOf(0xFC), &quot;CLATM3&quot;);</span>
+<span class="nc" id="L1089">        mixedEquipment.put(Long.valueOf(0xFD), &quot;CLATM6&quot;);</span>
+<span class="nc" id="L1090">        mixedEquipment.put(Long.valueOf(0xFE), &quot;CLATM9&quot;);</span>
+<span class="nc" id="L1091">        mixedEquipment.put(Long.valueOf(0xFF), &quot;CLATM12&quot;);</span>
+
+        // but ammo *seems* to use the same numbers as the weapon it goes with
+<span class="nc" id="L1094">        Hashtable&lt;Long, String&gt; mixedAmmo = new Hashtable&lt;Long, String&gt;(isAmmo);</span>
+<span class="nc" id="L1095">        AMMO.put(HMVTechType.MIXED, mixedAmmo);</span>
+<span class="nc" id="L1096">        mixedAmmo.put(Long.valueOf(0x5E), &quot;CLLightMG Ammo&quot;);</span>
+<span class="nc" id="L1097">        mixedAmmo.put(Long.valueOf(0x5F), &quot;CLHeavyMG Ammo&quot;);</span>
+<span class="nc" id="L1098">        mixedAmmo.put(Long.valueOf(0xB4), &quot;CLAntiMissileSystem Ammo&quot;);</span>
+<span class="nc" id="L1099">        mixedAmmo.put(Long.valueOf(0xB5), &quot;CLGaussRifle Ammo&quot;);</span>
+<span class="nc" id="L1100">        mixedAmmo.put(Long.valueOf(0xB6), &quot;CLLBXAC2 Ammo&quot;);</span>
+<span class="nc" id="L1101">        mixedAmmo.put(Long.valueOf(0xB7), &quot;CLLBXAC5 Ammo&quot;);</span>
+<span class="nc" id="L1102">        mixedAmmo.put(Long.valueOf(0xB8), &quot;CLLBXAC10 Ammo&quot;);</span>
+<span class="nc" id="L1103">        mixedAmmo.put(Long.valueOf(0xB9), &quot;CLLBXAC20 Ammo&quot;);</span>
+<span class="nc" id="L1104">        mixedAmmo.put(Long.valueOf(0xBA), &quot;CLMG Ammo&quot;);</span>
+<span class="nc" id="L1105">        mixedAmmo.put(Long.valueOf(0xBB), &quot;CLUltraAC2 Ammo&quot;);</span>
+<span class="nc" id="L1106">        mixedAmmo.put(Long.valueOf(0xBC), &quot;CLUltraAC5 Ammo&quot;);</span>
+<span class="nc" id="L1107">        mixedAmmo.put(Long.valueOf(0xBD), &quot;CLUltraAC10 Ammo&quot;);</span>
+<span class="nc" id="L1108">        mixedAmmo.put(Long.valueOf(0xBE), &quot;CLUltraAC20 Ammo&quot;);</span>
+<span class="nc" id="L1109">        mixedAmmo.put(Long.valueOf(0xBF), &quot;CLLRM5 Ammo&quot;);</span>
+<span class="nc" id="L1110">        mixedAmmo.put(Long.valueOf(0xC0), &quot;CLLRM10 Ammo&quot;);</span>
+<span class="nc" id="L1111">        mixedAmmo.put(Long.valueOf(0xC1), &quot;CLLRM15 Ammo&quot;);</span>
+<span class="nc" id="L1112">        mixedAmmo.put(Long.valueOf(0xC2), &quot;CLLRM20 Ammo&quot;);</span>
+<span class="nc" id="L1113">        mixedAmmo.put(Long.valueOf(0xC3), &quot;CLSRM2 Ammo&quot;);</span>
+<span class="nc" id="L1114">        mixedAmmo.put(Long.valueOf(0xC4), &quot;CLSRM4 Ammo&quot;);</span>
+<span class="nc" id="L1115">        mixedAmmo.put(Long.valueOf(0xC5), &quot;CLSRM6 Ammo&quot;);</span>
+<span class="nc" id="L1116">        mixedAmmo.put(Long.valueOf(0xC6), &quot;CLStreakSRM2 Ammo&quot;);</span>
+<span class="nc" id="L1117">        mixedAmmo.put(Long.valueOf(0xC7), &quot;CLStreakSRM4 Ammo&quot;);</span>
+<span class="nc" id="L1118">        mixedAmmo.put(Long.valueOf(0xC8), &quot;CLStreakSRM6 Ammo&quot;);</span>
+<span class="nc" id="L1119">        mixedAmmo.put(Long.valueOf(0xC9), &quot;CLArrowIVSystem Ammo&quot;);</span>
+<span class="nc" id="L1120">        mixedAmmo.put(Long.valueOf(0xCD), &quot;CLNarcBeacon Ammo&quot;);</span>
+<span class="nc" id="L1121">        mixedAmmo.put(Long.valueOf(0xDA), &quot;CLVehicleFlamer Ammo&quot;);</span>
+<span class="nc" id="L1122">        mixedAmmo.put(Long.valueOf(0xDB), &quot;CLLongTomArtillery Ammo&quot;);</span>
+<span class="nc" id="L1123">        mixedAmmo.put(Long.valueOf(0xDC), &quot;CLSniperArtillery Ammo&quot;);</span>
+<span class="nc" id="L1124">        mixedAmmo.put(Long.valueOf(0xDD), &quot;CLThumperArtillery Ammo&quot;);</span>
+<span class="nc" id="L1125">        mixedAmmo.put(Long.valueOf(0xDE), &quot;CLLRTorpedo5 Ammo&quot;);</span>
+<span class="nc" id="L1126">        mixedAmmo.put(Long.valueOf(0xDF), &quot;CLLRTorpedo10 Ammo&quot;);</span>
+<span class="nc" id="L1127">        mixedAmmo.put(Long.valueOf(0xE0), &quot;CLLRTorpedo15 Ammo&quot;);</span>
+<span class="nc" id="L1128">        mixedAmmo.put(Long.valueOf(0xE1), &quot;CLLRTorpedo20 Ammo&quot;);</span>
+<span class="nc" id="L1129">        mixedAmmo.put(Long.valueOf(0xE2), &quot;CLSRT2 Ammo&quot;);</span>
+<span class="nc" id="L1130">        mixedAmmo.put(Long.valueOf(0xE3), &quot;CLSRT4 Ammo&quot;);</span>
+<span class="nc" id="L1131">        mixedAmmo.put(Long.valueOf(0xE4), &quot;CLSRT6 Ammo&quot;);</span>
+
+<span class="nc" id="L1133">    }</span>
+
+    private String getEquipmentName(long equipment, HMVTechType techType) {
+<span class="nc" id="L1136">        return getEquipmentName(Long.valueOf(equipment), techType);</span>
+    }
+
+    private String getEquipmentName(Long equipment, HMVTechType techType) {
+<span class="nc bnc" id="L1140" title="All 2 branches missed.">        if (equipment.longValue() &gt; Short.MAX_VALUE) {</span>
+<span class="nc" id="L1141">            equipment = Long.valueOf(equipment.longValue() &amp; 0xFFFF);</span>
+        }
+<span class="nc" id="L1143">        final long value = equipment.longValue();</span>
+
+<span class="nc" id="L1145">        String equipName = null;</span>
+        try {
+<span class="nc" id="L1147">            equipName = EQUIPMENT.get(techType).get(equipment);</span>
+<span class="nc" id="L1148">        } catch (NullPointerException e) {</span>
+            // is handeled by the if below.
+<span class="nc" id="L1150">        }</span>
+<span class="nc bnc" id="L1151" title="All 2 branches missed.">        if (equipName == null) {</span>
+<span class="nc" id="L1152">            Hashtable&lt;Long, String&gt; techEquipment = EQUIPMENT.get(techType);</span>
+<span class="nc bnc" id="L1153" title="All 2 branches missed.">            if (techEquipment != null) {</span>
+<span class="nc" id="L1154">                equipName = techEquipment.get(equipment);</span>
+            }
+        }
+
+        // Report unexpected parsing failures.
+<span class="nc bnc" id="L1159" title="All 10 branches missed.">        if ((equipName == null) &amp;&amp; (value != 0) &amp;&amp; // 0x00 Empty</span>
+                (value != 7) &amp;&amp; // 0x07 Lower Leg Actuator (on a quad)
+                (value != 8) &amp;&amp; // 0x08 Foot Actuator (on a quad)
+                (value != 15)) { // 0x0F Fusion Engine
+<span class="nc" id="L1163">            System.out.print(&quot;unknown critical: 0x&quot;);</span>
+<span class="nc" id="L1164">            System.out.print(Integer.toHexString(equipment.intValue()).toUpperCase());</span>
+<span class="nc" id="L1165">            System.out.print(&quot; (&quot;);</span>
+<span class="nc" id="L1166">            System.out.print(techType);</span>
+<span class="nc" id="L1167">            System.out.println(&quot;)&quot;);</span>
+        }
+
+<span class="nc" id="L1170">        return equipName;</span>
+    }
+
+    private EquipmentType getEquipmentType(long equipment, HMVTechType techType) {
+<span class="nc" id="L1174">        EquipmentType equipmentType = null;</span>
+
+<span class="nc" id="L1176">        String equipmentName = getEquipmentName(equipment, techType);</span>
+<span class="nc bnc" id="L1177" title="All 2 branches missed.">        if (equipmentName != null) {</span>
+<span class="nc" id="L1178">            equipmentType = EquipmentType.get(equipmentName);</span>
+
+<span class="nc bnc" id="L1180" title="All 2 branches missed.">            if (equipmentType == null) {</span>
+<span class="nc" id="L1181">                failedEquipment.add(equipmentName);</span>
+            }
+        } else {
+<span class="nc" id="L1184">            failedEquipment.add(&quot;Unknown Equipment (&quot; + Long.toHexString(equipment) + &quot;)&quot;);</span>
+        }
+
+<span class="nc" id="L1187">        return equipmentType;</span>
+    }
+
+    private String getAmmoName(long ammo, HMVTechType techType) {
+<span class="nc" id="L1191">        return getAmmoName(Long.valueOf(ammo), techType);</span>
+    }
+
+    private String getAmmoName(Long ammo, HMVTechType techType) {
+<span class="nc bnc" id="L1195" title="All 2 branches missed.">        if (ammo.longValue() &gt; Short.MAX_VALUE) {</span>
+<span class="nc" id="L1196">            ammo = Long.valueOf(ammo.longValue() &amp; 0xFFFF);</span>
+        }
+<span class="nc" id="L1198">        final long value = ammo.longValue();</span>
+
+<span class="nc" id="L1200">        String ammoName = null;</span>
+        try {
+<span class="nc" id="L1202">            ammoName = AMMO.get(techType).get(ammo);</span>
+<span class="nc" id="L1203">        } catch (NullPointerException e) {</span>
+            // is handeled by the if below.
+<span class="nc" id="L1205">        }</span>
+<span class="nc bnc" id="L1206" title="All 2 branches missed.">        if (ammoName == null) {</span>
+<span class="nc" id="L1207">            Hashtable&lt;Long, String&gt; techAmmo = AMMO.get(techType);</span>
+<span class="nc bnc" id="L1208" title="All 2 branches missed.">            if (techAmmo != null) {</span>
+<span class="nc" id="L1209">                ammoName = techAmmo.get(ammo);</span>
+            }
+        }
+
+        // Report unexpected parsing failures.
+<span class="nc bnc" id="L1214" title="All 4 branches missed.">        if ((ammoName == null) &amp;&amp; (value != 0)) {</span>
+<span class="nc" id="L1215">            System.out.print(&quot;unknown critical: 0x&quot;);</span>
+<span class="nc" id="L1216">            System.out.print(Integer.toHexString(ammo.intValue()).toUpperCase());</span>
+<span class="nc" id="L1217">            System.out.print(&quot; (&quot;);</span>
+<span class="nc" id="L1218">            System.out.print(techType);</span>
+<span class="nc" id="L1219">            System.out.println(&quot;)&quot;);</span>
+        }
+
+<span class="nc" id="L1222">        return ammoName;</span>
+    }
+
+    private AmmoType getAmmoType(long ammo, HMVTechType techType) {
+<span class="nc" id="L1226">        AmmoType ammoType = null;</span>
+
+<span class="nc" id="L1228">        String ammoName = getAmmoName(ammo, techType);</span>
+<span class="nc bnc" id="L1229" title="All 2 branches missed.">        if (ammoName != null) {</span>
+<span class="nc" id="L1230">            ammoType = (AmmoType) EquipmentType.get(ammoName);</span>
+        }
+
+<span class="nc" id="L1233">        return ammoType;</span>
+    }
+    /*
+     * public static void main(String[] args) throws Exception { for (int i = 0;
+     * i &lt; args.length; i++) { HmvFile hmvFile = new HmvFile(new
+     * FileInputStream(args[i])); System.out.println(new
+     * megamek.client.ui.AWT.MechView(hmvFile.getEntity()).getMechReadout()); }
+     * }
+     */
+}
+
+abstract class HMVType {
+    private String name;
+    private int id;
+
+<span class="nc" id="L1248">    protected HMVType(String name, int id) {</span>
+<span class="nc" id="L1249">        this.name = name;</span>
+<span class="nc" id="L1250">        this.id = id;</span>
+<span class="nc" id="L1251">    }</span>
+
+    @Override
+    public String toString() {
+<span class="nc" id="L1255">        return name;</span>
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+<span class="nc bnc" id="L1260" title="All 2 branches missed.">        if(this == obj) {</span>
+<span class="nc" id="L1261">            return true;</span>
+        }
+<span class="nc bnc" id="L1263" title="All 4 branches missed.">        if((null == obj) || (getClass() != obj.getClass())) {</span>
+<span class="nc" id="L1264">            return false;</span>
+        }
+<span class="nc" id="L1266">        final HMVType other = (HMVType) obj;</span>
+<span class="nc bnc" id="L1267" title="All 4 branches missed.">        return Objects.equals(name, other.name) &amp;&amp; Objects.equals(id, other.id);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L1272">        return Objects.hash(name, id);</span>
+    }
+
+    public int getId() {
+<span class="nc" id="L1276">        return id;</span>
+    }
+}
+
+class HMVEngineType extends HMVType {
+<span class="nc" id="L1281">    public static final Hashtable&lt;Integer, HMVEngineType&gt; types = new Hashtable&lt;Integer, HMVEngineType&gt;();</span>
+
+<span class="nc" id="L1283">    public static final HMVEngineType ICE = new HMVEngineType(&quot;I.C.E.&quot;, 0);</span>
+<span class="nc" id="L1284">    public static final HMVEngineType FUSION = new HMVEngineType(&quot;Fusion&quot;, 1);</span>
+<span class="nc" id="L1285">    public static final HMVEngineType XLFUSION = new HMVEngineType(&quot;XL Fusion&quot;, 2);</span>
+<span class="nc" id="L1286">    public static final HMVEngineType XXLFUSION = new HMVEngineType(&quot;XXL Fusion&quot;, 3);</span>
+<span class="nc" id="L1287">    public static final HMVEngineType LIGHTFUSION = new HMVEngineType(&quot;Light Fusion&quot;, 4);</span>
+
+    private HMVEngineType(String name, int id) {
+<span class="nc" id="L1290">        super(name, id);</span>
+<span class="nc" id="L1291">        types.put(Integer.valueOf(id), this);</span>
+<span class="nc" id="L1292">    }</span>
+
+    public static HMVEngineType getType(int i) {
+<span class="nc" id="L1295">        return types.get(Integer.valueOf(i));</span>
+    }
+}
+
+class HMVArmorType extends HMVType {
+<span class="nc" id="L1300">    public static final Hashtable&lt;Integer, HMVArmorType&gt; types = new Hashtable&lt;Integer, HMVArmorType&gt;();</span>
+
+<span class="nc" id="L1302">    public static final HMVArmorType STANDARD = new HMVArmorType(EquipmentType.getArmorTypeName(EquipmentType.T_ARMOR_STANDARD), 0);</span>
+<span class="nc" id="L1303">    public static final HMVArmorType FERRO = new HMVArmorType(EquipmentType.getArmorTypeName(EquipmentType.T_ARMOR_FERRO_FIBROUS), 1);</span>
+
+    // public static final HMVArmorType COMPACT = new HMVArmorType(&quot;Compact&quot;,
+    // 2);
+    // public static final HMVArmorType LASER = new HMVArmorType(&quot;Laser&quot;, 3);
+
+    private HMVArmorType(String name, int id) {
+<span class="nc" id="L1310">        super(name, id);</span>
+<span class="nc" id="L1311">        types.put(Integer.valueOf(id), this);</span>
+<span class="nc" id="L1312">    }</span>
+
+    public static HMVArmorType getType(int i) {
+<span class="nc" id="L1315">        return types.get(Integer.valueOf(i));</span>
+    }
+}
+
+class HMVTechType extends HMVType {
+<span class="nc" id="L1320">    public static final Hashtable&lt;Integer, HMVTechType&gt; types = new Hashtable&lt;Integer, HMVTechType&gt;();</span>
+
+<span class="nc" id="L1322">    public static final HMVTechType INNER_SPHERE = new HMVTechType(&quot;Inner Sphere&quot;, 0);</span>
+<span class="nc" id="L1323">    public static final HMVTechType CLAN = new HMVTechType(&quot;Clan&quot;, 1);</span>
+<span class="nc" id="L1324">    public static final HMVTechType MIXED = new HMVTechType(&quot;Mixed&quot;, 2);</span>
+
+    private HMVTechType(String name, int id) {
+<span class="nc" id="L1327">        super(name, id);</span>
+<span class="nc" id="L1328">        types.put(Integer.valueOf(id), this);</span>
+<span class="nc" id="L1329">    }</span>
+
+    public static HMVTechType getType(int i) {
+<span class="nc" id="L1332">        return types.get(Integer.valueOf(i));</span>
+    }
+}
+
+class HMVMovementType extends HMVType {
+<span class="nc" id="L1337">    public static final Hashtable&lt;Integer, HMVMovementType&gt; types = new Hashtable&lt;Integer, HMVMovementType&gt;();</span>
+
+<span class="nc" id="L1339">    public static final HMVMovementType TRACKED = new HMVMovementType(&quot;Tracked&quot;, 8);</span>
+<span class="nc" id="L1340">    public static final HMVMovementType WHEELED = new HMVMovementType(&quot;Wheeled&quot;, 16);</span>
+<span class="nc" id="L1341">    public static final HMVMovementType HOVER = new HMVMovementType(&quot;Hover&quot;, 32);</span>
+<span class="nc" id="L1342">    public static final HMVMovementType VTOL = new HMVMovementType(&quot;V.T.O.L&quot;, 64);</span>
+<span class="nc" id="L1343">    public static final HMVMovementType HYDROFOIL = new HMVMovementType(&quot;Hydrofoil&quot;, 128);</span>
+<span class="nc" id="L1344">    public static final HMVMovementType SUBMARINE = new HMVMovementType(&quot;Submarine&quot;, 256);</span>
+<span class="nc" id="L1345">    public static final HMVMovementType DISPLACEMENT_HULL = new HMVMovementType(&quot;Displacement Hull&quot;, 512);</span>
+
+    private HMVMovementType(String name, int id) {
+<span class="nc" id="L1348">        super(name, id);</span>
+<span class="nc" id="L1349">        types.put(Integer.valueOf(id), this);</span>
+<span class="nc" id="L1350">    }</span>
+
+    public static HMVMovementType getType(int i) {
+        // Only pay attention to the movement type bits.
+<span class="nc" id="L1354">        i &amp;= 1016;</span>
+<span class="nc" id="L1355">        return types.get(Integer.valueOf(i));</span>
+    }
+
+}
+
+class HMVWeaponLocation extends HMVType {
+<span class="nc" id="L1361">    public static final Hashtable&lt;Integer, HMVWeaponLocation&gt; types = new Hashtable&lt;Integer, HMVWeaponLocation&gt;();</span>
+
+<span class="nc" id="L1363">    public static final HMVWeaponLocation TURRET = new HMVWeaponLocation(&quot;Turret&quot;, 0);</span>
+<span class="nc" id="L1364">    public static final HMVWeaponLocation FRONT = new HMVWeaponLocation(&quot;Front&quot;, 1);</span>
+<span class="nc" id="L1365">    public static final HMVWeaponLocation LEFT = new HMVWeaponLocation(&quot;Left&quot;, 2);</span>
+<span class="nc" id="L1366">    public static final HMVWeaponLocation RIGHT = new HMVWeaponLocation(&quot;Right&quot;, 3);</span>
+<span class="nc" id="L1367">    public static final HMVWeaponLocation REAR = new HMVWeaponLocation(&quot;Rear&quot;, 4);</span>
+<span class="nc" id="L1368">    public static final HMVWeaponLocation BODY = new HMVWeaponLocation(&quot;Body&quot;, 5);</span>
+
+    private HMVWeaponLocation(String name, int id) {
+<span class="nc" id="L1371">        super(name, id);</span>
+<span class="nc" id="L1372">        types.put(Integer.valueOf(id), this);</span>
+<span class="nc" id="L1373">    }</span>
+
+    public static HMVWeaponLocation getType(int i) {
+<span class="nc" id="L1376">        return types.get(Integer.valueOf(i));</span>
+    }
+}
+
+class HMVStructureType extends HMVType {
+<span class="nc" id="L1381">    public static final Hashtable&lt;Integer, HMVStructureType&gt; types = new Hashtable&lt;Integer, HMVStructureType&gt;();</span>
+
+<span class="nc" id="L1383">    public static final HMVStructureType STANDARD = new HMVStructureType(&quot;Standard&quot;, 179);</span>
+<span class="nc" id="L1384">    public static final HMVStructureType REINFORCED = new HMVStructureType(&quot;Reinforced&quot;, 193);</span>
+
+    private HMVStructureType(String name, int id) {
+<span class="nc" id="L1387">        super(name, id);</span>
+<span class="nc" id="L1388">        types.put(Integer.valueOf(id), this);</span>
+<span class="nc" id="L1389">    }</span>
+
+    public static HMVStructureType getType(int i) {
+<span class="nc" id="L1392">        return types.get(Integer.valueOf(i));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

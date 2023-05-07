@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TeleMissileAttackAction.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.actions</a> &gt; <span class="el_source">TeleMissileAttackAction.java</span></div><h1>TeleMissileAttackAction.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000,2001,2002,2003,2004 Ben Mazur (bmazur@sev.org)
+ * 
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ * 
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ */
+
+/*
+ * TeleMissileAttackAction.java
+ * 
+ */
+
+package megamek.common.actions;
+
+import java.util.ArrayList;
+import java.util.Enumeration;
+
+import megamek.common.Compute;
+import megamek.common.Entity;
+import megamek.common.IGame;
+import megamek.common.IPlayer;
+import megamek.common.Mounted;
+import megamek.common.TargetRoll;
+import megamek.common.Targetable;
+import megamek.common.TeleMissile;
+import megamek.common.ToHitData;
+import megamek.common.WeaponType;
+import megamek.common.options.OptionsConstants;
+import megamek.common.weapons.AttackHandler;
+
+/**
+ * Represents one tele-controlled missile attack
+ * 
+ * @author Ben Mazur
+ */
+public class TeleMissileAttackAction extends AbstractAttackAction {
+
+    /**
+     * 
+     */
+    private static final long serialVersionUID = -1054613811287285482L;
+    // only used server-side for manually guided Telemissile attacks
+    private transient ArrayList&lt;Mounted&gt; vCounterEquipment;
+    
+    //Large Craft Point Defense/AMS Bay Stuff
+<span class="nc" id="L53">    public int CounterAVInt = 0;</span>
+<span class="nc" id="L54">    private boolean pdOverheated = false; // true if counterfire + offensive weapon attacks made this round cause the defending unit to overheat. Used for reporting.</span>
+<span class="nc" id="L55">    private boolean advancedPD = false; //true if advanced StratOps game rule is on</span>
+
+    public TeleMissileAttackAction(Entity attacker, Targetable target) {
+<span class="nc" id="L58">        super(attacker.getId(), target.getTargetType(), target.getTargetId());</span>
+<span class="nc" id="L59">    }</span>
+
+    public static int getDamageFor(Entity entity) {      
+<span class="nc bnc" id="L62" title="All 2 branches missed.">        if(entity instanceof TeleMissile) {</span>
+<span class="nc" id="L63">            return ((TeleMissile)entity).getDamageValue();</span>
+        }
+<span class="nc" id="L65">        return 0;</span>
+    }
+    
+    /**
+     * Returns the value of the pdOverheated flag
+     */
+    public boolean getPDOverheated() {
+<span class="nc" id="L72">        return pdOverheated;</span>
+    }
+    
+    /**
+     * Returns the list of Counter Equipment used against this physical attack
+     * This is for AMS assignment to manual tele-operated missiles
+     */
+    public ArrayList&lt;Mounted&gt; getCounterEquipment() {
+<span class="nc" id="L80">        return vCounterEquipment;</span>
+    }
+    
+    /**
+     * Adds 'm' to the list of Counter Equipment used against this physical attack
+     * This is for AMS assignment to manual tele-operated missiles
+     */
+    public void addCounterEquipment(Mounted m) {
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if (vCounterEquipment == null) {</span>
+<span class="nc" id="L89">            vCounterEquipment = new ArrayList&lt;Mounted&gt;();</span>
+        }
+<span class="nc" id="L91">        vCounterEquipment.add(m);</span>
+<span class="nc" id="L92">    }</span>
+    
+    /**
+     * Checks to see if the basic conditions needed for point defenses to work are in place
+     * Since this normally only applies to weaponhandlers, we must recreate it to deal with telemissile
+     * entities
+     */
+    private boolean checkPDConditions(IGame game, Targetable target) {
+<span class="nc" id="L100">        advancedPD = game.getOptions().booleanOption(OptionsConstants.ADVAERORULES_STRATOPS_ADV_POINTDEF);</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        if ((target == null)</span>
+<span class="nc bnc" id="L102" title="All 4 branches missed.">                || (target.getTargetType() != Targetable.TYPE_ENTITY)</span>
+                || !advancedPD) {
+<span class="nc" id="L104">            return false;</span>
+        }
+<span class="nc" id="L106">        return true;</span>
+    }
+    
+    /**
+     * Returns the heat generated by a large craft's weapons fire declarations during the round
+     * Used to determine whether point defenses can engage.
+     * @Param e - the entity you wish to get heat data from
+     * Since this normally only applies to weaponhandlers, we must recreate it to deal with telemissile
+     * entities
+     */
+    protected int getLargeCraftHeat(Entity e) {
+<span class="nc" id="L117">        int totalheat = 0;</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (e.hasETypeFlag(Entity.ETYPE_DROPSHIP) </span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">                || e.hasETypeFlag(Entity.ETYPE_JUMPSHIP)) {</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">            if (e.usesWeaponBays()) {</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">                for (Enumeration&lt;AttackHandler&gt; i = e.getGame().getAttacks(); i.hasMoreElements();) {</span>
+<span class="nc" id="L122">                    AttackHandler ah = i.nextElement();</span>
+<span class="nc" id="L123">                    WeaponAttackAction prevAttack = ah.getWaa();</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">                    if (prevAttack.getEntityId() == e.getId()) {</span>
+<span class="nc" id="L125">                        Mounted prevWeapon = e.getEquipment(prevAttack.getWeaponId());</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">                        for (int wId : prevWeapon.getBayWeapons()) {</span>
+<span class="nc" id="L127">                            Mounted bayW = e.getEquipment(wId);</span>
+<span class="nc" id="L128">                            totalheat += bayW.getCurrentHeat();</span>
+<span class="nc" id="L129">                        }</span>
+                    }
+<span class="nc" id="L131">                }</span>
+            } else {
+<span class="nc bnc" id="L133" title="All 2 branches missed.">                for (Enumeration&lt;AttackHandler&gt; i = e.getGame().getAttacks(); i.hasMoreElements();) {</span>
+<span class="nc" id="L134">                    AttackHandler ah = i.nextElement();</span>
+<span class="nc" id="L135">                    WeaponAttackAction prevAttack = ah.getWaa();</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">                    if (prevAttack.getEntityId() == e.getId()) {</span>
+<span class="nc" id="L137">                        Mounted prevWeapon = e.getEquipment(prevAttack.getWeaponId());</span>
+<span class="nc" id="L138">                        totalheat += prevWeapon.getCurrentHeat();</span>
+                    }
+<span class="nc" id="L140">                }</span>
+            }
+        }
+<span class="nc" id="L143">        return totalheat;</span>
+    }
+    
+    /**
+     * Checks to see if this point defense/AMS bay can engage a capital missile
+     * This should return true. Only when handling capital missile attacks can this be false.
+     */
+    protected boolean canEngageCapitalMissile(Mounted counter) {
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        if (counter.getBayWeapons().size() &lt; 2) {</span>
+<span class="nc" id="L152">            return false;</span>
+        } else {
+<span class="nc" id="L154">            return true;</span>
+        }
+    }
+    
+    /**
+     * Calculates the attack value of point defense weapons used against a missile bay attack
+     * This is the main large craft point defense method
+     */    
+    public int calcCounterAV(IGame game, Targetable target) {
+<span class="nc bnc" id="L163" title="All 2 branches missed.">        if (!checkPDConditions(game, target)) {</span>
+<span class="nc" id="L164">            return 0;</span>
+        }
+<span class="nc" id="L166">        int counterAV = 0;</span>
+<span class="nc" id="L167">        int amsAV = 0;</span>
+<span class="nc" id="L168">        double pdAV = 0;</span>
+<span class="nc" id="L169">        Entity entityTarget = (Entity) target;</span>
+        // any AMS bay attacks by the target?
+<span class="nc" id="L171">        ArrayList&lt;Mounted&gt; lCounters = getCounterEquipment();</span>
+        //We need to know how much heat has been assigned to offensive weapons fire by the defender this round
+<span class="nc" id="L173">        int weaponHeat = getLargeCraftHeat(entityTarget) + entityTarget.heatBuildup;</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        if (null != lCounters) {</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">            for (Mounted counter : lCounters) {</span>
+                // Point defenses only fire vs attacks against the arc they protect
+<span class="nc" id="L177">                Entity pdEnt = counter.getEntity();</span>
+                
+                //We already checked arc when AMS was assigned. No need to worry about fleet missile defense here:
+                //Telemissiles are entities. Other craft can just shoot at them.
+                
+                // Point defenses can't fire if they're not ready for any other reason
+<span class="nc bnc" id="L183" title="All 2 branches missed.">                if (!(counter.getType() instanceof WeaponType)</span>
+<span class="nc bnc" id="L184" title="All 4 branches missed.">                         || !counter.isReady() || counter.isMissing()</span>
+                            // shutdown means no Point defenses
+<span class="nc bnc" id="L186" title="All 2 branches missed.">                            || pdEnt.isShutDown()) {</span>
+<span class="nc" id="L187">                        continue;</span>
+                }
+                //Point defense/AMS bays with less than 2 weapons cannot engage capital missiles
+<span class="nc bnc" id="L190" title="All 2 branches missed.">                if (!canEngageCapitalMissile(counter)) {</span>
+<span class="nc" id="L191">                    continue;</span>
+                }
+                
+                //Set up differences between point defense and AMS bays
+<span class="nc" id="L195">                boolean isAMSBay = counter.getType().hasFlag(WeaponType.F_AMSBAY);</span>
+<span class="nc" id="L196">                boolean isPDBay = counter.getType().hasFlag(WeaponType.F_PDBAY);</span>
+                
+                //Point defense bays can only fire at one attack per round
+<span class="nc bnc" id="L199" title="All 2 branches missed.">                if (isPDBay) {</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">                    if (counter.isUsedThisRound()) {</span>
+<span class="nc" id="L201">                        continue;</span>
+                    }
+                }
+                
+                //If the target is overheating don't process any more point defense attacks
+<span class="nc bnc" id="L206" title="All 2 branches missed.">                if (pdOverheated) {</span>
+<span class="nc" id="L207">                    break;</span>
+                }
+                
+                // Now for heat, damage and ammo we need the individual weapons in the bay
+                // First, reset the temporary damage counters
+<span class="nc" id="L212">                amsAV = 0;</span>
+<span class="nc" id="L213">                pdAV = 0;</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">                for (int wId : counter.getBayWeapons()) {</span>
+<span class="nc" id="L215">                    Mounted bayW = pdEnt.getEquipment(wId);</span>
+<span class="nc" id="L216">                    Mounted bayWAmmo = bayW.getLinked();</span>
+<span class="nc" id="L217">                    WeaponType bayWType = ((WeaponType) bayW.getType());</span>
+                    
+                    // build up some heat
+                    //First Check to see if we have enough heat capacity to fire
+<span class="nc bnc" id="L221" title="All 2 branches missed.">                    if ((weaponHeat + bayW.getCurrentHeat()) &gt; pdEnt.getHeatCapacity()) {</span>
+<span class="nc" id="L222">                        pdOverheated = true;</span>
+<span class="nc" id="L223">                        break;</span>
+                    }
+<span class="nc bnc" id="L225" title="All 2 branches missed.">                    if (counter.getType().hasFlag(WeaponType.F_HEATASDICE)) {</span>
+<span class="nc" id="L226">                        int heatDice = Compute.d6(bayW</span>
+<span class="nc" id="L227">                                .getCurrentHeat());</span>
+<span class="nc" id="L228">                        pdEnt.heatBuildup += heatDice;</span>
+<span class="nc" id="L229">                        weaponHeat += heatDice;</span>
+<span class="nc" id="L230">                    } else {</span>
+<span class="nc" id="L231">                        pdEnt.heatBuildup += bayW.getCurrentHeat();</span>
+<span class="nc" id="L232">                        weaponHeat += bayW.getCurrentHeat();</span>
+                    }
+                    
+                    //Bays use lots of ammo. Check to make sure we haven't run out
+<span class="nc bnc" id="L236" title="All 2 branches missed.">                    if (bayWAmmo != null) {</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">                        if (bayWAmmo.getBaseShotsLeft() == 0) {</span>
+<span class="nc" id="L238">                            continue;</span>
+                        }
+                        // decrement the ammo
+<span class="nc" id="L241">                        bayWAmmo.setShotsLeft(Math.max(0,</span>
+<span class="nc" id="L242">                            bayWAmmo.getBaseShotsLeft() - 1));</span>
+                    }
+<span class="nc bnc" id="L244" title="All 2 branches missed.">                    if (isAMSBay) {</span>
+                        // get the attack value
+<span class="nc" id="L246">                        amsAV += bayWType.getShortAV();</span>
+                        // set the ams as having fired, if it did
+                    }
+<span class="nc bnc" id="L249" title="All 2 branches missed.">                    if (isPDBay) {</span>
+                        // get the attack value
+<span class="nc" id="L251">                        pdAV += bayWType.getShortAV();</span>
+                        // set the pdbay as having fired, if it was able to
+<span class="nc" id="L253">                        counter.setUsedThisRound(true); </span>
+                    }
+<span class="nc" id="L255">                }</span>
+                // non-AMS only add half their damage, rounded up
+<span class="nc" id="L257">                counterAV += (int) Math.ceil(pdAV / 2.0); </span>
+                // AMS add their full damage
+<span class="nc" id="L259">                counterAV += amsAV;</span>
+<span class="nc" id="L260">            } //end &quot;for Mounted counter&quot;</span>
+        } // end check for counterfire
+<span class="nc" id="L262">        CounterAVInt = (int) counterAV;</span>
+<span class="nc" id="L263">        return counterAV;</span>
+    }
+    
+    /**
+     * To-hit number for a charge, assuming that movement has been handled
+     */
+    public ToHitData toHit(IGame game) {
+<span class="nc" id="L270">        return toHit(game, game.getTarget(getTargetType(), getTargetId()));</span>
+    }
+    
+    public ToHitData toHit(IGame game, Targetable target) {
+<span class="nc" id="L274">        final Entity ae = getEntity(game);</span>
+
+        // arguments legal?
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        if (ae == null) {</span>
+<span class="nc" id="L278">            throw new IllegalStateException(&quot;Attacker is null&quot;);</span>
+        }
+
+        // Do to pretreatment of physical attacks, the target may be null.
+<span class="nc bnc" id="L282" title="All 2 branches missed.">        if (target == null) {</span>
+<span class="nc" id="L283">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Target is null&quot;);</span>
+        }
+        
+<span class="nc bnc" id="L286" title="All 2 branches missed.">        if (!game.getOptions().booleanOption(OptionsConstants.BASE_FRIENDLY_FIRE)) {</span>
+            // a friendly unit can never be the target of a direct attack.
+<span class="nc bnc" id="L288" title="All 2 branches missed.">            if (target.getTargetType() == Targetable.TYPE_ENTITY</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">                    &amp;&amp; (((Entity)target).getOwnerId() == ae.getOwnerId()</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">                            || (((Entity)target).getOwner().getTeam() != IPlayer.TEAM_NONE</span>
+<span class="nc bnc" id="L291" title="All 2 branches missed.">                                    &amp;&amp; ae.getOwner().getTeam() != IPlayer.TEAM_NONE</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">                                    &amp;&amp; ae.getOwner().getTeam() == ((Entity)target).getOwner().getTeam())))</span>
+<span class="nc" id="L293">                return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;A friendly unit can never be the target of a direct attack.&quot;);</span>
+        }
+
+        //set the to-hit
+<span class="nc" id="L297">        ToHitData toHit = new ToHitData(2, &quot;base&quot;);</span>
+
+<span class="nc" id="L299">        TeleMissile tm = (TeleMissile)ae;</span>
+        
+        //thrust used
+<span class="nc bnc" id="L302" title="All 2 branches missed.">        if(ae.mpUsed &gt; 0) </span>
+<span class="nc" id="L303">            toHit.addModifier(ae.mpUsed, &quot;thrust used&quot;);</span>
+        
+        //out of fuel
+<span class="nc bnc" id="L306" title="All 2 branches missed.">        if(tm.getCurrentFuel() &lt;= 0) </span>
+<span class="nc" id="L307">            toHit.addModifier(+6, &quot;out of fuel&quot;);</span>
+        
+        //modifiers for the originating unit need to be added later, because
+        //they may change as a result of damage
+        
+        // done!
+<span class="nc" id="L313">        return toHit;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

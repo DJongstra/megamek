@@ -1,0 +1,853 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BattleForceElement.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">BattleForceElement.java</span></div><h1>BattleForceElement.java</h1><pre class="source lang-java linenums">/*
+ *  MegaMek - Copyright (C) 2016 The MegaMek Team
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.common;
+
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.StringJoiner;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+import megamek.common.weapons.bayweapons.ArtilleryBayWeapon;
+import megamek.common.weapons.InfantryAttack;
+import megamek.common.weapons.bayweapons.BayWeapon;
+import megamek.common.weapons.missiles.MissileWeapon;
+
+/**
+ * Primarily concerned with calculating BattleForce values for an undamaged entity, and exporting
+ * stats in csv form.
+ * 
+ * @author Neoancient
+ *
+ */
+public class BattleForceElement {
+    
+    static final int RANGE_BAND_SHORT = 0;
+    static final int RANGE_BAND_MEDIUM = 1;
+    static final int RANGE_BAND_LONG = 2;
+    static final int RANGE_BAND_EXTREME = 3;
+    static final int RANGE_BAND_NUM_GROUND = 3;
+    static final int RANGE_BAND_NUM_AERO = 4;
+    
+<span class="nc" id="L52">    static final int[] STANDARD_RANGES = {0, 4, 16, 24};</span>
+<span class="nc" id="L53">    static final int[] CAPITAL_RANGES = {0, 13, 25, 41};</span>
+    
+<span class="nc" id="L55">    public static final int SHORT_RANGE = STANDARD_RANGES[RANGE_BAND_SHORT];</span>
+<span class="nc" id="L56">    public static final int MEDIUM_RANGE = STANDARD_RANGES[RANGE_BAND_MEDIUM];</span>
+<span class="nc" id="L57">    public static final int LONG_RANGE = STANDARD_RANGES[RANGE_BAND_LONG];</span>
+<span class="nc" id="L58">    public static final int EXTREME_RANGE = STANDARD_RANGES[RANGE_BAND_EXTREME];</span>
+    
+    protected String name;
+    protected int size;
+<span class="nc" id="L62">    protected LinkedHashMap&lt;String,Integer&gt; movement = new LinkedHashMap&lt;&gt;();</span>
+    protected double armor;
+<span class="nc" id="L64">    protected double threshold = -1;</span>
+    protected int structure;
+<span class="nc" id="L66">    protected int rangeBands = RANGE_BAND_NUM_GROUND;</span>
+    protected WeaponLocation[] weaponLocations;
+    protected String[] locationNames;
+    protected int[] heat;
+    protected double points;
+<span class="nc" id="L71">    protected EnumMap&lt;BattleForceSPA,Integer&gt; specialAbilities = new EnumMap&lt;&gt;(BattleForceSPA.class);</span>
+    
+<span class="nc" id="L73">    public BattleForceElement(Entity en) {</span>
+<span class="nc" id="L74">        name = en.getShortName();</span>
+<span class="nc" id="L75">        size = en.getBattleForceSize();</span>
+<span class="nc" id="L76">        computeMovement(en);</span>
+<span class="nc" id="L77">        armor = en.getBattleForceArmorPointsRaw();</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (en instanceof Aero) {</span>
+<span class="nc" id="L79">            threshold = armor / 10.0;</span>
+        }
+<span class="nc" id="L81">        structure = en.getBattleForceStructurePoints();</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        if (en instanceof Aero) {</span>
+<span class="nc" id="L83">        	rangeBands = RANGE_BAND_NUM_AERO;</span>
+        }
+<span class="nc" id="L85">        initWeaponLocations(en);</span>
+<span class="nc" id="L86">        heat = new int[rangeBands];</span>
+<span class="nc" id="L87">        computeDamage(en);</span>
+<span class="nc" id="L88">        points = calculatePointValue(en);</span>
+<span class="nc" id="L89">        en.addBattleForceSpecialAbilities(specialAbilities);</span>
+<span class="nc" id="L90">    }</span>
+    
+    protected void initWeaponLocations(Entity en) {
+<span class="nc" id="L93">        weaponLocations = new WeaponLocation[en.getNumBattleForceWeaponsLocations()];</span>
+<span class="nc" id="L94">        locationNames = new String[weaponLocations.length];</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        for (int loc = 0; loc &lt; locationNames.length; loc++) {</span>
+<span class="nc" id="L96">            weaponLocations[loc] = new WeaponLocation();</span>
+<span class="nc" id="L97">            locationNames[loc] = en.getBattleForceLocationName(loc);</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">            if (locationNames[loc].length() &gt; 0) {</span>
+<span class="nc" id="L99">                locationNames[loc] += &quot;:&quot;;</span>
+            }
+        }
+<span class="nc" id="L102">    }</span>
+    
+    protected void computeMovement(Entity en) {
+<span class="nc" id="L105">    	en.setBattleForceMovement(movement);    	</span>
+<span class="nc" id="L106">    }</span>
+    
+    public String getName() {
+<span class="nc" id="L109">        return name;</span>
+    }
+    
+    public int getSize() {
+<span class="nc" id="L113">        return size;</span>
+    }
+    
+    public Set&lt;String&gt; getMovementModes() {
+<span class="nc" id="L117">    	return movement.keySet();</span>
+    }
+    
+    public int getMovement(String mode) {
+<span class="nc" id="L121">    	return movement.get(mode);</span>
+    }
+    
+    public int getPrimaryMovementValue() {
+<span class="nc" id="L125">    	return movement.values().iterator().next();</span>
+    }
+    
+    public String getMovementAsString() {
+<span class="nc" id="L129">    	return movement.entrySet().stream()</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">    			.map(e -&gt; (e.getKey().equals(&quot;k&quot;)?&quot;0.&quot; + e.getValue():e.getValue())</span>
+<span class="nc" id="L131">    					+ e.getKey())</span>
+<span class="nc" id="L132">    			.collect(Collectors.joining(&quot;/&quot;));    	</span>
+    }
+    
+    public int getFinalArmor() {
+<span class="nc" id="L136">        return (int)Math.round(armor);</span>
+    }
+    
+    public double getArmor() {
+<span class="nc" id="L140">        return armor;</span>
+    }
+    
+    public int getFinalThreshold() {
+<span class="nc" id="L144">        return (int)Math.ceil(threshold);</span>
+    }
+    
+    public double getThreshold() {
+<span class="nc" id="L148">        return threshold;</span>
+    }
+    
+    public int getStructure() {
+<span class="nc" id="L152">        return structure;</span>
+    }
+    
+    public double getDamage(int loc, int rangeIndex, int damageClass) {
+<span class="nc" id="L156">    	return weaponLocations[loc].getDamage(damageClass, rangeIndex);</span>
+    }
+    
+    public double getDamage(int rangeIndex) {
+<span class="nc" id="L160">    	return weaponLocations[0].getDamage(rangeIndex);</span>
+    }
+    
+    public double getDamage(int rangeIndex, int damageClass) {
+<span class="nc" id="L164">    	return getDamage(0, rangeIndex, damageClass);</span>
+    }
+    
+    public double getIndirectFire() {
+<span class="nc" id="L168">    	return getIndirectFire(0);</span>
+    }
+    
+    public double getIndirectFire(int loc) {
+<span class="nc" id="L172">    	return weaponLocations[loc].getIF();</span>
+    }
+    
+    public String getLocationName(int loc) {
+<span class="nc" id="L176">        return locationNames[loc];</span>
+    }
+    
+    public Integer getSPA(BattleForceSPA spa) {
+<span class="nc" id="L180">    	return specialAbilities.get(spa);</span>
+    }
+    
+    public boolean hasSPA(BattleForceSPA spa) {
+<span class="nc" id="L184">    	return specialAbilities.containsKey(spa);</span>
+    }
+
+    public int getFinalPoints() {
+<span class="nc" id="L188">        return Math.max(1, (int)Math.round(points));</span>
+    }
+    
+    public double getPoints() {
+<span class="nc" id="L192">        return points;</span>
+    }
+    
+    public void computeDamage(Entity en) {
+<span class="nc" id="L196">        double[] baseDamage = new double[rangeBands];</span>
+<span class="nc" id="L197">        boolean hasTC = en.hasTargComp();</span>
+        int[] ranges;
+<span class="nc" id="L199">        double pointDefense = 0;</span>
+<span class="nc" id="L200">        int bombRacks = 0;</span>
+        //Track weapons we've already calculated ammunition for
+<span class="nc" id="L202">        HashMap&lt;String,Boolean&gt; ammoForWeapon = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L204">        ArrayList&lt;Mounted&gt; weaponsList = en.getWeaponList();</span>
+
+<span class="nc bnc" id="L206" title="All 2 branches missed.">        for (int pos = 0; pos &lt; weaponsList.size(); pos++) {</span>
+<span class="nc" id="L207">            Arrays.fill(baseDamage, 0);</span>
+<span class="nc" id="L208">            double damageModifier = 1;</span>
+<span class="nc" id="L209">            Mounted mount = weaponsList.get(pos);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">            if ((mount == null)</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">                    || (en.getEntityType() == Entity.ETYPE_INFANTRY</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">                        &amp;&amp; mount.getLocation() == Infantry.LOC_INFANTRY)) {</span>
+<span class="nc" id="L213">                continue;</span>
+            }
+
+<span class="nc" id="L216">            WeaponType weapon = (WeaponType) mount.getType();</span>
+            
+<span class="nc bnc" id="L218" title="All 2 branches missed.">            ranges = weapon.isCapital()? CAPITAL_RANGES : STANDARD_RANGES;</span>
+            
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (weapon.getAmmoType() == AmmoType.T_INARC) {</span>
+<span class="nc" id="L221">               specialAbilities.merge(BattleForceSPA.INARC, 1, Integer::sum);</span>
+<span class="nc" id="L222">               continue;</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">            } else if (weapon.getAmmoType() == AmmoType.T_NARC) {</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">                if (weapon.hasFlag(WeaponType.F_BA_WEAPON)) {</span>
+<span class="nc" id="L225">                    specialAbilities.merge(BattleForceSPA.CNARC, 1, Integer::sum);</span>
+                } else {
+<span class="nc" id="L227">                    specialAbilities.merge(BattleForceSPA.SNARC, 1, Integer::sum);</span>
+                }
+<span class="nc" id="L229">                continue;</span>
+            }
+            
+<span class="nc bnc" id="L232" title="All 2 branches missed.">            if (weapon.getAtClass() == WeaponType.CLASS_SCREEN) {</span>
+<span class="nc" id="L233">                specialAbilities.merge(BattleForceSPA.SCR, 1, Integer::sum);</span>
+<span class="nc" id="L234">                continue;</span>
+            }
+
+<span class="nc bnc" id="L237" title="All 2 branches missed.">            if (weapon.hasFlag(WeaponType.F_AMS)) {</span>
+<span class="nc" id="L238">                specialAbilities.put(BattleForceSPA.AMS, null);</span>
+<span class="nc" id="L239">                continue;</span>
+            }
+
+<span class="nc bnc" id="L242" title="All 2 branches missed.">            if (weapon.hasFlag(WeaponType.F_TAG)) {</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">                if (weapon.hasFlag(WeaponType.F_C3MBS)) {</span>
+<span class="nc" id="L244">                    specialAbilities.merge(BattleForceSPA.C3BSM, 1, Integer::sum);</span>
+<span class="nc" id="L245">                    specialAbilities.merge(BattleForceSPA.MHQ, 12, Integer::sum); //count half-tons</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                } else if (weapon.hasFlag(WeaponType.F_C3M)) {</span>
+<span class="nc" id="L247">                    specialAbilities.merge(BattleForceSPA.C3M, 1, Integer::sum);</span>
+<span class="nc" id="L248">                    specialAbilities.merge(BattleForceSPA.MHQ, 10, Integer::sum);</span>
+                }
+<span class="nc bnc" id="L250" title="All 2 branches missed.">                if (weapon.getShortRange() &lt; 5) {</span>
+<span class="nc" id="L251">                    specialAbilities.put(BattleForceSPA.LTAG, null);</span>
+                } else {
+<span class="nc" id="L253">                    specialAbilities.put(BattleForceSPA.TAG, null);</span>
+                }
+<span class="nc" id="L255">                continue;</span>
+            }
+            
+<span class="nc bnc" id="L258" title="All 2 branches missed.">            if (weapon.getDamage() == WeaponType.DAMAGE_ARTILLERY) {</span>
+<span class="nc" id="L259">                addArtillery(weapon);</span>
+<span class="nc" id="L260">                continue;</span>
+            }
+<span class="nc bnc" id="L262" title="All 2 branches missed.">            if (weapon instanceof ArtilleryBayWeapon) {</span>
+<span class="nc bnc" id="L263" title="All 2 branches missed.">                for (int index : mount.getBayWeapons()) {</span>
+<span class="nc" id="L264">                    Mounted m = en.getEquipment(index);</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">                    if (m.getType() instanceof WeaponType) {</span>
+<span class="nc" id="L266">                        addArtillery((WeaponType)m.getType());</span>
+                    }
+<span class="nc" id="L268">                }</span>
+            }
+            
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            if (weapon.getAmmoType() == AmmoType.T_BA_MICRO_BOMB) {</span>
+<span class="nc" id="L272">                bombRacks++;</span>
+<span class="nc" id="L273">                continue;</span>
+            }
+            
+<span class="nc bnc" id="L276" title="All 2 branches missed.">            if (weapon.getAmmoType() == AmmoType.T_TASER) {</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">                if (en instanceof BattleArmor) {</span>
+<span class="nc" id="L278">                    specialAbilities.merge(BattleForceSPA.BTA, 1, Integer::sum);</span>
+                } else {
+<span class="nc" id="L280">                    specialAbilities.merge(BattleForceSPA.MTA, 1, Integer::sum);</span>
+                }
+<span class="nc" id="L282">                continue;</span>
+            }
+            
+<span class="nc bnc" id="L285" title="All 2 branches missed.">            if (weapon.hasFlag(WeaponType.F_TSEMP)) {</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">                if (weapon.hasFlag(WeaponType.F_ONESHOT)) {</span>
+<span class="nc" id="L287">                    specialAbilities.merge(BattleForceSPA.TSEMPO, 1, Integer::sum);</span>
+                } else {
+<span class="nc" id="L289">                    specialAbilities.merge(BattleForceSPA.TSEMP, 1, Integer::sum);</span>
+                }
+<span class="nc" id="L291">                continue;</span>
+            }
+            
+<span class="nc bnc" id="L294" title="All 2 branches missed.">            if (weapon instanceof InfantryAttack) {</span>
+<span class="nc" id="L295">                specialAbilities.put(BattleForceSPA.AM, null);</span>
+<span class="nc" id="L296">                continue;</span>
+            }
+
+            // Check ammo weapons first since they had a hidden modifier
+<span class="nc bnc" id="L300" title="All 2 branches missed.">            if ((weapon.getAmmoType() != AmmoType.T_NA)</span>
+<span class="nc bnc" id="L301" title="All 6 branches missed.">                    &amp;&amp; !weapon.hasFlag(WeaponType.F_ONESHOT)</span>
+                    &amp;&amp; (!(en instanceof BattleArmor) || weapon instanceof MissileWeapon)) {
+<span class="nc bnc" id="L303" title="All 2 branches missed.">                if (!ammoForWeapon.containsKey(weapon.getName())) {</span>
+<span class="nc" id="L304">                    int weaponsForAmmo = 1;</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">                    for (int nextPos = 0; nextPos &lt; weaponsList.size(); nextPos++) {</span>
+<span class="nc bnc" id="L306" title="All 2 branches missed.">                        if (nextPos == pos) {</span>
+<span class="nc" id="L307">                            continue;</span>
+                        }
+                        
+<span class="nc" id="L310">                        Mounted nextWeapon = weaponsList.get(nextPos);</span>
+    
+<span class="nc bnc" id="L312" title="All 2 branches missed.">                        if (nextWeapon == null) {</span>
+<span class="nc" id="L313">                            continue;</span>
+                        }
+    
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                        if (nextWeapon.getType().equals(weapon)) {</span>
+<span class="nc" id="L317">                            weaponsForAmmo++;</span>
+                        }
+    
+                    }
+<span class="nc" id="L321">                    int ammoCount = 0;</span>
+                    // Check if they have enough ammo for all the guns to last at
+                    // least 10 rounds
+<span class="nc bnc" id="L324" title="All 2 branches missed.">                    for (Mounted ammo : en.getAmmo()) {</span>
+    
+<span class="nc" id="L326">                        AmmoType at = (AmmoType) ammo.getType();</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">                        if ((at.getAmmoType() == weapon.getAmmoType())</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">                                &amp;&amp; (at.getRackSize() == weapon.getRackSize())) {</span>
+                            // RACs are always fired on 6 shot so that means you
+                            // need 6 times the ammo to avoid the ammo damage
+                            // modifier
+<span class="nc bnc" id="L332" title="All 2 branches missed.">                            if (at.getAmmoType() == AmmoType.T_AC_ROTARY) {</span>
+<span class="nc" id="L333">                                ammoCount += at.getShots() / 6;</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">                            } else if (at.getAmmoType() == AmmoType.T_AC_ULTRA</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">                                    || at.getAmmoType() == AmmoType.T_AC_ULTRA_THB) {</span>
+<span class="nc" id="L336">                                ammoCount += at.getShots() / 2;</span>
+                            } else {
+<span class="nc" id="L338">                                ammoCount += at.getShots();</span>
+                            }
+                        }
+<span class="nc" id="L341">                    }</span>
+    
+<span class="nc bnc" id="L343" title="All 2 branches missed.">                    ammoForWeapon.put(weapon.getName(), (ammoCount / weaponsForAmmo) &gt;= 10);</span>
+                }
+<span class="nc bnc" id="L345" title="All 2 branches missed.">                if (!ammoForWeapon.get(weapon.getName())) {</span>
+<span class="nc" id="L346">                    damageModifier *= 0.75;</span>
+                }
+            }
+
+<span class="nc bnc" id="L350" title="All 2 branches missed.">            if (weapon.hasFlag(WeaponType.F_ONESHOT)) {</span>
+<span class="nc" id="L351">                damageModifier *= .1;</span>
+            }
+            
+<span class="nc bnc" id="L354" title="All 2 branches missed.">            if (weapon instanceof BayWeapon) {</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">                for (int index : mount.getBayWeapons()) {</span>
+<span class="nc" id="L356">                    Mounted m = en.getEquipment(index);</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">                    if (m.getType() instanceof WeaponType) {</span>
+<span class="nc bnc" id="L358" title="All 2 branches missed.">                        for (int r = 0; r &lt; rangeBands; r++) {</span>
+<span class="nc" id="L359">                            baseDamage[r] += ((WeaponType)m.getType()).getBattleForceDamage(ranges[r], m.getLinkedBy());</span>
+<span class="nc" id="L360">                            heat[r] += ((WeaponType)m.getType()).getBattleForceHeatDamage(ranges[r]);</span>
+                        }
+                    }
+<span class="nc" id="L363">                }</span>
+            } else {
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                for (int r = 0; r &lt; rangeBands; r++) {</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                    if (en instanceof BattleArmor) {</span>
+<span class="nc" id="L367">                        baseDamage[r] = getBattleArmorDamage(weapon, ranges[r], ((BattleArmor)en),</span>
+<span class="nc" id="L368">                                mount.isAPMMounted());</span>
+                    } else {
+<span class="nc" id="L370">                        baseDamage[r] = weapon.getBattleForceDamage(ranges[r], mount.getLinkedBy());</span>
+                    }
+<span class="nc" id="L372">                    heat[r] += weapon.getBattleForceHeatDamage(ranges[r]);</span>
+                }
+            }
+
+            // Targetting Computer
+<span class="nc bnc" id="L377" title="All 4 branches missed.">            if (hasTC &amp;&amp; weapon.hasFlag(WeaponType.F_DIRECT_FIRE)</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">                    &amp;&amp; (weapon.getAmmoType() != AmmoType.T_AC_LBX)</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">                    &amp;&amp; (weapon.getAmmoType() != AmmoType.T_AC_LBX_THB)) {</span>
+<span class="nc" id="L380">                damageModifier *= 1.10;</span>
+            }
+            
+<span class="nc bnc" id="L383" title="All 2 branches missed.">            for (int loc = 0; loc &lt; weaponLocations.length; loc++) {</span>
+<span class="nc" id="L384">                double locMultiplier = locationMultiplier(en, loc, mount);</span>
+<span class="nc bnc" id="L385" title="All 2 branches missed.">                if (locMultiplier == 0) {</span>
+<span class="nc" id="L386">                    continue;</span>
+                }
+<span class="nc bnc" id="L388" title="All 2 branches missed.">                for (int r = 0; r &lt; rangeBands; r++) {</span>
+<span class="nc" id="L389">                    double dam = baseDamage[r] * damageModifier * locMultiplier;</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">                    if (!weapon.isCapital()) {</span>
+<span class="nc" id="L391">                        weaponLocations[loc].addDamage(r, dam);</span>
+                    }
+<span class="nc bnc" id="L393" title="All 2 branches missed.">                    if (weapon.getBattleForceClass() == WeaponType.BFCLASS_MML) {</span>
+<span class="nc bnc" id="L394" title="All 2 branches missed.">                        if (r == RANGE_BAND_SHORT) {</span>
+<span class="nc" id="L395">                            weaponLocations[loc].addDamage(WeaponType.BFCLASS_SRM, r, dam);</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">                        } else if (r == RANGE_BAND_MEDIUM) {</span>
+<span class="nc" id="L397">                            weaponLocations[loc].addDamage(WeaponType.BFCLASS_SRM, r, dam / 2.0);</span>
+<span class="nc" id="L398">                            weaponLocations[loc].addDamage(WeaponType.BFCLASS_LRM, r, dam / 2.0);</span>
+                        } else {
+<span class="nc" id="L400">                            weaponLocations[loc].addDamage(WeaponType.BFCLASS_LRM, r, dam);                            </span>
+                        }
+                    } else {
+<span class="nc" id="L403">                        weaponLocations[loc].addDamage(weapon.getBattleForceClass(), r, dam);</span>
+                    }
+<span class="nc bnc" id="L405" title="All 6 branches missed.">                    if (r == RANGE_BAND_LONG &amp;&amp; !(en instanceof Aero) &amp;&amp; weapon.hasIndirectFire()) {</span>
+<span class="nc" id="L406">                        weaponLocations[loc].addIF(dam);</span>
+                    }
+                }
+            }
+<span class="nc bnc" id="L410" title="All 4 branches missed.">            if (en instanceof Aero &amp;&amp; weapon.getAtClass() == WeaponType.CLASS_POINT_DEFENSE) {</span>
+<span class="nc" id="L411">                pointDefense += baseDamage[RANGE_BAND_SHORT] * damageModifier;</span>
+            }
+        }
+        
+<span class="nc bnc" id="L415" title="All 2 branches missed.">        if (en.getEntityType() == Entity.ETYPE_INFANTRY) {</span>
+<span class="nc" id="L416">            int baseRange = 0;</span>
+<span class="nc bnc" id="L417" title="All 4 branches missed.">            if (((Infantry)en).getSecondaryWeapon() != null &amp;&amp; ((Infantry)en).getSecondaryN() &gt;= 2) {</span>
+<span class="nc" id="L418">                baseRange = ((Infantry)en).getSecondaryWeapon().getInfantryRange();</span>
+<span class="nc bnc" id="L419" title="All 2 branches missed.">            } else if (((Infantry)en).getPrimaryWeapon() != null){</span>
+<span class="nc" id="L420">                baseRange = ((Infantry)en).getPrimaryWeapon().getInfantryRange();</span>
+            }
+<span class="nc" id="L422">            int range = baseRange * 3;</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">            for (int r = 0; r &lt; STANDARD_RANGES.length; r++) {</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">                if (range &gt;= STANDARD_RANGES[r]) {</span>
+<span class="nc" id="L425">                    weaponLocations[0].addDamage(r, getConvInfantryStandardDamage(STANDARD_RANGES[r],</span>
+                            (Infantry)en));
+                } else {
+                    break;
+                }
+            }
+        }
+        
+<span class="nc bnc" id="L433" title="All 2 branches missed.">        if (en instanceof BattleArmor) {</span>
+<span class="nc" id="L434">            int vibroClaws = en.countWorkingMisc(MiscType.F_VIBROCLAW);</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">            if (vibroClaws &gt; 0) {</span>
+<span class="nc" id="L436">                weaponLocations[0].addDamage(0, vibroClaws);</span>
+<span class="nc" id="L437">                weaponLocations[0].addDamage(WeaponType.BFCLASS_STANDARD, 0, vibroClaws);</span>
+            }
+<span class="nc bnc" id="L439" title="All 2 branches missed.">            if (bombRacks &gt; 0) {</span>
+<span class="nc" id="L440">                specialAbilities.put(BattleForceSPA.BOMB,</span>
+<span class="nc" id="L441">                        (bombRacks * ((BattleArmor)en).getShootingStrength()) / 5);</span>
+            }
+        }
+        
+<span class="nc bnc" id="L445" title="All 4 branches missed.">        if (en instanceof Aero &amp;&amp; pointDefense &gt; 0) {</span>
+<span class="nc" id="L446">            specialAbilities.put(BattleForceSPA.PNT, (int)Math.ceil(pointDefense / 10.0));</span>
+        }
+
+<span class="nc" id="L449">        adjustForHeat(en);</span>
+        //Rules state that all flamer and plasma weapons on the unit contribute to the heat rating, so we don't separate by arc
+<span class="nc bnc" id="L451" title="All 2 branches missed.">        if (heat[RANGE_BAND_SHORT] &gt; 10) {</span>
+<span class="nc" id="L452">            specialAbilities.put(BattleForceSPA.HT, 2);</span>
+<span class="nc bnc" id="L453" title="All 2 branches missed.">        } else if (heat[RANGE_BAND_SHORT] &gt; 5) {</span>
+<span class="nc" id="L454">            specialAbilities.put(BattleForceSPA.HT, 1);</span>
+        }
+<span class="nc" id="L456">    }</span>
+    
+    protected double locationMultiplier(Entity en, int loc, Mounted mount) {
+<span class="nc" id="L459">    	return en.getBattleForceLocationMultiplier(loc, mount.getLocation(), mount.isRearMounted());</span>
+    }
+    
+    protected void addArtillery(WeaponType weapon) {
+<span class="nc" id="L463">        BattleForceSPA artType = null;</span>
+<span class="nc bnc" id="L464" title="All 10 branches missed.">        switch (weapon.getAmmoType()) {</span>
+        case AmmoType.T_ARROW_IV:
+<span class="nc bnc" id="L466" title="All 2 branches missed.">            if (weapon.getInternalName().substring(0, 1).equals(&quot;C&quot;)) {</span>
+<span class="nc" id="L467">                artType = BattleForceSPA.ARTAC;</span>
+            } else {
+<span class="nc" id="L469">                artType = BattleForceSPA.ARTAIS;</span>
+            }
+<span class="nc" id="L471">            break;</span>
+        case AmmoType.T_LONG_TOM:
+<span class="nc" id="L473">            artType = BattleForceSPA.ARTLT;</span>
+<span class="nc" id="L474">            break;</span>
+        case AmmoType.T_SNIPER:
+<span class="nc" id="L476">            artType = BattleForceSPA.ARTS;</span>
+<span class="nc" id="L477">            break;</span>
+        case AmmoType.T_THUMPER:
+<span class="nc" id="L479">            artType = BattleForceSPA.ARTT;</span>
+<span class="nc" id="L480">            break;</span>
+        case AmmoType.T_LONG_TOM_CANNON:
+<span class="nc" id="L482">            artType = BattleForceSPA.ARTLTC;</span>
+<span class="nc" id="L483">            break;</span>
+        case AmmoType.T_SNIPER_CANNON:
+<span class="nc" id="L485">            artType = BattleForceSPA.ARTSC;</span>
+<span class="nc" id="L486">            break;</span>
+        case AmmoType.T_THUMPER_CANNON:
+<span class="nc" id="L488">            artType = BattleForceSPA.ARTTC;</span>
+<span class="nc" id="L489">            break;</span>
+        case AmmoType.T_CRUISE_MISSILE:
+<span class="nc bnc" id="L491" title="All 5 branches missed.">            switch(weapon.getRackSize()) {</span>
+            case 50:
+<span class="nc" id="L493">                artType = BattleForceSPA.ARTCM5;</span>
+<span class="nc" id="L494">                break;</span>
+            case 70:
+<span class="nc" id="L496">                artType = BattleForceSPA.ARTCM7;</span>
+<span class="nc" id="L497">                break;</span>
+            case 90:
+<span class="nc" id="L499">                artType = BattleForceSPA.ARTCM9;</span>
+<span class="nc" id="L500">                break;</span>
+            case 120:
+<span class="nc" id="L502">                artType = BattleForceSPA.ARTCM12;</span>
+                break;
+            }
+        case AmmoType.T_BA_TUBE:
+<span class="nc" id="L506">            artType = BattleForceSPA.ARTBA;</span>
+            break;
+        }
+<span class="nc bnc" id="L509" title="All 2 branches missed.">        if (artType != null) {</span>
+<span class="nc" id="L510">            specialAbilities.merge(artType, 1, Integer::sum);</span>
+        }        
+<span class="nc" id="L512">    }</span>
+    
+    /* BattleForce and AlphaStrike calculate infantry damage differently */
+    protected double getConvInfantryStandardDamage(int range, Infantry inf) {
+<span class="nc bnc" id="L516" title="All 2 branches missed.">        if (inf.getPrimaryWeapon() == null) {</span>
+<span class="nc" id="L517">            int baseDamage = (int)Math.ceil(inf.getDamagePerTrooper() * inf.getShootingStrength());</span>
+<span class="nc" id="L518">            return Compute.calculateClusterHitTableAmount(7, baseDamage) / 10.0;</span>
+        } else {
+<span class="nc" id="L520">            return 0;</span>
+        }
+    }
+    
+    protected double getBattleArmorDamage(WeaponType weapon, int range, BattleArmor ba,
+            boolean apmMounted) {
+<span class="nc" id="L526">        return weapon.getBattleForceDamage(range,</span>
+<span class="nc" id="L527">                ba.getShootingStrength());        </span>
+    }
+    
+    protected void adjustForHeat(Entity en) {
+        double totalHeat;
+<span class="nc" id="L532">        totalHeat = en.getBattleForceTotalHeatGeneration(false) - 4;</span>
+<span class="nc" id="L533">        int heatCapacity = calcHeatCapacity(en);</span>
+<span class="nc bnc" id="L534" title="All 2 branches missed.">        if (totalHeat &gt; heatCapacity) {</span>
+<span class="nc" id="L535">            double adjustment = heatCapacity / totalHeat;</span>
+<span class="nc bnc" id="L536" title="All 2 branches missed.">            for (int loc = 0; loc &lt; weaponLocations.length; loc++) {</span>
+<span class="nc bnc" id="L537" title="All 2 branches missed.">                if (en.isBattleForceRearLocation(loc)) {</span>
+<span class="nc" id="L538">                    continue;</span>
+                }
+<span class="nc bnc" id="L540" title="All 4 branches missed.">                if (en instanceof Mech || en.getEntityType() == Entity.ETYPE_AERO) {</span>
+<span class="nc" id="L541">                    int rangeIndex = 1;</span>
+<span class="nc" id="L542">                    int base = (int)Math.round(weaponLocations[loc].getDamage(1));</span>
+<span class="nc bnc" id="L543" title="All 2 branches missed.">                    if (base == 0) {</span>
+<span class="nc" id="L544">                        rangeIndex = 0;</span>
+<span class="nc" id="L545">                        base = (int)Math.round(weaponLocations[loc].getDamage(0));                        </span>
+                    }
+<span class="nc bnc" id="L547" title="All 2 branches missed.">                    if (base == 0) {</span>
+<span class="nc" id="L548">                        continue;</span>
+                    }
+<span class="nc" id="L550">                    int heatAdjusted = (int)Math.round(weaponLocations[loc].getDamage(rangeIndex) * adjustment);</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">                    if (heatAdjusted &lt; base) {</span>
+<span class="nc" id="L552">                        weaponLocations[loc].overheat = Math.min(base - heatAdjusted, 4);</span>
+                    }
+                }
+<span class="nc" id="L555">                weaponLocations[loc].adjustForHeat(adjustment);</span>
+            }
+        }
+<span class="nc bnc" id="L558" title="All 4 branches missed.">        if (weaponLocations[0].getOverheat() &gt; 0</span>
+<span class="nc bnc" id="L559" title="All 2 branches missed.">                &amp;&amp; (en instanceof Mech || en.getEntityType() == Entity.ETYPE_AERO)) {</span>
+<span class="nc" id="L560">            int heatLong = en.getWeaponList().stream()</span>
+<span class="nc bnc" id="L561" title="All 2 branches missed.">                    .filter(m -&gt; m.getType() instanceof WeaponType</span>
+<span class="nc bnc" id="L562" title="All 2 branches missed.">                            &amp;&amp; !m.isRearMounted()</span>
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                            &amp;&amp; !en.isBattleForceRearLocation(m.getLocation()))</span>
+<span class="nc" id="L564">                    .map(m -&gt; (WeaponType)m.getType())</span>
+<span class="nc bnc" id="L565" title="All 2 branches missed.">                    .filter(w -&gt; w.getLongRange() &gt;= MEDIUM_RANGE)</span>
+<span class="nc" id="L566">                    .mapToInt(WeaponType::getHeat)</span>
+<span class="nc" id="L567">                    .sum();</span>
+<span class="nc bnc" id="L568" title="All 2 branches missed.">            if (heatLong - 4 &gt; heatCapacity) {</span>
+<span class="nc" id="L569">                specialAbilities.put(BattleForceSPA.OVL, null);</span>
+            }
+        }
+<span class="nc" id="L572">    }</span>
+
+    public int calcHeatCapacity(Entity en) {
+<span class="nc" id="L575">        int capacity = en.getHeatCapacity();</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">        for (Mounted mounted : en.getEquipment()) {</span>
+<span class="nc bnc" id="L577" title="All 2 branches missed.">            if (mounted.getType() instanceof AmmoType</span>
+<span class="nc bnc" id="L578" title="All 2 branches missed.">                    &amp;&amp; ((AmmoType)mounted.getType()).getAmmoType() == AmmoType.T_COOLANT_POD) {</span>
+<span class="nc" id="L579">                capacity++;</span>
+<span class="nc bnc" id="L580" title="All 2 branches missed.">            } else if (mounted.getType() instanceof MiscType</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">                    &amp;&amp; mounted.getType().hasFlag(MiscType.F_EMERGENCY_COOLANT_SYSTEM)) {</span>
+<span class="nc" id="L582">                capacity += 1;</span>
+            }
+<span class="nc" id="L584">        }</span>
+<span class="nc" id="L585">        return capacity;</span>
+    }
+
+    public double calculatePointValue(Entity en) {
+<span class="nc" id="L589">        return en.calculateBattleValue(true, true) / 100.0;</span>
+    }
+    
+    public String getBFDamageString(int loc) {
+<span class="nc" id="L593">        StringBuilder str = new StringBuilder(locationNames[loc]);</span>
+<span class="nc bnc" id="L594" title="All 2 branches missed.">        if (locationNames[loc].length() &gt; 0) {</span>
+<span class="nc" id="L595">            str.append(&quot;(&quot;);</span>
+        }
+<span class="nc" id="L597">        str.append(weaponLocations[loc].formatDamageUp(WeaponType.BFCLASS_STANDARD));</span>
+<span class="nc bnc" id="L598" title="All 2 branches missed.">        for (int i = WeaponType.BFCLASS_CAPITAL; i &lt; WeaponType.BFCLASS_NUM; i++) {</span>
+<span class="nc bnc" id="L599" title="All 2 branches missed.">            if (weaponLocations[loc].hasDamageClass(i)) {</span>
+<span class="nc" id="L600">                str.append(&quot;;&quot;).append(WeaponType.BF_CLASS_NAMES[i])</span>
+<span class="nc" id="L601">                    .append(weaponLocations[loc].formatDamageUp(i));</span>
+            }
+        }
+<span class="nc bnc" id="L604" title="All 2 branches missed.">        for (int i = 1; i &lt; WeaponType.BFCLASS_CAPITAL; i++) {</span>
+<span class="nc bnc" id="L605" title="All 2 branches missed.">            if (weaponLocations[loc].hasDamageClassRounded(i)) {</span>
+<span class="nc" id="L606">                str.append(&quot;;&quot;).append(WeaponType.BF_CLASS_NAMES[i])</span>
+<span class="nc" id="L607">                    .append(weaponLocations[loc].formatDamageRounded(i, false));</span>
+            }
+        }
+<span class="nc bnc" id="L610" title="All 2 branches missed.">        if (weaponLocations[loc].getIF() &gt;= 0.5) {</span>
+<span class="nc" id="L611">            str.append(&quot;;IF&quot;).append((int)Math.round(weaponLocations[loc].getIF()));</span>
+        }
+<span class="nc bnc" id="L613" title="All 2 branches missed.">        if (locationNames[loc].length() &gt; 0) {</span>
+<span class="nc" id="L614">            str.append(&quot;)&quot;);</span>
+        }
+<span class="nc" id="L616">        return str.toString();</span>
+    }
+    
+    protected String getASRangeString(double[] damage) {
+<span class="nc" id="L620">        return IntStream.range(0, damage.length).mapToDouble(i -&gt; damage[i] / 10.0)</span>
+<span class="nc" id="L621">                .mapToObj(d -&gt; {</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">                    if (d &gt; 0.5) {</span>
+<span class="nc" id="L623">                        return Integer.toString((int)Math.round(d));</span>
+<span class="nc bnc" id="L624" title="All 2 branches missed.">                    } else if (d &gt; 0) {</span>
+<span class="nc" id="L625">                        return &quot;0*&quot;;</span>
+                    } else {
+<span class="nc" id="L627">                        return &quot;0&quot;;</span>
+                    }
+<span class="nc" id="L629">                }).collect(Collectors.joining(&quot;/&quot;));</span>
+    }
+    
+    public void writeCsv(BufferedWriter w) throws IOException {
+<span class="nc" id="L633">        w.write(name);</span>
+<span class="nc" id="L634">        w.write(&quot;\t&quot;);</span>
+<span class="nc" id="L635">        w.write(Integer.toString(size));</span>
+<span class="nc" id="L636">        w.write(&quot;\t&quot;);</span>
+<span class="nc" id="L637">        w.write(getMovementAsString());</span>
+<span class="nc" id="L638">        w.write(&quot;\t&quot;);</span>
+<span class="nc" id="L639">        w.write(Integer.toString(getFinalArmor()));</span>
+<span class="nc bnc" id="L640" title="All 2 branches missed.">        if (threshold &gt;= 0) {</span>
+<span class="nc" id="L641">            w.write(&quot;-&quot; + (int)Math.ceil(threshold));//TODO: threshold</span>
+        }
+<span class="nc" id="L643">        w.write(&quot;\t&quot;);</span>
+<span class="nc" id="L644">        w.write(Integer.toString(structure));</span>
+<span class="nc" id="L645">        w.write(&quot;\t&quot;);</span>
+<span class="nc" id="L646">        StringJoiner sj = new StringJoiner(&quot;, &quot;);</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">        for (int loc = 0; loc &lt; weaponLocations.length; loc++) {</span>
+<span class="nc" id="L648">            StringBuilder str = new StringBuilder();</span>
+<span class="nc" id="L649">            String damStr = getBFDamageString(loc);</span>
+<span class="nc bnc" id="L650" title="All 2 branches missed.">            if (weaponLocations[loc].hasDamageRounded()) {</span>
+<span class="nc" id="L651">                str.append(damStr);</span>
+<span class="nc" id="L652">                sj.add(str.toString());</span>
+            }
+        }
+<span class="nc bnc" id="L655" title="All 2 branches missed.">        if (sj.length() &gt; 0) {</span>
+<span class="nc" id="L656">            w.write(sj.toString());</span>
+        } else {
+<span class="nc bnc" id="L658" title="All 2 branches missed.">            w.write(rangeBands &gt; 3? &quot;0/0/0/0&quot; : &quot;0/0/0&quot;);</span>
+        }
+<span class="nc" id="L660">        w.write(&quot;\t&quot;);</span>
+<span class="nc" id="L661">        sj = new StringJoiner(&quot;, &quot;);</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">        for (int loc = 0; loc &lt; weaponLocations.length; loc++) {</span>
+<span class="nc bnc" id="L663" title="All 2 branches missed.">            if (weaponLocations[loc].getOverheat() &gt;= 1) {</span>
+<span class="nc" id="L664">                sj.add(locationNames[loc] + Math.max(4, (int)Math.round(weaponLocations[loc].getOverheat())));</span>
+            }
+        }
+<span class="nc bnc" id="L667" title="All 2 branches missed.">        if (sj.length() &gt; 0) {</span>
+<span class="nc" id="L668">            w.write(sj.toString());</span>
+        } else {
+<span class="nc" id="L670">            w.write(&quot;-&quot;);</span>
+        }
+<span class="nc" id="L672">        w.write(&quot;\t&quot;);</span>
+<span class="nc" id="L673">        w.write(Integer.toString(getFinalPoints()));</span>
+<span class="nc" id="L674">        w.write(&quot;\t&quot;);</span>
+<span class="nc" id="L675">        w.write(specialAbilities.keySet().stream()</span>
+<span class="nc bnc" id="L676" title="All 2 branches missed.">                .filter(spa -&gt; spa.usedByBattleForce()</span>
+<span class="nc bnc" id="L677" title="All 2 branches missed.">                        &amp;&amp; !spa.isDoor())</span>
+<span class="nc" id="L678">                .map(spa -&gt; formatSPAString(spa))</span>
+<span class="nc" id="L679">                .collect(Collectors.joining(&quot;, &quot;)));</span>
+<span class="nc" id="L680">        w.newLine();</span>
+<span class="nc" id="L681">    }</span>
+    
+    protected String formatSPAString(BattleForceSPA spa) {
+<span class="nc" id="L684">        Integer val = specialAbilities.get(spa);</span>
+<span class="nc bnc" id="L685" title="All 2 branches missed.">        if (val == null) {</span>
+<span class="nc" id="L686">            return spa.toString();</span>
+        }
+<span class="nc bnc" id="L688" title="All 4 branches missed.">        switch (spa) {</span>
+        case AT:
+        case MT:
+        case PT:
+        case ST:
+        case VTM:
+        case VTH:
+<span class="nc" id="L695">            return spa.toString() + val + &quot;D&quot; + specialAbilities.get(spa.getDoor());</span>
+        case CT:
+<span class="nc bnc" id="L697" title="All 2 branches missed.">            if (val &gt;= 1000) {</span>
+<span class="nc" id="L698">                return &quot;CK&quot; + (val / 1000.0) + &quot;D&quot; + specialAbilities.get(spa.getDoor());</span>
+            } else {
+<span class="nc" id="L700">                return spa.toString() + val + &quot;D&quot; + specialAbilities.get(spa.getDoor());</span>
+            }
+        case MHQ:
+<span class="nc" id="L703">            return spa.toString() + (val / 2);</span>
+        default:
+<span class="nc" id="L705">            return spa.toString() + val;</span>
+        }
+    }
+
+<span class="nc" id="L709">    protected class WeaponLocation {</span>
+<span class="nc" id="L710">        List&lt;Double&gt; standardDamage = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L711">        Map&lt;Integer,List&lt;Double&gt;&gt; specialDamage = new HashMap&lt;&gt;();</span>
+        double indirect;
+        double overheat;
+        
+        public boolean hasStandardDamage() {
+<span class="nc bnc" id="L716" title="All 2 branches missed.">            return standardDamage.stream().mapToDouble(Double::doubleValue).sum() &gt; 0;</span>
+        }
+        
+        public boolean hasStandardDamageRounded() {
+<span class="nc" id="L720">            return standardDamage.stream()</span>
+<span class="nc bnc" id="L721" title="All 2 branches missed.">                    .filter(d -&gt; d &gt;= 0.5)</span>
+<span class="nc bnc" id="L722" title="All 2 branches missed.">                    .mapToDouble(Double::doubleValue).sum() &gt; 0;</span>
+        }
+        
+        public boolean hasDamage() {
+<span class="nc bnc" id="L726" title="All 2 branches missed.">        	return hasStandardDamage()</span>
+<span class="nc bnc" id="L727" title="All 2 branches missed.">        			|| specialDamage.keySet().stream().anyMatch(dc -&gt; hasDamageClass(dc));</span>
+        }
+        
+        public boolean hasDamageRounded() {
+<span class="nc bnc" id="L731" title="All 2 branches missed.">        	return hasStandardDamageRounded()</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">        			|| specialDamage.keySet().stream().anyMatch(dc -&gt; hasDamageClassRounded(dc));</span>
+        }
+        
+        public boolean hasDamageClass(int damageClass) {
+<span class="nc bnc" id="L736" title="All 2 branches missed.">            return specialDamage.containsKey(damageClass)</span>
+<span class="nc bnc" id="L737" title="All 2 branches missed.">                    &amp;&amp; specialDamage.get(damageClass).stream().mapToDouble(Double::doubleValue).sum() &gt; 0;</span>
+        }
+        
+        public boolean hasDamageClassRounded(int damageClass) {
+<span class="nc bnc" id="L741" title="All 2 branches missed.">            return specialDamage.containsKey(damageClass)</span>
+<span class="nc" id="L742">                    &amp;&amp; specialDamage.get(damageClass).stream()</span>
+<span class="nc bnc" id="L743" title="All 2 branches missed.">                    .filter(d -&gt; d &gt;= 0.5)</span>
+<span class="nc bnc" id="L744" title="All 2 branches missed.">                    .mapToDouble(Double::doubleValue).sum() &gt; 0;</span>
+        }
+        
+        public void addDamage(int rangeIndex, double val) {
+<span class="nc" id="L748">            addDamage(standardDamage, rangeIndex, val);</span>
+<span class="nc" id="L749">        }</span>
+        
+        public void addDamage(int damageClass, int rangeIndex, double val) {
+<span class="nc bnc" id="L752" title="All 2 branches missed.">            if (!specialDamage.containsKey(damageClass)) {</span>
+<span class="nc" id="L753">                specialDamage.put(damageClass, new ArrayList&lt;Double&gt;());</span>
+            }
+<span class="nc" id="L755">            addDamage(specialDamage.get(damageClass), rangeIndex, val);</span>
+<span class="nc" id="L756">        }</span>
+        
+        public double getDamage(int rangeIndex) {
+<span class="nc bnc" id="L759" title="All 2 branches missed.">            if (standardDamage.size() &gt; rangeIndex) {</span>
+<span class="nc" id="L760">                return standardDamage.get(rangeIndex);</span>
+            }
+<span class="nc" id="L762">            return 0;</span>
+        }
+        
+        public double getDamage(int damageClass, int rangeIndex) {
+<span class="nc bnc" id="L766" title="All 2 branches missed.">            if (specialDamage.containsKey(damageClass)</span>
+<span class="nc bnc" id="L767" title="All 2 branches missed.">                    &amp;&amp; specialDamage.get(damageClass).size() &gt; rangeIndex) {</span>
+<span class="nc" id="L768">                return specialDamage.get(damageClass).get(rangeIndex);</span>
+            }
+<span class="nc" id="L770">            return 0;</span>
+        }
+        
+        public String formatDamageUp() {
+<span class="nc" id="L774">            return formatDamageUp(standardDamage);</span>
+        }
+
+        public String formatDamageUp(int damageClass) {
+<span class="nc bnc" id="L778" title="All 2 branches missed.">            if (specialDamage.containsKey(damageClass)) {</span>
+<span class="nc" id="L779">                return formatDamageUp(specialDamage.get(damageClass));</span>
+            }
+<span class="nc bnc" id="L781" title="All 2 branches missed.">            return rangeBands &gt; 3? &quot;0/0/0/0&quot; : &quot;0/0/0&quot;;</span>
+        }
+        
+        public String formatDamageRounded(boolean showMinDamage) {
+<span class="nc" id="L785">            return formatDamageRounded(standardDamage, showMinDamage);</span>
+        }
+
+        public String formatDamageRounded(int damageClass, boolean showMinDamage) {
+<span class="nc bnc" id="L789" title="All 2 branches missed.">            if (specialDamage.containsKey(damageClass)) {</span>
+<span class="nc" id="L790">                return formatDamageRounded(specialDamage.get(damageClass), showMinDamage);</span>
+            }
+<span class="nc bnc" id="L792" title="All 2 branches missed.">            return rangeBands &gt; 3? &quot;0/0/0/0&quot; : &quot;0/0/0&quot;;</span>
+        }
+        
+        public double getIF() {
+<span class="nc" id="L796">            return indirect;</span>
+        }
+        
+        public void addIF(double val) {
+<span class="nc" id="L800">            indirect += val;</span>
+<span class="nc" id="L801">        }</span>
+        
+        public double getOverheat() {
+<span class="nc" id="L804">            return overheat;</span>
+        }
+        
+        public void setOverheat(double val) {
+<span class="nc" id="L808">            overheat = val;</span>
+<span class="nc" id="L809">        }</span>
+        
+        public void adjustForHeat(double mul) {
+<span class="nc bnc" id="L812" title="All 2 branches missed.">            for (int i = 0; i &lt; standardDamage.size(); i++) {</span>
+<span class="nc" id="L813">                standardDamage.set(i, standardDamage.get(i) * mul);</span>
+            }
+<span class="nc bnc" id="L815" title="All 2 branches missed.">            for (List&lt;Double&gt; damage : specialDamage.values()) {</span>
+<span class="nc bnc" id="L816" title="All 2 branches missed.">                for (int i = 0; i &lt; damage.size(); i++) {</span>
+<span class="nc" id="L817">                    damage.set(i, damage.get(i) * mul);</span>
+                }
+<span class="nc" id="L819">            }</span>
+<span class="nc" id="L820">        }</span>
+        
+        private void addDamage(List&lt;Double&gt; damage, int rangeIndex, double val) {
+<span class="nc bnc" id="L823" title="All 2 branches missed.">            while (damage.size() &lt;= rangeIndex) {</span>
+<span class="nc" id="L824">                damage.add(0.0);</span>
+            }
+<span class="nc" id="L826">            damage.set(rangeIndex, damage.get(rangeIndex) + val);</span>
+<span class="nc" id="L827">        }</span>
+        
+        private String formatDamageUp(List&lt;Double&gt; damage) {
+<span class="nc bnc" id="L830" title="All 2 branches missed.">            while (damage.size() &lt; rangeBands) {</span>
+<span class="nc" id="L831">                damage.add(0.0);</span>
+            }
+<span class="nc" id="L833">            return damage.stream().map(d -&gt; String.valueOf((int)Math.ceil(d)))</span>
+<span class="nc" id="L834">                    .collect(Collectors.joining(&quot;/&quot;));</span>
+        }
+
+        private String formatDamageRounded(List&lt;Double&gt; damage, boolean showMinDamage) {
+<span class="nc bnc" id="L838" title="All 2 branches missed.">            while (damage.size() &lt; rangeBands) {</span>
+<span class="nc" id="L839">                damage.add(0.0);</span>
+            }
+<span class="nc" id="L841">            return damage.stream().map(d -&gt; {</span>
+<span class="nc bnc" id="L842" title="All 2 branches missed.">                if (d == 0) {</span>
+<span class="nc" id="L843">                    return &quot;0&quot;;</span>
+<span class="nc bnc" id="L844" title="All 4 branches missed.">                } else if (d &lt; 0.5 &amp;&amp; showMinDamage) {</span>
+<span class="nc" id="L845">                    return &quot;0*&quot;;</span>
+                } else {
+<span class="nc" id="L847">                    return String.valueOf((int)Math.round(d));</span>
+                }
+<span class="nc" id="L849">            }).collect(Collectors.joining(&quot;/&quot;));</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WeaponOrderHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">WeaponOrderHandler.java</span></div><h1>WeaponOrderHandler.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2003, 2004 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.xml.parsers.DocumentBuilder;
+
+import megamek.common.Entity.WeaponSortOrder;
+import megamek.common.annotations.Nullable;
+import megamek.common.util.fileUtils.MegaMekFile;
+import megamek.utils.MegaMekXmlUtil;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+
+/**
+ * This class loads the custom weapon orders lists from the
+ * mmconf/customWeaponOrder.xml files.
+ *
+ * @author Arlith
+ */
+<span class="nc" id="L47">public class WeaponOrderHandler {</span>
+
+<span class="nc" id="L49">    public static class WeaponOrder {</span>
+<span class="nc" id="L50">        public Entity.WeaponSortOrder orderType = WeaponSortOrder.DEFAULT;</span>
+<span class="nc" id="L51">        public Map&lt;Integer, Integer&gt; customWeaponOrderMap =</span>
+                new HashMap&lt;Integer, Integer&gt;();
+
+        @Override
+        public boolean equals(Object obj) {
+<span class="nc bnc" id="L56" title="All 2 branches missed.">            if(this == obj) {</span>
+<span class="nc" id="L57">                return true;</span>
+            }
+<span class="nc bnc" id="L59" title="All 4 branches missed.">            if((null == obj) || (getClass() != obj.getClass())) {</span>
+<span class="nc" id="L60">                return false;</span>
+            }
+<span class="nc" id="L62">            final WeaponOrder other = (WeaponOrder) obj;</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">            return Objects.equals(orderType, other.orderType)</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">                    &amp;&amp; Objects.equals(customWeaponOrderMap, other.customWeaponOrderMap);</span>
+        }
+
+        @Override
+        public int hashCode() {
+<span class="nc" id="L69">            return Objects.hash(orderType, customWeaponOrderMap);</span>
+        }
+    }
+
+    public static final String CUSTOM_WEAPON_ORDER_FILENAME =
+            &quot;customWeaponOrder.xml&quot;;
+
+    private static final String CUSTOM_WEAPON_ORDER = &quot;customWeaponOrders&quot;;
+    private static final String UNIT = &quot;unit&quot;;
+    private static final String ID = &quot;id&quot;;
+    private static final String ORDER_TYPE = &quot;orderType&quot;;
+    private static final String WEAPON_LIST = &quot;weaponList&quot;;
+    private static final String ORDER_LIST = &quot;orderList&quot;;
+
+    private static Map&lt;String, WeaponOrder&gt; weaponOrderMap;
+<span class="nc" id="L84">    private static AtomicBoolean initialized = new AtomicBoolean(false);</span>
+<span class="nc" id="L85">    private static AtomicBoolean updated = new AtomicBoolean(false);</span>
+
+    /**
+     * Save customWeaponOrderMap to a file.
+     *
+     * @throws IOException
+     */
+    public synchronized static void saveWeaponOrderFile()
+            throws IOException {
+
+        // If the map hasn't been updated, we don't need to save it.
+<span class="nc bnc" id="L96" title="All 2 branches missed.">        if (!updated.get()) {</span>
+<span class="nc" id="L97">            return;</span>
+        }
+
+<span class="nc" id="L100">        String path = CUSTOM_WEAPON_ORDER_FILENAME;</span>
+<span class="nc" id="L101">        File file = new MegaMekFile(Configuration.configDir(), path).getFile();</span>
+<span class="nc bnc" id="L102" title="All 4 branches missed.">        if (file.exists() &amp;&amp; !file.canWrite()) {</span>
+<span class="nc" id="L103">            System.err.println(&quot;WARN: Could not save custom weapon orders &quot; +</span>
+                    &quot;from &quot; + path);
+<span class="nc" id="L105">            return;</span>
+        }
+
+<span class="nc" id="L108">        Writer output = new BufferedWriter(new OutputStreamWriter(</span>
+                new FileOutputStream(file)));
+
+         // Output the doctype and header stuff.
+<span class="nc" id="L112">        output.write(&quot;&lt;?xml version=\&quot;1.0\&quot;?&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L113">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L114">        output.write(&quot;&lt;&quot; + CUSTOM_WEAPON_ORDER +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L115">        output.write(CommonConstants.NL);</span>
+
+        // Create the UNIT_ID tag for each chassis/model id
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        for (String unitId : weaponOrderMap.keySet()) {</span>
+<span class="nc" id="L119">            StringBuilder weaponList = new StringBuilder();</span>
+<span class="nc" id="L120">            StringBuilder orderList = new StringBuilder();</span>
+<span class="nc" id="L121">            WeaponOrder weapOrder = weaponOrderMap.get(unitId);</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">            if (weapOrder == null) {</span>
+<span class="nc" id="L123">                continue;</span>
+            }
+
+
+<span class="nc bnc" id="L127" title="All 2 branches missed.">            if (weapOrder.orderType == WeaponSortOrder.CUSTOM) {</span>
+                // Build weapon and order lists
+<span class="nc bnc" id="L129" title="All 2 branches missed.">                for (Integer weapId : weapOrder.customWeaponOrderMap.keySet()) {</span>
+<span class="nc" id="L130">                    Integer order = weapOrder.customWeaponOrderMap.get(weapId);</span>
+<span class="nc" id="L131">                    weaponList.append(weapId + &quot;,&quot;);</span>
+<span class="nc" id="L132">                    orderList.append(order + &quot;,&quot;);</span>
+<span class="nc" id="L133">                }</span>
+<span class="nc" id="L134">                weaponList.deleteCharAt(weaponList.length() - 1);</span>
+<span class="nc" id="L135">                orderList.deleteCharAt(orderList.length() - 1);</span>
+            }
+
+            // Write out XML
+<span class="nc" id="L139">            output.write(&quot;\t&quot;);</span>
+<span class="nc" id="L140">            output.write(&quot;&lt;&quot; + UNIT +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L141">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L142">            output.write(&quot;\t\t&quot;);</span>
+<span class="nc" id="L143">            output.write(&quot;&lt;&quot; + ID +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L144">            output.write(unitId);</span>
+<span class="nc" id="L145">            output.write(&quot;&lt;/&quot; + ID +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L146">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L147">            output.write(&quot;\t\t&quot;);</span>
+<span class="nc" id="L148">            output.write(&quot;&lt;&quot; + ORDER_TYPE +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L149">            output.write(weapOrder.orderType.toString());</span>
+<span class="nc" id="L150">            output.write(&quot;&lt;/&quot; + ORDER_TYPE +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L151">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L152">            output.write(&quot;\t\t&quot;);</span>
+<span class="nc" id="L153">            output.write(&quot;&lt;&quot; + WEAPON_LIST +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L154">            output.write(weaponList.toString());</span>
+<span class="nc" id="L155">            output.write(&quot;&lt;/&quot; + WEAPON_LIST +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L156">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L157">            output.write(&quot;\t\t&quot;);</span>
+<span class="nc" id="L158">            output.write(&quot;&lt;&quot; + ORDER_LIST +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L159">            output.write(orderList.toString());</span>
+<span class="nc" id="L160">            output.write(&quot;&lt;/&quot; + ORDER_LIST +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L161">            output.write(CommonConstants.NL);</span>
+<span class="nc" id="L162">            output.write(&quot;\t&quot;);</span>
+<span class="nc" id="L163">            output.write(&quot;&lt;/&quot; + UNIT +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L164">        }</span>
+
+<span class="nc" id="L166">        output.write(CommonConstants.NL);</span>
+<span class="nc" id="L167">        output.write(&quot;&lt;/&quot; + CUSTOM_WEAPON_ORDER +&quot;&gt;&quot;); //$NON-NLS-1$</span>
+
+<span class="nc" id="L169">        output.close();</span>
+<span class="nc" id="L170">    }</span>
+
+    /**
+     * Load customWeaponOrderMap from a file.
+     *
+     * @return
+     * @throws IOException
+     */
+    private synchronized static Map&lt;String, WeaponOrder&gt;
+        loadWeaponOrderFile() throws IOException {
+<span class="nc" id="L180">        Map&lt;String, WeaponOrder&gt; weapOrderMap = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L182">        String path = CUSTOM_WEAPON_ORDER_FILENAME;</span>
+<span class="nc" id="L183">        File file = new MegaMekFile(Configuration.configDir(), path).getFile();</span>
+<span class="nc bnc" id="L184" title="All 4 branches missed.">        if (!file.exists() || !file.isFile()) {</span>
+<span class="nc" id="L185">            System.err.println(&quot;WARN: Could not load custom weapon orders &quot; +</span>
+                    &quot;from &quot; + path);
+<span class="nc" id="L187">            return weapOrderMap;</span>
+        }
+
+        // Build the XML document.
+<span class="nc" id="L191">        StringBuilder log = new StringBuilder();</span>
+        try {
+<span class="nc" id="L193">            DocumentBuilder builder = MegaMekXmlUtil.newSafeDocumentBuilder();</span>
+<span class="nc" id="L194">            log.append(&quot;Parsing &quot;).append(path);</span>
+<span class="nc" id="L195">            Document doc = builder.parse(file);</span>
+<span class="nc" id="L196">            log.append(&quot;\n...Parsing finished.&quot;);</span>
+
+            // Get the list of units.
+<span class="nc" id="L199">            NodeList listOfEntries = doc.getElementsByTagName(UNIT);</span>
+<span class="nc" id="L200">            int totalEntries = listOfEntries.getLength();</span>
+<span class="nc" id="L201">            log.append(&quot;\n\tTotal number of custom weapon order entries: &quot;)</span>
+<span class="nc" id="L202">                    .append(totalEntries);</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            for (int unitCount = 0; unitCount &lt; totalEntries; unitCount++) {</span>
+
+                // Get the first element of this node.
+<span class="nc" id="L206">                Element unitList = (Element) listOfEntries.item(unitCount);</span>
+
+                // Get the chassis
+<span class="nc" id="L209">                Element unitIdElement = (Element) unitList</span>
+<span class="nc" id="L210">                        .getElementsByTagName(ID).item(0);</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">                if (unitIdElement == null) {</span>
+<span class="nc" id="L212">                    log.append(&quot;\n\tMissing &lt;&quot; + ID + &quot;&gt; element #&quot;).append(</span>
+                            unitCount);
+<span class="nc" id="L214">                    continue;</span>
+                }
+<span class="nc" id="L216">                String unitId = unitIdElement.getTextContent();</span>
+
+                // Get the weapon sort order type
+<span class="nc" id="L219">                Element orderTypeElement = (Element) unitList</span>
+<span class="nc" id="L220">                        .getElementsByTagName(ORDER_TYPE).item(0);</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">                if (orderTypeElement == null) {</span>
+<span class="nc" id="L222">                    log.append(&quot;\n\tMissing &lt;&quot; + ORDER_TYPE + &quot;&gt; element #&quot;)</span>
+<span class="nc" id="L223">                            .append(unitCount);</span>
+<span class="nc" id="L224">                    continue;</span>
+                }
+
+                // Get the weapon order
+<span class="nc" id="L228">                Element weaponListElement = (Element) unitList</span>
+<span class="nc" id="L229">                        .getElementsByTagName(WEAPON_LIST).item(0);</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">                if (weaponListElement == null) {</span>
+<span class="nc" id="L231">                    log.append(&quot;\n\tMissing &lt;&quot; + WEAPON_LIST + &quot;&gt; element #&quot;)</span>
+<span class="nc" id="L232">                            .append(unitCount);</span>
+<span class="nc" id="L233">                    continue;</span>
+                }
+<span class="nc" id="L235">                Element orderListElement = (Element) unitList</span>
+<span class="nc" id="L236">                        .getElementsByTagName(ORDER_LIST).item(0);</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">                if (orderListElement == null) {</span>
+<span class="nc" id="L238">                    log.append(&quot;\n\tMissing &lt;&quot; + ORDER_LIST + &quot;&gt; element #&quot;)</span>
+<span class="nc" id="L239">                            .append(unitCount);</span>
+<span class="nc" id="L240">                    continue;</span>
+                }
+
+<span class="nc" id="L243">                WeaponOrder weapOrder = new WeaponOrder();</span>
+<span class="nc" id="L244">                weapOrder.orderType = WeaponSortOrder.valueOf(orderTypeElement</span>
+<span class="nc" id="L245">                        .getTextContent());</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                if (weapOrder.orderType == WeaponSortOrder.CUSTOM) {</span>
+<span class="nc" id="L247">                    String weaponList[] =</span>
+<span class="nc" id="L248">                            weaponListElement.getTextContent().split(&quot;,&quot;);</span>
+<span class="nc" id="L249">                    String orderList[] =</span>
+<span class="nc" id="L250">                            orderListElement.getTextContent().split(&quot;,&quot;);</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">                    assert (weaponList.length == orderList.length);</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">                    for (int i = 0; i &lt; weaponList.length; i++) {</span>
+<span class="nc" id="L253">                        weapOrder.customWeaponOrderMap.put(</span>
+<span class="nc" id="L254">                                Integer.parseInt(weaponList[i]),</span>
+<span class="nc" id="L255">                                Integer.parseInt(orderList[i]));</span>
+                    }
+                }
+<span class="nc" id="L258">                weapOrderMap.put(unitId, weapOrder);</span>
+            }
+<span class="nc" id="L260">            return weapOrderMap;</span>
+<span class="nc" id="L261">        } catch (Exception e) {</span>
+<span class="nc" id="L262">            throw new IOException(e);</span>
+        } finally {
+<span class="nc" id="L264">            System.out.println(log);</span>
+        }
+    }
+
+    /**
+     * Retrieves the custom weapon order Map for the given chassis/model.
+     *
+     * @param chassis The unit's chassis.
+     * @param model   The unit's model
+     * @return A {@code Map} for the custom weapon order for the given
+     *         unit. If the unit is not in the list, a NULL value is returned.
+     */
+    @Nullable
+    public static synchronized WeaponOrder getWeaponOrder(
+            String chassis, String model) {
+<span class="nc bnc" id="L279" title="All 4 branches missed.">        if (!initialized.get() || (null == weaponOrderMap)) {</span>
+            try {
+<span class="nc" id="L281">                weaponOrderMap = loadWeaponOrderFile();</span>
+<span class="nc" id="L282">                initialized.set(true);</span>
+<span class="nc" id="L283">            } catch (IOException e) {</span>
+<span class="nc" id="L284">                System.out.println(&quot;Failed to load custom weapon order file!&quot;);</span>
+<span class="nc" id="L285">                e.printStackTrace();</span>
+<span class="nc" id="L286">                return null;</span>
+<span class="nc" id="L287">            }</span>
+        }
+<span class="nc" id="L289">        WeaponOrder newWeapOrder = new WeaponOrder();</span>
+
+
+        // Build the unit ID from the chassis and model.
+<span class="nc" id="L293">        String unitId = chassis;</span>
+<span class="nc" id="L294">        unitId += &quot; &quot; + model;</span>
+
+        try {
+<span class="nc bnc" id="L297" title="All 2 branches missed.">            if (weaponOrderMap.containsKey(unitId)) {</span>
+<span class="nc" id="L298">                final WeaponOrder storedOrder = weaponOrderMap.get(unitId);</span>
+<span class="nc" id="L299">                newWeapOrder.orderType = storedOrder.orderType;</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">                if (storedOrder.customWeaponOrderMap != null) {</span>
+<span class="nc" id="L301">                    newWeapOrder.customWeaponOrderMap</span>
+<span class="nc" id="L302">                            .putAll(storedOrder.customWeaponOrderMap);</span>
+                }
+<span class="nc" id="L304">                return newWeapOrder;</span>
+            } else {
+<span class="nc" id="L306">                return null;</span>
+            }
+<span class="nc" id="L308">        } catch (Exception e) {</span>
+<span class="nc" id="L309">            String msg = &quot;'\nunitId: '&quot; + unitId + &quot;'\n&quot;;</span>
+<span class="nc" id="L310">            throw new RuntimeException(msg, e);</span>
+        }
+    }
+
+    /**
+     * Sets the custom weapon order for the given chassis and model.
+     *
+     * @param chassis
+     * @param model
+     * @param type
+     * @param customWeapOrder
+     */
+    public synchronized static void setWeaponOrder(String chassis,
+            String model, WeaponSortOrder type, Map&lt;Integer, Integer&gt; customWeapOrder) {
+<span class="nc bnc" id="L324" title="All 4 branches missed.">        if (!initialized.get() || (null == weaponOrderMap)) {</span>
+            try {
+<span class="nc" id="L326">                weaponOrderMap = loadWeaponOrderFile();</span>
+<span class="nc" id="L327">                initialized.set(true);</span>
+<span class="nc" id="L328">            } catch (IOException e) {</span>
+<span class="nc" id="L329">                System.out.println(&quot;Failed to load custom weapon order file!&quot;);</span>
+<span class="nc" id="L330">                e.printStackTrace();</span>
+<span class="nc" id="L331">            }</span>
+        }
+
+<span class="nc bnc" id="L334" title="All 6 branches missed.">        if (chassis == null || chassis.length() &lt; 1 || model == null</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">                || model.length() &lt; 1) {</span>
+<span class="nc" id="L336">            return;</span>
+        }
+<span class="nc" id="L338">        String unitId = chassis;</span>
+<span class="nc" id="L339">        unitId += &quot; &quot; + model;</span>
+<span class="nc" id="L340">        WeaponOrder weapOrder = new WeaponOrder();</span>
+<span class="nc" id="L341">        weapOrder.orderType = type;</span>
+<span class="nc" id="L342">        weapOrder.customWeaponOrderMap =  customWeapOrder;</span>
+<span class="nc" id="L343">        weaponOrderMap.put(unitId, weapOrder);</span>
+<span class="nc" id="L344">        updated.set(true);</span>
+<span class="nc" id="L345">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

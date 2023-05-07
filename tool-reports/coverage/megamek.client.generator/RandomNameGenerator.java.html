@@ -1,0 +1,469 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RandomNameGenerator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.generator</a> &gt; <span class="el_source">RandomNameGenerator.java</span></div><h1>RandomNameGenerator.java</h1><pre class="source lang-java linenums">/*
+ * Copyright (C) 2020 - The MegaMek Team. All Rights Reserved
+ *
+ * MegaMek is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * MegaMek is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with MegaMek. If not, see &lt;http://www.gnu.org/licenses/&gt;.
+ */
+package megamek.client.generator;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+
+import megamek.MegaMek;
+import megamek.common.Configuration;
+import megamek.common.enums.Gender;
+import megamek.common.util.fileUtils.MegaMekFile;
+import megamek.common.util.WeightedMap;
+
+/**
+ * This class sets up a random name generator that can then be used to generate random pilot names.
+ * It has a couple different settings and flexible input file directory locations
+ *
+ * Files are located in {@link Configuration#namesDir()}. All files are comma spaced csv files
+ *
+ * The historicalEthnicity.csv file shows the correspondence between the different ethnic names
+ * and their numeric code in the database. This file is used to initialize the name mapping, and
+ * must be kept current for all additions. The same numeric code MUST be used across all of the
+ * files listed below.
+ * The numeric codes MUST be listed in exact sequential order (NO skipped numbers) for the load
+ * to work correctly.
+ *
+ * The name database is located in three files: maleGivenNames.csv, femaleGivenNames.csv,
+ * and surnames.csv.
+ *
+ * The database is divided into three fields; an Integer Ethnic Code, a String name, and an Integer weight.
+ * The Ethnic Code is an Integer identifying the ethnic group from the historicalEthnicity.csv file the name is from
+ * The Name is a String containing either a male/female first name or a surname, dependant on the origin file.
+ * The Weight is an Integer that is used to set the generation chance of the name. The higher the number,
+ * the more common the name is.
+ *
+ * Faction files are located in factions subdirectory of {@link Configuration#namesDir()}
+ * The faction key is the filename without the extension.
+ * The faction files will have varying number of fields depending on how many ethnic groups exist.
+ * The faction file does two things:
+ * First, it identifies the relative frequency of different ethnic surnames for a faction.
+ * Second, it identifies the correspondence between first names and surnames.
+ * This allows, for example, for more Japanese first names regardless of surname in the Draconis
+ * Combine. There MUST be a line in the Faction file for each ethnic group, although a weight of 0
+ * can be used to prevent the generation of a grouping of names
+ *
+ * This is divided into 3 + n fields, where n is the number of ethnic groups listed in historicalEthnicity.csv,
+ * divided into the following groupings:
+ * The Integer Ethnic Code is the first field
+ * The String Ethnic Name is the second field. This is included for ease of reference, and
+ * is NOT used by the generator.
+ * The Integer Weight for generating a surname of the specified ethnicity. The higher the number,
+ * the more common the surname is for a faction.
+ * This is followed by n fields each containing the Integer Weight for generating a given name for
+ * the ethnicity with Ethnic Code n. The higher the number for the weight, the more common that
+ * given name ethnicity is in generation for the specific ethnicity of the generated surname.
+ *
+ * @author Justin &quot;Windchild&quot; Bowen (current version - April 29th, 2020)
+ * @author Jay Lawson (original version)
+ */
+public class RandomNameGenerator implements Serializable {
+    //region Variable Declarations
+    private static final long serialVersionUID = 5765118329881301375L;
+
+    //region Local File Names
+    // TODO : Move these so they can be changed on demand
+    private static final String DIR_NAME_FACTIONS = &quot;factions&quot;; // Faction Subdirectory
+    private static final String GIVEN_NAME_MALE_FILE = &quot;maleGivenNames.csv&quot;; // Male Given Name Filename
+    private static final String GIVEN_NAME_FEMALE_FILE = &quot;femaleGivenNames.csv&quot;; // Female Given Name Filename
+    private static final String SURNAME_FILE = &quot;surnames.csv&quot;; // Surname List Filename
+    private static final String HISTORICAL_ETHNICITY_FILE = &quot;historicalEthnicity.csv&quot;; // Historical Ethnicity Filename
+    //endregion Local File Names
+
+    private static RandomNameGenerator rng; // This is using a singleton, because only a single usage of this class is required
+
+    //region Data Maps
+    /**
+     * femaleGivenNames, maleGivenNames, and surnames contain values in the following format:
+     * Map&lt;Integer Ethnic_Code, WeightedMap&lt;String Name&gt;&gt;
+     * The ethnic code is an Integer value that is used to determine the ethnicity of the name, while
+     * the name is a String value. The name is stored in a WeightedMap for each ethnic code to ensure
+     * that there is a range from common to rare names. This is determined based on the input weights
+     */
+    private static Map&lt;Integer, WeightedMap&lt;String&gt;&gt; femaleGivenNames;
+    private static Map&lt;Integer, WeightedMap&lt;String&gt;&gt; maleGivenNames;
+    private static Map&lt;Integer, WeightedMap&lt;String&gt;&gt; surnames;
+
+    /**
+     * factionGivenNames contains values in the following format:
+     * Map&lt;String Faction_Name, Map&lt;Integer Surname_Ethnic_Code, WeightedMap&lt;Integer Given_Name_Ethnic_Code&gt;&gt;&gt;
+     * The faction name is the key to determining which list of names should be used, with the default being &quot;General&quot;
+     * The Surname Ethnic Code is the code that the surname will be generated from
+     * The Given Name Ethnic Code is the code to generate the given name from, from the femaleGivenNames or maleGivenNames
+     * maps, and this is weighted to ensure that more common pairings are more common
+     */
+    private static Map&lt;String, Map&lt;Integer, WeightedMap&lt;Integer&gt;&gt;&gt; factionGivenNames;
+
+    /**
+     * factionEthnicCodes contains values in the following format:
+     * Map&lt;String Faction_Name, WeightedMap&lt;Integer Surname_Ethnic_Code&gt;&gt;
+     * The faction name is the key to determining which list of names should be used, with the default being &quot;General&quot;
+     * The Surname Ethnic Code is the code that the surname will be generated from, and
+     * this is weighted to ensure that more common pairings for the faction are more common
+     */
+    private static Map&lt;String, WeightedMap&lt;Integer&gt;&gt; factionEthnicCodes;
+
+    /**
+     * historical ethnicity is a map of the ethnic code to the historical region of origin on Earth
+     */
+    private static Map&lt;Integer, String&gt; historicalEthnicity;
+    //endregion Data Maps
+
+    //region Faction Keys
+    public static final String KEY_DEFAULT_FACTION = &quot;General&quot;;
+    public static final String KEY_DEFAULT_CLAN = &quot;Clan&quot;;
+    //endregion Faction Keys
+
+    //region Default Names
+    public static final String UNNAMED = &quot;Unnamed&quot;;
+    public static final String UNNAMED_SURNAME = &quot;Person&quot;;
+    public static final String UNNAMED_FULL_NAME = &quot;Unnamed Person&quot;;
+    //endregion Default Names
+
+    private String chosenFaction;
+
+<span class="nc" id="L140">    private static volatile boolean initialized = false; // volatile to ensure readers get the current version</span>
+    //endregion Variable Declarations
+
+<span class="nc" id="L143">    public RandomNameGenerator() {</span>
+<span class="nc" id="L144">        chosenFaction = KEY_DEFAULT_FACTION;</span>
+<span class="nc" id="L145">    }</span>
+
+    //region Name Generators
+    /**
+     * This is used to generate a name for MegaMek only that uses the chosen faction
+     * @param gender the gender to generate the name for
+     * @return a string containing the randomly generated name
+     */
+    public String generate(Gender gender) {
+<span class="nc" id="L154">        return generate(gender, getChosenFaction());</span>
+    }
+
+    /**
+     * Generate a name for MegaMek only, using the clan name hack
+     *
+     * This is a hack used for MegaMek, where we assume any chosen faction with a name containing the
+     * String &quot;clan&quot; is a clan faction.
+     * @param gender the gender to generate the name for
+     * @param faction the faction code to use, which is the generator's name where possible
+     * @return a string containing the randomly generated name
+     */
+    public String generate(Gender gender, String faction) {
+        // this is a total hack, but for now lets assume that if the faction name contains
+        // the word &quot;clan&quot; we should only spit out first names
+<span class="nc" id="L169">        return generate(gender, faction.toLowerCase().contains(&quot;clan&quot;), faction);</span>
+    }
+
+    /**
+     * Generate a single random name for MegaMek only
+     *
+     * @param gender the gender to generate the name for
+     * @param isClan true if the name should be for a clanner, otherwise false
+     * @param faction a string containing the faction key with which to generate the name from.
+     *                If the faction is not a key for the &lt;code&gt;factionSurnames&lt;/code&gt; Map,
+     *                it will instead generate based on the General list
+     * @return a string containing the randomly generated name
+     */
+    public String generate(Gender gender, boolean isClan, String faction) {
+<span class="nc" id="L183">        String name = UNNAMED_FULL_NAME;</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if (initialized) {</span>
+            // This checks to see if we've got a name map for the faction. If we do not, then we
+            // go to check if the person is a clanner. If they are, then they default to the default
+            // clan key provided that exists.
+            // If the key isn't set by either case above, then the name is generated based on the
+            // default faction key
+<span class="nc bnc" id="L190" title="All 2 branches missed.">            faction = factionEthnicCodes.containsKey(faction) ? faction</span>
+<span class="nc bnc" id="L191" title="All 4 branches missed.">                    : ((isClan &amp;&amp; (factionEthnicCodes.containsKey(KEY_DEFAULT_CLAN)))</span>
+<span class="nc" id="L192">                        ? KEY_DEFAULT_CLAN : KEY_DEFAULT_FACTION);</span>
+<span class="nc" id="L193">            final int ethnicCode = factionEthnicCodes.get(faction).randomItem();</span>
+<span class="nc" id="L194">            final int givenNameEthnicCode = factionGivenNames.get(faction).get(ethnicCode).randomItem();</span>
+
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            name = (gender.isFemale() ? femaleGivenNames : maleGivenNames).get(givenNameEthnicCode).randomItem();</span>
+
+<span class="nc bnc" id="L198" title="All 2 branches missed.">            if (!isClan) {</span>
+<span class="nc" id="L199">                name += &quot; &quot; + surnames.get(ethnicCode).randomItem();</span>
+            }
+        }
+<span class="nc" id="L202">        return name;</span>
+    }
+
+    /**
+     * @param gender the gender to generate the name for
+     * @param faction the specified faction code
+     * @param ethnicCode the specified ethnic code
+     * @return a string containing the randomly generated name
+     */
+    public String generateWithEthnicCode(Gender gender, String faction, int ethnicCode) {
+<span class="nc" id="L212">        String name = UNNAMED_FULL_NAME;</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        if (initialized) {</span>
+            // this is a total hack, but for now lets assume that if the faction name contains
+            // the word &quot;clan&quot; we should only spit out first names
+<span class="nc" id="L216">            boolean isClan = faction.toLowerCase().equals(&quot;clan&quot;);</span>
+
+<span class="nc bnc" id="L218" title="All 2 branches missed.">            name = (gender.isFemale() ? femaleGivenNames : maleGivenNames).get(ethnicCode).randomItem();</span>
+
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (!isClan) {</span>
+<span class="nc" id="L221">                name += &quot; &quot; + surnames.get(ethnicCode).randomItem();</span>
+            }
+        }
+<span class="nc" id="L224">        return name;</span>
+    }
+
+    /**
+     * Generate a single random name split between a given name and surname
+     *
+     * @param gender the gender to generate the name for
+     * @param isClan true if the name should be for a clanner, otherwise false
+     * @param faction a string containing the faction key with which to generate the name from.
+     *                If the faction is not a key for the &lt;code&gt;factionSurnames&lt;/code&gt; Map,
+     *                it will instead generate based on the General list
+     * @return - a String[] containing the name,
+     *              with the given name at String[0]
+     *              and the surname at String[1]
+     */
+    public String[] generateGivenNameSurnameSplit(Gender gender, boolean isClan, String faction) {
+<span class="nc" id="L240">        String[] name = { UNNAMED, UNNAMED_SURNAME };</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        if (initialized) {</span>
+            // This checks to see if we've got a name map for the faction. If we do not, then we
+            // go to check if the person is a clanner. If they are, then they default to the default
+            // clan key provided that exists.
+            // If the key isn't set by either case above, then the name is generated based on the
+            // default faction key
+<span class="nc bnc" id="L247" title="All 2 branches missed.">            faction = factionEthnicCodes.containsKey(faction) ? faction</span>
+<span class="nc bnc" id="L248" title="All 4 branches missed.">                    : ((isClan &amp;&amp; (factionEthnicCodes.containsKey(KEY_DEFAULT_CLAN)))</span>
+<span class="nc" id="L249">                        ? KEY_DEFAULT_CLAN : KEY_DEFAULT_FACTION);</span>
+<span class="nc" id="L250">            final int ethnicCode = factionEthnicCodes.get(faction).randomItem();</span>
+<span class="nc" id="L251">            final int givenNameEthnicCode = factionGivenNames.get(faction).get(ethnicCode).randomItem();</span>
+
+<span class="nc bnc" id="L253" title="All 2 branches missed.">            name[0] = (gender.isFemale() ? femaleGivenNames : maleGivenNames).get(givenNameEthnicCode).randomItem();</span>
+
+<span class="nc bnc" id="L255" title="All 2 branches missed.">            name[1] = isClan ? &quot;&quot; : surnames.get(ethnicCode).randomItem();</span>
+        }
+<span class="nc" id="L257">        return name;</span>
+    }
+
+    /**
+     * @param gender the gender to generate the name for
+     * @param isClan true if the name should be for a clanner, otherwise false
+     * @param ethnicCode the specified ethnic code
+     * @return - a String[] containing the name,
+     *              with the given name at String[0]
+     *              and the surname at String[1]
+     */
+    public String[] generateGivenNameSurnameSplitWithEthnicCode(Gender gender, boolean isClan, int ethnicCode) {
+<span class="nc" id="L269">        String[] name = { UNNAMED, UNNAMED_SURNAME };</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">        if (initialized) {</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            name[0] = (gender.isFemale() ? femaleGivenNames : maleGivenNames).get(ethnicCode).randomItem();</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">            name[1] = isClan ? &quot;&quot; : surnames.get(ethnicCode).randomItem();</span>
+        }
+<span class="nc" id="L274">        return name;</span>
+    }
+    //endregion Name Generators
+
+    //region Getters and Setters
+    /**
+     * @return the list of potential keys to generate the name from - this MUST NOT be modified
+     * once it has been gotten
+     */
+    public Set&lt;String&gt; getFactions() {
+<span class="nc bnc" id="L284" title="All 2 branches missed.">        return (factionEthnicCodes == null) ? null : factionEthnicCodes.keySet();</span>
+    }
+
+    /**
+     * @return the chosen faction to generate the name from
+     */
+    public String getChosenFaction() {
+<span class="nc" id="L291">        return chosenFaction;</span>
+    }
+
+    /**
+     * @param chosenFaction the faction to use to generate the name
+     */
+    public void setChosenFaction(String chosenFaction) {
+<span class="nc" id="L298">        this.chosenFaction = chosenFaction;</span>
+<span class="nc" id="L299">    }</span>
+
+    /**
+     * @return the historical ethnicity map
+     */
+    public Map&lt;Integer, String&gt; getHistoricalEthnicity() {
+<span class="nc bnc" id="L305" title="All 2 branches missed.">        return (historicalEthnicity != null) ? historicalEthnicity : new HashMap&lt;&gt;();</span>
+    }
+
+    /**
+     * @return the instance of the RandomNameGenerator to use
+     */
+    public static synchronized RandomNameGenerator getInstance() {
+        // only this code reads and writes `rng`
+<span class="nc bnc" id="L313" title="All 2 branches missed.">        if (rng == null) {</span>
+            // synchronized ensures this will only be entered exactly once
+<span class="nc" id="L315">            rng = new RandomNameGenerator();</span>
+<span class="nc" id="L316">            rng.runThreadLoader();</span>
+        }
+        // when getInstance returns, rng will always be non-null
+<span class="nc" id="L319">        return rng;</span>
+    }
+    //endregion Getters and Setters
+
+    //region Initialization
+    private void runThreadLoader() {
+<span class="nc" id="L325">        Thread loader = new Thread(() -&gt; rng.populateNames(), &quot;Random Name Generator name initializer&quot;);</span>
+<span class="nc" id="L326">        loader.setPriority(Thread.NORM_PRIORITY - 1);</span>
+<span class="nc" id="L327">        loader.start();</span>
+<span class="nc" id="L328">    }</span>
+
+    private void populateNames() {
+        //region Variable Instantiation
+<span class="nc" id="L332">        int numEthnicCodes = 0;</span>
+        //endregion Variable Instantiation
+
+        //region Map Instantiation
+<span class="nc" id="L336">        maleGivenNames = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L337">        femaleGivenNames = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L338">        surnames = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L339">        factionGivenNames = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L340">        factionEthnicCodes = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L341">        historicalEthnicity = new HashMap&lt;&gt;();</span>
+
+        // Determine the number of ethnic codes
+<span class="nc" id="L344">        File masterAncestryFile = new MegaMekFile(Configuration.namesDir(), HISTORICAL_ETHNICITY_FILE).getFile();</span>
+<span class="nc" id="L345">        try (InputStream is = new FileInputStream(masterAncestryFile);</span>
+<span class="nc" id="L346">             Scanner input = new Scanner(is, StandardCharsets.UTF_8.name())) {</span>
+
+<span class="nc bnc" id="L348" title="All 2 branches missed.">            while (input.hasNextLine()) {</span>
+<span class="nc" id="L349">                String[] values = input.nextLine().split(&quot;,&quot;);</span>
+
+<span class="nc bnc" id="L351" title="All 2 branches missed.">                if (values.length &gt;= 2) {</span>
+<span class="nc" id="L352">                    historicalEthnicity.put(Integer.parseInt(values[0]), values[1]);</span>
+                }
+<span class="nc" id="L354">                numEthnicCodes++;</span>
+<span class="nc" id="L355">            }</span>
+<span class="nc" id="L356">        } catch (IOException e) {</span>
+<span class="nc" id="L357">            MegaMek.getLogger().error(&quot;Could not find &quot; + masterAncestryFile + &quot;!&quot;);</span>
+<span class="nc" id="L358">            return;</span>
+<span class="nc" id="L359">        }</span>
+
+        // Then immediately instantiate the number of weighted maps needed for Given Names and Surnames
+<span class="nc bnc" id="L362" title="All 2 branches missed.">        for (int i = 1; i &lt;= numEthnicCodes; i++) {</span>
+<span class="nc" id="L363">            maleGivenNames.put(i, new WeightedMap&lt;&gt;());</span>
+<span class="nc" id="L364">            femaleGivenNames.put(i, new WeightedMap&lt;&gt;());</span>
+<span class="nc" id="L365">            surnames.put(i, new WeightedMap&lt;&gt;());</span>
+        }
+        //endregion Map Instantiation
+
+        //region Read Names
+<span class="nc" id="L370">        readNamesFileToMap(maleGivenNames, GIVEN_NAME_MALE_FILE);</span>
+<span class="nc" id="L371">        readNamesFileToMap(femaleGivenNames, GIVEN_NAME_FEMALE_FILE);</span>
+<span class="nc" id="L372">        readNamesFileToMap(surnames, SURNAME_FILE);</span>
+        //endregion Read Names
+
+        //region Faction Files
+        // all faction files should be in the faction directory
+<span class="nc" id="L377">        File factionsDir = new MegaMekFile(Configuration.namesDir(), DIR_NAME_FACTIONS).getFile();</span>
+<span class="nc" id="L378">        String[] fileNames = factionsDir.list();</span>
+
+<span class="nc bnc" id="L380" title="All 4 branches missed.">        if ((fileNames == null) || (fileNames.length == 0)) {</span>
+            //region No Factions Specified
+<span class="nc" id="L382">            MegaMek.getLogger().error(&quot;No faction files found!&quot;);</span>
+
+            // We will create a general list where everything is weighted at one to allow players to
+            // continue to play with named characters, indexing it at 1
+            // Initialize Maps
+<span class="nc" id="L387">            factionGivenNames.put(KEY_DEFAULT_FACTION, new HashMap&lt;&gt;());</span>
+<span class="nc" id="L388">            factionEthnicCodes.put(KEY_DEFAULT_FACTION, new WeightedMap&lt;&gt;());</span>
+
+            // Add information to maps
+<span class="nc bnc" id="L391" title="All 2 branches missed.">            for (int i = 1; i &lt;= numEthnicCodes; i++) {</span>
+<span class="nc" id="L392">                factionGivenNames.get(KEY_DEFAULT_FACTION).put(i, new WeightedMap&lt;&gt;());</span>
+<span class="nc" id="L393">                factionGivenNames.get(KEY_DEFAULT_FACTION).get(i).add(1, i);</span>
+<span class="nc" id="L394">                factionEthnicCodes.get(KEY_DEFAULT_FACTION).add(1, i);</span>
+            }
+            //endregion No Factions Specified
+        } else {
+<span class="nc bnc" id="L398" title="All 2 branches missed.">            for (String filename : fileNames) {</span>
+                // Determine the key based on the file name
+<span class="nc" id="L400">                String key = filename.split(&quot;\\.csv&quot;)[0];</span>
+
+                // Just check with the ethnic codes, as if it has the key then the two names
+                // maps do
+<span class="nc bnc" id="L404" title="All 4 branches missed.">                if ((key.length() &lt; 1) || factionEthnicCodes.containsKey(key)) {</span>
+<span class="nc" id="L405">                    continue;</span>
+                }
+
+                // Initialize Maps
+<span class="nc" id="L409">                factionGivenNames.put(key, new HashMap&lt;&gt;());</span>
+<span class="nc" id="L410">                factionEthnicCodes.put(key, new WeightedMap&lt;&gt;());</span>
+
+<span class="nc" id="L412">                File factionFile = new MegaMekFile(factionsDir, filename).getFile();</span>
+<span class="nc" id="L413">                try (InputStream is = new FileInputStream(factionFile);</span>
+<span class="nc" id="L414">                     Scanner input = new Scanner(is, StandardCharsets.UTF_8.name())) {</span>
+
+<span class="nc bnc" id="L416" title="All 2 branches missed.">                    while (input.hasNextLine()) {</span>
+<span class="nc" id="L417">                        String[] values = input.nextLine().split(&quot;,&quot;);</span>
+<span class="nc" id="L418">                        int ethnicCode = Integer.parseInt(values[0]);</span>
+
+<span class="nc" id="L420">                        factionGivenNames.get(key).put(ethnicCode, new WeightedMap&lt;&gt;());</span>
+
+                        // Add information to maps
+                        // The weights for ethnic given names for each surname ethnicity will be
+                        // stored in the file at i + 2, so that is where we will parse them from
+<span class="nc bnc" id="L425" title="All 2 branches missed.">                        for (int i = 1; i &lt;= numEthnicCodes; i++) {</span>
+<span class="nc" id="L426">                            factionGivenNames.get(key).get(ethnicCode).add(Integer.parseInt(values[i + 2].trim()), i);</span>
+                        }
+
+<span class="nc bnc" id="L429" title="All 2 branches missed.">                        if (!factionGivenNames.get(key).get(ethnicCode).isEmpty()) {</span>
+<span class="nc" id="L430">                            factionEthnicCodes.get(key).add(Integer.parseInt(values[2]), ethnicCode);</span>
+                        } else {
+<span class="nc" id="L432">                            MegaMek.getLogger().error(&quot;There are no possible options for &quot; + ethnicCode + &quot; for key &quot; + key);</span>
+                        }
+<span class="nc" id="L434">                    }</span>
+<span class="nc" id="L435">                } catch (IOException fne) {</span>
+<span class="nc" id="L436">                    MegaMek.getLogger().error(&quot;Could not find &quot; + factionFile + &quot;!&quot;);</span>
+<span class="nc" id="L437">                }</span>
+            }
+        }
+<span class="nc" id="L440">        initialized = true;</span>
+        //endregion Faction Files
+<span class="nc" id="L442">    }</span>
+
+    private void readNamesFileToMap(Map&lt;Integer, WeightedMap&lt;String&gt;&gt; map, String fileName) {
+<span class="nc" id="L445">        int lineNumber = 0;</span>
+<span class="nc" id="L446">        File file = new MegaMekFile(Configuration.namesDir(), fileName).getFile();</span>
+
+<span class="nc" id="L448">        try (InputStream is = new FileInputStream(file);</span>
+<span class="nc" id="L449">             Scanner input = new Scanner(is, StandardCharsets.UTF_8.name())) {</span>
+
+<span class="nc" id="L451">            input.nextLine(); // this is used to skip over the header line</span>
+
+<span class="nc bnc" id="L453" title="All 2 branches missed.">            while (input.hasNextLine()) {</span>
+<span class="nc" id="L454">                lineNumber++;</span>
+<span class="nc" id="L455">                String[] values = input.nextLine().split(&quot;,&quot;);</span>
+<span class="nc bnc" id="L456" title="All 2 branches missed.">                if (values.length &lt; 3) {</span>
+<span class="nc" id="L457">                    MegaMek.getLogger().error(&quot;Not enough fields in &quot; + file.toString() + &quot; on &quot; + lineNumber);</span>
+<span class="nc" id="L458">                    continue;</span>
+                }
+
+<span class="nc" id="L461">                map.get(Integer.parseInt(values[0])).add(Integer.parseInt(values[2]), values[1]);</span>
+<span class="nc" id="L462">            }</span>
+<span class="nc" id="L463">        } catch (IOException e) {</span>
+<span class="nc" id="L464">            MegaMek.getLogger().error(&quot;Could not find &quot; + file + &quot;!&quot;);</span>
+<span class="nc" id="L465">        }</span>
+<span class="nc" id="L466">    }</span>
+    //endregion Initialization
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

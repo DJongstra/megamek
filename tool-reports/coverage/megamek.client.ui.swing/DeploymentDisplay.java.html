@@ -1,0 +1,1045 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DeploymentDisplay.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing</a> &gt; <span class="el_source">DeploymentDisplay.java</span></div><h1>DeploymentDisplay.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000,2001,2002,2003,2004,2005,2006 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.ui.swing;
+
+import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+
+import javax.swing.JOptionPane;
+
+import megamek.client.Client;
+import megamek.client.event.BoardViewEvent;
+import megamek.client.ui.Messages;
+import megamek.client.ui.SharedUtility;
+import megamek.client.ui.swing.boardview.BoardView1;
+import megamek.client.ui.swing.widget.MegamekButton;
+import megamek.client.ui.swing.widget.SkinSpecification;
+import megamek.common.Bay;
+import megamek.common.Board;
+import megamek.common.Building;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Dropship;
+import megamek.common.Entity;
+import megamek.common.EntityMovementMode;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.Infantry;
+import megamek.common.ProtomechClampMount;
+import megamek.common.Terrains;
+import megamek.common.Transporter;
+import megamek.common.VTOL;
+import megamek.common.event.GamePhaseChangeEvent;
+import megamek.common.event.GameTurnChangeEvent;
+import megamek.common.options.OptionsConstants;
+
+public class DeploymentDisplay extends StatusBarPhaseDisplay {
+    /**
+     *
+     */
+    private static final long serialVersionUID = -430925219438520710L;
+
+    /**
+     * This enumeration lists all of the possible ActionCommands that can be
+     * carried out during the deployment phase.  Each command has a string for the
+     * command plus a flag that determines what unit type it is appropriate for.
+     * @author arlith
+     *
+     */
+<span class="nc" id="L67">    public static enum DeployCommand implements PhaseCommand {</span>
+<span class="nc" id="L68">        DEPLOY_NEXT(&quot;deployNext&quot;),</span>
+<span class="nc" id="L69">        DEPLOY_TURN(&quot;deployTurn&quot;),    </span>
+<span class="nc" id="L70">        DEPLOY_LOAD(&quot;deployLoad&quot;),</span>
+<span class="nc" id="L71">        DEPLOY_UNLOAD(&quot;deployUnload&quot;),</span>
+<span class="nc" id="L72">        DEPLOY_REMOVE(&quot;deployRemove&quot;),</span>
+<span class="nc" id="L73">        DEPLOY_ASSAULTDROP(&quot;assaultDrop&quot;),</span>
+<span class="nc" id="L74">        DEPLOY_DOCK(&quot;deployDock&quot;);  </span>
+    
+        public String cmd;
+        
+        /**
+         * Priority that determines this buttons order
+         */
+        public int priority;
+        
+<span class="nc" id="L83">        private DeployCommand(String c){</span>
+<span class="nc" id="L84">            cmd = c;</span>
+<span class="nc" id="L85">        }</span>
+        
+        public String getCmd(){
+<span class="nc" id="L88">            return cmd;</span>
+        }
+        
+        public int getPriority() {
+<span class="nc" id="L92">            return priority;</span>
+        }
+        
+        public void setPriority(int p) {
+<span class="nc" id="L96">            priority = p;</span>
+<span class="nc" id="L97">        }</span>
+        
+        public String toString(){
+<span class="nc" id="L100">            return Messages.getString(&quot;DeploymentDisplay.&quot; + getCmd());</span>
+        }
+    }
+
+    protected Map&lt;DeployCommand,MegamekButton&gt; buttons;
+
+<span class="nc" id="L106">    private int cen = Entity.NONE; // current entity number</span>
+    // is the shift key held?
+<span class="nc" id="L108">    private boolean turnMode = false;</span>
+<span class="nc" id="L109">    private boolean assaultDropPreference = false;</span>
+
+    /**
+     * Creates and lays out a new deployment phase display for the specified
+     * client.
+     */
+    public DeploymentDisplay(ClientGUI clientgui) {      
+<span class="nc" id="L116">        super(clientgui);</span>
+<span class="nc" id="L117">        clientgui.getClient().getGame().addGameListener(this);</span>
+<span class="nc" id="L118">        clientgui.getBoardView().addBoardViewListener(this);</span>
+<span class="nc" id="L119">        setupStatusBar(Messages</span>
+<span class="nc" id="L120">                .getString(&quot;DeploymentDisplay.waitingForDeploymentPhase&quot;)); //$NON-NLS-1$</span>
+        
+<span class="nc" id="L122">        buttons = new HashMap&lt;DeployCommand, MegamekButton&gt;(</span>
+<span class="nc" id="L123">                (int) (DeployCommand.values().length * 1.25 + 0.5));</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        for (DeployCommand cmd : DeployCommand.values()) {</span>
+<span class="nc" id="L125">            String title = Messages.getString(&quot;DeploymentDisplay.&quot;</span>
+<span class="nc" id="L126">                    + cmd.getCmd());</span>
+<span class="nc" id="L127">            MegamekButton newButton = new MegamekButton(title,</span>
+<span class="nc" id="L128">                    SkinSpecification.UIComponents.PhaseDisplayButton.getComp());</span>
+<span class="nc" id="L129">            String ttKey = &quot;DeploymentDisplay.&quot; + cmd.getCmd() + &quot;.tooltip&quot;;</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">            if (Messages.keyExists(ttKey)) {</span>
+<span class="nc" id="L131">                newButton.setToolTipText(Messages.getString(ttKey));</span>
+            }
+<span class="nc" id="L133">            newButton.addActionListener(this);</span>
+<span class="nc" id="L134">            newButton.setActionCommand(cmd.getCmd());</span>
+<span class="nc" id="L135">            newButton.setEnabled(false);</span>
+<span class="nc" id="L136">            buttons.put(cmd, newButton);</span>
+        }          
+<span class="nc" id="L138">        numButtonGroups = </span>
+<span class="nc" id="L139">                (int)Math.ceil((buttons.size()+0.0) / buttonsPerGroup);</span>
+
+<span class="nc" id="L141">        butDone.setText(&quot;&lt;html&gt;&lt;b&gt;&quot; + Messages.getString(&quot;DeploymentDisplay.Deploy&quot;) + &quot;&lt;/b&gt;&lt;/html&gt;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L142">        butDone.setEnabled(false);</span>
+
+        
+<span class="nc" id="L145">        layoutScreen();</span>
+        
+<span class="nc" id="L147">        setupButtonPanel();        </span>
+<span class="nc" id="L148">    }</span>
+    
+    protected ArrayList&lt;MegamekButton&gt; getButtonList(){                
+<span class="nc" id="L151">        ArrayList&lt;MegamekButton&gt; buttonList = new ArrayList&lt;MegamekButton&gt;();</span>
+<span class="nc" id="L152">        DeployCommand commands[] = DeployCommand.values();</span>
+<span class="nc" id="L153">        CommandComparator comparator = new CommandComparator();</span>
+<span class="nc" id="L154">        Arrays.sort(commands, comparator);</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        for (DeployCommand cmd : commands){</span>
+<span class="nc" id="L156">            buttonList.add(buttons.get(cmd));</span>
+        }
+<span class="nc" id="L158">        return buttonList;</span>
+    }
+
+    /**
+     * Selects an entity for deployment
+     */
+    public void selectEntity(int en) {
+        // hmm, sometimes this gets called when there's no ready entities?
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (clientgui.getClient().getGame().getEntity(en) == null) {</span>
+<span class="nc" id="L167">            disableButtons();</span>
+<span class="nc" id="L168">            setNextEnabled(true);</span>
+<span class="nc" id="L169">            System.err.println(&quot;DeploymentDisplay: &quot; //$NON-NLS-1$</span>
+                    + &quot;tried to select non-existant entity: &quot; + en); //$NON-NLS-1$
+<span class="nc" id="L171">            return;</span>
+        }
+        
+<span class="nc bnc" id="L174" title="All 4 branches missed.">        if ((ce() != null) &amp;&amp; ce().isWeapOrderChanged()) {</span>
+<span class="nc" id="L175">            clientgui.getClient().sendEntityWeaponOrderUpdate(ce());</span>
+        }
+
+        // FIXME: Hack alert: remove C3 sprites from earlier here, or we might
+        // crash when
+        // trying to draw a c3 sprite belonging to the previously selected,
+        // but not deployed entity. BoardView1 should take care of that itself.
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (clientgui.bv instanceof BoardView1) {</span>
+<span class="nc" id="L183">            ((BoardView1) clientgui.bv).clearC3Networks();</span>
+        }
+<span class="nc" id="L185">        cen = en;</span>
+<span class="nc" id="L186">        clientgui.setSelectedEntityNum(en);</span>
+<span class="nc" id="L187">        clientgui.getBoardView().select(null);</span>
+<span class="nc" id="L188">        clientgui.getBoardView().cursor(null);</span>
+        // RACE : if player clicks fast enough, ce() is null.
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        if (null != ce()) {</span>
+<span class="nc" id="L191">            setTurnEnabled(true);</span>
+<span class="nc" id="L192">            butDone.setEnabled(false);</span>
+<span class="nc" id="L193">            clientgui.getBoardView().markDeploymentHexesFor(ce());</span>
+            // set facing according to starting position
+<span class="nc bnc" id="L195" title="All 10 branches missed.">            switch (ce().getStartingPos()) {</span>
+                case Board.START_W:
+<span class="nc" id="L197">                    ce().setFacing(1);</span>
+<span class="nc" id="L198">                    ce().setSecondaryFacing(1);</span>
+<span class="nc" id="L199">                    break;</span>
+                case Board.START_SW:
+<span class="nc" id="L201">                    ce().setFacing(1);</span>
+<span class="nc" id="L202">                    ce().setSecondaryFacing(1);</span>
+<span class="nc" id="L203">                    break;</span>
+                case Board.START_S:
+<span class="nc" id="L205">                    ce().setFacing(0);</span>
+<span class="nc" id="L206">                    ce().setSecondaryFacing(0);</span>
+<span class="nc" id="L207">                    break;</span>
+                case Board.START_SE:
+<span class="nc" id="L209">                    ce().setFacing(5);</span>
+<span class="nc" id="L210">                    ce().setSecondaryFacing(5);</span>
+<span class="nc" id="L211">                    break;</span>
+                case Board.START_E:
+<span class="nc" id="L213">                    ce().setFacing(5);</span>
+<span class="nc" id="L214">                    ce().setSecondaryFacing(5);</span>
+<span class="nc" id="L215">                    break;</span>
+                case Board.START_NE:
+<span class="nc" id="L217">                    ce().setFacing(4);</span>
+<span class="nc" id="L218">                    ce().setSecondaryFacing(4);</span>
+<span class="nc" id="L219">                    break;</span>
+                case Board.START_N:
+<span class="nc" id="L221">                    ce().setFacing(3);</span>
+<span class="nc" id="L222">                    ce().setSecondaryFacing(3);</span>
+<span class="nc" id="L223">                    break;</span>
+                case Board.START_NW:
+<span class="nc" id="L225">                    ce().setFacing(2);</span>
+<span class="nc" id="L226">                    ce().setSecondaryFacing(2);</span>
+<span class="nc" id="L227">                    break;</span>
+                case Board.START_ANY:
+<span class="nc" id="L229">                    ce().setFacing(0);</span>
+<span class="nc" id="L230">                    ce().setSecondaryFacing(0);</span>
+                    break;
+            }
+<span class="nc bnc" id="L233" title="All 2 branches missed.">            setAssaultDropEnabled(ce().canAssaultDrop()</span>
+<span class="nc" id="L234">                    &amp;&amp; ce().getGame().getOptions()</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">                            .booleanOption(OptionsConstants.ADVANCED_ASSAULT_DROP));</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">            if (!ce().canAssaultDrop()</span>
+<span class="nc" id="L237">                    &amp;&amp; ce().getGame().getOptions()</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">                            .booleanOption(OptionsConstants.ADVANCED_ASSAULT_DROP)) {</span>
+<span class="nc" id="L239">            buttons.get(DeployCommand.DEPLOY_ASSAULTDROP).setText(Messages</span>
+<span class="nc" id="L240">                        .getString(&quot;DeploymentDisplay.AssaultDrop&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L241">                assaultDropPreference = false;</span>
+            }
+            
+<span class="nc" id="L244">            List&lt;Entity&gt; loadableUnits = getLoadableEntities();</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">            setLoadEnabled(loadableUnits.size() &gt; 0);</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">            setUnloadEnabled(ce().getLoadedUnits().size() &gt; 0);</span>
+            
+<span class="nc" id="L248">            setNextEnabled(true);</span>
+<span class="nc" id="L249">            setRemoveEnabled(true);</span>
+
+<span class="nc" id="L251">            clientgui.mechD.displayEntity(ce());</span>
+<span class="nc" id="L252">            clientgui.mechD.showPanel(&quot;movement&quot;); //$NON-NLS-1$</span>
+
+            // Update the menu bar.
+<span class="nc" id="L255">            clientgui.getMenuBar().setEntity(ce());</span>
+<span class="nc" id="L256">        } else {</span>
+<span class="nc" id="L257">            disableButtons();</span>
+<span class="nc" id="L258">            setNextEnabled(true);</span>
+        }
+<span class="nc" id="L260">    }</span>
+
+    /**
+     * Enables relevant buttons and sets up for your turn.
+     */
+    private void beginMyTurn() {
+<span class="nc" id="L266">        clientgui.setDisplayVisible(true);</span>
+<span class="nc" id="L267">        selectEntity(clientgui.getClient().getFirstDeployableEntityNum());</span>
+<span class="nc" id="L268">        setNextEnabled(true);</span>
+<span class="nc" id="L269">        setRemoveEnabled(true);</span>
+        // mark deployment hexes
+<span class="nc" id="L271">        clientgui.bv.markDeploymentHexesFor(ce());</span>
+<span class="nc" id="L272">    }</span>
+
+    /**
+     * Clears out old deployment data and disables relevant buttons.
+     */
+    private void endMyTurn() {
+        // end my turn, then.
+<span class="nc" id="L279">        Entity next = clientgui.getClient().getGame()</span>
+<span class="nc" id="L280">                .getNextEntity(clientgui.getClient().getGame().getTurnIndex());</span>
+<span class="nc" id="L281">        if ((IGame.Phase.PHASE_DEPLOYMENT == clientgui.getClient().getGame()</span>
+<span class="nc bnc" id="L282" title="All 4 branches missed.">                .getPhase())</span>
+                &amp;&amp; (null != next)
+<span class="nc bnc" id="L284" title="All 2 branches missed.">                &amp;&amp; (null != ce())</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">                &amp;&amp; (next.getOwnerId() != ce().getOwnerId())) {</span>
+<span class="nc" id="L286">            clientgui.setDisplayVisible(false);</span>
+        }
+<span class="nc" id="L288">        cen = Entity.NONE;</span>
+<span class="nc" id="L289">        clientgui.getBoardView().select(null);</span>
+<span class="nc" id="L290">        clientgui.getBoardView().highlight(null);</span>
+<span class="nc" id="L291">        clientgui.getBoardView().cursor(null);</span>
+<span class="nc" id="L292">        clientgui.bv.markDeploymentHexesFor(null);</span>
+<span class="nc" id="L293">        clientgui.setSelectedEntityNum(Entity.NONE);</span>
+<span class="nc" id="L294">        disableButtons();</span>
+<span class="nc" id="L295">    }</span>
+
+    /**
+     * Disables all buttons in the interface
+     */
+    private void disableButtons() {
+<span class="nc bnc" id="L301" title="All 2 branches missed.">        for (DeployCommand cmd : DeployCommand.values()){</span>
+<span class="nc" id="L302">            setButtonEnabled(cmd, false);</span>
+        }
+<span class="nc" id="L304">        butDone.setEnabled(false);</span>
+<span class="nc" id="L305">        setLoadEnabled(false);</span>
+<span class="nc" id="L306">        setUnloadEnabled(false);</span>
+<span class="nc" id="L307">        setAssaultDropEnabled(false);</span>
+<span class="nc" id="L308">    }</span>
+    
+    private void setButtonEnabled(DeployCommand cmd, boolean enabled){
+<span class="nc" id="L311">    MegamekButton button = buttons.get(cmd);</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">    if (button != null){</span>
+<span class="nc" id="L313">    button.setEnabled(enabled);</span>
+    }
+<span class="nc" id="L315">    }</span>
+
+    /**
+     * Sends a deployment to the server
+     */
+    @Override
+    public void ready() {
+<span class="nc" id="L322">        final IGame game = clientgui.getClient().getGame();</span>
+<span class="nc" id="L323">        final Entity en = ce();</span>
+
+<span class="nc bnc" id="L325" title="All 4 branches missed.">        if ((en instanceof Dropship) &amp;&amp; !en.isAirborne()) {</span>
+<span class="nc" id="L326">            ArrayList&lt;Coords&gt; crushedBuildingLocs = new ArrayList&lt;Coords&gt;();</span>
+<span class="nc" id="L327">            ArrayList&lt;Coords&gt; secondaryPositions = new ArrayList&lt;Coords&gt;();</span>
+<span class="nc" id="L328">            secondaryPositions.add(en.getPosition());</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            for (int dir = 0; dir &lt; 6; dir++) {</span>
+<span class="nc" id="L330">                secondaryPositions.add(en.getPosition().translated(dir));</span>
+            }
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            for (Coords pos : secondaryPositions) {</span>
+<span class="nc" id="L333">                Building bld = game.getBoard().getBuildingAt(pos);</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">                if (bld != null) {</span>
+<span class="nc" id="L335">                    crushedBuildingLocs.add(pos);</span>
+                }
+<span class="nc" id="L337">            }</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">            if (!crushedBuildingLocs.isEmpty()) {</span>
+<span class="nc" id="L339">                JOptionPane</span>
+<span class="nc" id="L340">                        .showMessageDialog(</span>
+                                clientgui,
+<span class="nc" id="L342">                                Messages.getString(&quot;DeploymentDisplay.dropshipBuildingDeploy&quot;), //$NON-NLS-1$</span>
+<span class="nc" id="L343">                                Messages.getString(&quot;DeploymentDisplay.alertDialog.title&quot;), //$NON-NLS-1$</span>
+                                JOptionPane.ERROR_MESSAGE);
+<span class="nc" id="L345">                return;</span>
+            }
+        }
+
+        // Check nag for doomed planetary conditions
+<span class="nc" id="L350">        String reason = game.getPlanetaryConditions().whyDoomed(en, game);</span>
+<span class="nc bnc" id="L351" title="All 4 branches missed.">        if ((reason != null) &amp;&amp; GUIPreferences.getInstance().getNagForDoomed()) {</span>
+<span class="nc" id="L352">                String title = Messages.getString(&quot;DeploymentDisplay.ConfirmDoomed.title&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L353">                String body = Messages.getString(&quot;DeploymentDisplay.ConfirmDoomed.message&quot;, new Object[]{reason}); //$NON-NLS-1$</span>
+<span class="nc" id="L354">                ConfirmDialog response = clientgui.doYesNoBotherDialog(title, body);</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">                if (!response.getShowAgain()) {</span>
+<span class="nc" id="L356">                    GUIPreferences.getInstance().setNagForDoomed(false);</span>
+                }
+<span class="nc bnc" id="L358" title="All 2 branches missed.">                if (!response.getAnswer()) {</span>
+<span class="nc" id="L359">                    return;</span>
+                }
+            }
+
+<span class="nc" id="L363">        disableButtons();</span>
+
+<span class="nc" id="L365">        int elevation = en.getElevation();</span>
+        // If elevation was set in lounge, try to preserve it
+        // Server.processDeployment will adjust elevation, so we want to account for this
+<span class="nc" id="L368">        IHex hex = clientgui.getClient().getGame().getBoard().getHex(en.getPosition());</span>
+<span class="nc bnc" id="L369" title="All 4 branches missed.">        if ((en instanceof VTOL) &amp;&amp; (elevation &gt;= 1)) {</span>
+<span class="nc" id="L370">            elevation = Math.max(0, elevation - (hex.ceiling() - hex.surface() + 1));</span>
+        }
+        // Deploy grounded WiGEs on the roof of a building, and airborne at least one elevation above the roof.
+<span class="nc bnc" id="L373" title="All 2 branches missed.">        if (en.getMovementMode() == EntityMovementMode.WIGE</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                &amp;&amp; hex.containsTerrain(Terrains.BLDG_ELEV)) {</span>
+<span class="nc" id="L375">            int minElev = hex.terrainLevel(Terrains.BLDG_ELEV);</span>
+<span class="nc bnc" id="L376" title="All 2 branches missed.">            if (elevation &gt; 0) {</span>
+<span class="nc" id="L377">                minElev++;</span>
+            }
+<span class="nc" id="L379">            elevation = Math.max(elevation, minElev);</span>
+        }
+        
+<span class="nc" id="L382">        clientgui.getClient().deploy(cen, en.getPosition(), en.getFacing(),</span>
+<span class="nc" id="L383">                elevation, en.getLoadedUnits(), assaultDropPreference);</span>
+<span class="nc" id="L384">        en.setDeployed(true);</span>
+
+<span class="nc bnc" id="L386" title="All 2 branches missed.">        if (ce().isWeapOrderChanged()) {</span>
+<span class="nc" id="L387">            clientgui.getClient().sendEntityWeaponOrderUpdate(ce());</span>
+        }
+<span class="nc" id="L389">        endMyTurn();</span>
+<span class="nc" id="L390">    }</span>
+
+    /**
+     * Sends an entity removal to the server
+     */
+    private void remove() {
+<span class="nc" id="L396">        disableButtons();</span>
+<span class="nc" id="L397">        clientgui.getClient().sendDeleteEntity(cen);</span>
+        // Also remove units that are carried by the present unit
+<span class="nc bnc" id="L399" title="All 2 branches missed.">        for (Entity carried: clientgui.getClient().getGame().getEntity(cen).getLoadedUnits()) {</span>
+<span class="nc" id="L400">            clientgui.getClient().sendDeleteEntity(carried.getId());</span>
+<span class="nc" id="L401">        }</span>
+<span class="nc" id="L402">        cen = Entity.NONE;</span>
+<span class="nc" id="L403">    }</span>
+
+    /**
+     * Returns the current entity.
+     */
+    private Entity ce() {
+<span class="nc" id="L409">        return clientgui.getClient().getGame().getEntity(cen);</span>
+    }
+
+    public void die() {
+<span class="nc bnc" id="L413" title="All 2 branches missed.">        if (clientgui.getClient().isMyTurn()) {</span>
+<span class="nc" id="L414">            endMyTurn();</span>
+        }
+<span class="nc" id="L416">        clientgui.bv.markDeploymentHexesFor(null);</span>
+<span class="nc" id="L417">        clientgui.getClient().getGame().removeGameListener(this);</span>
+<span class="nc" id="L418">        clientgui.getBoardView().removeBoardViewListener(this);</span>
+<span class="nc" id="L419">        removeAll();</span>
+<span class="nc" id="L420">    }</span>
+
+    @Override
+    public void gameTurnChange(GameTurnChangeEvent e) {
+        // Are we ignoring events?
+<span class="nc bnc" id="L425" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L426">            return;</span>
+        }
+        // On simultaneous phases, each player ending their turn will generalte a turn change
+        // We want to ignore turns from other players and only listen to events we generated
+        // Except on the first turn
+<span class="nc bnc" id="L431" title="All 2 branches missed.">        if (clientgui.getClient().getGame().isPhaseSimultaneous()</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">                &amp;&amp; (e.getPreviousPlayerId() != clientgui.getClient().getLocalPlayerNumber())</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">                &amp;&amp; (clientgui.getClient().getGame().getTurnIndex() != 0)) {</span>
+<span class="nc" id="L434">            return;</span>
+        }
+<span class="nc bnc" id="L436" title="All 2 branches missed.">        if (clientgui.getClient().getGame().getPhase() </span>
+                != IGame.Phase.PHASE_DEPLOYMENT) {
+            // ignore
+<span class="nc" id="L439">            return;</span>
+        }
+        
+<span class="nc bnc" id="L442" title="All 2 branches missed.">        if (clientgui.getClient().isMyTurn()) {</span>
+<span class="nc bnc" id="L443" title="All 2 branches missed.">            if (cen == Entity.NONE) {</span>
+<span class="nc" id="L444">                beginMyTurn();</span>
+            }
+<span class="nc" id="L446">            setStatusBarText(Messages</span>
+<span class="nc" id="L447">                    .getString(&quot;DeploymentDisplay.its_your_turn&quot;)); //$NON-NLS-1$</span>
+        } else {
+<span class="nc" id="L449">            endMyTurn();</span>
+            String playerName;
+<span class="nc bnc" id="L451" title="All 2 branches missed.">            if (e.getPlayer() != null) {</span>
+<span class="nc" id="L452">                playerName = e.getPlayer().getName();</span>
+            } else {
+<span class="nc" id="L454">                playerName = &quot;Unknown&quot;;</span>
+            }
+<span class="nc" id="L456">            setStatusBarText(Messages.getString(</span>
+                    &quot;DeploymentDisplay.its_others_turn&quot;, //$NON-NLS-1$
+                    new Object[] { playerName }));
+        }
+        
+<span class="nc" id="L461">    }</span>
+
+    @Override
+    public void gamePhaseChange(GamePhaseChangeEvent e) {
+<span class="nc" id="L465">        DeploymentDisplay.this.clientgui.bv.markDeploymentHexesFor(null);</span>
+        
+       // In case of a /reset command, ensure the state gets reset
+<span class="nc bnc" id="L468" title="All 2 branches missed.">        if (clientgui.getClient().getGame().getPhase() </span>
+                == IGame.Phase.PHASE_LOUNGE) {
+<span class="nc" id="L470">            endMyTurn();</span>
+        }
+        // Are we ignoring events?
+<span class="nc bnc" id="L473" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L474">            return;</span>
+        }
+<span class="nc bnc" id="L476" title="All 2 branches missed.">        if (clientgui.getClient().getGame().getPhase() == IGame.Phase.PHASE_DEPLOYMENT) {</span>
+<span class="nc" id="L477">            setStatusBarText(Messages</span>
+<span class="nc" id="L478">                    .getString(&quot;DeploymentDisplay.waitingForDeploymentPhase&quot;)); //$NON-NLS-1$</span>
+        }
+<span class="nc" id="L480">    }</span>
+
+    //
+    // BoardListener
+    //
+    @Override
+    public void hexMoused(BoardViewEvent b) {
+        // Are we ignoring events?
+<span class="nc bnc" id="L488" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L489">            return;</span>
+        }
+<span class="nc bnc" id="L491" title="All 2 branches missed.">        if (b.getType() != BoardViewEvent.BOARD_HEX_DRAGGED) {</span>
+<span class="nc" id="L492">            return;</span>
+        }
+
+        // ignore buttons other than 1
+<span class="nc bnc" id="L496" title="All 4 branches missed.">        if (!clientgui.getClient().isMyTurn() || (ce() == null)</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">                || ((b.getModifiers() &amp; InputEvent.BUTTON1_MASK) == 0)) {</span>
+<span class="nc" id="L498">            return;</span>
+        }
+
+        // control pressed means a line of sight check.
+        // added ALT_MASK by kenn
+<span class="nc bnc" id="L503" title="All 2 branches missed.">        if (((b.getModifiers() &amp; InputEvent.CTRL_MASK) != 0)</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">                || ((b.getModifiers() &amp; InputEvent.ALT_MASK) != 0)) {</span>
+<span class="nc" id="L505">            return;</span>
+        }
+
+        // check for shifty goodness
+<span class="nc bnc" id="L509" title="All 2 branches missed.">        boolean shiftheld = (b.getModifiers() &amp; InputEvent.SHIFT_MASK) != 0;</span>
+
+        // check for a deployment
+<span class="nc" id="L512">        Coords moveto = b.getCoords();</span>
+<span class="nc" id="L513">        final IBoard board = clientgui.getClient().getGame().getBoard();</span>
+<span class="nc" id="L514">        final IGame game = clientgui.getClient().getGame();</span>
+<span class="nc" id="L515">        final IHex deployhex = board.getHex(moveto);</span>
+<span class="nc" id="L516">        final Building bldg = board.getBuildingAt(moveto);</span>
+<span class="nc" id="L517">        boolean isAero = ce().isAero();</span>
+<span class="nc" id="L518">        boolean isVTOL = ce() instanceof VTOL;</span>
+<span class="nc" id="L519">        boolean isWiGE = ce().getMovementMode().equals(EntityMovementMode.WIGE);</span>
+<span class="nc bnc" id="L520" title="All 2 branches missed.">        boolean isTankOnPavement = ce().hasETypeFlag(Entity.ETYPE_TANK) </span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">                &amp;&amp; !ce().hasETypeFlag(Entity.ETYPE_GUN_EMPLACEMENT)</span>
+<span class="nc bnc" id="L522" title="All 2 branches missed.">                &amp;&amp; !ce().isNaval()</span>
+<span class="nc bnc" id="L523" title="All 2 branches missed.">                &amp;&amp; (deployhex.containsTerrain(Terrains.PAVEMENT)</span>
+<span class="nc bnc" id="L524" title="All 2 branches missed.">                        || deployhex.containsTerrain(Terrains.ROAD)</span>
+<span class="nc bnc" id="L525" title="All 2 branches missed.">                        || deployhex.containsTerrain(Terrains.BRIDGE_ELEV));</span>
+        String title, msg;
+<span class="nc bnc" id="L527" title="All 6 branches missed.">        if ((ce().getPosition() != null) &amp;&amp; (shiftheld || turnMode)) { // turn</span>
+<span class="nc" id="L528">            ce().setFacing(ce().getPosition().direction(moveto));</span>
+<span class="nc" id="L529">            ce().setSecondaryFacing(ce().getFacing());</span>
+<span class="nc" id="L530">            clientgui.bv.redrawEntity(ce());</span>
+<span class="nc" id="L531">            turnMode = false;</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">        } else if (ce().isBoardProhibited(board.getType())) {</span>
+            // check if this type of unit can be on the given type of map
+<span class="nc" id="L534">            title = Messages.getString(&quot;DeploymentDisplay.alertDialog.title&quot;);  //$NON-NLS-1$</span>
+<span class="nc" id="L535">            msg = Messages.getString(</span>
+                    &quot;DeploymentDisplay.wrongMapType&quot;,
+                    new Object[] {
+<span class="nc" id="L538">                            ce().getShortName(),</span>
+<span class="nc" id="L539">                            Board.getTypeName(board.getType()) }); </span>
+<span class="nc" id="L540">            JOptionPane.showMessageDialog(clientgui, msg, title,</span>
+                    JOptionPane.WARNING_MESSAGE);
+<span class="nc" id="L542">            return;</span>
+<span class="nc bnc" id="L543" title="All 4 branches missed.">        } else if (!(board.isLegalDeployment(moveto, ce().getStartingPos()) </span>
+                    || assaultDropPreference)
+<span class="nc bnc" id="L545" title="All 4 branches missed.">                || (ce().isLocationProhibited(moveto)</span>
+                        &amp;&amp; !isTankOnPavement)) {
+<span class="nc" id="L547">            msg = Messages.getString(&quot;DeploymentDisplay.cantDeployInto&quot;,</span>
+<span class="nc" id="L548">                    new Object[] { ce().getShortName(), moveto.getBoardNum() });</span>
+<span class="nc" id="L549">            title = Messages.getString(&quot;DeploymentDisplay.alertDialog.title&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L550">            JOptionPane.showMessageDialog(clientgui.frame, msg, title,</span>
+                    JOptionPane.ERROR_MESSAGE);
+<span class="nc" id="L552">            return;</span>
+<span class="nc bnc" id="L553" title="All 4 branches missed.">        } else if (isAero &amp;&amp; board.inAtmosphere()</span>
+<span class="nc bnc" id="L554" title="All 2 branches missed.">                &amp;&amp; (ce().getElevation() &lt;= board.getHex(moveto).ceiling(true))) {</span>
+            // Ensure aeros don't end up at lower elevation than the current hex
+<span class="nc" id="L556">            title = Messages.getString(&quot;DeploymentDisplay.alertDialog.title&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L557">            msg = Messages.getString(&quot;DeploymentDisplay.elevationTooLow&quot;,</span>
+<span class="nc" id="L558">                    new Object[] { ce().getShortName(), moveto.getBoardNum() });</span>
+<span class="nc" id="L559">            JOptionPane.showMessageDialog(clientgui.frame, msg, title,</span>
+                    JOptionPane.ERROR_MESSAGE);
+<span class="nc" id="L561">            return;</span>
+<span class="nc bnc" id="L562" title="All 4 branches missed.">        } else if ((Compute.stackingViolation(game, ce().getId(), moveto) != null)</span>
+                &amp;&amp; (bldg == null)) {
+            // check if deployed unit violates stacking
+<span class="nc" id="L565">            return;</span>
+        } else {
+            // check for buildings and if found ask what level they want to
+            // deploy at
+<span class="nc bnc" id="L569" title="All 8 branches missed.">            if ((null != bldg) &amp;&amp; !isAero &amp;&amp; !isVTOL &amp;&amp; !isWiGE) {</span>
+<span class="nc bnc" id="L570" title="All 2 branches missed.">                if (deployhex.containsTerrain(Terrains.BLDG_ELEV)) {</span>
+<span class="nc" id="L571">                    boolean success = processBuildingDeploy(moveto);</span>
+<span class="nc bnc" id="L572" title="All 2 branches missed.">                    if (!success) {</span>
+<span class="nc" id="L573">                        return;</span>
+                    }
+<span class="nc bnc" id="L575" title="All 2 branches missed.">                } else if (deployhex.containsTerrain(Terrains.BRIDGE_ELEV)) {</span>
+<span class="nc" id="L576">                    boolean success = processBridgeDeploy(moveto);</span>
+<span class="nc bnc" id="L577" title="All 2 branches missed.">                    if (!success) {</span>
+<span class="nc" id="L578">                        return;</span>
+                    }
+<span class="nc" id="L580">                }</span>
+<span class="nc bnc" id="L581" title="All 4 branches missed.">            } else if (!isAero &amp;&amp; !isWiGE) {</span>
+                // hovers and naval units go on the surface
+<span class="nc bnc" id="L583" title="All 2 branches missed.">                if ((ce().getMovementMode() == EntityMovementMode.NAVAL)</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">                        || (ce().getMovementMode() == EntityMovementMode.SUBMARINE)</span>
+<span class="nc bnc" id="L585" title="All 2 branches missed.">                        || (ce().getMovementMode() == EntityMovementMode.HYDROFOIL)</span>
+<span class="nc bnc" id="L586" title="All 2 branches missed.">                        || (ce().getMovementMode() == EntityMovementMode.HOVER)) {</span>
+<span class="nc" id="L587">                    ce().setElevation(0);</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">                } else if (isVTOL) {</span>
+                    // VTOLs go to elevation 1... unless set in the Lounge.
+                    // or if mechanized BA, since VTOL movement is then illegal
+<span class="nc bnc" id="L591" title="All 2 branches missed.">                    if ((ce().getElevation() &lt; 1) </span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">                            &amp;&amp; (ce().getExternalUnits().size() &lt;= 0)) {</span>
+<span class="nc" id="L593">                        ce().setElevation(1);</span>
+                    }
+                } else {
+                    // everything else goes to elevation 0, or on the floor of a
+                    // water hex, except non-mechanized SCUBA infantry, which have a max depth of 2.
+<span class="nc bnc" id="L598" title="All 2 branches missed.">                	if (deployhex.containsTerrain(Terrains.WATER)</span>
+<span class="nc bnc" id="L599" title="All 4 branches missed.">                			&amp;&amp; (ce() instanceof Infantry) &amp;&amp; ((Infantry)ce()).isNonMechSCUBA()) {</span>
+<span class="nc" id="L600">                		ce().setElevation(Math.max(deployhex.floor() - deployhex.surface(), -2));</span>
+                	} else {
+<span class="nc" id="L602">                		ce().setElevation(deployhex.floor() - deployhex.surface());</span>
+                	}
+                }
+            }
+<span class="nc" id="L606">            ce().setPosition(moveto);</span>
+
+<span class="nc" id="L608">            clientgui.bv.redrawEntity(ce());</span>
+<span class="nc" id="L609">            clientgui.bv.repaint();</span>
+<span class="nc" id="L610">            butDone.setEnabled(true);</span>
+        }
+<span class="nc bnc" id="L612" title="All 2 branches missed.">        if (!shiftheld) {</span>
+<span class="nc" id="L613">            clientgui.getBoardView().select(moveto);</span>
+        }
+<span class="nc" id="L615">    }</span>
+    
+    private boolean processBuildingDeploy(Coords moveto) {
+<span class="nc" id="L618">        final IBoard board = clientgui.getClient().getGame().getBoard();</span>
+<span class="nc" id="L619">        final IGame game = clientgui.getClient().getGame();</span>
+
+<span class="nc" id="L621">        int height = board.getHex(moveto).terrainLevel(Terrains.BLDG_ELEV);</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">        if (ce().getMovementMode() == EntityMovementMode.WIGE) {</span>
+            
+        }
+<span class="nc" id="L625">        ArrayList&lt;String&gt; floorNames = new ArrayList&lt;&gt;(height + 1);</span>
+<span class="nc" id="L626">        ArrayList&lt;Integer&gt; floorValues = new ArrayList&lt;&gt;(height + 1);</span>
+
+<span class="nc bnc" id="L628" title="All 2 branches missed.">        if (Compute.stackingViolation(game, ce(), 0, moveto, null) == null) {</span>
+<span class="nc" id="L629">            floorNames.add(Messages.getString(&quot;DeploymentDisplay.ground&quot;));</span>
+<span class="nc" id="L630">            floorValues.add(0);</span>
+        }
+
+<span class="nc bnc" id="L633" title="All 2 branches missed.">        for (int loop = 1; loop &lt; height; loop++) {</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">            if (Compute.stackingViolation(game, ce(), loop, moveto, null) == null) {</span>
+<span class="nc" id="L635">                floorNames.add(Messages.getString(&quot;DeploymentDisplay.floor&quot;)</span>
+<span class="nc" id="L636">                        + Integer.toString(loop));</span>
+<span class="nc" id="L637">                floorValues.add(loop);</span>
+            }
+        }
+<span class="nc bnc" id="L640" title="All 2 branches missed.">        if (Compute.stackingViolation(game, ce(), height, moveto, null) == null) {</span>
+<span class="nc" id="L641">            floorNames.add(Messages.getString(&quot;DeploymentDisplay.top&quot;));</span>
+<span class="nc" id="L642">            floorValues.add(height);</span>
+        }
+
+        // No valid floors to deploy on
+<span class="nc bnc" id="L646" title="All 2 branches missed.">        if (floorNames.size() &lt; 1) {</span>
+<span class="nc" id="L647">            String msg = Messages.getString(&quot;DeploymentDisplay.cantDeployInto&quot;,</span>
+<span class="nc" id="L648">                    new Object[] { ce().getShortName(), moveto.getBoardNum() });</span>
+<span class="nc" id="L649">            String title = Messages</span>
+<span class="nc" id="L650">                    .getString(&quot;DeploymentDisplay.alertDialog.title&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L651">            JOptionPane.showMessageDialog(clientgui.frame, msg, title,</span>
+                    JOptionPane.ERROR_MESSAGE);
+<span class="nc" id="L653">            return false;</span>
+        }
+<span class="nc" id="L655">        String i18nString = &quot;DeploymentDisplay.floorsDialog.message&quot;; //$NON-NLS-1$;</span>
+<span class="nc" id="L656">        String msg = Messages.getString(i18nString, new Object[] { ce()</span>
+<span class="nc" id="L657">                .getShortName() });</span>
+<span class="nc" id="L658">        i18nString = &quot;DeploymentDisplay.floorsDialog.title&quot;; //$NON-NLS-1$</span>
+<span class="nc" id="L659">        String title = Messages.getString(i18nString);</span>
+<span class="nc" id="L660">        String input = (String) JOptionPane.showInputDialog(clientgui, msg,</span>
+                title, JOptionPane.QUESTION_MESSAGE, null,
+<span class="nc" id="L662">                floorNames.toArray(), floorNames.get(0));</span>
+<span class="nc bnc" id="L663" title="All 2 branches missed.">        if (input != null) {</span>
+<span class="nc bnc" id="L664" title="All 2 branches missed.">            for (int i = 0; i &lt; floorNames.size(); i++) {</span>
+<span class="nc bnc" id="L665" title="All 2 branches missed.">                if (input.equals(floorNames.get(i))) {</span>
+<span class="nc" id="L666">                    ce().setElevation(floorValues.get(i));</span>
+<span class="nc" id="L667">                    break;</span>
+                }
+            }
+<span class="nc" id="L670">            return true;</span>
+        } else {
+<span class="nc" id="L672">            return false;</span>
+        }
+    }
+    
+    private boolean processBridgeDeploy(Coords moveto) {
+<span class="nc" id="L677">        final IBoard board = clientgui.getClient().getGame().getBoard();</span>
+<span class="nc" id="L678">        final IHex deployhex = board.getHex(moveto);</span>
+
+<span class="nc" id="L680">        int height = board.getHex(moveto).terrainLevel(Terrains.BRIDGE_ELEV);</span>
+<span class="nc" id="L681">        List&lt;String&gt; floors = new ArrayList&lt;&gt;(2);</span>
+<span class="nc bnc" id="L682" title="All 2 branches missed.">        if (!ce().isLocationProhibited(moveto)) {</span>
+<span class="nc" id="L683">            floors.add(Messages.getString(&quot;DeploymentDisplay.belowbridge&quot;));</span>
+        }
+        
+        // ships can't deploy to the top of a bridge
+<span class="nc bnc" id="L687" title="All 2 branches missed.">        if(!ce().isNaval()) {</span>
+<span class="nc" id="L688">            floors.add(Messages.getString(&quot;DeploymentDisplay.topbridge&quot;));</span>
+        }
+        
+<span class="nc" id="L691">        String i18nString = &quot;DeploymentDisplay.bridgeDialog.title&quot;; </span>
+<span class="nc" id="L692">        String title = Messages</span>
+<span class="nc" id="L693">                .getString(i18nString); //$NON-NLS-1$</span>
+<span class="nc" id="L694">        i18nString = &quot;DeploymentDisplay.bridgeDialog.message&quot;; //$NON-NLS-1$</span>
+<span class="nc" id="L695">        String msg = Messages.getString(i18nString, new Object[] { ce()</span>
+<span class="nc" id="L696">                .getShortName() });</span>
+<span class="nc" id="L697">        String input = (String) JOptionPane.showInputDialog(clientgui, msg,</span>
+<span class="nc" id="L698">                title, JOptionPane.QUESTION_MESSAGE, null, floors.toArray(), null);</span>
+<span class="nc bnc" id="L699" title="All 2 branches missed.">        if (input != null) {</span>
+<span class="nc bnc" id="L700" title="All 2 branches missed.">            if (input.equals(Messages.getString(&quot;DeploymentDisplay.topbridge&quot;))) {</span>
+<span class="nc" id="L701">                ce().setElevation(height);</span>
+            } else {
+<span class="nc bnc" id="L703" title="All 4 branches missed.">                if(ce().isNaval() &amp;&amp; (ce().getMovementMode() != EntityMovementMode.SUBMARINE)) {</span>
+<span class="nc" id="L704">                    ce().setElevation(0);</span>
+                } else {
+<span class="nc" id="L706">                    ce().setElevation(deployhex.floor() - deployhex.surface());</span>
+                }
+            }
+<span class="nc" id="L709">            return true;</span>
+        } else {
+<span class="nc" id="L711">            return false;</span>
+        }
+    }
+
+    //
+    // ActionListener
+    //
+    public void actionPerformed(ActionEvent ev) {
+<span class="nc" id="L719">        final Client client = clientgui.getClient();</span>
+<span class="nc" id="L720">        final String actionCmd = ev.getActionCommand();</span>
+        // Are we ignoring events?
+<span class="nc bnc" id="L722" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L723">            return;</span>
+        }
+<span class="nc bnc" id="L725" title="All 2 branches missed.">        if (statusBarActionPerformed(ev, client)) {</span>
+<span class="nc" id="L726">            return;</span>
+        }
+<span class="nc bnc" id="L728" title="All 2 branches missed.">        if (!client.isMyTurn()) {</span>
+            // odd...
+<span class="nc" id="L730">            return;</span>
+<span class="nc bnc" id="L731" title="All 2 branches missed.">        } else if (actionCmd.equals(DeployCommand.DEPLOY_NEXT.getCmd())) {</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">            if (ce() != null) {</span>
+<span class="nc" id="L733">                ce().setPosition(null);</span>
+<span class="nc" id="L734">                clientgui.bv.redrawEntity(ce());</span>
+                // Unload any loaded units during this turn
+<span class="nc" id="L736">                List&lt;Integer&gt; lobbyLoadedUnits = ce().getLoadedKeepers();</span>
+<span class="nc bnc" id="L737" title="All 2 branches missed.">                for (Entity other : ce().getLoadedUnits()) {</span>
+                    // Ignore units loaded before this turn
+<span class="nc bnc" id="L739" title="All 2 branches missed.">                    if (!lobbyLoadedUnits.contains(other.getId())) {</span>
+<span class="nc" id="L740">                        ce().unload(other);</span>
+<span class="nc" id="L741">                        other.setTransportId(Entity.NONE);</span>
+<span class="nc" id="L742">                        other.newRound(client.getGame().getRoundCount());</span>
+                    }                    
+<span class="nc" id="L744">                }</span>
+            }
+<span class="nc" id="L746">            selectEntity(client.getNextDeployableEntityNum(cen));</span>
+<span class="nc bnc" id="L747" title="All 2 branches missed.">        } else if (actionCmd.equals(DeployCommand.DEPLOY_TURN.getCmd())) {</span>
+<span class="nc" id="L748">            turnMode = true;</span>
+<span class="nc bnc" id="L749" title="All 2 branches missed.">        } else if (actionCmd.equals(DeployCommand.DEPLOY_LOAD.getCmd())) {</span>
+            // What undeployed units can we load?
+<span class="nc" id="L751">            List&lt;Entity&gt; choices = getLoadableEntities();</span>
+
+            // Do we have anyone to load?
+<span class="nc bnc" id="L754" title="All 2 branches missed.">            if (choices.size() &gt; 0) {</span>
+<span class="nc" id="L755">                String input = (String) JOptionPane</span>
+<span class="nc" id="L756">                        .showInputDialog(</span>
+                                clientgui,
+<span class="nc" id="L758">                                Messages.getString(</span>
+                                        &quot;DeploymentDisplay.loadUnitDialog.message&quot;,
+<span class="nc" id="L760">                                        new Object[] { ce().getShortName(),</span>
+<span class="nc" id="L761">                                                ce().getUnusedString() }), //$NON-NLS-1$</span>
+<span class="nc" id="L762">                                Messages.getString(&quot;DeploymentDisplay.loadUnitDialog.title&quot;), //$NON-NLS-1$</span>
+                                JOptionPane.QUESTION_MESSAGE, null,
+<span class="nc" id="L764">                                SharedUtility.getDisplayArray(choices), null);</span>
+<span class="nc" id="L765">                Entity other = (Entity) SharedUtility.getTargetPicked(choices, input);</span>
+<span class="nc bnc" id="L766" title="All 2 branches missed.">                if (!(other instanceof Infantry)) {</span>
+<span class="nc" id="L767">                    List&lt;Integer&gt; bayChoices = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L768" title="All 2 branches missed.">                    for (Transporter t : ce().getTransports()) {</span>
+<span class="nc bnc" id="L769" title="All 4 branches missed.">                        if (t.canLoad(other) &amp;&amp; (t instanceof Bay)) {</span>
+<span class="nc" id="L770">                            bayChoices.add(((Bay) t).getBayNumber());</span>
+                        }
+<span class="nc" id="L772">                    }</span>
+<span class="nc bnc" id="L773" title="All 4 branches missed.">                    if ((bayChoices.size() &gt; 1) &amp;&amp; !(other instanceof Infantry)) {</span>
+<span class="nc" id="L774">                        String[] retVal = new String[bayChoices.size()];</span>
+<span class="nc" id="L775">                        int i = 0;</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">                        for (Integer bn : bayChoices) {</span>
+<span class="nc" id="L777">                            retVal[i++] = bn.toString() + &quot; (Free Slots: &quot;</span>
+<span class="nc" id="L778">                                    + (int) ce().getBayById(bn).getUnused() + &quot;)&quot;;</span>
+<span class="nc" id="L779">                        }</span>
+<span class="nc" id="L780">                        String title = Messages.getString(&quot;DeploymentDisplay.&quot; + //$NON-NLS-1$</span>
+                                &quot;loadUnitBayNumberDialog.title&quot;); //$NON-NLS-1$
+<span class="nc" id="L782">                        String msg = Messages.getString(&quot;DeploymentDisplay.&quot; + //$NON-NLS-1$</span>
+                                &quot;loadUnitBayNumberDialog.message&quot;, //$NON-NLS-1$
+<span class="nc" id="L784">                                new Object[] { ce().getShortName() });</span>
+<span class="nc" id="L785">                        String bayString = (String) JOptionPane</span>
+<span class="nc" id="L786">                                .showInputDialog(clientgui, msg, title,</span>
+                                        JOptionPane.QUESTION_MESSAGE, null,
+                                        retVal, null);
+<span class="nc" id="L789">                        int bayNum = Integer.parseInt(bayString.substring(0,</span>
+<span class="nc" id="L790">                                bayString.indexOf(&quot; &quot;)));</span>
+<span class="nc" id="L791">                        other.setTargetBay(bayNum);</span>
+                        // We need to update the entity here so that the server
+                        // knows about our target bay
+<span class="nc" id="L794">                        client.sendUpdateEntity(other);</span>
+<span class="nc bnc" id="L795" title="All 2 branches missed.">                    } else if (other.hasETypeFlag(Entity.ETYPE_PROTOMECH)) {</span>
+<span class="nc" id="L796">                        bayChoices = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L797" title="All 2 branches missed.">                        for (Transporter t : ce().getTransports()) {</span>
+<span class="nc bnc" id="L798" title="All 2 branches missed.">                            if ((t instanceof ProtomechClampMount)</span>
+<span class="nc bnc" id="L799" title="All 2 branches missed.">                                        &amp;&amp; t.canLoad(other)) {</span>
+<span class="nc bnc" id="L800" title="All 2 branches missed.">                                bayChoices.add(((ProtomechClampMount) t).isRear()? 1 : 0);</span>
+                            }
+<span class="nc" id="L802">                        }</span>
+<span class="nc bnc" id="L803" title="All 2 branches missed.">                        if (bayChoices.size() &gt; 1) {</span>
+<span class="nc" id="L804">                            String[] retVal = new String[bayChoices.size()];</span>
+<span class="nc" id="L805">                            int i = 0;</span>
+<span class="nc bnc" id="L806" title="All 2 branches missed.">                            for (Integer bn : bayChoices) {</span>
+<span class="nc bnc" id="L807" title="All 2 branches missed.">                                retVal[i++] = bn &gt; 0?</span>
+<span class="nc" id="L808">                                        Messages.getString(&quot;MovementDisplay.loadProtoClampMountDialog.rear&quot;) :</span>
+<span class="nc" id="L809">                                            Messages.getString(&quot;MovementDisplay.loadProtoClampMountDialog.front&quot;);</span>
+<span class="nc" id="L810">                            }</span>
+<span class="nc" id="L811">                            String bayString = (String) JOptionPane</span>
+<span class="nc" id="L812">                                    .showInputDialog(</span>
+                                            clientgui,
+<span class="nc" id="L814">                                            Messages.getString(</span>
+                                                    &quot;MovementDisplay.loadProtoClampMountDialog.message&quot;,
+<span class="nc" id="L816">                                                    new Object[]{ce().getShortName()}), //$NON-NLS-1$</span>
+<span class="nc" id="L817">                                            Messages.getString(&quot;MovementDisplay.loadProtoClampMountDialog.title&quot;), //$NON-NLS-1$</span>
+                                            JOptionPane.QUESTION_MESSAGE, null, retVal,
+                                            null);
+<span class="nc bnc" id="L820" title="All 2 branches missed.">                            other.setTargetBay(bayString.equals(Messages</span>
+<span class="nc" id="L821">                                    .getString(&quot;MovementDisplay.loadProtoClampMountDialog.front&quot;))? 0 : 1);</span>
+                            // We need to update the entity here so that the server knows
+                            // about our target bay
+<span class="nc" id="L824">                            clientgui.getClient().sendUpdateEntity(other);</span>
+<span class="nc" id="L825">                        } else {</span>
+<span class="nc" id="L826">                            other.setTargetBay(-1); // Safety set!</span>
+                        }
+<span class="nc bnc" id="L828" title="All 2 branches missed.">                    } else if (other != null) {</span>
+<span class="nc" id="L829">                        other.setTargetBay(-1); // Safety set!</span>
+                    }
+<span class="nc bnc" id="L831" title="All 2 branches missed.">                } else if (other != null) {</span>
+<span class="nc" id="L832">                    other.setTargetBay(-1); // Safety set!</span>
+                }
+<span class="nc bnc" id="L834" title="All 2 branches missed.">                if (other != null) {</span>
+                    // Please note, the Server may never get this load order.
+<span class="nc" id="L836">                    ce().load(other, false, other.getTargetBay());</span>
+<span class="nc" id="L837">                    other.setTransportId(cen);</span>
+<span class="nc" id="L838">                    clientgui.mechD.displayEntity(ce());</span>
+<span class="nc" id="L839">                    setUnloadEnabled(true);</span>
+                }
+<span class="nc" id="L841">            } else { // End have-choices</span>
+<span class="nc" id="L842">                JOptionPane.showMessageDialog(clientgui.frame, Messages</span>
+<span class="nc" id="L843">                        .getString(&quot;DeploymentDisplay.alertDialog1.message&quot;,</span>
+<span class="nc" id="L844">                                new Object[] { ce().getShortName() }), Messages</span>
+<span class="nc" id="L845">                        .getString(&quot;DeploymentDisplay.alertDialog1.title&quot;) //$NON-NLS-1$</span>
+                        , JOptionPane.ERROR_MESSAGE);
+            }
+<span class="nc" id="L848">        } // End load-unit</span>
+<span class="nc bnc" id="L849" title="All 2 branches missed.">        else if (actionCmd.equals(DeployCommand.DEPLOY_UNLOAD.getCmd())) {</span>
+            // Do we have anyone to unload?
+<span class="nc" id="L851">            Entity loader = ce();</span>
+<span class="nc" id="L852">            List&lt;Entity&gt; choices = loader.getLoadedUnits();</span>
+<span class="nc bnc" id="L853" title="All 2 branches missed.">            if (choices.size() &gt; 0) {</span>
+<span class="nc" id="L854">                Entity loaded = null;</span>
+<span class="nc" id="L855">                String msg = Messages.getString(&quot;DeploymentDisplay.&quot; //$NON-NLS-1$</span>
+                        + &quot;unloadUnitDialog.message&quot;, //$NON-NLS-1$
+<span class="nc" id="L857">                        new Object[] { ce().getShortName(),</span>
+<span class="nc" id="L858">                                ce().getUnusedString() });</span>
+<span class="nc" id="L859">                String title = Messages.getString(&quot;DeploymentDisplay.&quot; + //$NON-NLS-1$</span>
+                        &quot;unloadUnitDialog.title&quot;); //$NON-NLS-1$
+<span class="nc" id="L861">                String input = (String) JOptionPane.showInputDialog(clientgui,</span>
+                        msg, title, JOptionPane.QUESTION_MESSAGE, null,
+<span class="nc" id="L863">                        SharedUtility.getDisplayArray(choices), null);</span>
+<span class="nc" id="L864">                loaded = (Entity) SharedUtility.getTargetPicked(choices, input);</span>
+<span class="nc bnc" id="L865" title="All 2 branches missed.">                if (loaded != null) {</span>
+<span class="nc bnc" id="L866" title="All 2 branches missed.">                    if (loader.unload(loaded)) {</span>
+<span class="nc" id="L867">                        loaded.setTransportId(Entity.NONE);</span>
+<span class="nc" id="L868">                        loaded.newRound(clientgui.getClient().getGame()</span>
+<span class="nc" id="L869">                                .getRoundCount());</span>
+<span class="nc" id="L870">                        clientgui.mechD.displayEntity(ce());</span>
+                        // Unit loaded in the lobby?  Server needs updating
+<span class="nc bnc" id="L872" title="All 2 branches missed.">                        if (loader.getLoadedKeepers().contains(loaded.getId())) {</span>
+<span class="nc" id="L873">                            Vector&lt;Integer&gt; lobbyLoaded = loader.getLoadedKeepers();</span>
+<span class="nc" id="L874">                            lobbyLoaded.removeElement(loaded.getId());</span>
+<span class="nc" id="L875">                            loader.setLoadedKeepers(lobbyLoaded);</span>
+<span class="nc" id="L876">                            client.sendDeploymentUnload(loader, loaded);</span>
+                            // Need to take turn for unloaded unit, so select it
+<span class="nc" id="L878">                            selectEntity(loaded.getId());</span>
+                        }
+<span class="nc bnc" id="L880" title="All 2 branches missed.">                        setLoadEnabled(getLoadableEntities().size() &gt; 0);</span>
+                    } else {
+<span class="nc" id="L882">                        System.out.println(&quot;Could not unload &quot; + //$NON-NLS-1$</span>
+<span class="nc" id="L883">                                loaded.getShortName()</span>
+<span class="nc" id="L884">                                + &quot; from &quot; + ce().getShortName()); //$NON-NLS-1$</span>
+                    }
+                }
+<span class="nc" id="L887">            } // End have-choices</span>
+            else {
+<span class="nc" id="L889">                JOptionPane</span>
+<span class="nc" id="L890">                        .showMessageDialog(</span>
+                                clientgui.frame,
+<span class="nc" id="L892">                                Messages.getString(</span>
+<span class="nc" id="L893">                                        &quot;DeploymentDisplay.alertDialog2.message&quot;, new Object[] { ce().getShortName() }), Messages.getString(&quot;DeploymentDisplay.alertDialog2.title&quot;), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$</span>
+            }
+<span class="nc" id="L895">        } // End unload-unit</span>
+<span class="nc bnc" id="L896" title="All 2 branches missed.">        else if (actionCmd.equals(DeployCommand.DEPLOY_REMOVE.getCmd())) {</span>
+<span class="nc bnc" id="L897" title="All 2 branches missed.">            if (JOptionPane.showConfirmDialog(clientgui.frame, Messages</span>
+<span class="nc" id="L898">                    .getString(&quot;DeploymentDisplay.removeUnit&quot;,</span>
+<span class="nc" id="L899">                            new Object[] { ce().getShortName() }), Messages</span>
+<span class="nc" id="L900">                    .getString(&quot;DeploymentDisplay.removeTitle&quot;),</span>
+                    JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+<span class="nc" id="L902">                remove();</span>
+            }
+<span class="nc bnc" id="L904" title="All 2 branches missed.">        } else if (actionCmd.equals(DeployCommand.DEPLOY_ASSAULTDROP.getCmd())) {</span>
+<span class="nc bnc" id="L905" title="All 2 branches missed.">            assaultDropPreference = !assaultDropPreference;</span>
+<span class="nc bnc" id="L906" title="All 2 branches missed.">            if (assaultDropPreference) {</span>
+<span class="nc" id="L907">            buttons.get(DeployCommand.DEPLOY_ASSAULTDROP).setText(Messages</span>
+<span class="nc" id="L908">                        .getString(&quot;DeploymentDisplay.assaultDropOff&quot;));</span>
+            } else {
+<span class="nc" id="L910">            buttons.get(DeployCommand.DEPLOY_ASSAULTDROP).setText(Messages</span>
+<span class="nc" id="L911">                        .getString(&quot;DeploymentDisplay.assaultDrop&quot;));</span>
+            }
+        }
+<span class="nc" id="L914">    } // End public void actionPerformed(ActionEvent ev)</span>
+
+    @Override
+    public void clear() {
+<span class="nc" id="L918">        beginMyTurn();</span>
+<span class="nc" id="L919">    }</span>
+
+    //
+    // BoardViewListener
+    //
+    @Override
+    public void finishedMovingUnits(BoardViewEvent b) {
+        // Are we ignoring events?
+<span class="nc bnc" id="L927" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L928">            return;</span>
+        }
+
+<span class="nc bnc" id="L931" title="All 2 branches missed.">        if (clientgui.getClient().isMyTurn()) {</span>
+<span class="nc" id="L932">            clientgui.setDisplayVisible(true);</span>
+        }
+<span class="nc" id="L934">    }</span>
+
+    // Selected a unit in the unit overview.
+    @Override
+    public void unitSelected(BoardViewEvent b) {
+        // Are we ignoring events?
+<span class="nc bnc" id="L940" title="All 2 branches missed.">        if (isIgnoringEvents()) {</span>
+<span class="nc" id="L941">            return;</span>
+        }
+<span class="nc" id="L943">        final Client client = clientgui.getClient(); </span>
+<span class="nc" id="L944">        final Entity e = client.getGame().getEntity(b.getEntityId());</span>
+<span class="nc bnc" id="L945" title="All 2 branches missed.">        if (null == e) {</span>
+<span class="nc" id="L946">            return;</span>
+        }
+<span class="nc bnc" id="L948" title="All 2 branches missed.">        if (client.isMyTurn()) {</span>
+<span class="nc" id="L949">            if (client.getGame().getTurn()</span>
+<span class="nc bnc" id="L950" title="All 2 branches missed.">                    .isValidEntity(e, client.getGame())) {</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">                if (ce() != null) {</span>
+<span class="nc" id="L952">                    ce().setPosition(null);</span>
+<span class="nc" id="L953">                    clientgui.bv.redrawEntity(ce());</span>
+                    // Unload any loaded units during this turn
+<span class="nc" id="L955">                    List&lt;Integer&gt; lobbyLoadedUnits = ce().getLoadedKeepers();</span>
+<span class="nc bnc" id="L956" title="All 2 branches missed.">                    for (Entity other : ce().getLoadedUnits()) {</span>
+                        // Ignore units loaded before this turn
+<span class="nc bnc" id="L958" title="All 2 branches missed.">                        if (!lobbyLoadedUnits.contains(other.getId())) {</span>
+<span class="nc" id="L959">                            ce().unload(other);</span>
+<span class="nc" id="L960">                            other.setTransportId(Entity.NONE);</span>
+<span class="nc" id="L961">                            other.newRound(client.getGame().getRoundCount());</span>
+                        }                    
+<span class="nc" id="L963">                    }</span>
+                }
+<span class="nc" id="L965">                selectEntity(e.getId());</span>
+<span class="nc bnc" id="L966" title="All 2 branches missed.">                if (null != e.getPosition()) {</span>
+<span class="nc" id="L967">                    clientgui.bv.centerOnHex(e.getPosition());</span>
+                }
+            }
+        } else {
+<span class="nc" id="L971">            clientgui.setDisplayVisible(true);</span>
+<span class="nc" id="L972">            clientgui.mechD.displayEntity(e);</span>
+<span class="nc bnc" id="L973" title="All 2 branches missed.">            if (e.isDeployed()) {</span>
+<span class="nc" id="L974">                clientgui.bv.centerOnHex(e.getPosition());</span>
+            }
+        }
+<span class="nc" id="L977">    }</span>
+
+    private void setNextEnabled(boolean enabled) {
+<span class="nc" id="L980">        buttons.get(DeployCommand.DEPLOY_NEXT).setEnabled(enabled);</span>
+<span class="nc" id="L981">        clientgui.getMenuBar().setDeployNextEnabled(enabled);</span>
+<span class="nc" id="L982">    }</span>
+
+    private void setTurnEnabled(boolean enabled) {
+<span class="nc" id="L985">    buttons.get(DeployCommand.DEPLOY_TURN).setEnabled(enabled);</span>
+<span class="nc" id="L986">        clientgui.getMenuBar().setDeployTurnEnabled(enabled);</span>
+<span class="nc" id="L987">    }</span>
+
+    private void setLoadEnabled(boolean enabled) {
+<span class="nc" id="L990">    buttons.get(DeployCommand.DEPLOY_LOAD).setEnabled(enabled);</span>
+<span class="nc" id="L991">        clientgui.getMenuBar().setDeployLoadEnabled(enabled);</span>
+<span class="nc" id="L992">    }</span>
+
+    private void setUnloadEnabled(boolean enabled) {
+<span class="nc" id="L995">    buttons.get(DeployCommand.DEPLOY_UNLOAD).setEnabled(enabled);</span>
+<span class="nc" id="L996">        clientgui.getMenuBar().setDeployUnloadEnabled(enabled);</span>
+<span class="nc" id="L997">    }</span>
+
+    private void setRemoveEnabled(boolean enabled) {
+<span class="nc" id="L1000">    buttons.get(DeployCommand.DEPLOY_REMOVE).setEnabled(enabled);</span>
+<span class="nc" id="L1001">        clientgui.getMenuBar().setDeployNextEnabled(enabled);</span>
+<span class="nc" id="L1002">    }</span>
+
+    private void setAssaultDropEnabled(boolean enabled) {
+<span class="nc" id="L1005">    buttons.get(DeployCommand.DEPLOY_ASSAULTDROP).setEnabled(enabled);</span>
+<span class="nc" id="L1006">        clientgui.getMenuBar().setDeployAssaultDropEnabled(enabled);</span>
+<span class="nc" id="L1007">    }</span>
+
+    /**
+     * Stop just ignoring events and actually stop listening to them.
+     */
+    public void removeAllListeners() {
+<span class="nc" id="L1013">        die();</span>
+<span class="nc" id="L1014">    }</span>
+    
+    /**
+     * Returns a list of the entities that can be loaded into the currently
+     * selected entity.
+     * 
+     * @return
+     */
+    private List&lt;Entity&gt; getLoadableEntities() {       
+<span class="nc" id="L1023">        ArrayList&lt;Entity&gt; choices = new ArrayList&lt;Entity&gt;();</span>
+        // If current entity is null, nothing to do
+<span class="nc bnc" id="L1025" title="All 2 branches missed.">        if (ce() == null) {</span>
+<span class="nc" id="L1026">            return choices;</span>
+        }
+<span class="nc" id="L1028">        List&lt;Entity&gt; entities = clientgui.getClient().getGame()</span>
+<span class="nc" id="L1029">                .getEntitiesVector();</span>
+<span class="nc bnc" id="L1030" title="All 2 branches missed.">        for (Entity other : entities) {</span>
+<span class="nc bnc" id="L1031" title="All 4 branches missed.">            if (other.isSelectableThisTurn() &amp;&amp; ce().canLoad(other, false)</span>
+                    // We can't depend on the transport id to be set because we sent a server update
+                    // before loading on the client side, and the loaded unit may have been reset
+                    // by the resulting update from the server.
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">                    &amp;&amp; !ce().getLoadedUnits().contains(other)</span>
+                    // If you want to load a trailer into a dropship or large support vee, do it in the lobby
+                    // The 'load' button should not allow trailers - that's what 'tow' is for.
+<span class="nc bnc" id="L1038" title="All 2 branches missed.">                    &amp;&amp; !other.isTrailer()) {</span>
+<span class="nc" id="L1039">                choices.add(other);</span>
+            }
+<span class="nc" id="L1041">        }</span>
+<span class="nc" id="L1042">        return choices;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

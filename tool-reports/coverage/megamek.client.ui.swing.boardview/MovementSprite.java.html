@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MovementSprite.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing.boardview</a> &gt; <span class="el_source">MovementSprite.java</span></div><h1>MovementSprite.java</h1><pre class="source lang-java linenums">package megamek.client.ui.swing.boardview;
+
+import java.awt.Color;
+import java.awt.Graphics;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.Rectangle;
+import java.awt.image.ImageObserver;
+
+import megamek.client.ui.swing.GUIPreferences;
+import megamek.client.ui.swing.util.StraightArrowPolygon;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+
+/**
+ * Sprite and info for movement vector (AT2 advanced movement). Does not
+ * actually use the image buffer as this can be horribly inefficient for
+ * long diagonal lines.
+ *
+ * Appears as an arrow pointing to the hex this entity will move to based on
+ * current movement vectors. 
+ * 
+ * TODO: Different color depending upon whether
+ * entity has already moved this turn
+ *
+ */
+class MovementSprite extends Sprite {
+
+    private Point a;
+
+    private Point t;
+
+    private double an;
+
+    private StraightArrowPolygon movePoly;
+
+    private Color moveColor;
+
+    // private MovementVector mv;
+    private int[] vectors;
+
+    private Coords start;
+
+    private Coords end;
+
+    private Entity en;
+
+    private int vel;
+
+    public MovementSprite(BoardView1 boardView1, Entity e, int[] v, Color col, boolean isCurrent) {
+        // this.mv = en.getMV();
+
+<span class="nc" id="L54">        super(boardView1);</span>
+<span class="nc" id="L55">        en = e;</span>
+<span class="nc" id="L56">        vectors = v;// en.getVectors();</span>
+        // get the starting and ending position
+<span class="nc" id="L58">        start = en.getPosition();</span>
+<span class="nc" id="L59">        end = Compute.getFinalPosition(start, vectors);</span>
+
+        // what is the velocity
+<span class="nc" id="L62">        vel = 0;</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">        for (int element : v) {</span>
+<span class="nc" id="L64">            vel += element;</span>
+        }
+
+        // color?
+        // player colors
+<span class="nc" id="L69">        moveColor = en.getOwner().getColour().getColour();</span>
+        // TODO: Its not going transparent. Oh well, it is a minor issue at
+        // the moment
+        /*
+         * if(isCurrent) { int colour = col.getRGB(); int transparency =
+         * GUIPreferences.getInstance().getInt(GUIPreferences.
+         * ADVANCED_ATTACK_ARROW_TRANSPARENCY); moveColor = new Color(colour
+         * | (transparency &lt;&lt; 24), true); }
+         */
+        // red if offboard
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (!this.bv.game.getBoard().contains(end)) {</span>
+<span class="nc" id="L80">            int colour = 0xff0000; // red</span>
+<span class="nc" id="L81">            int transparency = GUIPreferences.getInstance().getInt(</span>
+                    GUIPreferences.ADVANCED_ATTACK_ARROW_TRANSPARENCY);
+<span class="nc" id="L83">            moveColor = new Color(colour | (transparency &lt;&lt; 24), true);</span>
+        }
+        // dark gray if done
+<span class="nc bnc" id="L86" title="All 2 branches missed.">        if (en.isDone()) {</span>
+<span class="nc" id="L87">            int colour = 0x696969; // gray</span>
+<span class="nc" id="L88">            int transparency = GUIPreferences.getInstance().getInt(</span>
+                    GUIPreferences.ADVANCED_ATTACK_ARROW_TRANSPARENCY);
+<span class="nc" id="L90">            moveColor = new Color(colour | (transparency &lt;&lt; 24), true);</span>
+        }
+
+        // moveColor = PlayerColors.getColor(en.getOwner().getColorIndex());
+        // angle of line connecting two hexes
+<span class="nc" id="L95">        an = (start.radian(end) + (Math.PI * 1.5)) % (Math.PI * 2); // angle</span>
+<span class="nc" id="L96">        makePoly();</span>
+
+        // set bounds
+<span class="nc" id="L99">        bounds = new Rectangle(movePoly.getBounds());</span>
+<span class="nc" id="L100">        bounds.setSize(bounds.getSize().width + 1,</span>
+<span class="nc" id="L101">                bounds.getSize().height + 1);</span>
+        // move poly to upper right of image
+<span class="nc" id="L103">        movePoly.translate(-bounds.getLocation().x, -bounds.getLocation().y);</span>
+
+        // nullify image
+<span class="nc" id="L106">        image = null;</span>
+<span class="nc" id="L107">    }</span>
+
+    private void makePoly() {
+        // make a polygon
+<span class="nc" id="L111">        a = bv.getHexLocation(start);</span>
+<span class="nc" id="L112">        t = bv.getHexLocation(end);</span>
+        // OK, that is actually not good. I do not like hard coded figures.
+        // HEX_W/2 - x distance in pixels from origin of hex bounding box to
+        // the center of hex.
+        // HEX_H/2 - y distance in pixels from origin of hex bounding box to
+        // the center of hex.
+        // 18 - is actually 36/2 - we do not want arrows to start and end
+        // directly
+        // in the centes of hex and hiding mek under.
+
+<span class="nc" id="L122">        a.x = a.x + (int) ((BoardView1.HEX_W / 2) * bv.scale)</span>
+<span class="nc" id="L123">                + (int) Math.round(Math.cos(an) * (int) (18 * bv.scale));</span>
+<span class="nc" id="L124">        t.x = (t.x + (int) ((BoardView1.HEX_W / 2) * bv.scale))</span>
+<span class="nc" id="L125">                - (int) Math.round(Math.cos(an) * (int) (18 * bv.scale));</span>
+<span class="nc" id="L126">        a.y = a.y + (int) ((BoardView1.HEX_H / 2) * bv.scale)</span>
+<span class="nc" id="L127">                + (int) Math.round(Math.sin(an) * (int) (18 * bv.scale));</span>
+<span class="nc" id="L128">        t.y = (t.y + (int) ((BoardView1.HEX_H / 2) * this.bv.scale))</span>
+<span class="nc" id="L129">                - (int) Math.round(Math.sin(an) * (int) (18 * bv.scale));</span>
+<span class="nc" id="L130">        movePoly = new StraightArrowPolygon(a, t, (int) (4 * bv.scale),</span>
+                (int) (8 * bv.scale), false);
+<span class="nc" id="L132">    }</span>
+
+    @Override
+    public Rectangle getBounds() {
+<span class="nc" id="L136">        makePoly();</span>
+        // set bounds
+<span class="nc" id="L138">        bounds = new Rectangle(movePoly.getBounds());</span>
+<span class="nc" id="L139">        bounds.setSize(bounds.getSize().width + 1,</span>
+<span class="nc" id="L140">                bounds.getSize().height + 1);</span>
+        // move poly to upper right of image
+<span class="nc" id="L142">        movePoly.translate(-bounds.getLocation().x, -bounds.getLocation().y);</span>
+
+<span class="nc" id="L144">        return bounds;</span>
+    }
+
+    @Override
+    public void prepare() {
+
+<span class="nc" id="L150">    }</span>
+
+    @Override
+    public boolean isReady() {
+<span class="nc" id="L154">        return true;</span>
+    }
+
+    @Override
+    public void drawOnto(Graphics g, int x, int y, ImageObserver observer) {
+        // don't draw anything if the unit has no velocity
+
+<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (vel == 0) {</span>
+<span class="nc" id="L162">            return;</span>
+        }
+
+<span class="nc" id="L165">        Polygon drawPoly = new Polygon(movePoly.xpoints, movePoly.ypoints,</span>
+                movePoly.npoints);
+<span class="nc" id="L167">        drawPoly.translate(x, y);</span>
+
+<span class="nc" id="L169">        g.setColor(moveColor);</span>
+<span class="nc" id="L170">        g.fillPolygon(drawPoly);</span>
+<span class="nc" id="L171">        g.setColor(Color.gray.darker());</span>
+<span class="nc" id="L172">        g.drawPolygon(drawPoly);</span>
+
+<span class="nc" id="L174">    }</span>
+
+    /**
+     * Return true if the point is inside our polygon
+     */
+    @Override
+    public boolean isInside(Point point) {
+<span class="nc" id="L181">        return movePoly.contains(point.x - bounds.x, point.y - bounds.y);</span>
+    }
+
+    /*
+     * public String[] getTooltip() { String[] tipStrings = new String[1 +
+     * weaponDescs.size()]; int tip = 1; tipStrings[0] = attackerDesc +
+     * &quot; &quot;+Messages.getString(&quot;BoardView1.on&quot;)+&quot; &quot; + targetDesc;
+     * //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ for (Iterator&lt;String&gt; i =
+     * weaponDescs.iterator(); i.hasNext();) { tipStrings[tip++] = i.next();
+     * } return tipStrings; }
+     */
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

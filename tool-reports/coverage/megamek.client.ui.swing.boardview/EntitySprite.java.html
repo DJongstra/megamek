@@ -1,0 +1,1250 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>EntitySprite.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing.boardview</a> &gt; <span class="el_source">EntitySprite.java</span></div><h1>EntitySprite.java</h1><pre class="source lang-java linenums">/*
+ * Copyright (c) 2014-2020 - The MegaMek Team. All Rights Reserved.
+ *
+ * This file is part of MegaMek.
+ *
+ * MegaMek is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * MegaMek is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with MegaMek. If not, see &lt;http://www.gnu.org/licenses/&gt;.
+ */
+package megamek.client.ui.swing.boardview;
+
+import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsEnvironment;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Stroke;
+import java.awt.Transparency;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
+
+import megamek.client.ui.Messages;
+import megamek.client.ui.swing.GUIPreferences;
+import megamek.client.ui.swing.util.EntityWreckHelper;
+import megamek.common.Aero;
+import megamek.common.Compute;
+import megamek.common.Configuration;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.EntityMovementType;
+import megamek.common.EntityVisibilityUtils;
+import megamek.common.GunEmplacement;
+import megamek.common.IAero;
+import megamek.common.IArmorState;
+import megamek.common.IBoard;
+import megamek.common.IGame;
+import megamek.common.IGame.Phase;
+import megamek.common.IPlayer;
+import megamek.common.Infantry;
+import megamek.common.Mech;
+import megamek.common.Mounted;
+import megamek.common.Protomech;
+import megamek.common.QuadVee;
+import megamek.common.RangeType;
+import megamek.common.Tank;
+import megamek.common.TechConstants;
+import megamek.common.WeaponType;
+import megamek.common.icons.AbstractIcon;
+import megamek.common.options.OptionsConstants;
+import megamek.common.options.PilotOptions;
+
+/**
+ * Sprite for an entity. Changes whenever the entity changes. Consists of an
+ * image, drawn from the Tile Manager; facing and possibly secondary facing
+ * arrows; armor and internal bars; and an identification label.
+ */
+class EntitySprite extends Sprite {
+
+    // Statics
+    private static final int SMALL = 0;
+    private static final boolean DIRECT = true;
+<span class="nc" id="L79">    private static final Color LABEL_TEXT_COLOR = Color.WHITE;</span>
+<span class="nc" id="L80">    private static final Color LABEL_CRITICAL_BACK = new Color(200,0,0,200);</span>
+<span class="nc" id="L81">    private static final Color LABEL_SPACE_BACK = new Color(0,0,200,200);</span>
+<span class="nc" id="L82">    private static final Color LABEL_GROUND_BACK = new Color(50,50,50,200);</span>
+    private static Color LABEL_BACK;
+<span class="nc" id="L84">    enum Positioning { LEFT, RIGHT }</span>
+    
+    // Individuals
+    final Entity entity;
+
+    private final Image radarBlipImage;
+    private final int secondaryPos;
+
+    private Rectangle entityRect;
+    private Rectangle labelRect;
+    private Font labelFont;
+    private Point hexOrigin;
+    private boolean criticalStatus;
+    private Positioning labelPos;
+    /** Used to color the label when this unit is selected for movement etc. */
+    private boolean isSelected;
+    
+    // Keep track of ECM state, as it's too expensive to compute on the fly.
+<span class="nc" id="L102">    private boolean isAffectedByECM = false;</span>
+
+    public EntitySprite(BoardView1 boardView1, final Entity entity,
+            int secondaryPos, Image radarBlipImage) {
+<span class="nc" id="L106">        super(boardView1);</span>
+<span class="nc" id="L107">        this.entity = entity;</span>
+<span class="nc" id="L108">        this.radarBlipImage = radarBlipImage;</span>
+<span class="nc" id="L109">        this.secondaryPos = secondaryPos;</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (bv.game.getBoard().inSpace()) {</span>
+<span class="nc" id="L111">            LABEL_BACK = LABEL_SPACE_BACK;</span>
+        } else {
+<span class="nc" id="L113">            LABEL_BACK = LABEL_GROUND_BACK;</span>
+        }
+<span class="nc" id="L115">        getBounds();</span>
+<span class="nc" id="L116">    }</span>
+    
+    private String getAdjShortName() {
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        if (onlyDetectedBySensors()) {</span>
+<span class="nc" id="L120">            return Messages.getString(&quot;BoardView1.sensorReturn&quot;); //$NON-NLS-1$</span>
+        } else {
+<span class="nc" id="L122">            String name = entity.getShortName();</span>
+<span class="nc" id="L123">            int firstApo = name.indexOf('\'');</span>
+<span class="nc" id="L124">            int secondApo = name.indexOf('\'', name.indexOf('\'')+1);</span>
+<span class="nc bnc" id="L125" title="All 4 branches missed.">            if ((firstApo &gt;= 0) &amp;&amp; (secondApo &gt;= 0)) {</span>
+<span class="nc" id="L126">                name = name</span>
+<span class="nc" id="L127">                        .substring(firstApo+1, secondApo)</span>
+<span class="nc" id="L128">                        .toUpperCase();</span>
+            }
+<span class="nc" id="L130">            return name;</span>
+        }
+    }
+
+    @Override
+    public Rectangle getBounds() {
+        // Start with the hex and add the label
+<span class="nc" id="L137">        bounds = new Rectangle(0,0,bv.hex_size.width, bv.hex_size.height);</span>
+<span class="nc" id="L138">        updateLabel();</span>
+<span class="nc" id="L139">        bounds.add(labelRect);</span>
+        // Add space for 4 little status boxes
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (labelPos == Positioning.RIGHT) {</span>
+<span class="nc" id="L142">            bounds.add(-4*(labelRect.height+2)+labelRect.x, labelRect.y);</span>
+        } else {
+<span class="nc" id="L144">            bounds.add(4*(labelRect.height+2)+labelRect.x+labelRect.width, labelRect.y);</span>
+        }
+
+        // Move to board position, save this origin for correct drawing
+<span class="nc" id="L148">        hexOrigin = bounds.getLocation();</span>
+        Point ePos;
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (secondaryPos == -1) {</span>
+<span class="nc" id="L151">            ePos = bv.getHexLocation(entity.getPosition());</span>
+        } else {
+<span class="nc" id="L153">            ePos = bv.getHexLocation(entity.getSecondaryPositions().get(secondaryPos));</span>
+        }
+<span class="nc" id="L155">        bounds.setLocation(hexOrigin.x + ePos.x, hexOrigin.y + ePos.y);</span>
+        
+<span class="nc" id="L157">        entityRect = new Rectangle(bounds.x + (int) (20 * bv.scale), bounds.y</span>
+                + (int) (14 * bv.scale), (int) (44 * bv.scale),
+                (int) (44 * bv.scale));
+
+<span class="nc" id="L161">        return bounds;</span>
+    }
+
+    private void updateLabel() {
+<span class="nc" id="L165">        Rectangle oldRect = new Rectangle();</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (labelRect != null)</span>
+<span class="nc" id="L167">            oldRect = new Rectangle(labelRect);</span>
+        
+<span class="nc bnc" id="L169" title="All 4 branches missed.">        int face = (entity.isCommander() &amp;&amp; !onlyDetectedBySensors()) ? </span>
+<span class="nc" id="L170">                Font.ITALIC : Font.PLAIN;</span>
+<span class="nc" id="L171">        labelFont = new Font(&quot;SansSerif&quot;, face, (int)(10*Math.max(bv.scale,0.9))); //$NON-NLS-1$</span>
+        
+        // Check the hexes in directions 2,5,1,4 if they are free of entities
+        // and place the label in the direction of the first free hex
+        // if none are free, the label will be centered in the current hex
+<span class="nc" id="L176">        labelRect = new Rectangle(</span>
+<span class="nc" id="L177">                bv.getFontMetrics(labelFont).stringWidth(getAdjShortName())+4, </span>
+<span class="nc" id="L178">                bv.getFontMetrics(labelFont).getAscent()+2);</span>
+        
+<span class="nc" id="L180">        Coords position = entity.getPosition();</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        if (bv.game.getEntitiesVector(position.translated(&quot;SE&quot;), true).isEmpty()) {</span>
+<span class="nc" id="L182">            labelRect.setLocation((int)(bv.hex_size.width*0.55), (int)(0.75*bv.hex_size.height));</span>
+<span class="nc" id="L183">            labelPos = Positioning.RIGHT;</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        } else if (bv.game.getEntitiesVector(position.translated(&quot;NW&quot;), true).isEmpty()) {</span>
+<span class="nc" id="L185">            labelRect.setLocation((int)(bv.hex_size.width*0.45)-labelRect.width, </span>
+                    (int)(0.25*bv.hex_size.height)-labelRect.height);
+<span class="nc" id="L187">            labelPos = Positioning.LEFT;</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        } else if (bv.game.getEntitiesVector(position.translated(&quot;NE&quot;), true).isEmpty()) {</span>
+<span class="nc" id="L189">            labelRect.setLocation((int)(bv.hex_size.width*0.55), </span>
+                    (int)(0.25*bv.hex_size.height)-labelRect.height);
+<span class="nc" id="L191">            labelPos = Positioning.RIGHT;</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">        } else if (bv.game.getEntitiesVector(position.translated(&quot;SW&quot;), true).isEmpty()) {</span>
+<span class="nc" id="L193">            labelRect.setLocation((int)(bv.hex_size.width*0.45)-labelRect.width, </span>
+                    (int)(0.75*bv.hex_size.height));
+<span class="nc" id="L195">            labelPos = Positioning.LEFT;</span>
+        } else {
+<span class="nc" id="L197">            labelRect.setLocation(bv.hex_size.width/2-labelRect.width/2, </span>
+                    (int)(0.75*bv.hex_size.height));
+<span class="nc" id="L199">            labelPos = Positioning.RIGHT;</span>
+        } 
+
+        // If multiple units are present in a hex, fan out the labels
+        // In the deployment phase, indexOf returns -1 for the current unit
+<span class="nc" id="L204">        int indexEntity = bv.game.getEntitiesVector(position).indexOf(entity);</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        if (indexEntity != -1) {</span>
+<span class="nc" id="L206">            labelRect.y += (bv.getFontMetrics(labelFont).getAscent()+4) * </span>
+                    indexEntity;
+        } else {
+<span class="nc" id="L209">            labelRect.y += (bv.getFontMetrics(labelFont).getAscent()+4) * </span>
+<span class="nc" id="L210">                    bv.game.getEntitiesVector(position).size();</span>
+        }
+
+        // If the label has changed, force a redraw (necessary
+        // for the Deployment phase
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        if (!labelRect.equals(oldRect)) image = null;</span>
+<span class="nc" id="L216">    }</span>
+
+    // Happy little class to hold status info until it gets drawn
+    private class Status {
+        final Color color;
+        final String status;
+        final boolean small;
+
+<span class="nc" id="L224">        Status(Color c, String s) {</span>
+<span class="nc" id="L225">            color = c;</span>
+<span class="nc" id="L226">            status = Messages.getString(&quot;BoardView1.&quot;+s);</span>
+<span class="nc" id="L227">            small = false;</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">            if (color.equals(Color.RED)) criticalStatus = true;</span>
+<span class="nc" id="L229">        }</span>
+
+<span class="nc" id="L231">        Status(Color c, String s, Object objs[]) {</span>
+<span class="nc" id="L232">            color = c;</span>
+<span class="nc" id="L233">            status = Messages.getString(&quot;BoardView1.&quot;+s, objs);</span>
+<span class="nc" id="L234">            small = false;</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">            if (color.equals(Color.RED)) criticalStatus = true;</span>
+<span class="nc" id="L236">        }</span>
+
+<span class="nc" id="L238">        Status(Color c, String s, boolean direct) {</span>
+<span class="nc" id="L239">            color = c;</span>
+<span class="nc" id="L240">            status = s;</span>
+<span class="nc" id="L241">            small = false;</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">            if (color.equals(Color.RED)) criticalStatus = true;</span>
+<span class="nc" id="L243">        }</span>
+
+<span class="nc" id="L245">        Status(Color c, String s, int t) {</span>
+<span class="nc" id="L246">            color = c;</span>
+<span class="nc" id="L247">            status = s;</span>
+<span class="nc" id="L248">            small = true;</span>
+<span class="nc" id="L249">        }</span>
+        
+<span class="nc" id="L251">        Status(Color c, int b, int t) {</span>
+<span class="nc" id="L252">            color = c;</span>
+<span class="nc" id="L253">            status = null;</span>
+<span class="nc" id="L254">            small = true;</span>
+<span class="nc" id="L255">        }</span>
+
+    }
+    
+    private void drawStatusStrings(Graphics2D g, ArrayList&lt;Status&gt; statusStrings) {
+<span class="nc bnc" id="L260" title="All 2 branches missed.">        if (statusStrings.isEmpty()) return;</span>
+        
+        // The small info blobs
+<span class="nc" id="L263">        g.setFont(labelFont);</span>
+        
+<span class="nc" id="L265">        Rectangle stR = new Rectangle(labelRect.x, labelRect.y, labelRect.height, labelRect.height);</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        if (labelPos == Positioning.LEFT) {</span>
+<span class="nc" id="L267">            stR.translate(labelRect.width-labelRect.height, 0);</span>
+        }
+        
+<span class="nc bnc" id="L270" title="All 2 branches missed.">        for (Status curStatus: statusStrings) {</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            if (curStatus.small) { </span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">                if (labelPos == Positioning.RIGHT) {</span>
+<span class="nc" id="L273">                    stR.translate(-labelRect.height-2,0);</span>
+                } else {
+<span class="nc" id="L275">                    stR.translate(labelRect.height+2,0);</span>
+                }
+<span class="nc" id="L277">                g.setColor(LABEL_BACK);</span>
+<span class="nc" id="L278">                g.fillRoundRect(stR.x, stR.y, stR.width, stR.height, 5, 5);</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                if (curStatus.status == null) {</span>
+<span class="nc" id="L280">                    Color damageColor = getDamageColor();</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">                    if (damageColor != null) {</span>
+<span class="nc" id="L282">                        g.setColor(damageColor);</span>
+<span class="nc" id="L283">                        g.fillRoundRect(stR.x+2, stR.y+2, stR.width-4, stR.height-4, 5, 5);</span>
+                    }
+
+<span class="nc" id="L286">                } else {</span>
+<span class="nc" id="L287">                    bv.drawCenteredText(g, curStatus.status, </span>
+                            stR.x+stR.height*0.5f-0.5f, stR.y+stR.height*0.5f-2, curStatus.color, false);
+                }
+            }
+<span class="nc" id="L291">        }</span>
+
+        // When zoomed far out, status wouldn't be readable, therefore
+        // draw a big &quot;!&quot; (and the label is red)
+<span class="nc bnc" id="L295" title="All 4 branches missed.">        if (bv.scale &lt; 0.55 &amp;&amp; criticalStatus) {</span>
+<span class="nc" id="L296">            Font bigFont = new Font(&quot;SansSerif&quot;,Font.BOLD,(int)(42*bv.scale));</span>
+<span class="nc" id="L297">            g.setFont(bigFont);</span>
+<span class="nc" id="L298">            Point pos = new Point(bv.hex_size.width/2, bv.hex_size.height/2);</span>
+<span class="nc" id="L299">            bv.drawTextShadow(g, &quot;!&quot;, pos, bigFont);</span>
+<span class="nc" id="L300">            bv.drawCenteredText(g, &quot;!&quot;, pos, Color.RED, false);</span>
+<span class="nc" id="L301">            return;</span>
+        }
+        
+        // Critical status text
+<span class="nc" id="L305">        Font boldFont = new Font(&quot;SansSerif&quot;,Font.BOLD,(int)(12*bv.scale));</span>
+<span class="nc" id="L306">        g.setFont(boldFont);</span>
+<span class="nc" id="L307">        int y = (int)(bv.hex_size.height * 0.6);</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">        for (Status curStatus: statusStrings) {</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">            if (!curStatus.small) { // Critical status</span>
+<span class="nc" id="L310">                bv.drawTextShadow(g, curStatus.status, new Point(bv.hex_size.width/2,y), boldFont);</span>
+<span class="nc" id="L311">                bv.drawCenteredText(g, curStatus.status, bv.hex_size.width/2, y, curStatus.color, false);</span>
+<span class="nc" id="L312">                y -= 14*bv.scale;</span>
+            }
+<span class="nc" id="L314">        }</span>
+<span class="nc" id="L315">    }</span>
+    
+    /**
+     * Creates the sprite for this entity. Fortunately it is no longer
+     * an extra pain to create transparent images in AWT.
+     */
+    @Override
+    public void prepare() {
+<span class="nc" id="L323">        final IBoard board = bv.game.getBoard();</span>
+<span class="nc" id="L324">        final GUIPreferences guip = GUIPreferences.getInstance();</span>
+        // recalculate bounds &amp; label
+<span class="nc" id="L326">        getBounds();</span>
+        
+        // create image for buffer
+        GraphicsConfiguration config = GraphicsEnvironment
+<span class="nc" id="L330">                .getLocalGraphicsEnvironment().getDefaultScreenDevice()</span>
+<span class="nc" id="L331">                .getDefaultConfiguration();</span>
+<span class="nc" id="L332">        image = config.createCompatibleImage(bounds.width, bounds.height,</span>
+                Transparency.TRANSLUCENT);
+<span class="nc" id="L334">        Graphics2D graph = (Graphics2D)image.getGraphics();</span>
+<span class="nc" id="L335">        GUIPreferences.AntiAliasifSet(graph);</span>
+        
+        // translate everything (=correction for label placement)
+<span class="nc" id="L338">        graph.translate(-hexOrigin.x, -hexOrigin.y);</span>
+
+<span class="nc bnc" id="L340" title="All 2 branches missed.">        if (!bv.useIsometric()) {</span>
+            // The entity sprite is drawn when the hexes are rendered.
+            // So do not include the sprite info here.
+<span class="nc bnc" id="L343" title="All 2 branches missed.">            if (onlyDetectedBySensors()) {</span>
+<span class="nc" id="L344">                graph.drawImage(bv.getScaledImage(radarBlipImage, true), 0, 0, this);</span>
+            } else {
+                // draw the unit icon translucent if:
+                // hidden from the enemy (and activated graphics setting); or
+                // submerged
+<span class="nc" id="L349">                boolean translucentHiddenUnits = guip</span>
+<span class="nc" id="L350">                        .getBoolean(GUIPreferences.ADVANCED_TRANSLUCENT_HIDDEN_UNITS);</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">                boolean shouldBeTranslucent = (trackThisEntitiesVisibilityInfo(entity)</span>
+<span class="nc bnc" id="L352" title="All 4 branches missed.">                        &amp;&amp; !entity.isVisibleToEnemy()) || entity.isHidden();</span>
+<span class="nc bnc" id="L353" title="All 4 branches missed.">                if ((shouldBeTranslucent &amp;&amp; translucentHiddenUnits)</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">                        || (entity.relHeight() &lt; 0)) {</span>
+<span class="nc" id="L355">                    graph.setComposite(AlphaComposite.getInstance(</span>
+                            AlphaComposite.SRC_OVER, 0.5f));
+                }
+                
+                // draw the 'fuel leak' decal where appropriate
+<span class="nc" id="L360">                boolean drawFuelLeak = EntityWreckHelper.displayFuelLeak(entity);</span>
+                
+<span class="nc bnc" id="L362" title="All 2 branches missed.">                if(drawFuelLeak) {</span>
+<span class="nc" id="L363">                    Image fuelLeak = bv.getScaledImage(bv.tileManager.bottomLayerFuelLeakMarkerFor(entity), true);</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">                    if (null != fuelLeak) {</span>
+<span class="nc" id="L365">                        graph.drawImage(fuelLeak, 0, 0, this);</span>
+                    }
+                }
+                
+                // draw the 'tires' or 'tracks' decal where appropriate
+<span class="nc" id="L370">                boolean drawMotiveWreckage = EntityWreckHelper.displayMotiveDamage(entity);</span>
+                
+<span class="nc bnc" id="L372" title="All 2 branches missed.">                if(drawMotiveWreckage) {</span>
+<span class="nc" id="L373">                    Image motiveWreckage = bv.getScaledImage(bv.tileManager.bottomLayerMotiveMarkerFor(entity), true);</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                    if (null != motiveWreckage) {</span>
+<span class="nc" id="L375">                        graph.drawImage(motiveWreckage, 0, 0, this);</span>
+                    }
+                }
+                
+<span class="nc" id="L379">                graph.drawImage(bv.getScaledImage(bv.tileManager.imageFor(entity, secondaryPos), true),</span>
+                        0, 0, this);
+<span class="nc" id="L381">                graph.setComposite(AlphaComposite.getInstance(</span>
+                        AlphaComposite.SRC_OVER, 1.0f));
+            }
+        }
+
+        // scale the following draws according to board zoom
+<span class="nc" id="L387">        graph.scale(bv.scale, bv.scale);</span>
+        
+<span class="nc" id="L389">        boolean isInfantry = (entity instanceof Infantry);</span>
+<span class="nc" id="L390">        boolean isAero = entity.isAero();</span>
+        
+<span class="nc bnc" id="L392" title="All 8 branches missed.">        if ((isAero &amp;&amp; ((IAero) entity).isSpheroid() &amp;&amp; !board.inSpace())</span>
+                &amp;&amp; (secondaryPos == 1)) {
+<span class="nc" id="L394">            graph.setColor(Color.WHITE);</span>
+<span class="nc" id="L395">            graph.draw(bv.facingPolys[entity.getFacing()]);</span>
+        }
+
+<span class="nc bnc" id="L398" title="All 4 branches missed.">        if ((secondaryPos == -1) || (secondaryPos == 6)) {</span>
+            
+            // Gather unit conditions
+<span class="nc" id="L401">            ArrayList&lt;Status&gt; stStr = new ArrayList&lt;Status&gt;();</span>
+<span class="nc" id="L402">            criticalStatus = false;</span>
+            
+            // Determine if the entity has a locked turret,
+            // and if it is a gun emplacement
+<span class="nc" id="L406">            boolean turretLocked = false;</span>
+<span class="nc" id="L407">            int crewStunned = 0;</span>
+<span class="nc" id="L408">            boolean ge = false;</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">            if (entity instanceof Tank) {</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                turretLocked = !((Tank) entity).hasNoTurret()</span>
+<span class="nc bnc" id="L411" title="All 2 branches missed.">                        &amp;&amp; !entity.canChangeSecondaryFacing();</span>
+<span class="nc" id="L412">                crewStunned = ((Tank) entity).getStunnedTurns();</span>
+<span class="nc" id="L413">                ge = entity instanceof GunEmplacement;</span>
+            }
+            
+            // draw elevation/altitude if non-zero
+<span class="nc bnc" id="L417" title="All 2 branches missed.">            if (entity.isAirborne()) {</span>
+<span class="nc bnc" id="L418" title="All 2 branches missed.">                if (!board.inSpace()) {</span>
+<span class="nc" id="L419">                    stStr.add(new Status(Color.CYAN, &quot;A&quot;, SMALL));</span>
+<span class="nc" id="L420">                    stStr.add(new Status(Color.CYAN, Integer.toString(entity.getAltitude()), SMALL));</span>
+                }
+<span class="nc bnc" id="L422" title="All 2 branches missed.">            } else if (entity.getElevation() != 0) {</span>
+<span class="nc" id="L423">                stStr.add(new Status(Color.CYAN, Integer.toString(entity.getElevation()), SMALL));</span>
+            }
+            
+            // Shutdown
+<span class="nc bnc" id="L427" title="All 2 branches missed.">            if (entity.isManualShutdown()) {</span>
+<span class="nc" id="L428">                stStr.add(new Status(Color.YELLOW, &quot;SHUTDOWN&quot;));</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">            } else if (entity.isShutDown()) {</span>
+<span class="nc" id="L430">                stStr.add(new Status(Color.RED, &quot;SHUTDOWN&quot;));</span>
+            }
+            
+            // Prone, Hulldown, Stuck, Immobile, Jammed
+<span class="nc bnc" id="L434" title="All 2 branches missed.">            if (entity.isProne()) </span>
+<span class="nc" id="L435">                stStr.add(new Status(Color.RED, &quot;PRONE&quot;));</span>
+<span class="nc bnc" id="L436" title="All 2 branches missed.">            if (entity.isHiddenActivating())</span>
+<span class="nc" id="L437">                stStr.add(new Status(Color.RED, &quot;ACTIVATING&quot;));</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">            if (entity.isHidden())</span>
+<span class="nc" id="L439">                stStr.add(new Status(Color.RED, &quot;HIDDEN&quot;));</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">            if (entity.isGyroDestroyed())</span>
+<span class="nc" id="L441">                stStr.add(new Status(Color.RED, &quot;NO_GYRO&quot;));</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">            if (entity.isHullDown())</span>
+<span class="nc" id="L443">                stStr.add(new Status(Color.ORANGE, &quot;HULLDOWN&quot;));</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">            if ((entity.isStuck()))</span>
+<span class="nc" id="L445">                stStr.add(new Status(Color.ORANGE, &quot;STUCK&quot;));</span>
+<span class="nc bnc" id="L446" title="All 4 branches missed.">            if (!ge &amp;&amp; entity.isImmobile())</span>
+<span class="nc" id="L447">                stStr.add(new Status(Color.RED, &quot;IMMOBILE&quot;));</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">            if (isAffectedByECM())</span>
+<span class="nc" id="L449">                stStr.add(new Status(Color.YELLOW, &quot;Jammed&quot;));</span>
+            
+            // Turret Lock 
+<span class="nc bnc" id="L452" title="All 2 branches missed.">            if (turretLocked) stStr.add(new Status(Color.YELLOW, &quot;LOCKED&quot;));</span>
+            
+            // Grappling &amp; Swarming
+<span class="nc bnc" id="L455" title="All 2 branches missed.">            if (entity.getGrappled() != Entity.NONE) {</span>
+<span class="nc bnc" id="L456" title="All 2 branches missed.">                if (entity.isGrappleAttacker()) {</span>
+<span class="nc" id="L457">                    stStr.add(new Status(Color.YELLOW, &quot;GRAPPLER&quot;));</span>
+                } else {
+<span class="nc" id="L459">                    stStr.add(new Status(Color.RED, &quot;GRAPPLED&quot;));</span>
+                }
+            }
+<span class="nc bnc" id="L462" title="All 2 branches missed.">            if (entity.getSwarmAttackerId() != Entity.NONE) {</span>
+<span class="nc" id="L463">                stStr.add(new Status(Color.RED, &quot;SWARMED&quot;));</span>
+            }
+
+            // Transporting
+<span class="nc bnc" id="L467" title="All 2 branches missed.">            if (entity.getLoadedUnits().size() &gt; 0) {</span>
+<span class="nc" id="L468">                stStr.add(new Status(Color.YELLOW, &quot;T&quot;, SMALL));</span>
+            }
+            
+<span class="nc bnc" id="L471" title="All 2 branches missed.">            if (entity.getAllTowedUnits().size() &gt; 0) {</span>
+<span class="nc" id="L472">                stStr.add(new Status(Color.YELLOW, &quot;TOWING&quot;));</span>
+            }
+
+            // Hidden, Unseen Unit
+<span class="nc bnc" id="L476" title="All 2 branches missed.">            if (trackThisEntitiesVisibilityInfo(entity)) {</span>
+<span class="nc bnc" id="L477" title="All 2 branches missed.">                if (!entity.isEverSeenByEnemy()) {</span>
+<span class="nc" id="L478">                    stStr.add(new Status(Color.GREEN, &quot;U&quot;, SMALL));</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">                } else if (!entity.isVisibleToEnemy()) {</span>
+<span class="nc" id="L480">                    stStr.add(new Status(Color.GREEN, &quot;H&quot;, SMALL));</span>
+                }
+            }
+            
+            // Large Craft Ejecting
+<span class="nc bnc" id="L485" title="All 2 branches missed.">            if (entity instanceof Aero) {</span>
+<span class="nc bnc" id="L486" title="All 2 branches missed.">                if (((Aero)entity).isEjecting()) {</span>
+<span class="nc" id="L487">                    stStr.add(new Status(Color.YELLOW, &quot;EJECTING&quot;));</span>
+                }
+            }
+
+            // Crew
+<span class="nc bnc" id="L492" title="All 2 branches missed.">            if (entity.getCrew().isDead()) stStr.add(new Status(Color.RED, &quot;CrewDead&quot;));</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">            if (crewStunned &gt; 0)  {</span>
+<span class="nc" id="L494">                stStr.add(new Status(Color.YELLOW, &quot;STUNNED&quot;, new Object[] { crewStunned }));</span>
+            }
+            
+            // Infantry
+<span class="nc bnc" id="L498" title="All 2 branches missed.">            if (isInfantry) {</span>
+<span class="nc" id="L499">                Infantry inf = ((Infantry) entity);</span>
+<span class="nc" id="L500">                int dig = inf.getDugIn();</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">                if (dig == Infantry.DUG_IN_COMPLETE) {</span>
+<span class="nc" id="L502">                    stStr.add(new Status(Color.PINK, &quot;D&quot;, SMALL));</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">                } else if (dig != Infantry.DUG_IN_NONE) {</span>
+<span class="nc" id="L504">                    stStr.add(new Status(Color.YELLOW, &quot;Working&quot;, DIRECT));</span>
+<span class="nc" id="L505">                    stStr.add(new Status(Color.PINK, &quot;D&quot;, SMALL));</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">                } else if (inf.isTakingCover()) {</span>
+<span class="nc" id="L507">                    stStr.add(new Status(Color.YELLOW, &quot;TakingCover&quot;));</span>
+                }
+                
+<span class="nc bnc" id="L510" title="All 2 branches missed.">                if (inf.turnsLayingExplosives &gt;= 0) {</span>
+<span class="nc" id="L511">                    stStr.add(new Status(Color.YELLOW, &quot;Working&quot;, DIRECT));</span>
+<span class="nc" id="L512">                    stStr.add(new Status(Color.PINK, &quot;E&quot;, SMALL));</span>
+                }
+            }
+            
+            // Aero
+<span class="nc bnc" id="L517" title="All 2 branches missed.">            if (isAero) {</span>
+<span class="nc" id="L518">                IAero a = (IAero) entity;</span>
+<span class="nc bnc" id="L519" title="All 2 branches missed.">                if (a.isRolled()) stStr.add(new Status(Color.YELLOW, &quot;ROLLED&quot;));</span>
+<span class="nc bnc" id="L520" title="All 2 branches missed.">                if (a.getCurrentFuel() &lt;= 0) stStr.add(new Status(Color.RED, &quot;FUEL&quot;));</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">                if (entity.isEvading()) stStr.add(new Status(Color.GREEN, &quot;EVADE&quot;));</span>
+                
+<span class="nc bnc" id="L523" title="All 2 branches missed.">                if (a.isOutControlTotal() &amp; a.isRandomMove()) {</span>
+<span class="nc" id="L524">                    stStr.add(new Status(Color.RED, &quot;RANDOM&quot;));</span>
+<span class="nc bnc" id="L525" title="All 2 branches missed.">                } else if (a.isOutControlTotal()) {</span>
+<span class="nc" id="L526">                    stStr.add(new Status(Color.RED, &quot;CONTROL&quot;));</span>
+                }
+            }
+            
+<span class="nc bnc" id="L530" title="All 2 branches missed.">            if (guip.getShowDamageLevel()) {</span>
+<span class="nc" id="L531">                Color damageColor = getDamageColor();</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">                if (damageColor != null) {</span>
+<span class="nc" id="L533">                    stStr.add(new Status(damageColor, 0, SMALL));</span>
+                }
+            }
+
+            
+            // Unit Label
+            // no scaling for the label, its size is changed by varying
+            // the font size directly =&gt; better control
+<span class="nc" id="L541">            graph.scale(1/bv.scale, 1/bv.scale);</span>
+            
+            // Label background
+<span class="nc bnc" id="L544" title="All 2 branches missed.">            if (guip.getBoolean(GUIPreferences.ADVANCED_DRAW_ENTITY_LABEL)) {</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">                if (criticalStatus) {</span>
+<span class="nc" id="L546">                    graph.setColor(LABEL_CRITICAL_BACK);</span>
+                } else {
+<span class="nc" id="L548">                    graph.setColor(LABEL_BACK);</span>
+                }
+<span class="nc" id="L550">                graph.fillRoundRect(labelRect.x, labelRect.y, labelRect.width,</span>
+                        labelRect.height, 5, 10);
+
+                // Draw a label border with player colors or team coloring
+<span class="nc bnc" id="L554" title="All 2 branches missed.">                if (guip.getUnitLabelBorder()) {</span>
+<span class="nc bnc" id="L555" title="All 2 branches missed.">                    if (guip.getTeamColoring()) {</span>
+<span class="nc bnc" id="L556" title="All 2 branches missed.">                        boolean isLocalTeam = entity.getOwner().getTeam() == bv.clientgui.getClient().getLocalPlayer().getTeam();</span>
+<span class="nc" id="L557">                        boolean isLocalPlayer = entity.getOwner().equals(bv.clientgui.getClient().getLocalPlayer());</span>
+<span class="nc bnc" id="L558" title="All 2 branches missed.">                        if (isLocalPlayer) {</span>
+<span class="nc" id="L559">                            graph.setColor(GUIPreferences.getInstance().getMyUnitColor());</span>
+<span class="nc bnc" id="L560" title="All 2 branches missed.">                        } else if (isLocalTeam) {</span>
+<span class="nc" id="L561">                            graph.setColor(GUIPreferences.getInstance().getAllyUnitColor());</span>
+                        } else {
+<span class="nc" id="L563">                            graph.setColor(GUIPreferences.getInstance().getEnemyUnitColor());</span>
+                        }
+<span class="nc" id="L565">                    } else {</span>
+<span class="nc" id="L566">                        graph.setColor(entity.getOwner().getColour().getColour(false));</span>
+                    }
+<span class="nc" id="L568">                    Stroke oldStroke = graph.getStroke();</span>
+<span class="nc" id="L569">                    graph.setStroke(new BasicStroke(3));</span>
+<span class="nc" id="L570">                    graph.drawRoundRect(labelRect.x - 1, labelRect.y - 1,</span>
+                            labelRect.width + 1, labelRect.height + 1, 5, 10);
+<span class="nc" id="L572">                    graph.setStroke(oldStroke);</span>
+                }
+
+                // Label text
+<span class="nc" id="L576">                graph.setFont(labelFont);</span>
+<span class="nc" id="L577">                Color textColor = LABEL_TEXT_COLOR;</span>
+<span class="nc bnc" id="L578" title="All 4 branches missed.">                if (!entity.isDone() &amp;&amp; !onlyDetectedBySensors()) {</span>
+<span class="nc" id="L579">                    textColor = guip.getColor(</span>
+                            GUIPreferences.ADVANCED_UNITOVERVIEW_VALID_COLOR);
+                }
+<span class="nc bnc" id="L582" title="All 2 branches missed.">                if (isSelected) {</span>
+<span class="nc" id="L583">                    textColor = guip.getColor(</span>
+                            GUIPreferences.ADVANCED_UNITOVERVIEW_SELECTED_COLOR);
+                }
+<span class="nc" id="L586">                bv.drawCenteredText(graph, getAdjShortName(),</span>
+                        labelRect.x + labelRect.width / 2,
+                        labelRect.y + labelRect.height / 2 - 1, textColor,
+<span class="nc bnc" id="L589" title="All 4 branches missed.">                        (entity.isDone() &amp;&amp; !onlyDetectedBySensors()));</span>
+            }
+
+            // Past here, everything is drawing status that shouldn't be seen
+            // on a sensor return, so we'll just quit here
+<span class="nc bnc" id="L594" title="All 2 branches missed.">            if (onlyDetectedBySensors()) {</span>
+<span class="nc" id="L595">                graph.dispose();</span>
+<span class="nc" id="L596">                return;</span>
+            }
+            
+            // Draw all the status information now
+<span class="nc" id="L600">            drawStatusStrings(graph, stStr);</span>
+            
+            // from here, scale the following draws according to board zoom
+<span class="nc" id="L603">            graph.scale(bv.scale, bv.scale);</span>
+            
+            // draw facing
+<span class="nc" id="L606">            graph.setColor(Color.white);</span>
+<span class="nc bnc" id="L607" title="All 4 branches missed.">            if ((entity.getFacing() != -1)</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">                    &amp;&amp; !(isInfantry &amp;&amp; !((Infantry) entity).hasFieldGun()</span>
+<span class="nc bnc" id="L609" title="All 4 branches missed.">                            &amp;&amp; !((Infantry) entity).isTakingCover())</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">                    &amp;&amp; !(isAero &amp;&amp; ((IAero) entity).isSpheroid() &amp;&amp; !board</span>
+<span class="nc bnc" id="L611" title="All 2 branches missed.">                            .inSpace())) {</span>
+<span class="nc" id="L612">                graph.draw(bv.facingPolys[entity.getFacing()]);</span>
+            }
+
+            // determine secondary facing for non-mechs &amp; flipped arms
+<span class="nc" id="L616">            int secFacing = entity.getFacing();</span>
+<span class="nc bnc" id="L617" title="All 6 branches missed.">            if (!((entity instanceof Mech) || (entity instanceof Protomech))</span>
+                    || (entity instanceof QuadVee)) {
+<span class="nc" id="L619">                secFacing = entity.getSecondaryFacing();</span>
+<span class="nc bnc" id="L620" title="All 2 branches missed.">            } else if (entity.getArmsFlipped()) {</span>
+<span class="nc" id="L621">                secFacing = (entity.getFacing() + 3) % 6;</span>
+            }
+            // draw red secondary facing arrow if necessary
+<span class="nc bnc" id="L624" title="All 4 branches missed.">            if ((secFacing != -1) &amp;&amp; (secFacing != entity.getFacing())) {</span>
+<span class="nc" id="L625">                graph.setColor(Color.red);</span>
+<span class="nc" id="L626">                graph.draw(bv.facingPolys[secFacing]);</span>
+            }
+<span class="nc bnc" id="L628" title="All 4 branches missed.">            if (entity.isAero() &amp;&amp; this.bv.game.useVectorMove()) {</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">                for (int head : entity.getHeading()) {</span>
+<span class="nc" id="L630">                    graph.setColor(Color.red);</span>
+<span class="nc" id="L631">                    graph.draw(bv.facingPolys[head]);</span>
+<span class="nc" id="L632">                }</span>
+            }
+
+            // armor and internal status bars
+<span class="nc" id="L636">            int baseBarLength = 23;</span>
+<span class="nc" id="L637">            int barLength = 0;</span>
+<span class="nc" id="L638">            double percentRemaining = 0.00;</span>
+
+<span class="nc" id="L640">            percentRemaining = entity.getArmorRemainingPercent();</span>
+<span class="nc" id="L641">            barLength = (int) (baseBarLength * percentRemaining);</span>
+
+<span class="nc" id="L643">            graph.setColor(Color.darkGray);</span>
+<span class="nc" id="L644">            graph.fillRect(56, 7, 23, 3);</span>
+<span class="nc" id="L645">            graph.setColor(Color.lightGray);</span>
+<span class="nc" id="L646">            graph.fillRect(55, 6, 23, 3);</span>
+<span class="nc" id="L647">            graph.setColor(getStatusBarColor(percentRemaining));</span>
+<span class="nc" id="L648">            graph.fillRect(55, 6, barLength, 3);</span>
+
+<span class="nc bnc" id="L650" title="All 2 branches missed.">            if (!ge) {</span>
+                // Gun emplacements don't have internal structure
+<span class="nc" id="L652">                percentRemaining = entity.getInternalRemainingPercent();</span>
+<span class="nc" id="L653">                barLength = (int) (baseBarLength * percentRemaining);</span>
+
+<span class="nc" id="L655">                graph.setColor(Color.darkGray);</span>
+<span class="nc" id="L656">                graph.fillRect(56, 11, 23, 3);</span>
+<span class="nc" id="L657">                graph.setColor(Color.lightGray);</span>
+<span class="nc" id="L658">                graph.fillRect(55, 10, 23, 3);</span>
+<span class="nc" id="L659">                graph.setColor(getStatusBarColor(percentRemaining));</span>
+<span class="nc" id="L660">                graph.fillRect(55, 10, barLength, 3);</span>
+            }
+        }
+
+<span class="nc" id="L664">        graph.dispose();</span>
+<span class="nc" id="L665">    }</span>
+
+    private Color getDamageColor() {
+<span class="nc bnc" id="L668" title="All 5 branches missed.">        switch (entity.getDamageLevel()) {</span>
+            case Entity.DMG_CRIPPLED:
+<span class="nc" id="L670">                return Color.black;</span>
+            case Entity.DMG_HEAVY:
+<span class="nc" id="L672">                return Color.red;</span>
+            case Entity.DMG_MODERATE:
+<span class="nc" id="L674">                return Color.yellow;</span>
+            case Entity.DMG_LIGHT:
+<span class="nc" id="L676">                return Color.green;</span>
+        }
+<span class="nc" id="L678">        return null;</span>
+    }
+
+    /**
+     * We only want to show double-blind visibility indicators on our own
+     * mechs and teammates mechs (assuming team vision option).
+     */
+    private boolean trackThisEntitiesVisibilityInfo(Entity e) {
+<span class="nc" id="L686">        return EntityVisibilityUtils.trackThisEntitiesVisibilityInfo(bv.getLocalPlayer(), e);</span>
+    }
+
+    /**
+     * Used to determine if this EntitySprite is only detected by an enemies
+     * sensors and hence should only be a sensor return.
+     *
+     * @return
+     */
+    public boolean onlyDetectedBySensors() {
+<span class="nc" id="L696">        return EntityVisibilityUtils.onlyDetectedBySensors(bv.getLocalPlayer(), entity);</span>
+    }
+
+    private Color getStatusBarColor(double percentRemaining) {
+<span class="nc bnc" id="L700" title="All 2 branches missed.">        if (percentRemaining &lt;= .25) {</span>
+<span class="nc" id="L701">            return Color.red;</span>
+<span class="nc bnc" id="L702" title="All 2 branches missed.">        } else if (percentRemaining &lt;= .75) {</span>
+<span class="nc" id="L703">            return Color.yellow;</span>
+        } else {
+<span class="nc" id="L705">            return new Color(16, 196, 16);</span>
+        }
+    }
+
+    /**
+     * Overrides to provide for a smaller sensitive area.
+     */
+    @Override
+    public boolean isInside(Point point) {
+<span class="nc" id="L714">        return entityRect.contains(point.x, point.y);</span>
+    }
+    
+    public Coords getPosition() {
+<span class="nc" id="L718">        return entity.getPosition();</span>
+    }
+    
+    private StringBuffer tooltipString;
+<span class="nc" id="L722">    private final boolean BR = true;</span>
+<span class="nc" id="L723">    private final boolean NOBR = false;</span>
+<span class="nc" id="L724">    private boolean skipBRafterTable = false;</span>
+
+    /**
+     * Builds a small table representing a unit's armor using visual block characters
+     * and adds it to the current tooltipString.
+     */
+    private void addArmorMiniVisToTT() {
+<span class="nc" id="L731">        String armorChar = GUIPreferences.getInstance().getString(&quot;AdvancedArmorMiniArmorChar&quot;);</span>
+<span class="nc" id="L732">        String internalChar = GUIPreferences.getInstance().getString(&quot;AdvancedArmorMiniISChar&quot;);</span>
+<span class="nc" id="L733">        String destroyedChar = GUIPreferences.getInstance().getString(&quot;AdvancedArmorMiniDestroyedChar&quot;);</span>
+<span class="nc" id="L734">        String fontSize = Integer.toString(GUIPreferences.getInstance().getInt(&quot;AdvancedArmorMiniFrontSizeMod&quot;));</span>
+        // HTML color String from Preferences
+        String colorIntact = Integer
+<span class="nc" id="L737">                .toHexString(GUIPreferences.getInstance()</span>
+<span class="nc" id="L738">                        .getColor(&quot;AdvancedArmorMiniColorIntact&quot;).getRGB() &amp; 0xFFFFFF);</span>
+        String colorPartialDmg = Integer
+<span class="nc" id="L740">                .toHexString(GUIPreferences.getInstance()</span>
+<span class="nc" id="L741">                        .getColor(&quot;AdvancedArmorMiniColorPartialDmg&quot;).getRGB() &amp; 0xFFFFFF);</span>
+        String colorDamaged = Integer
+<span class="nc" id="L743">                .toHexString(GUIPreferences.getInstance()</span>
+<span class="nc" id="L744">                        .getColor(&quot;AdvancedArmorMiniColorDamaged&quot;).getRGB() &amp; 0xFFFFFF);</span>
+<span class="nc" id="L745">        int visUnit = GUIPreferences.getInstance().getInt(&quot;AdvancedArmorMiniUnitsPerBlock&quot;);</span>
+<span class="nc" id="L746">        addToTT(&quot;ArmorMiniPanelStart&quot;, BR);</span>
+<span class="nc bnc" id="L747" title="All 2 branches missed.">        for (int loc = 0 ; loc &lt; entity.locations(); loc++) {</span>
+            // addToTT(&quot;ArmorMiniPanelPart&quot;, BR, entity.getLocationAbbr(loc));
+            // If location is destroyed, mark it and move on
+<span class="nc bnc" id="L750" title="All 2 branches missed.">            if (entity.getInternal(loc) == IArmorState.ARMOR_DOOMED ||</span>
+<span class="nc bnc" id="L751" title="All 2 branches missed.">                    entity.getInternal(loc) == IArmorState.ARMOR_DESTROYED) {</span>
+                // This is a really awkward way of making sure
+<span class="nc" id="L753">                addToTT(&quot;ArmorMiniPanelPartNoRear&quot;, BR, entity.getLocationAbbr(loc), fontSize);</span>
+<span class="nc bnc" id="L754" title="All 2 branches missed.">                for (int a = 0; a &lt;= entity.getOInternal(loc)/visUnit; a++) {</span>
+<span class="nc" id="L755">                    addToTT(&quot;BlockColored&quot;, NOBR, destroyedChar, fontSize, colorDamaged);</span>
+                }
+
+            } else {
+                // Put rear armor blocks first, with some spacing, if unit has any.
+<span class="nc bnc" id="L760" title="All 2 branches missed.">                if (entity.hasRearArmor(loc)) {</span>
+<span class="nc" id="L761">                    addToTT(&quot;ArmorMiniPanelPartRear&quot;, BR, entity.getLocationAbbr(loc), fontSize);</span>
+<span class="nc bnc" id="L762" title="All 2 branches missed.">                    for (int a = 0; a &lt;= (entity.getOArmor(loc, true)/visUnit); a++) {</span>
+<span class="nc bnc" id="L763" title="All 2 branches missed.">                        if (a &lt; (entity.getArmor(loc, true)/visUnit)) {</span>
+<span class="nc" id="L764">                            addToTT(&quot;BlockColored&quot;, NOBR, armorChar, fontSize, colorIntact);</span>
+<span class="nc bnc" id="L765" title="All 2 branches missed.">                        } else if (a == (entity.getArmor(loc, true)/visUnit) &amp;&amp;</span>
+<span class="nc bnc" id="L766" title="All 2 branches missed.">                                (entity.getArmor(loc, true) % visUnit) &gt; 0) {</span>
+                            // Fraction of a visUnit left, but still display a &quot;full&quot; if at starting max armor
+<span class="nc bnc" id="L768" title="All 2 branches missed.">                            if (entity.getArmor(loc, true) == entity.getOArmor(loc, true)) {</span>
+<span class="nc" id="L769">                                addToTT(&quot;BlockColored&quot;, NOBR, armorChar, fontSize, colorIntact);</span>
+                            } else {
+<span class="nc" id="L771">                                addToTT(&quot;BlockColored&quot;, NOBR, armorChar, fontSize, colorPartialDmg);;</span>
+                            }
+<span class="nc bnc" id="L773" title="All 2 branches missed.">                        } else if ((entity.getOArmor(loc, true) % visUnit) &gt; 0) {</span>
+<span class="nc" id="L774">                            addToTT(&quot;BlockColored&quot;, NOBR, armorChar, fontSize, colorDamaged);</span>
+                        }
+                    }
+<span class="nc" id="L777">                    tooltipString.append(&quot;&amp;nbsp;&amp;nbsp;&quot;);</span>
+<span class="nc" id="L778">                    addToTT(&quot;ArmorMiniPanelPart&quot;, BR, entity.getLocationAbbr(loc), fontSize);</span>
+                } else {
+<span class="nc" id="L780">                    addToTT(&quot;ArmorMiniPanelPartNoRear&quot;, BR, entity.getLocationAbbr(loc), fontSize);</span>
+                }
+                // Add IS shade blocks.
+<span class="nc bnc" id="L783" title="All 2 branches missed.">                for (int a = 0; a &lt;= (entity.getOInternal(loc)/visUnit); a++) {</span>
+<span class="nc bnc" id="L784" title="All 2 branches missed.">                    if (a &lt; (entity.getInternal(loc)/visUnit)) {</span>
+<span class="nc" id="L785">                        addToTT(&quot;BlockColored&quot;, NOBR, internalChar, fontSize, colorIntact);</span>
+<span class="nc bnc" id="L786" title="All 2 branches missed.">                    } else if (a == (entity.getInternal(loc)/visUnit) &amp;&amp;</span>
+<span class="nc bnc" id="L787" title="All 2 branches missed.">                            (entity.getInternal(loc) % visUnit) &gt; 0) {</span>
+                        // Fraction of a visUnit left, but still display a &quot;full&quot; if at starting max armor
+<span class="nc bnc" id="L789" title="All 2 branches missed.">                        if (entity.getInternal(loc) == entity.getOInternal(loc)) {</span>
+<span class="nc" id="L790">                            addToTT(&quot;BlockColored&quot;, NOBR, internalChar, fontSize, colorIntact);</span>
+                        } else {
+<span class="nc" id="L792">                            addToTT(&quot;BlockColored&quot;, NOBR, internalChar, fontSize, colorPartialDmg);</span>
+                        }
+<span class="nc bnc" id="L794" title="All 2 branches missed.">                    } else if ((entity.getOInternal(loc) % visUnit) &gt; 0) {</span>
+<span class="nc" id="L795">                        addToTT(&quot;BlockColored&quot;, NOBR, internalChar, fontSize, colorDamaged);</span>
+                    }
+                }
+                // Add main armor blocks.
+<span class="nc bnc" id="L799" title="All 2 branches missed.">                for (int a = 0; a &lt;= (entity.getOArmor(loc)/visUnit); a++) {</span>
+<span class="nc bnc" id="L800" title="All 2 branches missed.">                    if (a &lt; (entity.getArmor(loc)/visUnit)) {</span>
+<span class="nc" id="L801">                        addToTT(&quot;BlockColored&quot;, NOBR, armorChar, fontSize, colorIntact);</span>
+<span class="nc bnc" id="L802" title="All 2 branches missed.">                    } else if (a == (entity.getArmor(loc)/visUnit) &amp;&amp;</span>
+<span class="nc bnc" id="L803" title="All 2 branches missed.">                            (entity.getArmor(loc) % visUnit) &gt; 0) {</span>
+                        // Fraction of a visUnit left, but still display a &quot;full&quot; if at starting max armor
+<span class="nc bnc" id="L805" title="All 2 branches missed.">                        if (entity.getArmor(loc) == entity.getOArmor(loc)) {</span>
+<span class="nc" id="L806">                            addToTT(&quot;BlockColored&quot;, NOBR, armorChar, fontSize, colorIntact);</span>
+                        } else {
+<span class="nc" id="L808">                            addToTT(&quot;BlockColored&quot;, NOBR, armorChar, fontSize, colorPartialDmg);</span>
+                        }
+<span class="nc bnc" id="L810" title="All 2 branches missed.">                    } else if ((entity.getOArmor(loc) % visUnit) &gt; 0){</span>
+<span class="nc" id="L811">                        addToTT(&quot;BlockColored&quot;, NOBR, armorChar, fontSize, colorDamaged);</span>
+                    }
+                }
+            }
+
+        }
+<span class="nc" id="L817">        addToTT(&quot;ArmorMiniPanelEnd&quot;, NOBR);</span>
+<span class="nc" id="L818">    }</span>
+
+    /**
+     * Adds a resource string to the entity tooltip
+     * 
+     * @param ttSName The resource string name. &quot;BoardView1.Tooltip.&quot; will be added in front, so
+     * &quot;Pilot&quot; will retrieve BoardView1.Tooltip.Pilot
+     * @param startBR = true will start the string with a &amp;lt;BR&amp;gt;; The constants BR and NOBR can be used here. 
+     * @param ttO a list of Objects to insert into the {x} places in the resource.
+     */
+    private void addToTT(String ttSName, boolean startBR, Object... ttO) {
+<span class="nc bnc" id="L829" title="All 2 branches missed.">        if (startBR == BR){</span>
+<span class="nc bnc" id="L830" title="All 2 branches missed.">            if (skipBRafterTable) {</span>
+<span class="nc" id="L831">                skipBRafterTable = false;</span>
+            } else {
+<span class="nc" id="L833">                tooltipString.append(&quot;&lt;BR&gt;&quot;);</span>
+            }
+        }
+<span class="nc bnc" id="L836" title="All 2 branches missed.">        if (ttO != null) {</span>
+<span class="nc" id="L837">            tooltipString.append(Messages.getString(&quot;BoardView1.Tooltip.&quot;</span>
+                    + ttSName, ttO));
+        } else {
+<span class="nc" id="L840">            tooltipString.append(Messages.getString(&quot;BoardView1.Tooltip.&quot;</span>
+                    + ttSName));
+        }
+<span class="nc" id="L843">    }</span>
+    
+    /**
+     * Adds a resource string to the entity tooltip
+     * 
+     * @param ttSName The resource string name. &quot;BoardView1.Tooltip.&quot; will be added in front, so
+     * &quot;Pilot&quot; will retrieve BoardView1.Tooltip.Pilot
+     * @param startBR = true will start the string with a &amp;lt;BR&amp;gt;; The constants BR and NOBR can be used here. 
+     */
+    private void addToTT(String ttSName, boolean startBR) {
+<span class="nc" id="L853">        addToTT(ttSName, startBR, (Object[]) null);</span>
+<span class="nc" id="L854">    }</span>
+    
+    @Override
+    public StringBuffer getTooltip() {
+
+        // Tooltip info for a sensor blip
+<span class="nc bnc" id="L860" title="All 2 branches missed.">        if (onlyDetectedBySensors())</span>
+<span class="nc" id="L861">            return new StringBuffer(Messages.getString(&quot;BoardView1.sensorReturn&quot;));</span>
+
+        // No sensor blip...
+<span class="nc" id="L864">        Infantry thisInfantry = null;</span>
+<span class="nc bnc" id="L865" title="All 2 branches missed.">        if (entity instanceof Infantry) thisInfantry = (Infantry) entity;</span>
+<span class="nc" id="L866">        GunEmplacement thisGunEmp = null;</span>
+<span class="nc bnc" id="L867" title="All 2 branches missed.">        if (entity instanceof GunEmplacement) thisGunEmp = (GunEmplacement) entity;</span>
+<span class="nc" id="L868">        IAero thisAero = null;</span>
+<span class="nc bnc" id="L869" title="All 2 branches missed.">        if (entity.isAero()) thisAero = (IAero) entity;</span>
+
+<span class="nc" id="L871">        tooltipString = new StringBuffer();</span>
+
+        // Unit Chassis and Player
+<span class="nc" id="L874">        addToTT(&quot;Unit&quot;, NOBR, entity.getOwner().getColour().getHexString(),</span>
+<span class="nc" id="L875">                entity.getChassis(), entity.getOwner().getName());</span>
+
+        // Pilot Info
+        //put everything in table to allow for a pilot photo in second column
+<span class="nc" id="L879">        addToTT(&quot;PilotStart&quot;, BR);</span>
+
+        // Nickname &gt; Name &gt; &quot;Pilot&quot;
+<span class="nc bnc" id="L882" title="All 2 branches missed.">        for (int i = 0; i &lt; entity.getCrew().getSlotCount(); i++) {</span>
+<span class="nc" id="L883">            String pnameStr = &quot;Pilot&quot;;</span>
+
+<span class="nc bnc" id="L885" title="All 2 branches missed.">            if (entity.getCrew().isMissing(i)) {</span>
+<span class="nc" id="L886">                continue;</span>
+            }
+<span class="nc bnc" id="L888" title="All 2 branches missed.">            if ((entity.getCrew().getName(i) != null)</span>
+<span class="nc bnc" id="L889" title="All 2 branches missed.">                    &amp;&amp; !entity.getCrew().getName(i).equals(&quot;&quot;))</span>
+<span class="nc" id="L890">                pnameStr = entity.getCrew().getName(i);</span>
+
+<span class="nc bnc" id="L892" title="All 2 branches missed.">            if ((entity.getCrew().getNickname(i) != null)</span>
+<span class="nc bnc" id="L893" title="All 2 branches missed.">                    &amp;&amp; !entity.getCrew().getNickname(i).equals(&quot;&quot;))</span>
+<span class="nc" id="L894">                pnameStr = &quot;'&quot; + entity.getCrew().getNickname(i) + &quot;'&quot;;</span>
+
+<span class="nc bnc" id="L896" title="All 2 branches missed.">            if (entity.getCrew().getSlotCount() &gt; 1) {</span>
+<span class="nc" id="L897">                pnameStr += &quot; (&quot; + entity.getCrew().getCrewType().getRoleName(i) + &quot;)&quot;;</span>
+            }
+
+<span class="nc" id="L900">            addToTT(&quot;Pilot&quot;, NOBR, pnameStr, entity.getCrew().getSkillsAsString(</span>
+<span class="nc" id="L901">                    bv.game.getOptions().booleanOption(OptionsConstants.RPG_RPG_GUNNERY)));</span>
+
+            // Pilot Status
+<span class="nc bnc" id="L904" title="All 2 branches missed.">            if (!entity.getCrew().getStatusDesc(i).equals(&quot;&quot;)) {</span>
+<span class="nc" id="L905">                addToTT(&quot;PilotStatus&quot;, NOBR, entity.getCrew().getStatusDesc(i));</span>
+            }
+        }
+
+        // Pilot Advantages
+<span class="nc" id="L910">        int numAdv = entity.getCrew().countOptions(PilotOptions.LVL3_ADVANTAGES);</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">        if (numAdv == 1) {</span>
+<span class="nc" id="L912">            addToTT(&quot;Adv1&quot;, NOBR, numAdv);</span>
+<span class="nc bnc" id="L913" title="All 2 branches missed.">        } else if (numAdv &gt; 1) {</span>
+<span class="nc" id="L914">            addToTT(&quot;Advs&quot;, NOBR, numAdv);</span>
+        }
+
+        // Pilot Manei Domini
+<span class="nc bnc" id="L918" title="All 2 branches missed.">        if ((entity.getCrew().countOptions(PilotOptions.MD_ADVANTAGES) &gt; 0)) {</span>
+<span class="nc" id="L919">            addToTT(&quot;MD&quot;, NOBR);</span>
+        }
+
+<span class="nc bnc" id="L922" title="All 2 branches missed.">        if (entity instanceof Infantry) {</span>
+<span class="nc" id="L923">            Infantry inf = (Infantry) entity;</span>
+<span class="nc" id="L924">            int spec = inf.getSpecializations();</span>
+<span class="nc bnc" id="L925" title="All 2 branches missed.">            if (spec &gt; 0) {</span>
+<span class="nc" id="L926">                addToTT(&quot;InfSpec&quot;, BR, Infantry.getSpecializationName(spec));</span>
+            }
+        }
+        
+        //add portrait?
+<span class="nc bnc" id="L931" title="All 2 branches missed.">        if (null != entity.getCrew()) {</span>
+<span class="nc" id="L932">            AbstractIcon icon = entity.getCrew().getPortrait(0);</span>
+<span class="nc bnc" id="L933" title="All 2 branches missed.">            if (GUIPreferences.getInstance().getBoolean(GUIPreferences.SHOW_PILOT_PORTRAIT_TT)</span>
+<span class="nc bnc" id="L934" title="All 4 branches missed.">                    &amp;&amp; (icon.getCategory() != null) &amp;&amp; (icon.getFilename() != null)) {</span>
+<span class="nc" id="L935">                String imagePath = Configuration.portraitImagesDir() + &quot;/&quot; + icon.getCategory()</span>
+<span class="nc" id="L936">                        + icon.getFilename();</span>
+<span class="nc" id="L937">                File f = new File(imagePath);</span>
+<span class="nc bnc" id="L938" title="All 2 branches missed.">                if (f.exists()) {</span>
+                    // HACK: Get the real portrait to find the size of the image
+                    // and scale the tooltip HTML IMG accordingly
+<span class="nc" id="L941">                    Image portrait = icon.getImage(0, 0);</span>
+<span class="nc bnc" id="L942" title="All 2 branches missed.">                    if (portrait.getWidth(null) &gt; portrait.getHeight(null)) {</span>
+<span class="nc" id="L943">                        float h = 60f * portrait.getHeight(null) / portrait.getWidth(null);</span>
+<span class="nc" id="L944">                        addToTT(&quot;PilotPortraitW&quot;, BR, imagePath, (int) h);</span>
+<span class="nc" id="L945">                    } else {</span>
+<span class="nc" id="L946">                        float w = 60f * portrait.getWidth(null) / portrait.getHeight(null);</span>
+<span class="nc" id="L947">                        addToTT(&quot;PilotPortraitH&quot;, BR, imagePath, (int) w);</span>
+                    }
+                }
+            }
+        }
+        
+<span class="nc" id="L953">        addToTT(&quot;PilotEnd&quot;,NOBR);</span>
+
+        // Unit movement ability
+<span class="nc bnc" id="L956" title="All 2 branches missed.">        if (thisGunEmp == null) {</span>
+<span class="nc" id="L957">            addToTT(&quot;Movement&quot;, BR, entity.getWalkMP(), entity.getRunMPasString());</span>
+<span class="nc bnc" id="L958" title="All 2 branches missed.">            if (entity.getJumpMP() &gt; 0) {</span>
+<span class="nc" id="L959">                tooltipString.append(&quot;/&quot;).append(entity.getJumpMP());</span>
+            }
+        }
+        
+        // Armor and Internals
+<span class="nc" id="L964">        addToTT(&quot;ArmorInternals&quot;, BR, entity.getTotalArmor(), entity.getTotalInternal());</span>
+
+        // Build a &quot;status bar&quot; visual representation of each
+        // component of the unit using block element characters.
+<span class="nc bnc" id="L968" title="All 2 branches missed.">        if (GUIPreferences.getInstance().getBoolean(GUIPreferences.SHOW_ARMOR_MINIVIS_TT)) {</span>
+<span class="nc" id="L969">            addArmorMiniVisToTT();</span>
+<span class="nc" id="L970">            skipBRafterTable = true;</span>
+        }
+
+
+        // BV Info
+        // Only show this if we aren't in double blind and hide enemy bv isn't selected.
+        // Should always see this on your own Entities.
+<span class="nc bnc" id="L977" title="All 2 branches missed.">        boolean suppressEnemyBV = bv.game.getOptions().booleanOption(OptionsConstants.ADVANCED_SUPPRESS_DB_BV) &amp;&amp;</span>
+<span class="nc bnc" id="L978" title="All 2 branches missed.">                bv.game.getOptions().booleanOption(OptionsConstants.ADVANCED_DOUBLE_BLIND);</span>
+
+<span class="nc bnc" id="L980" title="All 4 branches missed.">        if (!(suppressEnemyBV &amp;&amp; !trackThisEntitiesVisibilityInfo(entity))) {</span>
+<span class="nc" id="L981">            int currentBV = entity.calculateBattleValue(false, false);</span>
+<span class="nc" id="L982">            int initialBV = entity.getInitialBV();</span>
+<span class="nc" id="L983">            double percentage = (double) currentBV / initialBV;</span>
+
+<span class="nc" id="L985">            addToTT(&quot;BV&quot;, BR, currentBV, initialBV, percentage);</span>
+        }
+
+        // Heat, not shown for units with 999 heat sinks (vehicles)
+<span class="nc bnc" id="L989" title="All 2 branches missed.">        if (entity.getHeatCapacity() != 999) {</span>
+<span class="nc bnc" id="L990" title="All 2 branches missed.">            if (entity.heat == 0) </span>
+<span class="nc" id="L991">                addToTT(&quot;Heat0&quot;, BR);</span>
+            else 
+<span class="nc" id="L993">                addToTT(&quot;Heat&quot;, BR, entity.heat);</span>
+        }
+
+        // Actual Movement
+<span class="nc bnc" id="L997" title="All 2 branches missed.">        if (thisGunEmp == null) {</span>
+            // In the Movement Phase, unit not done
+<span class="nc bnc" id="L999" title="All 4 branches missed.">            if (!entity.isDone() &amp;&amp; this.bv.game.getPhase() == Phase.PHASE_MOVEMENT) {</span>
+                // &quot;Has not yet moved&quot; only during movement phase
+<span class="nc" id="L1001">                addToTT(&quot;NotYetMoved&quot;, BR);</span>
+                
+            // In the Movement Phase, unit is done - or in the Firing Phase
+<span class="nc" id="L1004">            } else if (</span>
+<span class="nc bnc" id="L1005" title="All 4 branches missed.">                    (entity.isDone() &amp;&amp; this.bv.game.getPhase() == Phase.PHASE_MOVEMENT) </span>
+<span class="nc bnc" id="L1006" title="All 2 branches missed.">                    || this.bv.game.getPhase() == Phase.PHASE_FIRING) {</span>
+<span class="nc" id="L1007">                int tmm = Compute.getTargetMovementModifier(bv.game,</span>
+<span class="nc" id="L1008">                        entity.getId()).getValue();</span>
+                // Unit didn't move
+<span class="nc bnc" id="L1010" title="All 2 branches missed.">                if (entity.moved == EntityMovementType.MOVE_NONE) {</span>
+<span class="nc" id="L1011">                    addToTT(&quot;NoMove&quot;, BR, tmm);</span>
+                    
+                // Unit did move
+                } else {
+                    // Actual movement and modifier
+<span class="nc" id="L1016">                    addToTT(&quot;MovementF&quot;, BR,</span>
+<span class="nc" id="L1017">                            entity.getMovementString(entity.moved),</span>
+<span class="nc" id="L1018">                            entity.delta_distance,</span>
+<span class="nc" id="L1019">                            tmm);</span>
+                }
+                // Special Moves
+<span class="nc bnc" id="L1022" title="All 2 branches missed.">                if (entity.isEvading()) </span>
+<span class="nc" id="L1023">                    addToTT(&quot;Evade&quot;, NOBR);</span>
+                
+<span class="nc bnc" id="L1025" title="All 4 branches missed.">                if ((thisInfantry != null) &amp;&amp; (thisInfantry.isTakingCover())) </span>
+<span class="nc" id="L1026">                    addToTT(&quot;TakingCover&quot;, NOBR);</span>
+
+<span class="nc bnc" id="L1028" title="All 2 branches missed.">                if (entity.isCharging()) </span>
+<span class="nc" id="L1029">                    addToTT(&quot;Charging&quot;, NOBR);</span>
+                
+<span class="nc bnc" id="L1031" title="All 2 branches missed.">                if (entity.isMakingDfa()) </span>
+<span class="nc" id="L1032">                    addToTT(&quot;DFA&quot;, NOBR);</span>
+            }
+        }
+        
+        // ASF Velocity
+<span class="nc bnc" id="L1037" title="All 2 branches missed.">        if (thisAero != null) {</span>
+<span class="nc" id="L1038">            addToTT(&quot;AeroVelocity&quot;, BR, thisAero.getCurrentVelocity());</span>
+        }
+            
+        // Gun Emplacement Status
+<span class="nc bnc" id="L1042" title="All 2 branches missed.">        if (thisGunEmp != null) {  </span>
+<span class="nc bnc" id="L1043" title="All 4 branches missed.">            if (thisGunEmp.isTurret() &amp;&amp; thisGunEmp.isTurretLocked(thisGunEmp.getLocTurret())) </span>
+<span class="nc" id="L1044">                addToTT(&quot;TurretLocked&quot;, BR);</span>
+        }
+       
+        // Unit Immobile
+<span class="nc bnc" id="L1048" title="All 4 branches missed.">        if ((thisGunEmp == null) &amp;&amp; (entity.isImmobile()))</span>
+<span class="nc" id="L1049">            addToTT(&quot;Immobile&quot;, BR);</span>
+
+<span class="nc bnc" id="L1051" title="All 2 branches missed.">        if (entity.isHiddenActivating()) {</span>
+<span class="nc" id="L1052">            addToTT(&quot;HiddenActivating&quot;, BR,</span>
+<span class="nc" id="L1053">                    IGame.Phase.getDisplayableName(entity</span>
+<span class="nc" id="L1054">                            .getHiddenActivationPhase()));</span>
+<span class="nc bnc" id="L1055" title="All 2 branches missed.">        } else if (entity.isHidden()) {</span>
+<span class="nc" id="L1056">            addToTT(&quot;Hidden&quot;, BR);</span>
+        }
+
+        // Jammed by ECM
+<span class="nc bnc" id="L1060" title="All 2 branches missed.">        if (isAffectedByECM()) {</span>
+<span class="nc" id="L1061">            addToTT(&quot;Jammed&quot;, BR);</span>
+        }
+
+        // Swarmed
+<span class="nc bnc" id="L1065" title="All 2 branches missed.">        if (entity.getSwarmAttackerId() != Entity.NONE) {</span>
+<span class="nc" id="L1066">            addToTT(&quot;Swarmed&quot;, BR,</span>
+<span class="nc" id="L1067">                    bv.game.getEntity(entity.getSwarmAttackerId())</span>
+<span class="nc" id="L1068">                            .getDisplayName());</span>
+        }
+
+        // Spotting
+<span class="nc bnc" id="L1072" title="All 2 branches missed.">        if (entity.isSpotting()) {</span>
+<span class="nc" id="L1073">            addToTT(&quot;Spotting&quot;, BR, bv.game.getEntity(entity.getSpotTargetId()).getDisplayName());</span>
+        }
+
+        // If DB, add information about who sees this Entity
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">        if (bv.game.getOptions().booleanOption(OptionsConstants.ADVANCED_DOUBLE_BLIND)) {</span>
+<span class="nc" id="L1078">            StringBuffer playerList = new StringBuffer();</span>
+<span class="nc" id="L1079">            boolean teamVision = bv.game.getOptions().booleanOption(</span>
+                    OptionsConstants.ADVANCED_TEAM_VISION);
+<span class="nc bnc" id="L1081" title="All 2 branches missed.">            for (IPlayer player : entity.getWhoCanSee()) {</span>
+<span class="nc bnc" id="L1082" title="All 4 branches missed.">                if (player.isEnemyOf(entity.getOwner()) || !teamVision) {</span>
+<span class="nc" id="L1083">                    playerList.append(player.getName());</span>
+<span class="nc" id="L1084">                    playerList.append(&quot;, &quot;);</span>
+                }
+<span class="nc" id="L1086">            }</span>
+<span class="nc bnc" id="L1087" title="All 2 branches missed.">            if (playerList.length() &gt; 1) {</span>
+<span class="nc" id="L1088">                playerList.delete(playerList.length() - 2, playerList.length());</span>
+<span class="nc" id="L1089">                addToTT(&quot;SeenBy&quot;, BR, playerList.toString());</span>
+            }            
+        }
+
+        // If sensors, display what sensors this unit is using
+<span class="nc bnc" id="L1094" title="All 2 branches missed.">        if (bv.game.getOptions().booleanOption(OptionsConstants.ADVANCED_TACOPS_SENSORS)</span>
+<span class="nc bnc" id="L1095" title="All 2 branches missed.">                || bv.game.getOptions().booleanOption(OptionsConstants.ADVAERORULES_STRATOPS_ADVANCED_SENSORS)) {</span>
+<span class="nc" id="L1096">            addToTT(&quot;Sensors&quot;, BR, entity.getSensorDesc());</span>
+        }
+        
+        // Towing
+<span class="nc bnc" id="L1100" title="All 2 branches missed.">        if (entity.getAllTowedUnits().size() &gt; 0) {</span>
+<span class="nc" id="L1101">            String unitList = entity.getAllTowedUnits().stream()</span>
+<span class="nc" id="L1102">                    .map(id -&gt; entity.getGame().getEntity(id).getDisplayName())</span>
+<span class="nc" id="L1103">                    .collect(Collectors.joining(&quot;, &quot;));</span>
+<span class="nc bnc" id="L1104" title="All 2 branches missed.">            if (unitList.length() &gt; 1) {</span>
+<span class="nc" id="L1105">                addToTT(&quot;Towing&quot;, BR, unitList);</span>
+            }
+        }
+
+        // Weapon List
+<span class="nc" id="L1110">        if (GUIPreferences.getInstance()</span>
+<span class="nc bnc" id="L1111" title="All 2 branches missed.">                .getBoolean(GUIPreferences.SHOW_WPS_IN_TT)) {</span>
+
+<span class="nc" id="L1113">            ArrayList&lt;Mounted&gt; weapons = entity.getWeaponList();</span>
+<span class="nc" id="L1114">            HashMap&lt;String, Integer&gt; wpNames = new HashMap&lt;String,Integer&gt;();</span>
+
+            // Gather names, counts, Clan/IS
+            // When clan then the number will be stored as negative
+<span class="nc bnc" id="L1118" title="All 2 branches missed.">            for (Mounted curWp: weapons) {</span>
+<span class="nc" id="L1119">                String weapDesc = curWp.getDesc();</span>
+                // Append ranges
+<span class="nc" id="L1121">                WeaponType wtype = (WeaponType)curWp.getType();</span>
+                int ranges[];
+<span class="nc bnc" id="L1123" title="All 2 branches missed.">                if (entity.isAero()) {</span>
+<span class="nc" id="L1124">                    ranges = wtype.getATRanges();</span>
+                } else {
+<span class="nc" id="L1126">                    ranges = wtype.getRanges(curWp);</span>
+                }
+<span class="nc" id="L1128">                String rangeString = &quot; \u22EF &quot;;</span>
+<span class="nc bnc" id="L1129" title="All 4 branches missed.">                if ((ranges[RangeType.RANGE_MINIMUM] != WeaponType.WEAPON_NA) </span>
+                        &amp;&amp; (ranges[RangeType.RANGE_MINIMUM] != 0)) {
+<span class="nc" id="L1131">                    rangeString += &quot;(&quot; + ranges[RangeType.RANGE_MINIMUM] + &quot;) &quot;;</span>
+                }
+<span class="nc" id="L1133">                int maxRange = RangeType.RANGE_LONG;</span>
+<span class="nc bnc" id="L1134" title="All 2 branches missed.">                if (bv.game.getOptions().booleanOption(</span>
+                        OptionsConstants.ADVCOMBAT_TACOPS_RANGE)) {
+<span class="nc" id="L1136">                    maxRange = RangeType.RANGE_EXTREME;</span>
+                }
+<span class="nc bnc" id="L1138" title="All 2 branches missed.">                for (int i = RangeType.RANGE_SHORT; i &lt;= maxRange; i++) {</span>
+<span class="nc" id="L1139">                    rangeString += ranges[i];</span>
+<span class="nc bnc" id="L1140" title="All 2 branches missed.">                    if (i != maxRange) {</span>
+<span class="nc" id="L1141">                        rangeString += &quot;\u2B1D&quot;;</span>
+                    }
+                }
+<span class="nc" id="L1144">                weapDesc += rangeString;</span>
+<span class="nc bnc" id="L1145" title="All 2 branches missed.">                if (wpNames.containsKey(weapDesc)) {</span>
+<span class="nc" id="L1146">                    int number = wpNames.get(weapDesc);</span>
+<span class="nc bnc" id="L1147" title="All 2 branches missed.">                    if (number &gt; 0) </span>
+<span class="nc" id="L1148">                        wpNames.put(weapDesc, number + 1);</span>
+                    else 
+<span class="nc" id="L1150">                        wpNames.put(weapDesc, number - 1);</span>
+<span class="nc" id="L1151">                } else {</span>
+<span class="nc" id="L1152">                    WeaponType wpT = ((WeaponType)curWp.getType());</span>
+
+<span class="nc bnc" id="L1154" title="All 4 branches missed.">                    if (entity.isClan() &amp;&amp; TechConstants.isClan(wpT.getTechLevel(entity.getYear()))) </span>
+<span class="nc" id="L1155">                        wpNames.put(weapDesc, -1);</span>
+                    else
+<span class="nc" id="L1157">                        wpNames.put(weapDesc, 1);</span>
+                }
+<span class="nc" id="L1159">            }</span>
+
+            // Print to Tooltip
+<span class="nc" id="L1162">            tooltipString.append(&quot;&lt;FONT SIZE=\&quot;-2\&quot;&gt;&quot;);</span>
+
+<span class="nc bnc" id="L1164" title="All 2 branches missed.">            for (Entry&lt;String, Integer&gt; entry : wpNames.entrySet()) {</span>
+                // Check if weapon is destroyed, text gray and strikethrough if so, remove the &quot;x &quot;/&quot;*&quot;
+                // Also remove &quot;+&quot;, means currently selected for firing
+<span class="nc" id="L1167">                boolean wpDest = false;</span>
+<span class="nc" id="L1168">                String nameStr = entry.getKey();</span>
+<span class="nc bnc" id="L1169" title="All 2 branches missed.">                if (entry.getKey().startsWith(&quot;x &quot;)) { </span>
+<span class="nc" id="L1170">                    nameStr = entry.getKey().substring(2, entry.getKey().length());</span>
+<span class="nc" id="L1171">                    wpDest = true;</span>
+                }
+
+<span class="nc bnc" id="L1174" title="All 2 branches missed.">                if (entry.getKey().startsWith(&quot;*&quot;)) { </span>
+<span class="nc" id="L1175">                    nameStr = entry.getKey().substring(1, entry.getKey().length());</span>
+<span class="nc" id="L1176">                    wpDest = true;</span>
+                }
+
+<span class="nc bnc" id="L1179" title="All 2 branches missed.">                if (entry.getKey().startsWith(&quot;+&quot;)) { </span>
+<span class="nc" id="L1180">                    nameStr = entry.getKey().substring(1, entry.getKey().length());</span>
+<span class="nc" id="L1181">                    nameStr = nameStr.concat(&quot; &lt;I&gt;(Firing)&lt;/I&gt;&quot;);</span>
+                }
+
+                // normal coloring 
+<span class="nc" id="L1185">                tooltipString.append(&quot;&lt;FONT COLOR=#8080FF&gt;&quot;);</span>
+                // but: color gray and strikethrough when weapon destroyed
+<span class="nc bnc" id="L1187" title="All 2 branches missed.">                if (wpDest) tooltipString.append(&quot;&lt;FONT COLOR=#a0a0a0&gt;&lt;S&gt;&quot;);</span>
+
+<span class="nc" id="L1189">                String clanStr = &quot;&quot;;</span>
+<span class="nc bnc" id="L1190" title="All 2 branches missed.">                if (entry.getValue() &lt; 0) clanStr = Messages.getString(&quot;BoardView1.Tooltip.Clan&quot;);</span>
+
+                // when more than 5 weapons are present, they will be grouped
+                // and listed with a multiplier
+<span class="nc bnc" id="L1194" title="All 2 branches missed.">                if (weapons.size() &gt; 5) {</span>
+<span class="nc" id="L1195">                    addToTT(&quot;WeaponN&quot;, BR, Math.abs(entry.getValue()), clanStr, nameStr);</span>
+
+                } else { // few weapons: list each weapon separately
+<span class="nc bnc" id="L1198" title="All 2 branches missed.">                    for (int i = 0; i &lt; Math.abs(entry.getValue()); i++) {</span>
+<span class="nc" id="L1199">                        addToTT(&quot;Weapon&quot;, BR, Math.abs(entry.getValue()), clanStr, nameStr);</span>
+                    }
+                }
+                // Weapon destroyed? End strikethrough
+<span class="nc bnc" id="L1203" title="All 2 branches missed.">                if (wpDest) tooltipString.append(&quot;&lt;/S&gt;&quot;);</span>
+<span class="nc" id="L1204">                tooltipString.append(&quot;&lt;/FONT&gt;&quot;); </span>
+<span class="nc" id="L1205">            }</span>
+<span class="nc" id="L1206">            tooltipString.append(&quot;&lt;/FONT&gt;&quot;);</span>
+        }
+<span class="nc" id="L1208">        return tooltipString;</span>
+    }
+    
+    public String getPlayerColor() {
+<span class="nc bnc" id="L1212" title="All 2 branches missed.">        if (onlyDetectedBySensors()) {</span>
+            // TODO : Make me customizable
+<span class="nc" id="L1214">            return &quot;C0C0C0&quot;;</span>
+        } else {
+<span class="nc" id="L1216">            return entity.getOwner().getColour().getHexString();</span>
+        }
+    }
+    
+    public boolean isAffectedByECM() {
+<span class="nc" id="L1221">        return isAffectedByECM;</span>
+    }
+
+    public void setAffectedByECM(boolean isAffectedByECM) {
+<span class="nc bnc" id="L1225" title="All 2 branches missed.">        boolean changed = isAffectedByECM != this.isAffectedByECM;</span>
+<span class="nc" id="L1226">        this.isAffectedByECM = isAffectedByECM;</span>
+        // We need to prepare the icon again if the value changed
+<span class="nc bnc" id="L1228" title="All 2 branches missed.">        if (changed) {</span>
+<span class="nc" id="L1229">            prepare();</span>
+        }
+<span class="nc" id="L1231">    }</span>
+    
+    /** Marks the entity as selected for movement etc., recoloring the label */
+    public void setSelected(boolean status) {
+<span class="nc bnc" id="L1235" title="All 2 branches missed.">        if (isSelected != status) {</span>
+<span class="nc" id="L1236">            isSelected = status;</span>
+<span class="nc" id="L1237">            prepare();</span>
+        }
+<span class="nc" id="L1239">    }</span>
+    
+    /** Returns if the entity is marked as selected for movement etc., recoloring the label */
+    public boolean getSelected() {
+<span class="nc" id="L1243">        return isSelected;</span>
+    }
+
+    protected int getSpritePriority() {
+<span class="nc" id="L1247">        return entity.getSpriteDrawPriority();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

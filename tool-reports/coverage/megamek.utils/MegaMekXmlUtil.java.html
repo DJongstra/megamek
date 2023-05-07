@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MegaMekXmlUtil.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.utils</a> &gt; <span class="el_source">MegaMekXmlUtil.java</span></div><h1>MegaMekXmlUtil.java</h1><pre class="source lang-java linenums">/*
+ * Copyright (c) 2018, 2020 - The MegaMek Team. All Rights Reserved.
+ *
+ * This file is part of MegaMek.
+ *
+ * MegaMek is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * MegaMek is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with MegaMek. If not, see &lt;http://www.gnu.org/licenses/&gt;.
+ */
+package megamek.utils;
+
+import java.io.InputStream;
+import java.io.PrintWriter;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.StringJoiner;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.parsers.SAXParserFactory;
+import javax.xml.transform.Source;
+import javax.xml.transform.sax.SAXSource;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.text.StringEscapeUtils;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXNotRecognizedException;
+import org.xml.sax.SAXNotSupportedException;
+import org.xml.sax.XMLReader;
+
+<span class="nc" id="L48">public class MegaMekXmlUtil {</span>
+    private static DocumentBuilderFactory DOCUMENT_BUILDER_FACTORY;
+    private static SAXParserFactory SAX_PARSER_FACTORY;
+
+    /**
+     * Creates a DocumentBuilder safe from XML external entities
+     * attacks, and XML entity expansion attacks.
+     * @return A DocumentBuilder safe to use to read untrusted XML.
+     */
+    public static DocumentBuilder newSafeDocumentBuilder() throws ParserConfigurationException {
+<span class="nc" id="L58">        DocumentBuilderFactory dbf = DOCUMENT_BUILDER_FACTORY;</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        if (null == dbf) {</span>
+            // At worst we may do this twice if multiple threads
+            // hit this method. It is Ok to have more than one
+            // instance of the builder factory, as long as it is
+            // XXE safe.
+<span class="nc" id="L64">            dbf = DocumentBuilderFactory.newInstance();</span>
+
+            //
+            // Adapted from: https://www.owasp.org/index.php/XML_External_Entity_(XXE)_Prevention_Cheat_Sheet#JAXP_DocumentBuilderFactory.2C_SAXParserFactory_and_DOM4J
+            //
+            // &quot;...The JAXP DocumentBuilderFactory setFeature method allows a
+            // developer to control which implementation-specific XML processor
+            // features are enabled or disabled. The features can either be set
+            // on the factory or the underlying XMLReader setFeature method.
+            // Each XML processor implementation has its own features that
+            // govern how DTDs and external entities are processed.&quot;
+            //
+            // &quot;[disable] these as well, per Timothy Morgan's 2014 paper: 'XML
+            // Schema, DTD, and Entity Attacks'&quot;
+<span class="nc" id="L78">            dbf.setXIncludeAware(false);</span>
+<span class="nc" id="L79">            dbf.setExpandEntityReferences(false);</span>
+
+            // &quot;This is the PRIMARY defense. If DTDs (doctypes) are disallowed,
+            // almost all XML entity attacks are prevented&quot;
+<span class="nc" id="L83">            String FEATURE = &quot;http://apache.org/xml/features/disallow-doctype-decl&quot;;</span>
+<span class="nc" id="L84">            dbf.setFeature(FEATURE, true);</span>
+
+<span class="nc" id="L86">            DOCUMENT_BUILDER_FACTORY = dbf;</span>
+        }
+
+<span class="nc" id="L89">        return dbf.newDocumentBuilder();</span>
+    }
+
+    /**
+     * @return a SAX {@linkplain XMLReader} that is safe from external entities and entity expansion attacks.
+     *
+     * @see &quot;https://www.owasp.org/index.php/XML_External_Entity_(XXE)_Prevention_Cheat_Sheet#JAXB_Unmarshaller&quot;
+     */
+    @SuppressWarnings(&quot;nls&quot;)
+    public static XMLReader createSafeXMLReader() {
+<span class="nc bnc" id="L99" title="All 2 branches missed.">        if (SAX_PARSER_FACTORY == null) {</span>
+<span class="nc" id="L100">            SAXParserFactory spf = SAXParserFactory.newInstance();</span>
+            try {
+<span class="nc" id="L102">                spf.setFeature(&quot;http://xml.org/sax/features/external-general-entities&quot;, false);</span>
+<span class="nc" id="L103">                spf.setFeature(&quot;http://xml.org/sax/features/external-parameter-entities&quot;, false);</span>
+<span class="nc" id="L104">                spf.setFeature(&quot;http://apache.org/xml/features/nonvalidating/load-external-dtd&quot;, false);</span>
+<span class="nc" id="L105">            } catch (SAXNotRecognizedException | SAXNotSupportedException e) {</span>
+<span class="nc" id="L106">                throw new AssertionError(&quot;SAX implementation does not recognize or support the features we want to disable&quot;, e);</span>
+<span class="nc" id="L107">            } catch (ParserConfigurationException e) {</span>
+<span class="nc" id="L108">                throw new AssertionError(e); // Only if we messed up the CFG above</span>
+<span class="nc" id="L109">            }</span>
+<span class="nc" id="L110">            SAX_PARSER_FACTORY = spf;</span>
+        }
+        try {
+<span class="nc" id="L113">            return SAX_PARSER_FACTORY.newSAXParser().getXMLReader();</span>
+<span class="nc" id="L114">        } catch (ParserConfigurationException e) {</span>
+<span class="nc" id="L115">            throw new AssertionError(e); // Only if we messed up the CFG above</span>
+<span class="nc" id="L116">        } catch (SAXException e) {</span>
+<span class="nc" id="L117">            throw new AssertionError(e); // Whatever - just blow up. :-)</span>
+            // As of 2018-11, Xerces does not throw generic SAXExceptions.
+            // Yes, SAX was designed when checked exception were all the rage.
+        }
+    }
+
+    /**
+     * @return a {@linkplain Source} for the provided input stream that is safe
+     * from external entities and entity expansion attacks.
+     *
+     * @see &quot;https://www.owasp.org/index.php/XML_External_Entity_(XXE)_Prevention_Cheat_Sheet#JAXB_Unmarshaller&quot;
+     */
+    public static Source createSafeXmlSource(InputStream inputStream) {
+<span class="nc" id="L130">        return new SAXSource(createSafeXMLReader(), new InputSource(inputStream));</span>
+    }
+
+    public static void writeSimpleXmlTag(PrintWriter pw1, int indent, String name, UUID val) {
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        if (val != null) {</span>
+<span class="nc" id="L135">            writeSimpleXmlTag(pw1, indent, name, val.toString());</span>
+        }
+<span class="nc" id="L137">    }</span>
+
+    public static void writeSimpleXmlTag(PrintWriter pw1, int indent, String name, LocalDate val) {
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        if (val != null) {</span>
+<span class="nc" id="L141">            writeSimpleXmlTag(pw1, indent, name, saveFormattedDate(val));</span>
+        }
+<span class="nc" id="L143">    }</span>
+
+    public static void writeSimpleXmlTag(PrintWriter pw1, int indent, String name, String val) {
+<span class="nc" id="L146">        pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + escape(val) + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+<span class="nc" id="L147">    }</span>
+
+    public static void writeSimpleXMLTag(PrintWriter pw1, int indent, String name, String... values) {
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (values.length &gt; 0) {</span>
+<span class="nc" id="L151">            pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + StringUtils.join(values, ',') + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+        }
+<span class="nc" id="L153">    }</span>
+
+    public static void writeSimpleXmlTag(PrintWriter pw1, int indent, String name, int val) {
+<span class="nc" id="L156">        pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + val + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+<span class="nc" id="L157">    }</span>
+
+    public static void writeSimpleXMLTag(PrintWriter pw1, int indent, String name, int... values) {
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        if (values.length &gt; 0) {</span>
+<span class="nc" id="L161">            pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + StringUtils.join(values, ',') + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+        }
+<span class="nc" id="L163">    }</span>
+
+    public static void writeSimpleXmlTag(PrintWriter pw1, int indent, String name, boolean val) {
+<span class="nc" id="L166">        pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + val + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+<span class="nc" id="L167">    }</span>
+
+    public static void writeSimpleXMLTag(PrintWriter pw1, int indent, String name, boolean... values) {
+<span class="nc" id="L170">        StringJoiner stringJoiner = new StringJoiner(&quot;,&quot;, &quot;&quot;, &quot;&quot;);</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">        for (boolean value : values) {</span>
+<span class="nc" id="L172">            stringJoiner.add(Boolean.toString(value));</span>
+        }
+<span class="nc" id="L174">        pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + stringJoiner + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+<span class="nc" id="L175">    }</span>
+
+    public static void writeSimpleXmlTag(PrintWriter pw1, int indent, String name, long val) {
+<span class="nc" id="L178">        pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + val + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+<span class="nc" id="L179">    }</span>
+
+    public static void writeSimpleXMLTag(PrintWriter pw1, int indent, String name, long... values) {
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (values.length &gt; 0) {</span>
+<span class="nc" id="L183">            pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + StringUtils.join(values, ',') + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+        }
+<span class="nc" id="L185">    }</span>
+
+    public static void writeSimpleXmlTag(PrintWriter pw1, int indent, String name, double val) {
+<span class="nc" id="L188">        pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + val + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+<span class="nc" id="L189">    }</span>
+
+    public static void writeSimpleXMLTag(PrintWriter pw1, int indent, String name, double... values) {
+<span class="nc bnc" id="L192" title="All 2 branches missed.">        if (values.length &gt; 0) {</span>
+<span class="nc" id="L193">            pw1.println(indentStr(indent) + &quot;&lt;&quot; + name + &quot;&gt;&quot; + StringUtils.join(values, ',') + &quot;&lt;/&quot; + name + &quot;&gt;&quot;);</span>
+        }
+<span class="nc" id="L195">    }</span>
+
+    public static void writeSimpleXMLOpenIndentedLine(PrintWriter pw1, int indent, String name) {
+<span class="nc" id="L198">        pw1.println(indentStr(indent) + &quot;&lt;&quot; + escape(name) + &quot;&gt;&quot;);</span>
+<span class="nc" id="L199">    }</span>
+
+    public static void writeSimpleXMLCloseIndentedLine(PrintWriter pw1, int indent, String name) {
+<span class="nc" id="L202">        pw1.println(indentStr(indent) + &quot;&lt;/&quot; + escape(name) + &quot;&gt;&quot;);</span>
+<span class="nc" id="L203">    }</span>
+
+<span class="nc" id="L205">    private static final String[] INDENTS = new String[] {</span>
+            &quot;&quot;,
+            &quot;\t&quot;,
+            &quot;\t\t&quot;,
+            &quot;\t\t\t&quot;,
+            &quot;\t\t\t\t&quot;,
+            &quot;\t\t\t\t\t&quot;,
+            &quot;\t\t\t\t\t\t&quot;
+    };
+
+    public static String indentStr(int level) {
+<span class="nc bnc" id="L216" title="All 2 branches missed.">        if (level &lt; INDENTS.length) {</span>
+<span class="nc" id="L217">            return INDENTS[level];</span>
+        } else {
+<span class="nc" id="L219">            return StringUtils.repeat('\t', level);</span>
+        }
+    }
+
+    /**
+     * Parse a date from an XML node's content.
+     * @param value The date from an XML node's content.
+     * @return The Date retrieved from the XML node content.
+     */
+    public static LocalDate parseDate(String value) throws DateTimeParseException {
+        // Accept (truncates): yyyy-MM-dd HH:mm:ss
+        // Accept (legacy): YYYYMMDD
+        // Accept (preferred): yyyy-MM-dd
+        // Accept (assumes first day of month): yyyy-MM
+        // Accept (assumes first day of year: yyyy
+        // Accept (assumes decade specification, so multiplied by 10 at first day of year): yyy
+<span class="nc bnc" id="L235" title="All 4 branches missed.">        switch (value.length()) {</span>
+            case 3:
+<span class="nc" id="L237">                return LocalDate.ofYearDay(Integer.parseInt(value) * 10, 1);</span>
+            case 4:
+<span class="nc" id="L239">                return LocalDate.ofYearDay(Integer.parseInt(value), 1);</span>
+            case 6:
+            case 7:
+<span class="nc" id="L242">                return LocalDate.parse(value + &quot;-01&quot;);</span>
+        }
+
+<span class="nc" id="L245">        int firstSpace = value.indexOf(' ');</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (firstSpace &gt;= 0) {</span>
+<span class="nc" id="L247">            return LocalDate.parse(value.substring(0, firstSpace));</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        } else if (value.indexOf('-') &lt; 0) {</span>
+<span class="nc" id="L249">            return LocalDate.parse(value, DateTimeFormatter.ofPattern(&quot;yyyyMMdd&quot;));</span>
+        } else { // default parsing
+<span class="nc" id="L251">            return LocalDate.parse(value);</span>
+        }
+    }
+
+    /**
+     * Formats a Date suitable for writing to an XML node.
+     * @param date The date to format for XML.
+     * @return A String suitable for writing a date to an XML node.
+     */
+    public static String saveFormattedDate(LocalDate date) {
+<span class="nc" id="L261">        return date.toString(); // ISO-8601</span>
+    }
+
+    /** Escapes a string to store in an XML element.
+     * @param string The string to be encoded
+     * @return An encoded copy of the string
+     */
+    public static String escape(String string) {
+<span class="nc" id="L269">        return StringEscapeUtils.escapeXml10(string);</span>
+    }
+
+    /**
+     * Unescape...well, it reverses escaping...
+     */
+    public static String unEscape(String string) {
+<span class="nc" id="L276">        return StringEscapeUtils.unescapeXml(string);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

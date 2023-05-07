@@ -1,0 +1,2731 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Infantry.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">Infantry.java</span></div><h1>Infantry.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2000-2002 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common;
+
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Vector;
+import java.util.stream.Collectors;
+
+import megamek.MegaMek;
+import megamek.common.options.OptionsConstants;
+import megamek.common.preference.PreferenceManager;
+import megamek.common.weapons.infantry.InfantryWeapon;
+
+/**
+ * This class represents the lowest of the low, the ground pounders, the city
+ * rats, the PBI (Poor Bloody Infantry). &lt;p/&gt; PLEASE NOTE!!! This class just
+ * represents unarmored infantry platoons as described by CitiTech (c) 1986.
+ * I've never seen the rules for powered armor, &quot;anti-mech&quot; troops, or
+ * Immortals.
+ *
+ * @author Suvarov454@sourceforge.net (James A. Damour )
+ * @version $revision:$
+ */
+/*
+ * PLEASE NOTE!!! My programming style is to put constants first in tests so the
+ * compiler catches my &quot;= for ==&quot; errors.
+ */
+public class Infantry extends Entity {
+    // Private attributes and helper functions.
+
+    /**
+     *
+     */
+    private static final long serialVersionUID = -8706716079307721282L;
+
+    /**
+     * Infantry Specializations
+     */
+<span class="nc" id="L59">    public static int BRIDGE_ENGINEERS  = 1 &lt;&lt; 0;</span>
+<span class="nc" id="L60">    public static int DEMO_ENGINEERS    = 1 &lt;&lt; 1;</span>
+<span class="nc" id="L61">    public static int FIRE_ENGINEERS    = 1 &lt;&lt; 2;</span>
+<span class="nc" id="L62">    public static int MINE_ENGINEERS    = 1 &lt;&lt; 3;</span>
+<span class="nc" id="L63">    public static int SENSOR_ENGINEERS  = 1 &lt;&lt; 4;</span>
+<span class="nc" id="L64">    public static int TRENCH_ENGINEERS  = 1 &lt;&lt; 5;</span>
+<span class="nc" id="L65">    public static int MARINES           = 1 &lt;&lt; 6;</span>
+<span class="nc" id="L66">    public static int MOUNTAIN_TROOPS   = 1 &lt;&lt; 7;</span>
+<span class="nc" id="L67">    public static int PARAMEDICS        = 1 &lt;&lt; 8;</span>
+<span class="nc" id="L68">    public static int PARATROOPS        = 1 &lt;&lt; 9;</span>
+<span class="nc" id="L69">    public static int TAG_TROOPS        = 1 &lt;&lt; 10;</span>
+<span class="nc" id="L70">    public static int XCT               = 1 &lt;&lt; 11;</span>
+<span class="nc" id="L71">    public static int SCUBA             = 1 &lt;&lt; 12;</span>
+<span class="nc" id="L72">    public static int NUM_SPECIALIZATIONS = 13;</span>
+<span class="nc" id="L73">    public static int COMBAT_ENGINEERS = BRIDGE_ENGINEERS | DEMO_ENGINEERS</span>
+            | FIRE_ENGINEERS | MINE_ENGINEERS | SENSOR_ENGINEERS
+            | TRENCH_ENGINEERS;
+
+    /**
+     * squad size and number
+     */
+<span class="nc" id="L80">    protected int squadn = 1;</span>
+<span class="nc" id="L81">    private int squadsize = 1;</span>
+
+    /**
+     * The number of men originally in this platoon.
+     */
+<span class="nc" id="L86">    protected int menStarting = 0;</span>
+
+    /**
+     * The number of men alive in this platoon at the beginning of the phase,
+     * before it begins to take damage.
+     */
+<span class="nc" id="L92">    private int menShooting = 0;</span>
+
+    /**
+     * The number of men left alive in this platoon.
+     */
+<span class="nc" id="L97">    private int men = 0;</span>
+
+    /**
+     * Information on primary and secondary weapons
+     * This must be kept separate from the equipment array
+     * because they are not fired as separate weapons
+     */
+    private transient InfantryWeapon primaryW;
+    private String primaryName;
+    private transient InfantryWeapon secondW;
+    private String secondName;
+<span class="nc" id="L108">    private int secondn = 0;</span>
+
+
+    /**
+     * Infantry armor
+     */
+
+<span class="nc" id="L115">    private double damageDivisor = 1.0;</span>
+<span class="nc" id="L116">    private boolean encumbering = false;</span>
+<span class="nc" id="L117">    private boolean spaceSuit = false;</span>
+<span class="nc" id="L118">    private boolean dest = false;</span>
+<span class="nc" id="L119">    private boolean sneak_camo = false;</span>
+<span class="nc" id="L120">    private boolean sneak_ir = false;</span>
+<span class="nc" id="L121">    private boolean sneak_ecm = false;</span>
+
+    /**
+     * Stores which infantry specializations are active.
+     */
+<span class="nc" id="L126">    private int infSpecs = 0;</span>
+
+    /**
+     * For mechanized VTOL infantry, stores whether the platoon are microlite troops,
+     * which need to enter a hex every turn to remain in flight.
+     */
+
+<span class="nc" id="L133">    private boolean microlite = false;</span>
+
+    /**
+     * The location for infantry equipment.
+     */
+    public static final int LOC_INFANTRY = 0;
+    public static final int LOC_FIELD_GUNS = 1;
+
+    /**
+     * Infantry only have critical slots for field gun ammo
+     */
+<span class="nc" id="L144">    private static final int[] NUM_OF_SLOTS = { 20, 20 };</span>
+<span class="nc" id="L145">    private static final String[] LOCATION_ABBRS = { &quot;MEN&quot;, &quot;FGUN&quot; };</span>
+<span class="nc" id="L146">    private static final String[] LOCATION_NAMES = { &quot;Men&quot; , &quot;Field Guns&quot;};</span>
+
+<span class="nc" id="L148">    public int turnsLayingExplosives = -1;</span>
+
+    public static final int DUG_IN_NONE = 0;
+    public static final int DUG_IN_WORKING = 1; // no protection, can't attack
+    public static final int DUG_IN_COMPLETE = 2; // protected, restricted arc
+    public static final int DUG_IN_FORTIFYING1 = 3; // no protection, can't
+    // attack
+    public static final int DUG_IN_FORTIFYING2 = 4; // no protection, can't
+    // attack
+<span class="nc" id="L157">    private int dugIn = DUG_IN_NONE;</span>
+
+<span class="nc" id="L159">    private boolean isTakingCover = false;</span>
+<span class="nc" id="L160">    private boolean canCallSupport = true;</span>
+<span class="nc" id="L161">    private boolean isCallingSupport = false;</span>
+
+    // Public and Protected constants, constructors, and methods.
+
+    /**
+     * The maximum number of men in an infantry platoon.
+     */
+    public static final int INF_PLT_MAX_MEN = 30;
+
+    /**
+     * The internal names of the anti-Mek attacks.
+     */
+    public static final String LEG_ATTACK = &quot;LegAttack&quot;;
+    public static final String SWARM_MEK = &quot;SwarmMek&quot;;
+    public static final String SWARM_WEAPON_MEK = &quot;SwarmWeaponMek&quot;;
+    public static final String STOP_SWARM = &quot;StopSwarm&quot;;
+
+    public static final int ANTI_MECH_SKILL_UNTRAINED = 8;
+    public static final int ANTI_MECH_SKILL_FOOT = 5;
+    public static final int ANTI_MECH_SKILL_JUMP = 6;
+
+    @Override
+    public String[] getLocationAbbrs() {
+<span class="nc" id="L184">        return LOCATION_ABBRS;</span>
+    }
+
+    @Override
+    public String[] getLocationNames() {
+<span class="nc" id="L189">        return LOCATION_NAMES;</span>
+    }
+
+    /**
+     * Returns the number of locations in this platoon
+     */
+    @Override
+    public int locations() {
+<span class="nc" id="L197">        return 2;</span>
+    }
+
+    /**
+     * Generate a new, blank, infantry platoon. Hopefully, we'll be loaded from
+     * somewhere.
+     */
+    public Infantry() {
+        // Instantiate the superclass.
+<span class="nc" id="L206">        super();</span>
+        // Create a &quot;dead&quot; leg rifle platoon.
+<span class="nc" id="L208">        menStarting = 0;</span>
+<span class="nc" id="L209">        menShooting = 0;</span>
+<span class="nc" id="L210">        men = 0;</span>
+<span class="nc" id="L211">        setMovementMode(EntityMovementMode.INF_LEG);</span>
+        // Determine the number of MPs.
+<span class="nc" id="L213">        setOriginalWalkMP(1);</span>
+<span class="nc" id="L214">    }</span>
+
+    @Override
+    public int getUnitType() {
+<span class="nc" id="L218">        return UnitType.INFANTRY;</span>
+    }
+
+    public CrewType defaultCrewType() {
+<span class="nc" id="L222">        return CrewType.CREW;</span>
+    }
+
+    public static TechAdvancement getMotiveTechAdvancement(EntityMovementMode movementMode) {
+<span class="nc" id="L226">        TechAdvancement techAdvancement = new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L227">                .setAdvancement(DATE_PS, DATE_PS, DATE_PS)</span>
+<span class="nc" id="L228">                .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+<span class="nc bnc" id="L229" title="All 9 branches missed.">        switch(movementMode) {</span>
+            case INF_MOTORIZED:
+<span class="nc" id="L231">                techAdvancement.setTechRating(RATING_B)</span>
+<span class="nc" id="L232">                    .setAvailability(RATING_A, RATING_A, RATING_A, RATING_A)</span>
+<span class="nc" id="L233">                    .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+<span class="nc" id="L234">                break;</span>
+            case INF_JUMP:
+<span class="nc" id="L236">                techAdvancement.setAdvancement(DATE_ES, DATE_ES, DATE_ES)</span>
+<span class="nc" id="L237">                    .setTechRating(RATING_D).setAvailability(RATING_B, RATING_B, RATING_B, RATING_B)</span>
+<span class="nc" id="L238">                    .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+<span class="nc" id="L239">                break;</span>
+            case INF_UMU:
+<span class="nc" id="L241">                techAdvancement.setAdvancement(DATE_PS, DATE_PS).setTechRating(RATING_B)</span>
+<span class="nc" id="L242">                    .setAvailability(RATING_D, RATING_D, RATING_D, RATING_D)</span>
+<span class="nc" id="L243">                    .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+<span class="nc" id="L244">                break;</span>
+            case WHEELED:
+<span class="nc" id="L246">                techAdvancement.setTechRating(RATING_A)</span>
+<span class="nc" id="L247">                    .setAvailability(RATING_A, RATING_B, RATING_A, RATING_A)</span>
+<span class="nc" id="L248">                    .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+<span class="nc" id="L249">                break;</span>
+            case TRACKED:
+<span class="nc" id="L251">                techAdvancement.setTechRating(RATING_B)</span>
+<span class="nc" id="L252">                    .setAvailability(RATING_B, RATING_C, RATING_B, RATING_B)</span>
+<span class="nc" id="L253">                    .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+<span class="nc" id="L254">                break;</span>
+            case HOVER:
+<span class="nc" id="L256">                techAdvancement.setTechRating(RATING_C)</span>
+<span class="nc" id="L257">                    .setAvailability(RATING_A, RATING_B, RATING_A, RATING_B)</span>
+<span class="nc" id="L258">                    .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+<span class="nc" id="L259">                break;</span>
+            case VTOL:
+<span class="nc" id="L261">                techAdvancement.setAdvancement(DATE_ES, DATE_ES).setTechRating(RATING_C)</span>
+<span class="nc" id="L262">                    .setAvailability(RATING_C, RATING_D, RATING_D, RATING_C)</span>
+<span class="nc" id="L263">                    .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+<span class="nc" id="L264">                break;</span>
+            case SUBMARINE:
+<span class="nc" id="L266">                techAdvancement.setAdvancement(DATE_PS, DATE_PS).setTechRating(RATING_C)</span>
+<span class="nc" id="L267">                    .setAvailability(RATING_D, RATING_D, RATING_D, RATING_D)</span>
+<span class="nc" id="L268">                    .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+<span class="nc" id="L269">                break;</span>
+            case INF_LEG:
+            default:
+<span class="nc" id="L272">                techAdvancement.setTechRating(RATING_A)</span>
+<span class="nc" id="L273">                    .setAvailability(RATING_A, RATING_A, RATING_A, RATING_A)</span>
+<span class="nc" id="L274">                    .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+                break;
+            }
+<span class="nc" id="L277">        return techAdvancement;</span>
+    }
+
+    @Override
+    public TechAdvancement getConstructionTechAdvancement() {
+<span class="nc" id="L282">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L283">                .setAdvancement(DATE_PS, DATE_PS, DATE_PS)</span>
+<span class="nc" id="L284">                .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+    }
+
+    public static TechAdvancement getCombatEngineerTA() {
+<span class="nc" id="L288">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L289">                .setAdvancement(DATE_PS, DATE_PS, DATE_PS).setTechRating(RATING_C)</span>
+<span class="nc" id="L290">                .setAvailability(RATING_A, RATING_B, RATING_A, RATING_A)</span>
+<span class="nc" id="L291">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+
+    public static TechAdvancement getMarineTA() {
+<span class="nc" id="L295">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L296">                .setAdvancement(DATE_PS, DATE_PS, DATE_PS).setTechRating(RATING_C)</span>
+<span class="nc" id="L297">                .setAvailability(RATING_A, RATING_A, RATING_A, RATING_A)</span>
+<span class="nc" id="L298">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+
+    public static TechAdvancement getMountainTA() {
+<span class="nc" id="L302">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L303">                .setAdvancement(DATE_PS, DATE_PS, DATE_PS).setTechRating(RATING_B)</span>
+<span class="nc" id="L304">                .setAvailability(RATING_A, RATING_A, RATING_A, RATING_A)</span>
+<span class="nc" id="L305">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+
+    public static TechAdvancement getParatrooperTA() {
+<span class="nc" id="L309">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L310">                .setAdvancement(DATE_PS, DATE_PS, DATE_PS).setTechRating(RATING_B)</span>
+<span class="nc" id="L311">                .setAvailability(RATING_A, RATING_A, RATING_A, RATING_A)</span>
+<span class="nc" id="L312">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+
+    public static TechAdvancement getParamedicTA() {
+<span class="nc" id="L316">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L317">                .setAdvancement(DATE_PS, DATE_PS, DATE_PS).setTechRating(RATING_B)</span>
+<span class="nc" id="L318">                .setAvailability(RATING_C, RATING_C, RATING_C, RATING_C)</span>
+<span class="nc" id="L319">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+
+    public static TechAdvancement getTAGTroopsTA() {
+<span class="nc" id="L323">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L324">                .setISAdvancement(2585, 2600, DATE_NONE, 2535, 3037)</span>
+<span class="nc" id="L325">                .setClanAdvancement(2585, 2600)</span>
+<span class="nc" id="L326">                .setApproximate(true, false, false, false, false).setTechRating(RATING_E)</span>
+<span class="nc" id="L327">                .setPrototypeFactions(F_TH).setProductionFactions(F_TH).setReintroductionFactions(F_FS)</span>
+<span class="nc" id="L328">                .setAvailability(RATING_F, RATING_X, RATING_E, RATING_E)</span>
+<span class="nc" id="L329">                .setStaticTechLevel(SimpleTechLevel.ADVANCED);</span>
+    }
+
+    public static TechAdvancement getAntiMekTA() {
+<span class="nc" id="L333">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L334">                .setAdvancement(2456, 2460, 2500).setApproximate(true, false, false)</span>
+<span class="nc" id="L335">                .setPrototypeFactions(F_LC).setProductionFactions(F_LC)</span>
+<span class="nc" id="L336">                .setTechRating(RATING_D)</span>
+<span class="nc" id="L337">                .setAvailability(RATING_D, RATING_D, RATING_D, RATING_D)</span>
+<span class="nc" id="L338">                .setStaticTechLevel(SimpleTechLevel.STANDARD);</span>
+    }
+
+    @Override
+    protected void addSystemTechAdvancement(CompositeTechLevel ctl) {
+<span class="nc" id="L343">        super.addSystemTechAdvancement(ctl);</span>
+<span class="nc" id="L344">        ctl.addComponent(Infantry.getMotiveTechAdvancement(movementMode));</span>
+<span class="nc bnc" id="L345" title="All 2 branches missed.">        if (hasSpecialization(COMBAT_ENGINEERS)) {</span>
+<span class="nc" id="L346">            ctl.addComponent(Infantry.getCombatEngineerTA());</span>
+        }
+<span class="nc bnc" id="L348" title="All 2 branches missed.">        if (hasSpecialization(MARINES)) {</span>
+<span class="nc" id="L349">            ctl.addComponent(Infantry.getMarineTA());</span>
+        }
+<span class="nc bnc" id="L351" title="All 2 branches missed.">        if (hasSpecialization(MOUNTAIN_TROOPS)) {</span>
+<span class="nc" id="L352">            ctl.addComponent(Infantry.getMountainTA());</span>
+        }
+<span class="nc bnc" id="L354" title="All 2 branches missed.">        if (hasSpecialization(PARATROOPS)) {</span>
+<span class="nc" id="L355">            ctl.addComponent(Infantry.getParatrooperTA());</span>
+        }
+<span class="nc bnc" id="L357" title="All 2 branches missed.">        if (hasSpecialization(PARAMEDICS)) {</span>
+<span class="nc" id="L358">            ctl.addComponent(Infantry.getParamedicTA());</span>
+        }
+<span class="nc bnc" id="L360" title="All 2 branches missed.">        if (hasSpecialization(TAG_TROOPS)) {</span>
+<span class="nc" id="L361">            ctl.addComponent(Infantry.getTAGTroopsTA());</span>
+        }
+<span class="nc bnc" id="L363" title="All 2 branches missed.">        if (isAntiMekTrained()) {</span>
+<span class="nc" id="L364">            ctl.addComponent(Infantry.getAntiMekTA());</span>
+        }
+<span class="nc" id="L366">    }</span>
+
+    /**
+     * Infantry can face freely (except when dug in)
+     */
+    @Override
+    public boolean canChangeSecondaryFacing() {
+<span class="nc bnc" id="L373" title="All 2 branches missed.">        return !hasActiveFieldArtillery();</span>
+    }
+
+    /**
+     * Infantry can face freely
+     */
+    @Override
+    public boolean isValidSecondaryFacing(int dir) {
+<span class="nc" id="L381">        return true;</span>
+    }
+
+    /**
+     * Infantry can face freely
+     */
+    @Override
+    public int clipSecondaryFacing(int dir) {
+<span class="nc" id="L389">        return dir;</span>
+    }
+
+    /**
+     * Create local platoon for Urban Guerrilla
+     */
+    public void createLocalSupport() {
+<span class="nc bnc" id="L396" title="All 2 branches missed.">        if (Compute.isInUrbanEnvironment(game, getPosition())) {</span>
+<span class="nc" id="L397">            setIsCallingSupport(true);</span>
+<span class="nc" id="L398">            canCallSupport = false;</span>
+        }
+<span class="nc" id="L400">    }</span>
+
+    public void setIsCallingSupport(boolean b) {
+<span class="nc" id="L403">        isCallingSupport = b;</span>
+<span class="nc" id="L404">    }</span>
+
+    public boolean getIsCallingSupport() {
+<span class="nc" id="L407">        return isCallingSupport;</span>
+    }
+
+    /**
+     * return this infantry's walk mp, adjusted for planetary conditions
+     */
+    @Override
+    public int getWalkMP(boolean gravity, boolean ignoreheat, boolean ignoremodulararmor) {
+<span class="nc" id="L415">        int mp = getOriginalWalkMP();</span>
+        //encumbering armor reduces MP by 1 to a minimum of one (TacOps, pg. 318)
+<span class="nc bnc" id="L417" title="All 2 branches missed.">        if(encumbering) {</span>
+<span class="nc" id="L418">            mp = Math.max(mp - 1, 1);</span>
+        }
+<span class="nc bnc" id="L420" title="All 2 branches missed.">        if((getSecondaryN() &gt; 1)</span>
+<span class="nc bnc" id="L421" title="All 2 branches missed.">                &amp;&amp; !hasAbility(OptionsConstants.MD_TSM_IMPLANT)</span>
+<span class="nc bnc" id="L422" title="All 4 branches missed.">                &amp;&amp; !hasAbility(OptionsConstants.MD_DERMAL_ARMOR)</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">                &amp;&amp; (null != secondW) &amp;&amp; secondW.hasFlag(WeaponType.F_INF_SUPPORT)</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">                &amp;&amp; (getMovementMode() != EntityMovementMode.TRACKED)</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">                &amp;&amp; (getMovementMode() != EntityMovementMode.INF_JUMP)) {</span>
+<span class="nc" id="L426">            mp = Math.max(mp - 1, 0);</span>
+        }
+<span class="nc bnc" id="L428" title="All 2 branches missed.">        if((null != getCrew())</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">                &amp;&amp; hasAbility(OptionsConstants.MD_PL_MASC)</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">                &amp;&amp; ((getMovementMode() == EntityMovementMode.INF_LEG)</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">                    || (getMovementMode() == EntityMovementMode.INF_JUMP))) {</span>
+<span class="nc" id="L432">            mp += 1;</span>
+        }
+<span class="nc bnc" id="L434" title="All 4 branches missed.">        if ((null != getCrew()) &amp;&amp; hasAbility(OptionsConstants.INFANTRY_FOOT_CAV)</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">                &amp;&amp; ((getMovementMode() == EntityMovementMode.INF_LEG)</span>
+<span class="nc bnc" id="L436" title="All 2 branches missed.">                        || (getMovementMode() == EntityMovementMode.INF_JUMP))) {</span>
+<span class="nc" id="L437">            mp += 1;</span>
+        }
+<span class="nc bnc" id="L439" title="All 2 branches missed.">        if(hasActiveFieldArtillery()) {</span>
+            //mp of 1 at the most
+<span class="nc" id="L441">            mp = Math.min(mp, 1);</span>
+        }
+<span class="nc bnc" id="L443" title="All 2 branches missed.">        if(null != game) {</span>
+<span class="nc" id="L444">            int weatherMod = game.getPlanetaryConditions().getMovementMods(this);</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">            if(weatherMod != 0) {</span>
+<span class="nc" id="L446">                mp = Math.max(mp + weatherMod, 0);</span>
+            }
+        }
+<span class="nc bnc" id="L449" title="All 2 branches missed.">        if (gravity) {</span>
+<span class="nc" id="L450">            mp = applyGravityEffectsOnMP(mp);</span>
+        }
+<span class="nc" id="L452">        return mp;</span>
+    }
+
+    /**
+     * Return this Infantry's run MP, which is identical to its walk MP
+     */
+    @Override
+    public int getRunMP(boolean gravity, boolean ignoreheat, boolean ignoremodulararmor) {
+<span class="nc bnc" id="L460" title="All 2 branches missed.">        if( (game != null)</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">                &amp;&amp; game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_FAST_INFANTRY_MOVE) ) {</span>
+<span class="nc bnc" id="L462" title="All 2 branches missed.">            if(getWalkMP(gravity, ignoreheat, ignoremodulararmor) &gt; 0) {</span>
+<span class="nc" id="L463">                return getWalkMP(gravity, ignoreheat, ignoremodulararmor) + 1;</span>
+            }
+<span class="nc" id="L465">            return getWalkMP(gravity, ignoreheat, ignoremodulararmor) + 2;</span>
+        }
+<span class="nc" id="L467">        return getWalkMP(gravity, ignoreheat, ignoremodulararmor);</span>
+    }
+
+    /**
+     * Infantry don't have MASC
+     */
+    @Override
+    public int getRunMPwithoutMASC(boolean gravity, boolean ignoreheat, boolean ignoremodulararmor) {
+<span class="nc" id="L475">        return getRunMP(gravity, ignoreheat, ignoremodulararmor);</span>
+    }
+
+
+    /*
+     * (non-Javadoc)
+     * @see megamek.common.Entity#getJumpMP(boolean)
+     */
+    @Override
+    public int getJumpMP(boolean gravity) {
+<span class="nc" id="L485">        int mp = 0;</span>
+<span class="nc bnc" id="L486" title="All 2 branches missed.">        if (getMovementMode() != EntityMovementMode.INF_UMU</span>
+<span class="nc bnc" id="L487" title="All 2 branches missed.">        		&amp;&amp; getMovementMode() != EntityMovementMode.SUBMARINE) {</span>
+<span class="nc" id="L488">            mp = getOriginalJumpMP();</span>
+        }
+<span class="nc bnc" id="L490" title="All 2 branches missed.">        if ((getSecondaryN() &gt; 1)</span>
+<span class="nc bnc" id="L491" title="All 2 branches missed.">                &amp;&amp; !hasAbility(OptionsConstants.MD_TSM_IMPLANT)</span>
+<span class="nc bnc" id="L492" title="All 2 branches missed.">                &amp;&amp; !hasAbility(OptionsConstants.MD_DERMAL_ARMOR)</span>
+<span class="nc bnc" id="L493" title="All 4 branches missed.">                &amp;&amp; (getMovementMode() != EntityMovementMode.SUBMARINE)</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">                &amp;&amp; (null != secondW) &amp;&amp; secondW.hasFlag(WeaponType.F_INF_SUPPORT)) {</span>
+<span class="nc" id="L495">            mp = Math.max(mp - 1, 0);</span>
+<span class="nc bnc" id="L496" title="All 4 branches missed.">        } else if (movementMode.equals(EntityMovementMode.VTOL) &amp;&amp; getSecondaryN() &gt; 0) {</span>
+<span class="nc" id="L497">            mp = Math.max(mp - 1, 0);</span>
+        }
+<span class="nc bnc" id="L499" title="All 2 branches missed.">        if (gravity) {</span>
+<span class="nc" id="L500">            mp = applyGravityEffectsOnMP(mp);</span>
+        }
+<span class="nc" id="L502">        int windP = 0;</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">        if(null != game) {</span>
+<span class="nc" id="L504">            int windCond = game.getPlanetaryConditions().getWindStrength();</span>
+<span class="nc bnc" id="L505" title="All 2 branches missed.">            if(windCond == PlanetaryConditions.WI_MOD_GALE) {</span>
+<span class="nc" id="L506">                windP++;</span>
+            }
+<span class="nc bnc" id="L508" title="All 2 branches missed.">            if(windCond &gt;= PlanetaryConditions.WI_STRONG_GALE) {</span>
+<span class="nc" id="L509">                return 0;</span>
+            }
+        }
+<span class="nc" id="L512">        mp = Math.max(mp - windP, 0);</span>
+<span class="nc" id="L513">        return mp;</span>
+    }
+
+    @Override
+    public boolean hasUMU() {
+<span class="nc bnc" id="L518" title="All 2 branches missed.">        return getMovementMode().equals(EntityMovementMode.INF_UMU)</span>
+<span class="nc bnc" id="L519" title="All 2 branches missed.">                || getMovementMode().equals(EntityMovementMode.SUBMARINE);</span>
+    }
+
+    @Override
+    public int getActiveUMUCount() {
+<span class="nc" id="L524">        return getAllUMUCount();</span>
+    }
+
+    @Override
+    public int getAllUMUCount() {
+<span class="nc bnc" id="L529" title="All 2 branches missed.">        if (hasUMU()) {</span>
+<span class="nc" id="L530">            return jumpMP;</span>
+        } else {
+<span class="nc" id="L532">            return 0;</span>
+        }
+    }
+
+    /**
+     * Infantry can not enter water unless they have UMU mp or hover.
+     */
+    @Override
+    public boolean isLocationProhibited(Coords c, int currElevation) {
+        // Coords off the board aren't legal
+<span class="nc bnc" id="L542" title="All 2 branches missed.">        if (!game.getBoard().contains(c)) {</span>
+<span class="nc" id="L543">            return true;</span>
+        }
+<span class="nc" id="L545">        IHex hex = game.getBoard().getHex(c);</span>
+        // Taharqa: waiting to hear back from Welshie but I am going to assume
+        // that units pulling artillery
+        // should be treated as wheeled rather than motorized because otherwise
+        // mechanized units face fewer
+        // terrain restrictions when pulling field artillery
+
+<span class="nc bnc" id="L552" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.IMPASSABLE)) {</span>
+<span class="nc" id="L553">            return true;</span>
+        }
+<span class="nc bnc" id="L555" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.MAGMA)) {</span>
+<span class="nc" id="L556">            return true;</span>
+        }
+<span class="nc bnc" id="L558" title="All 4 branches missed.">        if(hex.containsTerrain(Terrains.SPACE) &amp;&amp; doomedInSpace()) {</span>
+<span class="nc" id="L559">            return true;</span>
+        }
+
+        // Additional restrictions for hidden units
+<span class="nc bnc" id="L563" title="All 2 branches missed.">        if (isHidden()) {</span>
+            // Can't deploy in paved hexes
+<span class="nc bnc" id="L565" title="All 2 branches missed.">            if ((hex.containsTerrain(Terrains.PAVEMENT)</span>
+<span class="nc bnc" id="L566" title="All 2 branches missed.">                    || hex.containsTerrain(Terrains.ROAD))</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">                    &amp;&amp; (!hex.containsTerrain(Terrains.BUILDING)</span>
+<span class="nc bnc" id="L568" title="All 2 branches missed.">                            &amp;&amp; !hex.containsTerrain(Terrains.RUBBLE))){</span>
+<span class="nc" id="L569">                return true;</span>
+            }
+            // Can't deploy on a bridge
+<span class="nc bnc" id="L572" title="All 2 branches missed.">            if ((hex.terrainLevel(Terrains.BRIDGE_ELEV) == currElevation)</span>
+<span class="nc bnc" id="L573" title="All 2 branches missed.">                    &amp;&amp; hex.containsTerrain(Terrains.BRIDGE)) {</span>
+<span class="nc" id="L574">                return true;</span>
+            }
+            // Can't deploy on the surface of water
+<span class="nc bnc" id="L577" title="All 4 branches missed.">            if (hex.containsTerrain(Terrains.WATER) &amp;&amp; (currElevation == 0)) {</span>
+<span class="nc" id="L578">                return true;</span>
+            }
+        }
+
+<span class="nc bnc" id="L582" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.MAGMA)) {</span>
+<span class="nc" id="L583">            return true;</span>
+        }
+
+<span class="nc bnc" id="L586" title="All 2 branches missed.">        if (getMovementMode() == EntityMovementMode.WHEELED) {</span>
+<span class="nc bnc" id="L587" title="All 2 branches missed.">            if (hex.containsTerrain(Terrains.WOODS)</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">                    || hex.containsTerrain(Terrains.ROUGH)</span>
+<span class="nc bnc" id="L589" title="All 2 branches missed.">                    || hex.containsTerrain(Terrains.RUBBLE)</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">                    || hex.containsTerrain(Terrains.JUNGLE)</span>
+<span class="nc bnc" id="L591" title="All 2 branches missed.">                    || (hex.terrainLevel(Terrains.SNOW) &gt; 1)</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">                    || (hex.terrainLevel(Terrains.GEYSER) == 2)) {</span>
+<span class="nc" id="L593">                return true;</span>
+            }
+        }
+
+<span class="nc bnc" id="L597" title="All 2 branches missed.">        if (getMovementMode() == EntityMovementMode.TRACKED) {</span>
+<span class="nc bnc" id="L598" title="All 2 branches missed.">            if ((hex.terrainLevel(Terrains.WOODS) &gt; 1)</span>
+<span class="nc bnc" id="L599" title="All 2 branches missed.">                    || hex.containsTerrain(Terrains.JUNGLE)</span>
+<span class="nc bnc" id="L600" title="All 2 branches missed.">                    || (hex.terrainLevel(Terrains.ROUGH) &gt; 1)</span>
+<span class="nc bnc" id="L601" title="All 2 branches missed.">                    || (hex.terrainLevel(Terrains.RUBBLE) &gt; 5)) {</span>
+<span class="nc" id="L602">                return true;</span>
+            }
+        }
+
+<span class="nc bnc" id="L606" title="All 2 branches missed.">        if (getMovementMode() == EntityMovementMode.HOVER) {</span>
+<span class="nc bnc" id="L607" title="All 2 branches missed.">            if (hex.containsTerrain(Terrains.WOODS)</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">                    || hex.containsTerrain(Terrains.JUNGLE)</span>
+<span class="nc bnc" id="L609" title="All 2 branches missed.">                    || (hex.terrainLevel(Terrains.ROUGH) &gt; 1)</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">                    || (hex.terrainLevel(Terrains.RUBBLE) &gt; 5)) {</span>
+<span class="nc" id="L611">                return true;</span>
+            }
+        }
+
+<span class="nc bnc" id="L615" title="All 2 branches missed.">        if (hex.terrainLevel(Terrains.WATER) &lt;= 0</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">        		&amp;&amp; getMovementMode() == EntityMovementMode.SUBMARINE) {</span>
+<span class="nc" id="L617">        	return true;</span>
+        }
+
+<span class="nc bnc" id="L620" title="All 2 branches missed.">        if ((hex.terrainLevel(Terrains.WATER) &gt; 0)</span>
+<span class="nc bnc" id="L621" title="All 2 branches missed.">                &amp;&amp; !hex.containsTerrain(Terrains.ICE)) {</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">            if ((getMovementMode() == EntityMovementMode.HOVER)</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">                    || (getMovementMode() == EntityMovementMode.INF_UMU)</span>
+<span class="nc bnc" id="L624" title="All 2 branches missed.">                    || (getMovementMode() == EntityMovementMode.SUBMARINE)</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">                    || (getMovementMode() == EntityMovementMode.VTOL)) {</span>
+<span class="nc" id="L626">                return false;</span>
+            }
+<span class="nc" id="L628">            return true;</span>
+        }
+<span class="nc" id="L630">        return false;</span>
+    }
+
+    /**
+     * Returns the name of the type of movement used. This is Infantry-specific.
+     */
+    @Override
+    public String getMovementString(EntityMovementType mtype) {
+<span class="nc bnc" id="L638" title="All 5 branches missed.">        switch (mtype) {</span>
+            case MOVE_NONE:
+<span class="nc" id="L640">                return &quot;None&quot;;</span>
+            case MOVE_WALK:
+            case MOVE_RUN:
+<span class="nc bnc" id="L643" title="All 4 branches missed.">                switch (getMovementMode()) {</span>
+                    case INF_LEG:
+<span class="nc" id="L645">                        return &quot;Walked&quot;;</span>
+                    case INF_MOTORIZED:
+<span class="nc" id="L647">                        return &quot;Biked&quot;;</span>
+                    case HOVER:
+                    case TRACKED:
+                    case WHEELED:
+<span class="nc" id="L651">                        return &quot;Drove&quot;;</span>
+                    case INF_JUMP:
+                    default:
+<span class="nc" id="L654">                        return &quot;Unknown!&quot;;</span>
+                }
+            case MOVE_VTOL_WALK:
+            case MOVE_VTOL_RUN:
+<span class="nc" id="L658">                return &quot;Flew&quot;;</span>
+            case MOVE_JUMP:
+<span class="nc" id="L660">                return &quot;Jumped&quot;;</span>
+            default:
+<span class="nc" id="L662">                return &quot;Unknown!&quot;;</span>
+        }
+    }
+
+    /**
+     * Returns the abbreviation of the type of movement used. This is
+     * Infantry-specific.
+     */
+    @Override
+    public String getMovementAbbr(EntityMovementType mtype) {
+<span class="nc bnc" id="L672" title="All 5 branches missed.">        switch (mtype) {</span>
+            case MOVE_NONE:
+<span class="nc" id="L674">                return &quot;N&quot;;</span>
+            case MOVE_WALK:
+<span class="nc" id="L676">                return &quot;W&quot;;</span>
+            case MOVE_RUN:
+<span class="nc bnc" id="L678" title="All 4 branches missed.">                switch (getMovementMode()) {</span>
+                    case INF_LEG:
+<span class="nc" id="L680">                        return &quot;R&quot;;</span>
+                    case INF_MOTORIZED:
+<span class="nc" id="L682">                        return &quot;B&quot;;</span>
+                    case HOVER:
+                    case TRACKED:
+                    case WHEELED:
+<span class="nc" id="L686">                        return &quot;D&quot;;</span>
+                    default:
+<span class="nc" id="L688">                        return &quot;?&quot;;</span>
+                }
+            case MOVE_JUMP:
+<span class="nc" id="L691">                return &quot;J&quot;;</span>
+            default:
+<span class="nc" id="L693">                return &quot;?&quot;;</span>
+        }
+    }
+
+    /**
+     * Infantry only have one hit location.
+     */
+    @Override
+    public HitData rollHitLocation(int table, int side, int aimedLocation,
+            int aimingMode, int cover) {
+<span class="nc" id="L703">        return rollHitLocation(table, side);</span>
+    }
+
+    @Override
+    public HitData rollHitLocation(int table, int side) {
+<span class="nc" id="L708">        return new HitData(LOC_INFANTRY);</span>
+    }
+
+    /**
+     * Infantry only have one hit location.
+     */
+    @Override
+    public HitData getTransferLocation(HitData hit) {
+<span class="nc" id="L716">        return new HitData(Entity.LOC_DESTROYED);</span>
+    }
+
+    /**
+     * Gets the location that is destroyed recursively.
+     */
+    @Override
+    public int getDependentLocation(int loc) {
+<span class="nc" id="L724">        return Entity.LOC_NONE;</span>
+    }
+
+    /**
+     * Infantry have no rear armor.
+     */
+    @Override
+    public boolean hasRearArmor(int loc) {
+<span class="nc" id="L732">        return false;</span>
+    }
+
+    /**
+     * Infantry platoons do wierd and wacky things with armor and internals, but
+     * not all Infantry objects are platoons.
+     *
+     * @see megamek.common.BattleArmor#isPlatoon()
+     */
+    protected boolean isPlatoon() {
+<span class="nc" id="L742">        return true;</span>
+    }
+
+    /**
+     * Returns the number of men left in the platoon, or
+     * IArmorState.ARMOR_DESTROYED.
+     */
+    @Override
+    public int getInternal(int loc) {
+<span class="nc bnc" id="L751" title="All 2 branches missed.">        if (!isPlatoon()) {</span>
+<span class="nc" id="L752">            return super.getInternal(loc);</span>
+        }
+<span class="nc bnc" id="L754" title="All 2 branches missed.">        if(loc != LOC_INFANTRY) {</span>
+<span class="nc" id="L755">            return 0;</span>
+        }
+<span class="nc bnc" id="L757" title="All 2 branches missed.">        return (men &gt; 0 ? men : IArmorState.ARMOR_DESTROYED);</span>
+    }
+
+    /**
+     * Returns the number of men originally the platoon.
+     */
+    @Override
+    public int getOInternal(int loc) {
+<span class="nc bnc" id="L765" title="All 2 branches missed.">        if (!isPlatoon()) {</span>
+<span class="nc" id="L766">            return super.getOInternal(loc);</span>
+        }
+<span class="nc" id="L768">        return menStarting;</span>
+    }
+
+    /**
+     * Sets the amount of men remaining in the platoon.
+     */
+    @Override
+    public void setInternal(int val, int loc) {
+<span class="nc" id="L776">        super.setInternal(val, loc);</span>
+<span class="nc bnc" id="L777" title="All 2 branches missed.">        if(loc == LOC_INFANTRY) {</span>
+<span class="nc" id="L778">            men = val;</span>
+        }
+<span class="nc" id="L780">    }</span>
+
+    /**
+     * Returns the percent of the men remaining in the platoon.
+     */
+    @Override
+    public double getInternalRemainingPercent() {
+<span class="nc bnc" id="L787" title="All 2 branches missed.">        if (!isPlatoon()) {</span>
+<span class="nc" id="L788">            return super.getInternalRemainingPercent();</span>
+        }
+<span class="nc bnc" id="L790" title="All 2 branches missed.">        int menTotal = men &gt; 0 ? men : 0; // Handle &quot;DESTROYED&quot;</span>
+<span class="nc" id="L791">        return ((double) menTotal / menStarting);</span>
+    }
+
+    /**
+     * Initializes the number of men in the platoon. Sets the original and
+     * starting point of the platoon to the same number.
+     */
+    @Override
+    public void initializeInternal(int val, int loc) {
+<span class="nc" id="L800">        menStarting = val;</span>
+<span class="nc" id="L801">        menShooting = val;</span>
+<span class="nc" id="L802">        super.initializeInternal(val, loc);</span>
+<span class="nc" id="L803">    }</span>
+
+    /**
+     * Set the men in the platoon based on squad size and number
+     */
+    @Override
+    public void autoSetInternal() {
+        //TODO: put checks here on size
+<span class="nc" id="L811">        initializeInternal(squadsize*squadn, LOC_INFANTRY);</span>
+<span class="nc" id="L812">    }</span>
+
+    /**
+     * Infantry can fire all around themselves. But field guns are set up to a
+     * vehicular turret facing
+     */
+    @Override
+    public int getWeaponArc(int wn) {
+<span class="nc" id="L820">        Mounted mounted = getEquipment(wn);</span>
+<span class="nc bnc" id="L821" title="All 2 branches missed.">        if(mounted.getLocation() == LOC_FIELD_GUNS) {</span>
+<span class="nc bnc" id="L822" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_VEHICLE_ARCS)) {</span>
+<span class="nc" id="L823">                return Compute.ARC_TURRET;</span>
+            }
+<span class="nc" id="L825">            return Compute.ARC_FORWARD;</span>
+        }
+        //This is interesting, according to TacOps rules, Dug in units no longer
+        //have to declare a facing
+<span class="nc" id="L829">        return Compute.ARC_360;</span>
+    }
+
+    /**
+     * Infantry can fire all around themselves. But field guns act like turret
+     * mounted on a tank
+     */
+    @Override
+    public boolean isSecondaryArcWeapon(int wn) {
+<span class="nc bnc" id="L838" title="All 4 branches missed.">        if ((getEquipment(wn).getLocation() == LOC_FIELD_GUNS) &amp;&amp; !hasActiveFieldArtillery()) {</span>
+<span class="nc" id="L839">            return true;</span>
+        }
+<span class="nc" id="L841">        return false;</span>
+    }
+
+    /**
+     * Infantry build no heat.
+     */
+    @Override
+    public int getHeatCapacity(boolean radicalHeatSinks) {
+<span class="nc" id="L849">        return DOES_NOT_TRACK_HEAT;</span>
+    }
+
+    /**
+     * Infantry build no heat.
+     */
+    @Override
+    public int getHeatCapacityWithWater() {
+<span class="nc" id="L857">        return getHeatCapacity();</span>
+    }
+
+    /**
+     * Infantry build no heat.
+     */
+    @Override
+    public int getEngineCritHeat() {
+<span class="nc" id="L865">        return 0;</span>
+    }
+
+    /**
+     * Infantry have no critical slots.
+     */
+    @Override
+    protected int[] getNoOfSlots() {
+<span class="nc" id="L873">        return NUM_OF_SLOTS;</span>
+    }
+
+    /**
+     * Infantry criticals can't be hit.
+     */
+    public boolean hasHittableCriticals(int loc) {
+<span class="nc" id="L880">        return false;</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see megamek.common.Entity#calculateBattleValue()
+     */
+    @Override
+    public int calculateBattleValue() {
+<span class="nc" id="L889">        return calculateBattleValue(false, false);</span>
+    }
+
+    /**
+     * Calculates the battle value of this platoon.
+     */
+    @Override
+    public int calculateBattleValue(boolean ignoreC3, boolean ignorePilot) {
+<span class="nc" id="L897">    	DecimalFormat df = new DecimalFormat(&quot;0.##&quot;);</span>
+<span class="nc" id="L898">        bvText = new StringBuffer(</span>
+                &quot;&lt;HTML&gt;&lt;BODY&gt;&lt;CENTER&gt;&lt;b&gt;Battle Value Calculations For &quot;);
+
+<span class="nc" id="L901">        bvText.append(getChassis());</span>
+<span class="nc" id="L902">        bvText.append(&quot; &quot;);</span>
+<span class="nc" id="L903">        bvText.append(getModel());</span>
+<span class="nc" id="L904">        bvText.append(&quot;&lt;/b&gt;&lt;/CENTER&gt;&quot;);</span>
+<span class="nc" id="L905">        bvText.append(nl);</span>
+
+<span class="nc" id="L907">        bvText.append(&quot;&lt;b&gt;Defensive Battle Rating Calculation:&lt;/b&gt;&quot;);</span>
+<span class="nc" id="L908">        bvText.append(nl);</span>
+
+<span class="nc" id="L910">        double dbr = 0; //defensive battle rating</span>
+
+<span class="nc" id="L912">        dbr = men * 1.5 * calcDamageDivisor();</span>
+<span class="nc" id="L913">        int tmmRan = Compute.getTargetMovementModifier(getRunMP(false, true, true), false, false, game)</span>
+<span class="nc" id="L914">                .getValue();</span>
+
+<span class="nc" id="L916">        final int jumpMP = getJumpMP(false);</span>
+<span class="nc bnc" id="L917" title="All 2 branches missed.">        final int tmmJumped = (jumpMP &gt; 0) ? Compute.</span>
+<span class="nc" id="L918">                getTargetMovementModifier(jumpMP, true, false, game).getValue()</span>
+<span class="nc" id="L919">                : 0;</span>
+
+<span class="nc" id="L921">        final int umuMP = getActiveUMUCount();</span>
+<span class="nc bnc" id="L922" title="All 2 branches missed.">        final int tmmUMU = (umuMP &gt; 0) ? Compute.</span>
+<span class="nc" id="L923">                getTargetMovementModifier(umuMP, false, false, game).getValue()</span>
+<span class="nc" id="L924">                : 0;</span>
+
+<span class="nc" id="L926">        double targetMovementModifier = Math.max(tmmRan, Math.max(tmmJumped,</span>
+                tmmUMU));
+
+<span class="nc" id="L929">        double tmmFactor = 1 + (targetMovementModifier / 10);</span>
+
+<span class="nc" id="L931">        bvText.append(startRow);</span>
+<span class="nc" id="L932">        bvText.append(startColumn);</span>
+<span class="nc" id="L933">        bvText.append(&quot;Base Target Movement Modifier:&quot;);</span>
+<span class="nc" id="L934">        bvText.append(endColumn);</span>
+<span class="nc" id="L935">        bvText.append(startColumn);</span>
+<span class="nc" id="L936">        bvText.append(endColumn);</span>
+<span class="nc" id="L937">        bvText.append(startColumn);</span>
+<span class="nc" id="L938">        bvText.append(tmmFactor);</span>
+<span class="nc" id="L939">        bvText.append(endColumn);</span>
+<span class="nc" id="L940">        bvText.append(endRow);</span>
+
+<span class="nc bnc" id="L942" title="All 2 branches missed.">        if(hasDEST()) {</span>
+<span class="nc" id="L943">            tmmFactor += 0.2;</span>
+<span class="nc" id="L944">            bvText.append(startRow);</span>
+<span class="nc" id="L945">            bvText.append(startColumn);</span>
+<span class="nc" id="L946">            bvText.append(&quot;DEST:&quot;);</span>
+<span class="nc" id="L947">            bvText.append(endColumn);</span>
+<span class="nc" id="L948">            bvText.append(startColumn);</span>
+<span class="nc" id="L949">            bvText.append(endColumn);</span>
+<span class="nc" id="L950">            bvText.append(startColumn);</span>
+<span class="nc" id="L951">            bvText.append(&quot;+0.2&quot;);</span>
+<span class="nc" id="L952">            bvText.append(endColumn);</span>
+<span class="nc" id="L953">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L955" title="All 2 branches missed.">        if(hasSneakCamo()) {</span>
+<span class="nc" id="L956">            tmmFactor += 0.2;</span>
+<span class="nc" id="L957">            bvText.append(startRow);</span>
+<span class="nc" id="L958">            bvText.append(startColumn);</span>
+<span class="nc" id="L959">            bvText.append(&quot;Camo (Sneak):&quot;);</span>
+<span class="nc" id="L960">            bvText.append(endColumn);</span>
+<span class="nc" id="L961">            bvText.append(startColumn);</span>
+<span class="nc" id="L962">            bvText.append(endColumn);</span>
+<span class="nc" id="L963">            bvText.append(startColumn);</span>
+<span class="nc" id="L964">            bvText.append(&quot;+0.2&quot;);</span>
+<span class="nc" id="L965">            bvText.append(endColumn);</span>
+<span class="nc" id="L966">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L968" title="All 2 branches missed.">        if(hasSneakIR()) {</span>
+<span class="nc" id="L969">            tmmFactor += 0.2;</span>
+<span class="nc" id="L970">            bvText.append(startRow);</span>
+<span class="nc" id="L971">            bvText.append(startColumn);</span>
+<span class="nc" id="L972">            bvText.append(&quot;Camo (IR):&quot;);</span>
+<span class="nc" id="L973">            bvText.append(endColumn);</span>
+<span class="nc" id="L974">            bvText.append(startColumn);</span>
+<span class="nc" id="L975">            bvText.append(endColumn);</span>
+<span class="nc" id="L976">            bvText.append(startColumn);</span>
+<span class="nc" id="L977">            bvText.append(&quot;+0.2&quot;);</span>
+<span class="nc" id="L978">            bvText.append(endColumn);</span>
+<span class="nc" id="L979">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L981" title="All 2 branches missed.">        if(hasSneakECM()) {</span>
+<span class="nc" id="L982">            tmmFactor += 0.1;</span>
+<span class="nc" id="L983">            bvText.append(startRow);</span>
+<span class="nc" id="L984">            bvText.append(startColumn);</span>
+<span class="nc" id="L985">            bvText.append(&quot;Camo (ECM):&quot;);</span>
+<span class="nc" id="L986">            bvText.append(endColumn);</span>
+<span class="nc" id="L987">            bvText.append(startColumn);</span>
+<span class="nc" id="L988">            bvText.append(endColumn);</span>
+<span class="nc" id="L989">            bvText.append(startColumn);</span>
+<span class="nc" id="L990">            bvText.append(&quot;+0.1&quot;);</span>
+<span class="nc" id="L991">            bvText.append(endColumn);</span>
+<span class="nc" id="L992">            bvText.append(endRow);</span>
+        }
+<span class="nc" id="L994">        dbr *= tmmFactor;</span>
+
+<span class="nc" id="L996">        bvText.append(startRow);</span>
+<span class="nc" id="L997">        bvText.append(startColumn);</span>
+<span class="nc" id="L998">        bvText.append(endColumn);</span>
+<span class="nc" id="L999">        bvText.append(startColumn);</span>
+<span class="nc" id="L1000">        bvText.append(endColumn);</span>
+<span class="nc" id="L1001">        bvText.append(startColumn);</span>
+<span class="nc" id="L1002">        bvText.append(&quot;-------------&quot;);</span>
+<span class="nc" id="L1003">        bvText.append(endColumn);</span>
+<span class="nc" id="L1004">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1006">        bvText.append(startRow);</span>
+<span class="nc" id="L1007">        bvText.append(startColumn);</span>
+<span class="nc" id="L1008">        bvText.append(&quot;Target Movement Modifier:&quot;);</span>
+<span class="nc" id="L1009">        bvText.append(endColumn);</span>
+<span class="nc" id="L1010">        bvText.append(startColumn);</span>
+<span class="nc" id="L1011">        bvText.append(endColumn);</span>
+<span class="nc" id="L1012">        bvText.append(startColumn);</span>
+<span class="nc" id="L1013">        bvText.append(df.format(tmmFactor));</span>
+<span class="nc" id="L1014">        bvText.append(endColumn);</span>
+<span class="nc" id="L1015">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1017">        bvText.append(startRow);</span>
+<span class="nc" id="L1018">        bvText.append(startColumn);</span>
+<span class="nc" id="L1019">        bvText.append(&quot;Damage Divisor:&quot;);</span>
+<span class="nc" id="L1020">        bvText.append(endColumn);</span>
+<span class="nc" id="L1021">        bvText.append(startColumn);</span>
+<span class="nc" id="L1022">        bvText.append(endColumn);</span>
+<span class="nc" id="L1023">        bvText.append(startColumn);</span>
+<span class="nc" id="L1024">        bvText.append(df.format(calcDamageDivisor()));</span>
+<span class="nc" id="L1025">        bvText.append(endColumn);</span>
+<span class="nc" id="L1026">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1028">        bvText.append(startRow);</span>
+<span class="nc" id="L1029">        bvText.append(startColumn);</span>
+<span class="nc" id="L1030">        bvText.append(&quot;Number of Troopers x 1.5 x TMM x DD&quot;);</span>
+<span class="nc" id="L1031">        bvText.append(endColumn + startColumn);</span>
+<span class="nc" id="L1032">        bvText.append(men);</span>
+<span class="nc" id="L1033">        bvText.append(&quot; x 1.5 x &quot;);</span>
+<span class="nc" id="L1034">        bvText.append(tmmFactor);</span>
+<span class="nc" id="L1035">        bvText.append(&quot; x &quot;);</span>
+<span class="nc" id="L1036">        bvText.append(calcDamageDivisor());</span>
+<span class="nc" id="L1037">        bvText.append(endColumn);</span>
+<span class="nc" id="L1038">        bvText.append(startColumn);</span>
+
+<span class="nc" id="L1040">        bvText.append(&quot;= &quot;);</span>
+<span class="nc" id="L1041">        bvText.append(df.format(dbr));</span>
+<span class="nc" id="L1042">        bvText.append(endColumn);</span>
+<span class="nc" id="L1043">        bvText.append(endRow);</span>
+
+        // double weaponbv;
+        double obr; //offensive battle rating
+
+<span class="nc" id="L1048">        int speedFactorTableLookup = Math.max(getRunMP(false, true, true), Math.max(jumpMP, umuMP));</span>
+<span class="nc" id="L1049">        double speedFactor = Math.pow(1 + ((speedFactorTableLookup - 5) / 10.0), 1.2);</span>
+<span class="nc" id="L1050">        speedFactor = Math.round(speedFactor * 100) / 100.0;</span>
+<span class="nc" id="L1051">        double wbv = 0;</span>
+<span class="nc bnc" id="L1052" title="All 2 branches missed.">        if(null != primaryW) {</span>
+<span class="nc" id="L1053">            wbv += primaryW.getBV(this) * (squadsize - secondn);</span>
+        }
+<span class="nc bnc" id="L1055" title="All 2 branches missed.">        if(null != secondW) {</span>
+<span class="nc" id="L1056">            wbv += secondW.getBV(this) * (secondn);</span>
+        }
+<span class="nc" id="L1058">        wbv = wbv * (men/squadsize);</span>
+        //if anti-mek then double this
+        //TODO: need to factor archaic weapons out of this
+<span class="nc" id="L1061">        double ambv = 0;</span>
+<span class="nc bnc" id="L1062" title="All 2 branches missed.">        if(canMakeAntiMekAttacks()) {</span>
+<span class="nc bnc" id="L1063" title="All 4 branches missed.">        	if (primaryW != null &amp;&amp; !primaryW.hasFlag(InfantryWeapon.F_INF_ARCHAIC)) {</span>
+<span class="nc" id="L1064">        		ambv += primaryW.getBV(this) * (squadsize - secondn);</span>
+        	}
+<span class="nc bnc" id="L1066" title="All 4 branches missed.">        	if (secondW != null &amp;&amp; !secondW.hasFlag(InfantryWeapon.F_INF_ARCHAIC)) {</span>
+<span class="nc" id="L1067">        		ambv += secondW.getBV(this) * (secondn);</span>
+        	}
+<span class="nc" id="L1069">            ambv *= men/squadsize;</span>
+        }
+
+<span class="nc" id="L1072">        bvText.append(startRow);</span>
+<span class="nc" id="L1073">        bvText.append(startColumn);</span>
+<span class="nc" id="L1074">        bvText.append(&quot;&lt;b&gt;Offensive Battle Rating Calculation:&lt;/b&gt;&quot;);</span>
+<span class="nc" id="L1075">        bvText.append(endColumn);</span>
+<span class="nc" id="L1076">        bvText.append(startColumn);</span>
+<span class="nc" id="L1077">        bvText.append(endColumn);</span>
+<span class="nc" id="L1078">        bvText.append(startColumn);</span>
+<span class="nc" id="L1079">        bvText.append(endColumn);</span>
+<span class="nc" id="L1080">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1082">        bvText.append(startRow);</span>
+<span class="nc" id="L1083">        bvText.append(startColumn);</span>
+<span class="nc" id="L1084">        bvText.append(&quot;Weapon BV:&quot;);</span>
+<span class="nc" id="L1085">        bvText.append(endColumn);</span>
+<span class="nc" id="L1086">        bvText.append(startColumn);</span>
+<span class="nc" id="L1087">        bvText.append(endColumn);</span>
+<span class="nc" id="L1088">        bvText.append(startColumn);</span>
+<span class="nc" id="L1089">        bvText.append(endColumn);</span>
+<span class="nc" id="L1090">        bvText.append(endRow);</span>
+
+<span class="nc bnc" id="L1092" title="All 2 branches missed.">        if (null != primaryW) {</span>
+<span class="nc" id="L1093">	        bvText.append(startRow);</span>
+<span class="nc" id="L1094">	        bvText.append(startColumn);</span>
+<span class="nc" id="L1095">	        bvText.append(primaryW.getName());</span>
+<span class="nc" id="L1096">            bvText.append(endColumn);</span>
+<span class="nc" id="L1097">            bvText.append(startColumn);</span>
+<span class="nc" id="L1098">	        bvText.append((squadsize - secondn) * squadn);</span>
+<span class="nc" id="L1099">	        bvText.append(&quot; x &quot; );</span>
+<span class="nc" id="L1100">	        bvText.append(df.format(primaryW.getBV(this)));</span>
+<span class="nc" id="L1101">            bvText.append(endColumn);</span>
+<span class="nc" id="L1102">            bvText.append(startColumn);</span>
+<span class="nc" id="L1103">            bvText.append(df.format(primaryW.getBV(this) * (squadsize - secondn) * squadn));</span>
+<span class="nc" id="L1104">            bvText.append(endColumn);</span>
+<span class="nc" id="L1105">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1107" title="All 2 branches missed.">        if (null != secondW) {</span>
+<span class="nc" id="L1108">	        bvText.append(startRow);</span>
+<span class="nc" id="L1109">	        bvText.append(startColumn);</span>
+<span class="nc" id="L1110">	        bvText.append(secondW.getName());</span>
+<span class="nc" id="L1111">            bvText.append(endColumn);</span>
+<span class="nc" id="L1112">            bvText.append(startColumn);</span>
+<span class="nc" id="L1113">	        bvText.append(secondn * squadn);</span>
+<span class="nc" id="L1114">	        bvText.append(&quot; x &quot; );</span>
+<span class="nc" id="L1115">	        bvText.append(df.format(secondW.getBV(this)));</span>
+<span class="nc" id="L1116">            bvText.append(endColumn);</span>
+<span class="nc" id="L1117">            bvText.append(startColumn);</span>
+<span class="nc" id="L1118">            bvText.append(df.format(secondW.getBV(this) * secondn * squadn));</span>
+<span class="nc" id="L1119">            bvText.append(endColumn);</span>
+<span class="nc" id="L1120">            bvText.append(endRow);</span>
+        }
+
+        //add in field gun BV
+<span class="nc bnc" id="L1124" title="All 2 branches missed.">        for (Mounted mounted : getEquipment()) {</span>
+<span class="nc bnc" id="L1125" title="All 2 branches missed.">            if(mounted.getLocation() == LOC_FIELD_GUNS) {</span>
+<span class="nc" id="L1126">                wbv += mounted.getType().getBV(this);</span>
+<span class="nc" id="L1127">    	        bvText.append(startRow);</span>
+<span class="nc" id="L1128">    	        bvText.append(startColumn);</span>
+<span class="nc" id="L1129">    	        bvText.append(mounted.getType().getName());</span>
+<span class="nc" id="L1130">                bvText.append(endColumn);</span>
+<span class="nc" id="L1131">                bvText.append(startColumn);</span>
+<span class="nc" id="L1132">                bvText.append(endColumn);</span>
+<span class="nc" id="L1133">                bvText.append(startColumn);</span>
+<span class="nc" id="L1134">                bvText.append(mounted.getType().getBV(this));</span>
+<span class="nc" id="L1135">                bvText.append(endColumn);</span>
+<span class="nc" id="L1136">                bvText.append(endRow);</span>
+            }
+<span class="nc" id="L1138">        }</span>
+<span class="nc" id="L1139">        obr = (wbv + ambv) * speedFactor;</span>
+
+<span class="nc" id="L1141">        bvText.append(startRow);</span>
+<span class="nc" id="L1142">        bvText.append(startColumn);</span>
+<span class="nc" id="L1143">        bvText.append(endColumn);</span>
+<span class="nc" id="L1144">        bvText.append(startColumn);</span>
+<span class="nc" id="L1145">        bvText.append(endColumn);</span>
+<span class="nc" id="L1146">        bvText.append(startColumn);</span>
+<span class="nc" id="L1147">        bvText.append(&quot;-------------&quot;);</span>
+<span class="nc" id="L1148">        bvText.append(endColumn);</span>
+<span class="nc" id="L1149">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1151">        bvText.append(startRow);</span>
+<span class="nc" id="L1152">        bvText.append(startColumn);</span>
+<span class="nc" id="L1153">        bvText.append(&quot;Weapon BV:&quot;);</span>
+<span class="nc" id="L1154">        bvText.append(endColumn);</span>
+<span class="nc" id="L1155">        bvText.append(startColumn);</span>
+<span class="nc" id="L1156">        bvText.append(endColumn);</span>
+<span class="nc" id="L1157">        bvText.append(startColumn);</span>
+<span class="nc" id="L1158">        bvText.append(df.format(wbv));</span>
+<span class="nc" id="L1159">        bvText.append(endColumn);</span>
+<span class="nc" id="L1160">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1162">        bvText.append(startRow);</span>
+<span class="nc" id="L1163">        bvText.append(startColumn);</span>
+<span class="nc" id="L1164">        bvText.append(&quot;Anti-Mek BV:&quot;);</span>
+<span class="nc" id="L1165">        bvText.append(endColumn);</span>
+<span class="nc" id="L1166">        bvText.append(startColumn);</span>
+<span class="nc" id="L1167">        bvText.append(endColumn);</span>
+<span class="nc" id="L1168">        bvText.append(startColumn);</span>
+<span class="nc" id="L1169">        bvText.append(df.format(ambv));</span>
+<span class="nc" id="L1170">        bvText.append(endColumn);</span>
+<span class="nc" id="L1171">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1173">        bvText.append(startRow);</span>
+<span class="nc" id="L1174">        bvText.append(startColumn);</span>
+<span class="nc" id="L1175">        bvText.append(&quot;Speed Factor:&quot;);</span>
+<span class="nc" id="L1176">        bvText.append(endColumn);</span>
+<span class="nc" id="L1177">        bvText.append(startColumn);</span>
+<span class="nc" id="L1178">        bvText.append(endColumn);</span>
+<span class="nc" id="L1179">        bvText.append(startColumn);</span>
+<span class="nc" id="L1180">        bvText.append(df.format(speedFactor));</span>
+<span class="nc" id="L1181">        bvText.append(endColumn);</span>
+<span class="nc" id="L1182">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1184">        bvText.append(startRow);</span>
+<span class="nc" id="L1185">        bvText.append(startColumn);</span>
+<span class="nc" id="L1186">        bvText.append(&quot;Weapons BV x Speed Factor:&quot;);</span>
+<span class="nc" id="L1187">        bvText.append(endColumn);</span>
+<span class="nc" id="L1188">        bvText.append(startColumn);</span>
+<span class="nc" id="L1189">        bvText.append(df.format(wbv + ambv));</span>
+<span class="nc" id="L1190">        bvText.append(&quot; x &quot;);</span>
+<span class="nc" id="L1191">        bvText.append(df.format(speedFactor));</span>
+<span class="nc" id="L1192">        bvText.append(endColumn);</span>
+<span class="nc" id="L1193">        bvText.append(startColumn);</span>
+<span class="nc" id="L1194">        bvText.append(df.format(obr));</span>
+<span class="nc" id="L1195">        bvText.append(endColumn);</span>
+<span class="nc" id="L1196">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1198">        bvText.append(startRow);</span>
+<span class="nc" id="L1199">        bvText.append(startColumn);</span>
+
+        double bv;
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">        if (useGeometricMeanBV()) {</span>
+<span class="nc" id="L1203">            bv = 2 * Math.sqrt(obr * dbr);</span>
+<span class="nc bnc" id="L1204" title="All 2 branches missed.">            if (bv == 0) {</span>
+<span class="nc" id="L1205">                bv = dbr + obr;</span>
+            }
+<span class="nc" id="L1207">            bvText.append(&quot;SQRT(Defensive BR * Offensive BR) x 2:&quot;);</span>
+<span class="nc" id="L1208">            bvText.append(endColumn);</span>
+<span class="nc" id="L1209">            bvText.append(startColumn);</span>
+        } else {
+<span class="nc" id="L1211">            bv = obr + dbr;</span>
+<span class="nc" id="L1212">            bvText.append(&quot;Defensive BR + Offensive BR:&quot;);</span>
+<span class="nc" id="L1213">            bvText.append(endColumn);</span>
+<span class="nc" id="L1214">            bvText.append(startColumn);</span>
+<span class="nc" id="L1215">            bvText.append(df.format(dbr));</span>
+<span class="nc" id="L1216">            bvText.append(&quot; + &quot;);</span>
+<span class="nc" id="L1217">            bvText.append(df.format(obr));</span>
+        }
+
+<span class="nc" id="L1220">        bvText.append(endColumn);</span>
+<span class="nc" id="L1221">        bvText.append(startColumn);</span>
+<span class="nc" id="L1222">        bvText.append(df.format(bv));</span>
+<span class="nc" id="L1223">        bvText.append(endColumn);</span>
+<span class="nc" id="L1224">        bvText.append(endRow);</span>
+
+        double utm; //unit type modifier
+<span class="nc bnc" id="L1227" title="All 5 branches missed.">        switch (getMovementMode()) {</span>
+        case INF_MOTORIZED:
+        case WHEELED:
+<span class="nc" id="L1230">        	utm = 0.8;</span>
+<span class="nc" id="L1231">        	break;</span>
+        case TRACKED:
+<span class="nc" id="L1233">        	utm = 0.9;</span>
+<span class="nc" id="L1234">        	break;</span>
+        case HOVER:
+        case VTOL:
+<span class="nc" id="L1237">        	utm = 0.7;</span>
+<span class="nc" id="L1238">        	break;</span>
+        case SUBMARINE:
+<span class="nc" id="L1240">        	utm = 0.6;</span>
+<span class="nc" id="L1241">        	break;</span>
+        default:
+<span class="nc" id="L1243">        	utm = 1.0;</span>
+        	break;
+        }
+
+<span class="nc" id="L1247">        bvText.append(startRow);</span>
+<span class="nc" id="L1248">        bvText.append(startColumn);</span>
+<span class="nc" id="L1249">        bvText.append(&quot;Base Unit Type Modifier:&quot;);</span>
+<span class="nc" id="L1250">        bvText.append(endColumn);</span>
+<span class="nc" id="L1251">        bvText.append(startColumn);</span>
+<span class="nc" id="L1252">        bvText.append(endColumn);</span>
+<span class="nc" id="L1253">        bvText.append(startColumn);</span>
+<span class="nc" id="L1254">        bvText.append(df.format(utm));</span>
+<span class="nc" id="L1255">        bvText.append(endColumn);</span>
+<span class="nc" id="L1256">        bvText.append(endRow);</span>
+
+<span class="nc bnc" id="L1258" title="All 2 branches missed.">        if (hasSpecialization(COMBAT_ENGINEERS)) {</span>
+<span class="nc" id="L1259">        	utm += 0.1;</span>
+<span class="nc" id="L1260">            bvText.append(startRow);</span>
+<span class="nc" id="L1261">            bvText.append(startColumn);</span>
+<span class="nc" id="L1262">            bvText.append(&quot;Combat Engineers:&quot;);</span>
+<span class="nc" id="L1263">            bvText.append(endColumn);</span>
+<span class="nc" id="L1264">            bvText.append(startColumn);</span>
+<span class="nc" id="L1265">            bvText.append(endColumn);</span>
+<span class="nc" id="L1266">            bvText.append(startColumn);</span>
+<span class="nc" id="L1267">            bvText.append(&quot;0.1&quot;);</span>
+<span class="nc" id="L1268">            bvText.append(endColumn);</span>
+<span class="nc" id="L1269">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1271" title="All 2 branches missed.">        if (hasSpecialization(MARINES)) {</span>
+<span class="nc" id="L1272">        	utm += 0.3;</span>
+<span class="nc" id="L1273">            bvText.append(startRow);</span>
+<span class="nc" id="L1274">            bvText.append(startColumn);</span>
+<span class="nc" id="L1275">            bvText.append(&quot;Marines:&quot;);</span>
+<span class="nc" id="L1276">            bvText.append(endColumn);</span>
+<span class="nc" id="L1277">            bvText.append(startColumn);</span>
+<span class="nc" id="L1278">            bvText.append(endColumn);</span>
+<span class="nc" id="L1279">            bvText.append(startColumn);</span>
+<span class="nc" id="L1280">            bvText.append(&quot;0.3&quot;);</span>
+<span class="nc" id="L1281">            bvText.append(endColumn);</span>
+<span class="nc" id="L1282">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1284" title="All 2 branches missed.">        if (hasSpecialization(MOUNTAIN_TROOPS)) {</span>
+<span class="nc" id="L1285">        	utm += 0.2;</span>
+<span class="nc" id="L1286">            bvText.append(startRow);</span>
+<span class="nc" id="L1287">            bvText.append(startColumn);</span>
+<span class="nc" id="L1288">            bvText.append(&quot;Mountain Troops:&quot;);</span>
+<span class="nc" id="L1289">            bvText.append(endColumn);</span>
+<span class="nc" id="L1290">            bvText.append(startColumn);</span>
+<span class="nc" id="L1291">            bvText.append(endColumn);</span>
+<span class="nc" id="L1292">            bvText.append(startColumn);</span>
+<span class="nc" id="L1293">            bvText.append(&quot;0.2&quot;);</span>
+<span class="nc" id="L1294">            bvText.append(endColumn);</span>
+<span class="nc" id="L1295">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1297" title="All 2 branches missed.">        if (hasSpecialization(PARATROOPS)) {</span>
+<span class="nc" id="L1298">        	utm += 0.1;</span>
+<span class="nc" id="L1299">            bvText.append(startRow);</span>
+<span class="nc" id="L1300">            bvText.append(startColumn);</span>
+<span class="nc" id="L1301">            bvText.append(&quot;Paratroops:&quot;);</span>
+<span class="nc" id="L1302">            bvText.append(endColumn);</span>
+<span class="nc" id="L1303">            bvText.append(startColumn);</span>
+<span class="nc" id="L1304">            bvText.append(endColumn);</span>
+<span class="nc" id="L1305">            bvText.append(startColumn);</span>
+<span class="nc" id="L1306">            bvText.append(&quot;0.1&quot;);</span>
+<span class="nc" id="L1307">            bvText.append(endColumn);</span>
+<span class="nc" id="L1308">            bvText.append(endRow);</span>
+        }
+<span class="nc bnc" id="L1310" title="All 2 branches missed.">        if (hasSpecialization(SCUBA)) {</span>
+<span class="nc" id="L1311">        	utm += 0.1;</span>
+<span class="nc" id="L1312">            bvText.append(startRow);</span>
+<span class="nc" id="L1313">            bvText.append(startColumn);</span>
+<span class="nc" id="L1314">            bvText.append(&quot;SCUBA:&quot;);</span>
+<span class="nc" id="L1315">            bvText.append(endColumn);</span>
+<span class="nc" id="L1316">            bvText.append(startColumn);</span>
+<span class="nc" id="L1317">            bvText.append(endColumn);</span>
+<span class="nc" id="L1318">            bvText.append(startColumn);</span>
+<span class="nc" id="L1319">            bvText.append(&quot;0.1&quot;);</span>
+<span class="nc" id="L1320">            bvText.append(endColumn);</span>
+<span class="nc" id="L1321">            bvText.append(endRow);</span>
+        }
+
+<span class="nc bnc" id="L1324" title="All 2 branches missed.">        if (hasSpecialization(XCT)) {</span>
+<span class="nc" id="L1325">            utm += 0.1;</span>
+<span class="nc" id="L1326">            bvText.append(startRow);</span>
+<span class="nc" id="L1327">            bvText.append(startColumn);</span>
+<span class="nc" id="L1328">            bvText.append(&quot;XCT:&quot;);</span>
+<span class="nc" id="L1329">            bvText.append(endColumn);</span>
+<span class="nc" id="L1330">            bvText.append(startColumn);</span>
+<span class="nc" id="L1331">            bvText.append(endColumn);</span>
+<span class="nc" id="L1332">            bvText.append(startColumn);</span>
+<span class="nc" id="L1333">            bvText.append(&quot;0.1&quot;);</span>
+<span class="nc" id="L1334">            bvText.append(endColumn);</span>
+<span class="nc" id="L1335">            bvText.append(endRow);</span>
+        }
+
+<span class="nc" id="L1338">        bvText.append(startRow);</span>
+<span class="nc" id="L1339">        bvText.append(startColumn);</span>
+<span class="nc" id="L1340">        bvText.append(endColumn);</span>
+<span class="nc" id="L1341">        bvText.append(startColumn);</span>
+<span class="nc" id="L1342">        bvText.append(endColumn);</span>
+<span class="nc" id="L1343">        bvText.append(startColumn);</span>
+<span class="nc" id="L1344">        bvText.append(&quot;-------------&quot;);</span>
+<span class="nc" id="L1345">        bvText.append(endColumn);</span>
+<span class="nc" id="L1346">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1348">        bvText.append(startRow);</span>
+<span class="nc" id="L1349">        bvText.append(startColumn);</span>
+<span class="nc" id="L1350">        bvText.append(&quot;Total Unit Type Modifier&quot;);</span>
+<span class="nc" id="L1351">        bvText.append(endColumn);</span>
+<span class="nc" id="L1352">        bvText.append(startColumn);</span>
+<span class="nc" id="L1353">        bvText.append(endColumn);</span>
+<span class="nc" id="L1354">        bvText.append(startColumn);</span>
+<span class="nc" id="L1355">        bvText.append(df.format(utm));</span>
+<span class="nc" id="L1356">        bvText.append(endColumn);</span>
+<span class="nc" id="L1357">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1359">        bvText.append(startRow);</span>
+<span class="nc" id="L1360">        bvText.append(startColumn);</span>
+<span class="nc" id="L1361">        bvText.append(&quot;Final BV:&quot;);</span>
+<span class="nc" id="L1362">        bvText.append(endColumn);</span>
+<span class="nc" id="L1363">        bvText.append(startColumn);</span>
+<span class="nc" id="L1364">        bvText.append(df.format(bv));</span>
+<span class="nc" id="L1365">        bvText.append(&quot; x &quot;);</span>
+<span class="nc" id="L1366">        bvText.append(df.format(utm));</span>
+<span class="nc" id="L1367">        bvText.append(endColumn);</span>
+
+<span class="nc" id="L1369">        bv *= utm;</span>
+<span class="nc" id="L1370">        bvText.append(startColumn);</span>
+<span class="nc" id="L1371">        bvText.append((int)Math.round(bv));</span>
+<span class="nc" id="L1372">        bvText.append(endColumn);</span>
+<span class="nc" id="L1373">        bvText.append(endRow);</span>
+
+<span class="nc" id="L1375">        bvText.append(endTable);</span>
+<span class="nc" id="L1376">        bvText.append(&quot;&lt;/BODY&gt;&lt;/HTML&gt;&quot;);</span>
+
+        // and then factor in pilot
+<span class="nc" id="L1379">        double pilotFactor = 1;</span>
+<span class="nc bnc" id="L1380" title="All 2 branches missed.">        if (!ignorePilot) {</span>
+<span class="nc" id="L1381">            pilotFactor = getCrew().getBVSkillMultiplier(isAntiMekTrained(), game);</span>
+        }
+<span class="nc" id="L1383">        return (int) Math.round((bv) * pilotFactor);</span>
+
+    } // End public int calculateBattleValue()
+
+    @Override
+    public Vector&lt;Report&gt; victoryReport() {
+<span class="nc" id="L1389">        Vector&lt;Report&gt; vDesc = new Vector&lt;Report&gt;();</span>
+
+<span class="nc" id="L1391">        Report r = new Report(7025);</span>
+<span class="nc" id="L1392">        r.type = Report.PUBLIC;</span>
+<span class="nc" id="L1393">        r.addDesc(this);</span>
+<span class="nc" id="L1394">        vDesc.addElement(r);</span>
+
+<span class="nc" id="L1396">        r = new Report(7041);</span>
+<span class="nc" id="L1397">        r.type = Report.PUBLIC;</span>
+<span class="nc" id="L1398">        r.add(getCrew().getGunnery());</span>
+<span class="nc" id="L1399">        r.newlines = 0;</span>
+<span class="nc" id="L1400">        vDesc.addElement(r);</span>
+
+<span class="nc" id="L1402">        r = new Report(7070, Report.PUBLIC);</span>
+<span class="nc" id="L1403">        r.add(getKillNumber());</span>
+<span class="nc" id="L1404">        vDesc.addElement(r);</span>
+
+<span class="nc bnc" id="L1406" title="All 2 branches missed.">        if (isDestroyed()) {</span>
+<span class="nc" id="L1407">            Entity killer = game.getEntity(killerId);</span>
+<span class="nc bnc" id="L1408" title="All 2 branches missed.">            if (killer == null) {</span>
+<span class="nc" id="L1409">                killer = game.getOutOfGameEntity(killerId);</span>
+            }
+<span class="nc bnc" id="L1411" title="All 2 branches missed.">            if (killer != null) {</span>
+<span class="nc" id="L1412">                r = new Report(7072, Report.PUBLIC);</span>
+<span class="nc" id="L1413">                r.addDesc(killer);</span>
+            } else {
+<span class="nc" id="L1415">                r = new Report(7073, Report.PUBLIC);</span>
+            }
+<span class="nc" id="L1417">            vDesc.addElement(r);</span>
+        }
+<span class="nc" id="L1419">        r.newlines = 2;</span>
+
+<span class="nc" id="L1421">        return vDesc;</span>
+    }
+
+    /**
+     * Infantry don't need piloting rolls.
+     */
+    @Override
+    public PilotingRollData addEntityBonuses(PilotingRollData prd) {
+<span class="nc" id="L1429">        return prd;</span>
+    }
+
+    /**
+     * Infantry can only change 1 elevation level at a time unless Mountain Inf
+     * which is 3.
+     */
+    @Override
+    public int getMaxElevationChange() {
+<span class="nc bnc" id="L1438" title="All 2 branches missed.">        if (hasSpecialization(MOUNTAIN_TROOPS)) {</span>
+<span class="nc" id="L1439">            return 3;</span>
+        }
+<span class="nc" id="L1441">        return 1;</span>
+    }
+
+    /**
+     * Update the platoon to reflect damages taken in this phase.
+     */
+    @Override
+    public void applyDamage() {
+<span class="nc" id="L1449">        super.applyDamage();</span>
+<span class="nc" id="L1450">        menShooting = men;</span>
+<span class="nc" id="L1451">    }</span>
+
+    // The methods below aren't in the Entity interface.
+
+    /**
+     * Get the number of men in the platoon (before damage is applied).
+     */
+    public int getShootingStrength() {
+<span class="nc" id="L1459">        return menShooting;</span>
+    }
+
+    @Override
+    public boolean canCharge() {
+        // Infantry can't Charge
+<span class="nc" id="L1465">        return false;</span>
+    }
+
+    @Override
+    public boolean canDFA() {
+        // Infantry can't DFA
+<span class="nc" id="L1471">        return false;</span>
+    }
+
+    /**
+     * Checks if the entity is moving into a swamp. If so, returns the target
+     * roll for the piloting skill check. now includes the level 3 terains which
+     * can bog down
+     */
+    public PilotingRollData checkBogDown(MoveStep step,
+            EntityMovementType moveType, IHex curHex, Coords lastPos,
+            Coords curPos, int lastElev, boolean isPavementStep) {
+<span class="nc" id="L1482">        return checkBogDown(step, curHex, lastPos, curPos, isPavementStep);</span>
+    }
+
+    public PilotingRollData checkBogDown(MoveStep step, IHex curHex,
+            Coords lastPos, Coords curPos, boolean isPavementStep) {
+<span class="nc" id="L1487">        PilotingRollData roll = new PilotingRollData(getId(), 4,</span>
+                &quot;entering boggy terrain&quot;);
+<span class="nc" id="L1489">        int bgMod = curHex.getBogDownModifier(getMovementMode(), false);</span>
+<span class="nc bnc" id="L1490" title="All 2 branches missed.">        final boolean onBridge = (curHex.terrainLevel(Terrains.BRIDGE) &gt; 0)</span>
+<span class="nc bnc" id="L1491" title="All 2 branches missed.">                &amp;&amp; (getElevation() == curHex.terrainLevel(Terrains.BRIDGE_ELEV));</span>
+<span class="nc bnc" id="L1492" title="All 4 branches missed.">        if (!lastPos.equals(curPos) &amp;&amp; (bgMod != TargetRoll.AUTOMATIC_SUCCESS)</span>
+<span class="nc bnc" id="L1493" title="All 2 branches missed.">                &amp;&amp; (step.getMovementType(false) != EntityMovementType.MOVE_JUMP)</span>
+<span class="nc bnc" id="L1494" title="All 2 branches missed.">                &amp;&amp; (getMovementMode() != EntityMovementMode.HOVER)</span>
+<span class="nc bnc" id="L1495" title="All 2 branches missed.">                &amp;&amp; (getMovementMode() != EntityMovementMode.VTOL)</span>
+<span class="nc bnc" id="L1496" title="All 2 branches missed.">                &amp;&amp; (getMovementMode() != EntityMovementMode.WIGE)</span>
+<span class="nc bnc" id="L1497" title="All 6 branches missed.">                &amp;&amp; (step.getElevation() == 0) &amp;&amp; !isPavementStep &amp;&amp; !onBridge) {</span>
+<span class="nc" id="L1498">            roll.append(new PilotingRollData(getId(), bgMod,</span>
+                    &quot;avoid bogging down&quot;));
+        } else {
+<span class="nc" id="L1501">            roll.addModifier(TargetRoll.CHECK_FALSE,</span>
+                    &quot;Check false: Not entering bog-down terrain, &quot;
+                            + &quot;or jumping/hovering over such terrain&quot;);
+        }
+<span class="nc" id="L1505">        return roll;</span>
+    }
+
+    public boolean getCanCallSupport() {
+<span class="nc" id="L1509">        return canCallSupport;</span>
+    }
+
+  /**
+  * This combines the old getCost and getAlternativeCost methods into a revised getCost Method.
+    *this better considers AntiMek training and Weapons and armor costs.
+  */
+    @Override
+    public double getCost(boolean ignoreAmmo) {
+<span class="nc" id="L1518">        double pweaponCost = 0;  //Primary Weapon Cost</span>
+<span class="nc" id="L1519">        double sweaponCost = 0; // Secondary Weapon Cost</span>
+<span class="nc" id="L1520">        double armorcost = 0; //Armor Cost</span>
+<span class="nc" id="L1521">        double cost = 0; //Total Final Cost of Platoon or Squad.</span>
+<span class="nc" id="L1522">        double primarySquad = 0; //Number of Troopers with Primary Weapon Only</span>
+<span class="nc" id="L1523">        double secondSquad = 0; //Number oif Troopers with Secondary Weapon Only.</span>
+
+        //Weapon Cost Calculation
+<span class="nc bnc" id="L1526" title="All 2 branches missed.">        if(null != primaryW) {</span>
+<span class="nc" id="L1527">            pweaponCost += Math.sqrt(primaryW.getCost(this, false, -1)) * 2000;</span>
+        }
+<span class="nc bnc" id="L1529" title="All 2 branches missed.">        if(null != secondW) {</span>
+<span class="nc" id="L1530">            sweaponCost += Math.sqrt(secondW.getCost(this, false, -1)) * 2000;</span>
+        }
+
+        //Determining Break down of who would have primary and secondary weapons.
+<span class="nc" id="L1534">        primarySquad = (squadsize - secondn) * squadn;</span>
+<span class="nc" id="L1535">        secondSquad = menStarting - primarySquad;</span>
+
+        //Squad Cost with just the weapons.
+<span class="nc" id="L1538">        cost = (primarySquad * pweaponCost) + (secondSquad * sweaponCost);</span>
+
+        /* Check whether the unit has an armor kit. If not, calculate value for custom
+         * armor settings.
+         */
+<span class="nc" id="L1543">        EquipmentType armor = getArmorKit();</span>
+<span class="nc bnc" id="L1544" title="All 2 branches missed.">        if (armor != null) {</span>
+<span class="nc" id="L1545">        	armorcost = armor.getCost(this, false, LOC_INFANTRY);</span>
+        } else {
+	        //add in infantry armor cost
+<span class="nc bnc" id="L1548" title="All 2 branches missed.">	        if(damageDivisor &gt; 1) {</span>
+<span class="nc bnc" id="L1549" title="All 2 branches missed.">	            if(isArmorEncumbering()) {</span>
+<span class="nc" id="L1550">	                armorcost += 1600;</span>
+	            } else {
+<span class="nc" id="L1552">	                armorcost += 4300;</span>
+	            }
+	        }
+<span class="nc" id="L1555">	        int nSneak = 0;</span>
+<span class="nc bnc" id="L1556" title="All 2 branches missed.">	        if(hasSneakCamo()) {</span>
+<span class="nc" id="L1557">	            nSneak++;</span>
+	        }
+<span class="nc bnc" id="L1559" title="All 2 branches missed.">	        if(hasSneakECM()) {</span>
+<span class="nc" id="L1560">	            nSneak++;</span>
+	        }
+<span class="nc bnc" id="L1562" title="All 2 branches missed.">	        if(hasSneakIR()) {</span>
+<span class="nc" id="L1563">	            nSneak++;</span>
+	        }
+
+<span class="nc bnc" id="L1566" title="All 2 branches missed.">	        if(hasDEST()) {</span>
+<span class="nc" id="L1567">	            armorcost += 50000;</span>
+	        }
+<span class="nc bnc" id="L1569" title="All 2 branches missed.">	        else if(nSneak == 1) {</span>
+<span class="nc" id="L1570">	            armorcost += 7000;</span>
+	        }
+<span class="nc bnc" id="L1572" title="All 2 branches missed.">	        else if(nSneak == 2) {</span>
+<span class="nc" id="L1573">	            armorcost += 21000;</span>
+	        }
+<span class="nc bnc" id="L1575" title="All 2 branches missed.">	        else if(nSneak == 3) {</span>
+<span class="nc" id="L1576">	            armorcost += 28000;</span>
+	        }
+
+<span class="nc bnc" id="L1579" title="All 2 branches missed.">	        if(hasSpaceSuit()) {</span>
+<span class="nc" id="L1580">	            armorcost += 5000;</span>
+	        }
+        }
+
+        //Cost of armor on a per man basis added
+<span class="nc" id="L1585">        cost += (armorcost * menStarting);</span>
+
+        // Price multiplier includes anti-mech training, motive type, and specializations
+<span class="nc" id="L1588">        cost = cost * getPriceMultiplier();</span>
+
+        //add in field gun costs
+<span class="nc bnc" id="L1591" title="All 2 branches missed.">        for (Mounted mounted : getEquipment()) {</span>
+<span class="nc bnc" id="L1592" title="All 2 branches missed.">            if(mounted.getLocation() == LOC_FIELD_GUNS) {</span>
+<span class="nc" id="L1593">                cost += Math.floor(mounted.getType().getCost(this, false, mounted.getLocation()));</span>
+            }
+<span class="nc" id="L1595">        }</span>
+<span class="nc" id="L1596">        return cost;</span>
+    }
+
+    @Override
+    public double getPriceMultiplier() {
+<span class="nc" id="L1601">        double priceMultiplier = 1.0;</span>
+
+        //Anti-Mek Trained Multiplier
+<span class="nc bnc" id="L1604" title="All 2 branches missed.">        if (isAntiMekTrained()) {</span>
+<span class="nc" id="L1605">            priceMultiplier *= 5.0;</span>
+        }
+
+        // Motive type costs
+<span class="nc bnc" id="L1609" title="All 10 branches missed.">        switch (getMovementMode()){</span>
+            case INF_UMU:
+<span class="nc bnc" id="L1611" title="All 2 branches missed.">                priceMultiplier *= getAllUMUCount() &gt; 1? 2.5 : 2;</span>
+<span class="nc" id="L1612">                break;</span>
+            case INF_LEG:
+<span class="nc" id="L1614">                priceMultiplier *= 1.0;</span>
+<span class="nc" id="L1615">                break;</span>
+            case INF_MOTORIZED:
+<span class="nc" id="L1617">                priceMultiplier *= 1.6;</span>
+<span class="nc" id="L1618">                break;</span>
+            case INF_JUMP:
+<span class="nc" id="L1620">                priceMultiplier *= 2.6;</span>
+<span class="nc" id="L1621">                break;</span>
+            case HOVER:
+<span class="nc" id="L1623">                priceMultiplier *= 3.2;</span>
+<span class="nc" id="L1624">                break;</span>
+            case WHEELED:
+<span class="nc" id="L1626">                priceMultiplier *= 3.2;</span>
+<span class="nc" id="L1627">                break;</span>
+            case TRACKED:
+<span class="nc" id="L1629">                priceMultiplier *= 3.2;</span>
+<span class="nc" id="L1630">                break;</span>
+            case VTOL:
+<span class="nc bnc" id="L1632" title="All 2 branches missed.">                priceMultiplier *= hasMicrolite()? 4 : 4.5;</span>
+<span class="nc" id="L1633">                break;</span>
+            case SUBMARINE:
+                /* No cost given in TacOps, using basic mechanized cost for now */
+<span class="nc" id="L1636">                priceMultiplier *= 3.2;</span>
+<span class="nc" id="L1637">                break;</span>
+            default:
+                break;
+        }
+
+        // Specialization costs
+<span class="nc bnc" id="L1643" title="All 2 branches missed.">        if (hasSpecialization(COMBAT_ENGINEERS)) {</span>
+<span class="nc" id="L1644">            priceMultiplier *= 5;</span>
+        }
+<span class="nc bnc" id="L1646" title="All 2 branches missed.">        if (hasSpecialization(MARINES)) {</span>
+<span class="nc" id="L1647">            priceMultiplier *= 3;</span>
+        }
+<span class="nc bnc" id="L1649" title="All 2 branches missed.">        if (hasSpecialization(MOUNTAIN_TROOPS)) {</span>
+<span class="nc" id="L1650">            priceMultiplier *= 2;</span>
+        }
+<span class="nc bnc" id="L1652" title="All 2 branches missed.">        if (hasSpecialization(PARATROOPS)) {</span>
+<span class="nc" id="L1653">            priceMultiplier *= 3;</span>
+        }
+<span class="nc bnc" id="L1655" title="All 2 branches missed.">        if (hasSpecialization(XCT)) {</span>
+<span class="nc" id="L1656">            priceMultiplier *= 5;</span>
+        }
+        // TODO: paramedics cost an addition x0.375 per paramedic
+<span class="nc" id="L1659">        return priceMultiplier;</span>
+    }
+
+    /**
+     * The alternate cost here is used by MekHQ to create costs that reflect just the cost of
+     * equipment. The motive costs here are based on the costs associated with an auto-rifle
+     * platoon.
+     */
+    @Override
+    public double getAlternateCost() {
+<span class="nc" id="L1669">        double cost = 0;</span>
+<span class="nc bnc" id="L1670" title="All 2 branches missed.">        if(null != primaryW) {</span>
+<span class="nc" id="L1671">            cost += primaryW.getCost(this, false, -1) * (squadsize - secondn);</span>
+        }
+<span class="nc bnc" id="L1673" title="All 2 branches missed.">        if(null != secondW) {</span>
+<span class="nc" id="L1674">            cost += secondW.getCost(this, false, -1) * secondn;</span>
+        }
+<span class="nc" id="L1676">        cost = cost / squadsize;</span>
+
+<span class="nc" id="L1678">        EquipmentType armor = getArmorKit();</span>
+<span class="nc bnc" id="L1679" title="All 2 branches missed.">        if (armor != null) {</span>
+<span class="nc" id="L1680">        	cost += armor.getCost(this, false, LOC_INFANTRY);</span>
+        }
+
+        //Add in motive type costs
+<span class="nc bnc" id="L1684" title="All 7 branches missed.">        switch (getMovementMode()){</span>
+            case INF_UMU:
+<span class="nc" id="L1686">                cost += 17888;</span>
+<span class="nc bnc" id="L1687" title="All 2 branches missed.">                if (getAllUMUCount() &gt; 1) {</span>
+<span class="nc" id="L1688">                	cost += 17888 * 0.5;</span>
+                }
+                break;
+            case INF_LEG:
+<span class="nc" id="L1692">                break;</span>
+            case INF_MOTORIZED:
+<span class="nc" id="L1694">                cost += 17888 * 0.6;</span>
+<span class="nc" id="L1695">                break;</span>
+            case INF_JUMP:
+<span class="nc" id="L1697">                cost += 17888 * 1.6;</span>
+<span class="nc" id="L1698">                break;</span>
+            case HOVER:
+            case WHEELED:
+            case TRACKED:
+            case SUBMARINE: //FIXME: there is no cost shown for mech. scuba in tac ops
+<span class="nc" id="L1703">                cost += 17888 * 2.2;</span>
+<span class="nc" id="L1704">                break;</span>
+            case VTOL:
+<span class="nc bnc" id="L1706" title="All 2 branches missed.">            	cost += 17888 * (hasMicrolite()? 3 : 3.5);</span>
+<span class="nc" id="L1707">            	break;</span>
+            default:
+                break;
+        }
+<span class="nc" id="L1711">        cost *= menStarting;</span>
+        //add in field gun costs
+<span class="nc bnc" id="L1713" title="All 2 branches missed.">        for (Mounted mounted : getEquipment()) {</span>
+<span class="nc bnc" id="L1714" title="All 2 branches missed.">            if(mounted.getLocation() == LOC_FIELD_GUNS) {</span>
+<span class="nc" id="L1715">                cost += mounted.getType().getCost(this, false, -1);</span>
+            }
+<span class="nc" id="L1717">        }</span>
+<span class="nc" id="L1718">        return cost;</span>
+    }
+
+    @Override
+    public boolean doomedInExtremeTemp() {
+<span class="nc bnc" id="L1723" title="All 2 branches missed.">        if (getArmorKit() != null) {</span>
+<span class="nc bnc" id="L1724" title="All 2 branches missed.">            if (getArmorKit().hasSubType(MiscType.S_XCT_VACUUM)) {</span>
+<span class="nc" id="L1725">                return false;</span>
+<span class="nc bnc" id="L1726" title="All 4 branches missed.">            } else if (getArmorKit().hasSubType(MiscType.S_COLD_WEATHER) &amp;&amp; (game.getPlanetaryConditions().getTemperature() &lt; -30)) {</span>
+<span class="nc" id="L1727">                return false;</span>
+<span class="nc bnc" id="L1728" title="All 4 branches missed.">            } else if (getArmorKit().hasSubType(MiscType.S_HOT_WEATHER) &amp;&amp; (game.getPlanetaryConditions().getTemperature() &gt; 50)) {</span>
+<span class="nc" id="L1729">                return false;</span>
+            } else {
+<span class="nc" id="L1731">                return true;</span>
+            }
+        }
+<span class="nc bnc" id="L1734" title="All 4 branches missed.">        if (hasSpaceSuit() || isMechanized()) {</span>
+<span class="nc" id="L1735">            return false;</span>
+        }
+<span class="nc" id="L1737">        return true;</span>
+    }
+
+    @Override
+    public boolean doomedInVacuum() {
+<span class="nc bnc" id="L1742" title="All 2 branches missed.">        if (getMovementMode() == EntityMovementMode.VTOL) {</span>
+<span class="nc" id="L1743">            return true;</span>
+        } else {
+<span class="nc bnc" id="L1745" title="All 2 branches missed.">            return !hasSpaceSuit();</span>
+        }
+    }
+
+    @Override
+    public boolean doomedOnGround() {
+<span class="nc" id="L1751">        return false;</span>
+    }
+
+    @Override
+    public boolean doomedInAtmosphere() {
+<span class="nc" id="L1756">        return true;</span>
+    }
+
+    @Override
+    public boolean doomedInSpace() {
+<span class="nc" id="L1761">        return true;</span>
+    }
+
+
+    @Override
+    public boolean canAssaultDrop() {
+<span class="nc" id="L1767">        return game.getOptions().booleanOption(OptionsConstants.ADVANCED_PARATROOPERS);</span>
+    }
+
+    @Override
+    public boolean isEligibleFor(IGame.Phase phase) {
+<span class="nc bnc" id="L1772" title="All 4 branches missed.">        if ((turnsLayingExplosives &gt; 0) &amp;&amp; (phase != IGame.Phase.PHASE_PHYSICAL)) {</span>
+<span class="nc" id="L1773">            return false;</span>
+        }
+<span class="nc bnc" id="L1775" title="All 4 branches missed.">        if ((dugIn != DUG_IN_COMPLETE) &amp;&amp; (dugIn != DUG_IN_NONE)) {</span>
+<span class="nc" id="L1776">            return false;</span>
+        }
+<span class="nc" id="L1778">        return super.isEligibleFor(phase);</span>
+    }
+
+    @Override
+    public boolean isEligibleForFiring() {
+<span class="nc bnc" id="L1783" title="All 2 branches missed.">        if(game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_FAST_INFANTRY_MOVE)) {</span>
+<span class="nc bnc" id="L1784" title="All 2 branches missed.">            if(moved == EntityMovementType.MOVE_RUN) {</span>
+<span class="nc" id="L1785">                return false;</span>
+            }
+        }
+<span class="nc" id="L1788">        return super.isEligibleForFiring();</span>
+    }
+
+    @Override
+    public void newRound(int roundNumber) {
+<span class="nc bnc" id="L1793" title="All 2 branches missed.">        if (turnsLayingExplosives &gt;= 0) {</span>
+<span class="nc" id="L1794">            turnsLayingExplosives++;</span>
+<span class="nc bnc" id="L1795" title="All 2 branches missed.">            if (!(Compute.isInBuilding(game, this))) {</span>
+<span class="nc" id="L1796">                turnsLayingExplosives = -1; // give up if no longer in a</span>
+                // building
+            }
+        }
+<span class="nc bnc" id="L1800" title="All 4 branches missed.">        if ((dugIn != DUG_IN_COMPLETE) &amp;&amp; (dugIn != DUG_IN_NONE)) {</span>
+<span class="nc" id="L1801">            dugIn++;</span>
+<span class="nc bnc" id="L1802" title="All 2 branches missed.">            if (dugIn &gt; DUG_IN_FORTIFYING2) {</span>
+<span class="nc" id="L1803">                dugIn = DUG_IN_NONE;</span>
+            }
+        }
+
+<span class="nc" id="L1807">        setTakingCover(false);</span>
+<span class="nc" id="L1808">        super.newRound(roundNumber);</span>
+<span class="nc" id="L1809">    }</span>
+
+    public void setDugIn(int i) {
+<span class="nc" id="L1812">        dugIn = i;</span>
+<span class="nc" id="L1813">    }</span>
+
+    public int getDugIn() {
+<span class="nc" id="L1816">        return dugIn;</span>
+    }
+
+    @Override
+    public boolean isNuclearHardened() {
+<span class="nc" id="L1821">        return false;</span>
+    }
+
+    /**
+     * This function is called when loading a unit into a transport. This is
+     * overridden to ensure infantry are no longer considered dug in when they
+     * are being transported.
+     *
+     * @param transportID
+     */
+    public void setTransportID(int transportID) {
+<span class="nc" id="L1832">        super.setTransportId(transportID);</span>
+
+<span class="nc" id="L1834">        setDugIn(DUG_IN_NONE);</span>
+<span class="nc" id="L1835">    }</span>
+
+    /**
+     * Convenience method for setting the anti-mek skill of the unit based on
+     * whether or not they have anti-mek training.  If the input is false, the
+     * anti-mek skill is set to the default untrained value, otherwise it's
+     * set to the default value based on motive type.
+     *
+     * @param amTraining
+     */
+    public void setAntiMekSkill(boolean amTraining) {
+<span class="nc bnc" id="L1846" title="All 2 branches missed.">        if (getCrew() == null) {</span>
+<span class="nc" id="L1847">            return;</span>
+        }
+<span class="nc bnc" id="L1849" title="All 2 branches missed.">        if (amTraining) {</span>
+<span class="nc bnc" id="L1850" title="All 2 branches missed.">            if ((getMovementMode() == EntityMovementMode.INF_MOTORIZED)</span>
+<span class="nc bnc" id="L1851" title="All 2 branches missed.">                    || getMovementMode() == EntityMovementMode.INF_JUMP) {</span>
+<span class="nc" id="L1852">                getCrew().setPiloting(ANTI_MECH_SKILL_JUMP, 0);</span>
+            } else {
+<span class="nc" id="L1854">                getCrew().setPiloting(ANTI_MECH_SKILL_FOOT, 0);</span>
+            }
+        } else {
+<span class="nc" id="L1857">            getCrew().setPiloting(ANTI_MECH_SKILL_UNTRAINED, 0);</span>
+        }
+<span class="nc" id="L1859">    }</span>
+
+    /**
+     * Set the anti-mek skill for this unit.  Since Infantry don't have piloting
+     * the crew's piloting skill is treated as the anti-mek skill.  This is
+     * largely just a convenience method for setting the Crew's piloting skill.
+     * @param amSkill
+     */
+    public void setAntiMekSkill(int amSkill) {
+<span class="nc bnc" id="L1868" title="All 2 branches missed.">        if (getCrew() == null) {</span>
+<span class="nc" id="L1869">            return;</span>
+        }
+<span class="nc" id="L1871">        getCrew().setPiloting(amSkill, 0);</span>
+<span class="nc" id="L1872">    }</span>
+
+    /**
+     * Returns the anti-mek skill for this unit.  Since Infantry don't have
+     * piloting the crew's piloting skill is treated as the anti-mek skill.
+     * This is largely just a convenience method for setting the Crew's piloting
+     * skill.
+     * @return
+     */
+    public int getAntiMekSkill() {
+<span class="nc bnc" id="L1882" title="All 2 branches missed.">        if (getCrew() == null) {</span>
+<span class="nc" id="L1883">            return ANTI_MECH_SKILL_UNTRAINED;</span>
+        } else {
+<span class="nc" id="L1885">            return getCrew().getPiloting();</span>
+        }
+    }
+
+    /**
+     * Returns true if this unit has anti-mek training.  According to TM pg 155,
+     * any unit that has less than 8 anti-mek skill is assumed to have anti-mek
+     * training.  This implies that the unit carries the requisite equipment for
+     * properly performing anti-mek attacks (and the weight and cost that goes
+     * along with that).
+     * @return
+     */
+    public boolean isAntiMekTrained() {
+        // Anything below the antimech skill default is considered to be AM
+        // trained.  See TM pg 155
+<span class="nc bnc" id="L1900" title="All 2 branches missed.">        return getAntiMekSkill() &lt; ANTI_MECH_SKILL_UNTRAINED;</span>
+    }
+
+    public boolean isMechanized() {
+<span class="nc bnc" id="L1904" title="All 2 branches missed.">        return (getMovementMode() == EntityMovementMode.WHEELED) ||</span>
+<span class="nc bnc" id="L1905" title="All 2 branches missed.">                (getMovementMode() == EntityMovementMode.HOVER) ||</span>
+<span class="nc bnc" id="L1906" title="All 2 branches missed.">                (getMovementMode() == EntityMovementMode.TRACKED) ||</span>
+<span class="nc bnc" id="L1907" title="All 2 branches missed.">                (getMovementMode() == EntityMovementMode.SUBMARINE) ||</span>
+<span class="nc bnc" id="L1908" title="All 2 branches missed.">                (getMovementMode() == EntityMovementMode.VTOL);</span>
+    }
+
+    public boolean isXCT() {
+<span class="nc" id="L1912">        return hasSpecialization(XCT);</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     * @see megamek.common.Entity#getTotalCommGearTons()
+     */
+    @Override
+    public int getTotalCommGearTons() {
+<span class="nc" id="L1921">        return 0;</span>
+    }
+
+    public EquipmentType getArmorKit() {
+<span class="nc" id="L1925">    	Optional&lt;Mounted&gt; kit = getEquipment().stream()</span>
+<span class="nc" id="L1926">    			.filter(m -&gt; m.getType().hasFlag(MiscType.F_ARMOR_KIT))</span>
+<span class="nc" id="L1927">    			.findFirst();</span>
+<span class="nc bnc" id="L1928" title="All 2 branches missed.">    	if (kit.isPresent()) {</span>
+<span class="nc" id="L1929">    		return kit.get().getType();</span>
+    	} else {
+<span class="nc" id="L1931">    		return null;</span>
+    	}
+    }
+
+    public void setArmorKit(EquipmentType armorKit) {
+<span class="nc" id="L1936">    	List&lt;Mounted&gt; toRemove = getEquipment().stream()</span>
+<span class="nc" id="L1937">    			.filter(m -&gt; m.getType().hasFlag(MiscType.F_ARMOR_KIT))</span>
+<span class="nc" id="L1938">    			.collect(Collectors.toList());</span>
+<span class="nc" id="L1939">    	getEquipment().removeAll(toRemove);</span>
+<span class="nc" id="L1940">    	getMisc().removeAll(toRemove);</span>
+<span class="nc bnc" id="L1941" title="All 4 branches missed.">    	if (armorKit != null &amp;&amp; armorKit.hasFlag(MiscType.F_ARMOR_KIT)) {</span>
+    		try {
+<span class="nc" id="L1943">    			addEquipment(armorKit, LOC_INFANTRY);</span>
+<span class="nc" id="L1944">    		} catch (LocationFullException ex) {</span>
+<span class="nc" id="L1945">    			ex.printStackTrace();</span>
+<span class="nc" id="L1946">    		}</span>
+<span class="nc" id="L1947">    		damageDivisor = ((MiscType)armorKit).getDamageDivisor();</span>
+<span class="nc bnc" id="L1948" title="All 2 branches missed.">    		encumbering = (armorKit.getSubType() &amp; MiscType.S_ENCUMBERING) != 0;</span>
+<span class="nc bnc" id="L1949" title="All 2 branches missed.">    		spaceSuit = (armorKit.getSubType() &amp; MiscType.S_SPACE_SUIT) != 0;</span>
+<span class="nc bnc" id="L1950" title="All 2 branches missed.">    		dest = (armorKit.getSubType() &amp; MiscType.S_DEST) != 0;</span>
+<span class="nc bnc" id="L1951" title="All 2 branches missed.">    		sneak_camo = (armorKit.getSubType() &amp; MiscType.S_SNEAK_CAMO) != 0;</span>
+<span class="nc bnc" id="L1952" title="All 2 branches missed.">    		sneak_ir = (armorKit.getSubType() &amp; MiscType.S_SNEAK_IR) != 0;</span>
+<span class="nc bnc" id="L1953" title="All 2 branches missed.">    		sneak_ecm = (armorKit.getSubType() &amp; MiscType.S_SNEAK_ECM) != 0;</span>
+    	}
+<span class="nc" id="L1955">    }</span>
+
+    public double calcDamageDivisor() {
+<span class="nc" id="L1958">        double divisor = damageDivisor;</span>
+        // TSM implant reduces divisor to 0.5 if no other armor is worn
+<span class="nc bnc" id="L1960" title="All 4 branches missed.">        if ((divisor == 1.0) &amp;&amp; hasAbility(OptionsConstants.MD_TSM_IMPLANT)) {</span>
+<span class="nc" id="L1961">            divisor = 0.5;</span>
+        }
+        // Dermal armor adds one to the divisor, cumulative with armor kit and TSM implant
+<span class="nc bnc" id="L1964" title="All 2 branches missed.">        if (hasAbility(OptionsConstants.MD_DERMAL_ARMOR)) {</span>
+<span class="nc" id="L1965">            divisor += 1.0;</span>
+        }
+<span class="nc" id="L1967">        return divisor;</span>
+    }
+
+    public double getArmorDamageDivisor() {
+<span class="nc" id="L1971">    	return damageDivisor;</span>
+    }
+
+    public void setArmorDamageDivisor(double d) {
+<span class="nc" id="L1975">        damageDivisor = d;</span>
+<span class="nc" id="L1976">    }</span>
+
+    public boolean isArmorEncumbering() {
+<span class="nc" id="L1979">        return encumbering;</span>
+    }
+
+    public void setArmorEncumbering(boolean b) {
+<span class="nc" id="L1983">        encumbering = b;</span>
+<span class="nc" id="L1984">    }</span>
+
+    public void setCanCallSupport(boolean b) {
+<span class="nc" id="L1987">        canCallSupport =b;</span>
+<span class="nc" id="L1988">    }</span>
+
+    public boolean hasSpaceSuit() {
+<span class="nc" id="L1991">        return spaceSuit;</span>
+    }
+
+    public void setSpaceSuit(boolean b) {
+<span class="nc" id="L1995">        spaceSuit = b;</span>
+<span class="nc" id="L1996">    }</span>
+
+    public boolean hasDEST() {
+<span class="nc" id="L1999">        return dest;</span>
+    }
+
+    public void setDEST(boolean b) {
+<span class="nc" id="L2003">        dest = b;</span>
+<span class="nc" id="L2004">    }</span>
+
+    public boolean hasSpecialization() {
+<span class="nc bnc" id="L2007" title="All 2 branches missed.">        return infSpecs != 0;</span>
+    }
+
+    public boolean hasSpecialization(int spec) {
+<span class="nc bnc" id="L2011" title="All 2 branches missed.">        return (infSpecs &amp; spec) &gt; 0;</span>
+    }
+
+    public int getSpecializations() {
+<span class="nc" id="L2015">        return infSpecs;</span>
+    }
+
+    public void setSpecializations(int spec) {
+        // Equipment for Trench/Fieldworks Engineers
+<span class="nc bnc" id="L2020" title="All 4 branches missed.">        if ((spec &amp; TRENCH_ENGINEERS) &gt; 0 &amp;&amp; (infSpecs &amp; TRENCH_ENGINEERS) == 0) {</span>
+            // Need to add vibro shovels
+            try {
+<span class="nc" id="L2023">                EquipmentType shovels = EquipmentType.get(EquipmentTypeLookup.VIBRO_SHOVEL);</span>
+<span class="nc" id="L2024">                addEquipment(shovels, Infantry.LOC_INFANTRY);</span>
+<span class="nc" id="L2025">            } catch (LocationFullException e) {</span>
+<span class="nc" id="L2026">                e.printStackTrace();</span>
+<span class="nc" id="L2027">            }</span>
+<span class="nc bnc" id="L2028" title="All 4 branches missed.">        } else if ((spec &amp; TRENCH_ENGINEERS) == 0</span>
+                &amp;&amp; (infSpecs &amp; TRENCH_ENGINEERS) &gt; 0) {
+            // Need to remove vibro shovels
+<span class="nc" id="L2031">            List&lt;Mounted&gt; eqToRemove = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L2032" title="All 2 branches missed.">            for (Mounted eq : getEquipment()) {</span>
+<span class="nc bnc" id="L2033" title="All 2 branches missed.">                if (eq.getType().hasFlag(MiscType.F_TOOLS)</span>
+<span class="nc bnc" id="L2034" title="All 2 branches missed.">                        &amp;&amp; eq.getType().hasSubType(MiscType.S_VIBROSHOVEL)) {</span>
+<span class="nc" id="L2035">                    eqToRemove.add(eq);</span>
+                }
+<span class="nc" id="L2037">            }</span>
+<span class="nc" id="L2038">            getEquipment().removeAll(eqToRemove);</span>
+<span class="nc" id="L2039">            getMisc().removeAll(eqToRemove);</span>
+        }
+        // Equipment for Demolition Engineers
+<span class="nc bnc" id="L2042" title="All 4 branches missed.">        if ((spec &amp; DEMO_ENGINEERS) &gt; 0 &amp;&amp; (infSpecs &amp; DEMO_ENGINEERS) == 0) {</span>
+            // Need to add vibro shovels
+            try {
+<span class="nc" id="L2045">                EquipmentType shovels = EquipmentType.get(EquipmentTypeLookup.DEMOLITION_CHARGE);</span>
+<span class="nc" id="L2046">                addEquipment(shovels, Infantry.LOC_INFANTRY);</span>
+<span class="nc" id="L2047">            } catch (LocationFullException e) {</span>
+<span class="nc" id="L2048">                e.printStackTrace();</span>
+<span class="nc" id="L2049">            }</span>
+<span class="nc bnc" id="L2050" title="All 4 branches missed.">        } else if ((spec &amp; DEMO_ENGINEERS) == 0</span>
+                &amp;&amp; (infSpecs &amp; DEMO_ENGINEERS) &gt; 0) {
+            // Need to remove vibro shovels
+<span class="nc" id="L2053">            List&lt;Mounted&gt; eqToRemove = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L2054" title="All 2 branches missed.">            for (Mounted eq : getEquipment()) {</span>
+<span class="nc bnc" id="L2055" title="All 2 branches missed.">                if (eq.getType().hasFlag(MiscType.F_TOOLS)</span>
+<span class="nc" id="L2056">                        &amp;&amp; eq.getType()</span>
+<span class="nc bnc" id="L2057" title="All 2 branches missed.">                                .hasSubType(MiscType.S_DEMOLITION_CHARGE)) {</span>
+<span class="nc" id="L2058">                    eqToRemove.add(eq);</span>
+                }
+<span class="nc" id="L2060">            }</span>
+<span class="nc" id="L2061">            getEquipment().removeAll(eqToRemove);</span>
+<span class="nc" id="L2062">            getMisc().removeAll(eqToRemove);</span>
+        }
+<span class="nc" id="L2064">        infSpecs = spec;</span>
+<span class="nc" id="L2065">    }</span>
+
+    public static String getSpecializationName(int spec) {
+<span class="nc" id="L2068">        StringBuilder name = new StringBuilder();</span>
+<span class="nc bnc" id="L2069" title="All 2 branches missed.">        for (int i = 0; i &lt; NUM_SPECIALIZATIONS; i++) {</span>
+<span class="nc" id="L2070">            int currSpec = 1 &lt;&lt; i;</span>
+<span class="nc bnc" id="L2071" title="All 2 branches missed.">            if ((spec &amp; currSpec) &lt; 1) {</span>
+<span class="nc" id="L2072">                continue;</span>
+            }
+<span class="nc bnc" id="L2074" title="All 2 branches missed.">            if (name.length() &gt; 0) {</span>
+<span class="nc" id="L2075">                name.append(&quot; &quot;);</span>
+            }
+<span class="nc" id="L2077">            name.append(Messages.getString(&quot;Infantry.specialization&quot; + i));</span>
+        }
+<span class="nc" id="L2079">        return name.toString();</span>
+    }
+
+    public static String getSpecializationTooltip(int spec) {
+<span class="nc" id="L2083">        StringBuilder name = new StringBuilder();</span>
+<span class="nc bnc" id="L2084" title="All 2 branches missed.">        for (int i = 0; i &lt; NUM_SPECIALIZATIONS; i++) {</span>
+<span class="nc" id="L2085">            int currSpec = 1 &lt;&lt; i;</span>
+<span class="nc bnc" id="L2086" title="All 2 branches missed.">            if ((spec &amp; currSpec) &lt; 1) {</span>
+<span class="nc" id="L2087">                continue;</span>
+            }
+<span class="nc bnc" id="L2089" title="All 2 branches missed.">            if (name.length() &gt; 0) {</span>
+<span class="nc" id="L2090">                name.append(&quot; &quot;);</span>
+            }
+<span class="nc" id="L2092">            name.append(Messages.getString(&quot;Infantry.specializationTip&quot; + i));</span>
+        }
+<span class="nc" id="L2094">        return name.toString();</span>
+    }
+
+    public boolean hasSneakCamo() {
+<span class="nc" id="L2098">        return sneak_camo;</span>
+    }
+
+    public void setSneakCamo(boolean b) {
+<span class="nc" id="L2102">        sneak_camo = b;</span>
+<span class="nc" id="L2103">    }</span>
+
+    public boolean hasSneakIR() {
+<span class="nc" id="L2106">        return sneak_ir;</span>
+    }
+
+    public void setSneakIR(boolean b) {
+<span class="nc" id="L2110">        sneak_ir = b;</span>
+<span class="nc" id="L2111">    }</span>
+
+    public boolean hasSneakECM() {
+<span class="nc" id="L2114">        return sneak_ecm;</span>
+    }
+
+    public void setSneakECM(boolean b) {
+<span class="nc" id="L2118">        sneak_ecm = b;</span>
+<span class="nc" id="L2119">    }</span>
+
+    /**
+     * Determine the stealth modifier for firing at this unit from the given
+     * range. If the value supplied for &lt;code&gt;range&lt;/code&gt; is not one of the
+     * &lt;code&gt;Entity&lt;/code&gt; class range constants, an
+     * &lt;code&gt;IllegalArgumentException&lt;/code&gt; will be thrown. &lt;p/&gt; Sub-classes
+     * are encouraged to override this method.
+     *
+     * @param range - an &lt;code&gt;int&lt;/code&gt; value that must match one of the
+     *            &lt;code&gt;Compute&lt;/code&gt; class range constants.
+     * @param ae - the entity making the attack.
+     * @return a &lt;code&gt;TargetRoll&lt;/code&gt; value that contains the stealth
+     *         modifier for the given range.
+     */
+    @Override
+    public TargetRoll getStealthModifier(int range, Entity ae) {
+<span class="nc" id="L2136">        TargetRoll result = null;</span>
+
+        // Note: infantry are immune to stealth, but not camoflage
+        // or mimetic armor
+
+<span class="nc bnc" id="L2141" title="All 6 branches missed.">        if ((sneak_ir || dest)</span>
+                &amp;&amp; !(ae instanceof Infantry)) {
+<span class="nc bnc" id="L2143" title="All 4 branches missed.">            switch (range) {</span>
+                case RangeType.RANGE_MINIMUM:
+                case RangeType.RANGE_SHORT:
+                case RangeType.RANGE_MEDIUM:
+<span class="nc" id="L2147">                    result = new TargetRoll(+1, &quot;Sneak, IR/DEST suit&quot;);</span>
+<span class="nc" id="L2148">                    break;</span>
+                case RangeType.RANGE_LONG:
+                case RangeType.RANGE_EXTREME:
+                case RangeType.RANGE_LOS:
+<span class="nc" id="L2152">                    result = new TargetRoll(+2, &quot;Sneak, IR/DEST suit&quot;);</span>
+<span class="nc" id="L2153">                    break;</span>
+                case RangeType.RANGE_OUT:
+<span class="nc" id="L2155">                    break;</span>
+                default:
+<span class="nc" id="L2157">                    throw new IllegalArgumentException(</span>
+                            &quot;Unknown range constant: &quot; + range);
+            }
+        }
+
+        // Simple camo modifier is on top of the movement modifier
+        // This can also be in addition to IR/DEST stealth mods!
+<span class="nc bnc" id="L2164" title="All 4 branches missed.">        if (sneak_camo &amp;&amp; (delta_distance &lt; 3)) {</span>
+<span class="nc" id="L2165">            int mod = Math.max(3 - delta_distance, 0);</span>
+<span class="nc bnc" id="L2166" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L2167">                result = new TargetRoll(mod, &quot;Sneak, Camo&quot;);</span>
+            } else {
+<span class="nc" id="L2169">                result.append(new TargetRoll(mod, &quot;Sneak, Camo&quot;));</span>
+            }
+        }
+
+<span class="nc bnc" id="L2173" title="All 4 branches missed.">        if (dest &amp;&amp; (delta_distance == 0)) {</span>
+<span class="nc bnc" id="L2174" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L2175">                result = new TargetRoll(1, &quot;DEST suit&quot;);</span>
+            } else {
+<span class="nc" id="L2177">                result.append(new TargetRoll(1, &quot;DEST Suit&quot;));</span>
+            }
+        }
+
+
+<span class="nc bnc" id="L2182" title="All 2 branches missed.">        if (result == null) {</span>
+<span class="nc" id="L2183">            result = new TargetRoll(0, &quot;no sneak mods&quot;);</span>
+        }
+
+        // Return the result.
+<span class="nc" id="L2187">        return result;</span>
+    } // End public TargetRoll getStealthModifier( char )
+
+    /**
+     * Determines if the infantry has any type of stealth system.
+     *
+     * @return
+     */
+    public boolean isStealthy() {
+<span class="nc bnc" id="L2196" title="All 8 branches missed.">       return  dest || sneak_camo || sneak_ir || sneak_ecm;</span>
+    }
+
+    public boolean hasMicrolite() {
+<span class="nc" id="L2200">    	return microlite;</span>
+    }
+
+    public void setMicrolite(boolean microlite) {
+<span class="nc" id="L2204">    	this.microlite = microlite;</span>
+<span class="nc" id="L2205">    }</span>
+
+    /**
+     * Used to check for standard or motorized SCUBA infantry, which have a maximum
+     * depth of 2.
+     * @return true if this is a conventional infantry unit with non-mechanized SCUBA specialization
+     */
+    public boolean isNonMechSCUBA() {
+<span class="nc bnc" id="L2213" title="All 2 branches missed.">    	if (this instanceof BattleArmor) {</span>
+<span class="nc" id="L2214">    		return false;</span>
+    	}
+<span class="nc bnc" id="L2216" title="All 2 branches missed.">    	return getMovementMode() == EntityMovementMode.INF_UMU;</span>
+    }
+
+    public void setPrimaryWeapon(InfantryWeapon w) {
+<span class="nc" id="L2220">        primaryW = w;</span>
+<span class="nc" id="L2221">        primaryName = w.getName();</span>
+<span class="nc" id="L2222">    }</span>
+
+    public InfantryWeapon getPrimaryWeapon() {
+<span class="nc" id="L2225">        return primaryW;</span>
+    }
+
+    public void setSecondaryWeapon(InfantryWeapon w) {
+<span class="nc" id="L2229">        secondW = w;</span>
+<span class="nc bnc" id="L2230" title="All 2 branches missed.">        if(null == w) {</span>
+<span class="nc" id="L2231">            secondName = null;</span>
+        } else {
+<span class="nc" id="L2233">            secondName = w.getName();</span>
+        }
+<span class="nc" id="L2235">    }</span>
+
+    public InfantryWeapon getSecondaryWeapon() {
+<span class="nc" id="L2238">        return secondW;</span>
+    }
+
+    public void setSquadSize(int size) {
+<span class="nc" id="L2242">        squadsize = size;</span>
+<span class="nc" id="L2243">    }</span>
+
+    public int getSquadSize() {
+<span class="nc" id="L2246">        return squadsize;</span>
+    }
+
+    public void setSquadN(int n) {
+<span class="nc" id="L2250">        squadn = n;</span>
+<span class="nc" id="L2251">    }</span>
+
+    public int getSquadN() {
+<span class="nc" id="L2254">        return squadn;</span>
+    }
+
+    public void setSecondaryN(int n) {
+<span class="nc" id="L2258">        secondn = n;</span>
+<span class="nc" id="L2259">    }</span>
+
+    public int getSecondaryN() {
+<span class="nc" id="L2262">        return secondn;</span>
+    }
+
+    public double getDamagePerTrooper() {
+
+<span class="nc bnc" id="L2267" title="All 2 branches missed.">        if(null == primaryW) {</span>
+<span class="nc" id="L2268">            return 0;</span>
+        }
+
+<span class="nc" id="L2271">        double damage = primaryW.getInfantryDamage() * (squadsize - secondn);</span>
+<span class="nc bnc" id="L2272" title="All 2 branches missed.">        if(null != secondW) {</span>
+<span class="nc" id="L2273">            damage += secondW.getInfantryDamage() * secondn;</span>
+        }
+<span class="nc" id="L2275">        return damage/squadsize;</span>
+    }
+
+    public boolean isSquad() {
+<span class="nc bnc" id="L2279" title="All 2 branches missed.">        return (squadn == 1);</span>
+    }
+
+    /**
+     * Set the movement type of the entity
+     */
+    @Override
+    public void setMovementMode(EntityMovementMode movementMode) {
+<span class="nc" id="L2287">        super.setMovementMode(movementMode);</span>
+        //movement mode will determine base mp
+<span class="nc bnc" id="L2289" title="All 2 branches missed.">        if (!(this instanceof BattleArmor)) {</span>
+<span class="nc" id="L2290">            setOriginalJumpMP(0);</span>
+<span class="nc bnc" id="L2291" title="All 10 branches missed.">            switch (getMovementMode()) {</span>
+                case INF_MOTORIZED:
+<span class="nc" id="L2293">                    setOriginalWalkMP(3);</span>
+<span class="nc" id="L2294">                    break;</span>
+                case HOVER:
+<span class="nc" id="L2296">                    setOriginalWalkMP(5);</span>
+<span class="nc" id="L2297">                    break;</span>
+                case TRACKED:
+<span class="nc" id="L2299">                    setOriginalWalkMP(3);</span>
+<span class="nc" id="L2300">                    break;</span>
+                case WHEELED:
+<span class="nc" id="L2302">                    setOriginalWalkMP(4);</span>
+<span class="nc" id="L2303">                    break;</span>
+                case SUBMARINE:
+<span class="nc" id="L2305">                    setOriginalJumpMP(3);</span>
+<span class="nc" id="L2306">                    setOriginalWalkMP(0);</span>
+<span class="nc" id="L2307">                	setSpecializations(getSpecializations() | SCUBA);</span>
+<span class="nc" id="L2308">                    break;</span>
+                case VTOL:
+<span class="nc bnc" id="L2310" title="All 2 branches missed.">                	if (hasMicrolite()) {</span>
+<span class="nc" id="L2311">                    	setOriginalJumpMP(6);</span>
+                	} else {
+<span class="nc" id="L2313">                		setOriginalJumpMP(5);</span>
+                	}
+<span class="nc" id="L2315">                	setOriginalWalkMP(1);</span>
+<span class="nc" id="L2316">                	break;</span>
+                case INF_UMU:
+<span class="nc" id="L2318">                	setOriginalJumpMP(1);</span>
+<span class="nc" id="L2319">                	setOriginalWalkMP(1);</span>
+<span class="nc" id="L2320">                	setSpecializations(getSpecializations() | SCUBA);</span>
+<span class="nc" id="L2321">                	break;</span>
+                case INF_JUMP:
+                    //fall through to get the original Walk MP is deliberate
+<span class="nc" id="L2324">                    setOriginalJumpMP(3);</span>
+                case INF_LEG:
+<span class="nc" id="L2326">                    setOriginalWalkMP(1);</span>
+<span class="nc" id="L2327">                    break;</span>
+                default:
+<span class="nc" id="L2329">                    setOriginalWalkMP(1);</span>
+            }
+<span class="nc" id="L2331">            addTechComponent(Infantry.getMotiveTechAdvancement(movementMode));</span>
+        }
+<span class="nc" id="L2333">    }</span>
+
+    /**
+     * Standard and motorized SCUBA only differ in base movement, so they both use
+     * INF_UMU. If the motion_type contains the string &quot;motorized&quot;,
+     * the movement is set here instead.
+     */
+    public void setMotorizedScuba() {
+<span class="nc" id="L2341">    	setMovementMode(EntityMovementMode.INF_UMU);</span>
+<span class="nc" id="L2342">    	setOriginalJumpMP(2);</span>
+<span class="nc" id="L2343">    }</span>
+
+    @Override
+    public String getMovementModeAsString() {
+<span class="nc bnc" id="L2347" title="All 2 branches missed.">        if (!hasETypeFlag(Entity.ETYPE_BATTLEARMOR)) {</span>
+<span class="nc bnc" id="L2348" title="All 2 branches missed.">            if (getMovementMode().equals(EntityMovementMode.VTOL)) {</span>
+<span class="nc bnc" id="L2349" title="All 2 branches missed.">                return hasMicrolite()? &quot;Microlite&quot; : &quot;Microcopter&quot;;</span>
+            }
+<span class="nc bnc" id="L2351" title="All 2 branches missed.">            if (getMovementMode() == EntityMovementMode.INF_UMU) {</span>
+<span class="nc bnc" id="L2352" title="All 2 branches missed.">                return getOriginalJumpMP() &gt; 1? &quot;Motorized SCUBA&quot; : &quot;SCUBA&quot;;</span>
+            }
+        }
+<span class="nc" id="L2355">    	return super.getMovementModeAsString();</span>
+    }
+
+    public boolean canMakeAntiMekAttacks() {
+<span class="nc bnc" id="L2359" title="All 2 branches missed.">        return !isMechanized();</span>
+    }
+
+    @Override
+    public double getWeight() {
+        double mult;
+<span class="nc bnc" id="L2365" title="All 7 branches missed.">        switch (getMovementMode()) {</span>
+            case INF_MOTORIZED:
+<span class="nc" id="L2367">                mult = 0.195;</span>
+<span class="nc" id="L2368">                break;</span>
+            case HOVER:
+            case TRACKED:
+            case WHEELED:
+<span class="nc" id="L2372">                mult = 1.0;</span>
+<span class="nc" id="L2373">                break;</span>
+            case VTOL:
+<span class="nc bnc" id="L2375" title="All 2 branches missed.">            	mult = (hasMicrolite()? 1.4 : 1.9);</span>
+<span class="nc" id="L2376">            	break;</span>
+            case INF_JUMP:
+<span class="nc" id="L2378">                mult = 0.165;</span>
+<span class="nc" id="L2379">                break;</span>
+            case INF_UMU:
+<span class="nc bnc" id="L2381" title="All 2 branches missed.">            	if (getActiveUMUCount() &gt; 1) {</span>
+<span class="nc" id="L2382">            		mult = 0.295; //motorized + 0.1 for motorized scuba</span>
+            	} else {
+<span class="nc" id="L2384">            		mult = 0.135; //foot + 0.05 for scuba</span>
+            	}
+<span class="nc" id="L2386">            	break;</span>
+            case SUBMARINE:
+<span class="nc" id="L2388">            	mult = 0.9;</span>
+<span class="nc" id="L2389">            	break;</span>
+            case INF_LEG:
+            default:
+<span class="nc" id="L2392">                mult = 0.085;</span>
+        }
+
+<span class="nc bnc" id="L2395" title="All 2 branches missed.">        if (hasSpecialization(COMBAT_ENGINEERS)) {</span>
+<span class="nc" id="L2396">        	mult += 0.1;</span>
+        }
+<span class="nc bnc" id="L2398" title="All 2 branches missed.">        if (hasSpecialization(PARATROOPS)) {</span>
+<span class="nc" id="L2399">        	mult += 0.05;</span>
+        }
+<span class="nc bnc" id="L2401" title="All 2 branches missed.">        if (hasSpecialization(PARAMEDICS)) {</span>
+<span class="nc" id="L2402">        	mult += 0.05;</span>
+        }
+<span class="nc bnc" id="L2404" title="All 2 branches missed.">        if(isAntiMekTrained()){</span>
+<span class="nc" id="L2405">        	mult +=.015;</span>
+        }
+
+<span class="nc" id="L2408">        double ton = men * mult;</span>
+
+
+        //add in field gun weight
+<span class="nc bnc" id="L2412" title="All 2 branches missed.">        for (Mounted mounted : getEquipment()) {</span>
+<span class="nc bnc" id="L2413" title="All 2 branches missed.">            if(mounted.getLocation() == LOC_FIELD_GUNS) {</span>
+<span class="nc" id="L2414">                ton += mounted.getTonnage();</span>
+            }
+<span class="nc" id="L2416">        }</span>
+
+<span class="nc" id="L2418">        return RoundWeight.nearestHalfTon(ton);</span>
+
+    }
+
+    public String getArmorDesc() {
+<span class="nc" id="L2423">        StringBuffer sArmor = new StringBuffer();</span>
+<span class="nc" id="L2424">        sArmor.append(calcDamageDivisor());</span>
+<span class="nc bnc" id="L2425" title="All 2 branches missed.">        if(isArmorEncumbering()) {</span>
+<span class="nc" id="L2426">            sArmor.append(&quot;E&quot;);</span>
+        }
+
+<span class="nc bnc" id="L2429" title="All 2 branches missed.">        if (hasSpaceSuit()) {</span>
+<span class="nc" id="L2430">            sArmor.append(&quot; (Spacesuit) &quot;);</span>
+        }
+
+<span class="nc bnc" id="L2433" title="All 2 branches missed.">        if(hasDEST()) {</span>
+<span class="nc" id="L2434">            sArmor.append(&quot; (DEST) &quot;);</span>
+        }
+
+<span class="nc bnc" id="L2437" title="All 2 branches missed.">        if(hasSneakCamo() ||</span>
+<span class="nc bnc" id="L2438" title="All 2 branches missed.">        		(getCrew() != null</span>
+<span class="nc bnc" id="L2439" title="All 2 branches missed.">        			&amp;&amp; hasAbility(OptionsConstants.MD_DERMAL_CAMO_ARMOR))) {</span>
+<span class="nc" id="L2440">            sArmor.append(&quot; (Camo) &quot;);</span>
+        }
+
+<span class="nc bnc" id="L2443" title="All 2 branches missed.">        if(hasSneakIR()) {</span>
+<span class="nc" id="L2444">            sArmor.append(&quot; (IR) &quot;);</span>
+        }
+
+<span class="nc bnc" id="L2447" title="All 2 branches missed.">        if(hasSneakECM()) {</span>
+<span class="nc" id="L2448">            sArmor.append(&quot; (ECM) &quot;);</span>
+        }
+
+
+<span class="nc" id="L2452">        return sArmor.toString();</span>
+    }
+
+    /**
+     * Restores the entity after serialization
+     */
+    @Override
+    public void restore() {
+<span class="nc" id="L2460">        super.restore();</span>
+
+<span class="nc bnc" id="L2462" title="All 2 branches missed.">        if (null != primaryName) {</span>
+<span class="nc" id="L2463">            primaryW = (InfantryWeapon)EquipmentType.get(primaryName);</span>
+        }
+
+<span class="nc bnc" id="L2466" title="All 2 branches missed.">        if(null != secondName) {</span>
+<span class="nc" id="L2467">            secondW = (InfantryWeapon)EquipmentType.get(secondName);</span>
+        }
+<span class="nc" id="L2469">    }</span>
+
+    public boolean hasActiveFieldArtillery() {
+<span class="nc" id="L2472">        boolean hasArtillery = false;</span>
+<span class="nc" id="L2473">        double smallestGun = 100.0;</span>
+<span class="nc bnc" id="L2474" title="All 2 branches missed.">        for(Mounted wpn : getWeaponList()) {</span>
+<span class="nc bnc" id="L2475" title="All 2 branches missed.">            if(wpn.getLocation() != LOC_FIELD_GUNS) {</span>
+<span class="nc" id="L2476">                continue;</span>
+            }
+<span class="nc bnc" id="L2478" title="All 2 branches missed.">            if(wpn.getType().hasFlag(WeaponType.F_ARTILLERY)) {</span>
+<span class="nc" id="L2479">                hasArtillery = true;</span>
+<span class="nc bnc" id="L2480" title="All 2 branches missed.">                if(wpn.getTonnage() &lt; smallestGun) {</span>
+<span class="nc" id="L2481">                    smallestGun = wpn.getTonnage();</span>
+                }
+            }
+<span class="nc" id="L2484">        }</span>
+
+        //you must have enough men to fire at least the smallest piece
+<span class="nc bnc" id="L2487" title="All 4 branches missed.">        return hasArtillery &amp;&amp; (getShootingStrength() &gt;= smallestGun);</span>
+
+    }
+
+    /**
+     * Infantry don't use MP to change facing, and don't
+     * do PSRs, so just don't let them use maneuvering ace
+     * otherwise, their movement gets screwed up
+     */
+    @Override
+    public boolean isUsingManAce() {
+<span class="nc" id="L2498">        return false;</span>
+    }
+
+    @Override
+    public void setAlphaStrikeMovement(Map&lt;String,Integer&gt; moves) {
+<span class="nc" id="L2503">        moves.put(getMovementModeAsBattleForceString(),</span>
+<span class="nc" id="L2504">                Math.max(getWalkMP(), getJumpMP()) * 2);</span>
+<span class="nc" id="L2505">    }</span>
+
+    @Override
+    public int getBattleForceSize() {
+        //The tables are on page 356 of StartOps
+<span class="nc" id="L2510">        return 1;</span>
+    }
+
+    @Override
+    public int getBattleForceArmorPoints() {
+        // Infantry armor points is # of men / 15
+<span class="nc" id="L2516">        return (int) Math.ceil(getInternal(0)/15.0);</span>
+    }
+
+    @Override
+    /**
+     * Each squad has 1 structure point
+     */
+    public int getBattleForceStructurePoints() {
+<span class="nc" id="L2524">        return 1;</span>
+    }
+
+    @Override
+    public int getNumBattleForceWeaponsLocations() {
+<span class="nc bnc" id="L2529" title="All 2 branches missed.">        if (hasFieldGun()) {</span>
+<span class="nc" id="L2530">            return 2;</span>
+        }
+<span class="nc" id="L2532">        return 1;</span>
+    }
+
+    @Override
+    public double getBattleForceLocationMultiplier(int index, int location, boolean rearMounted) {
+<span class="nc bnc" id="L2537" title="All 2 branches missed.">        if (index == location) {</span>
+<span class="nc" id="L2538">            return 1.0;</span>
+        }
+<span class="nc" id="L2540">        return 0;</span>
+    }
+
+    @Override
+    public String getBattleForceLocationName(int index) {
+<span class="nc bnc" id="L2545" title="All 2 branches missed.">        if (index == 0) {</span>
+<span class="nc" id="L2546">            return &quot;&quot;;</span>
+        }
+<span class="nc" id="L2548">        return LOCATION_ABBRS[index];</span>
+    }
+
+    @Override
+    public void addBattleForceSpecialAbilities(Map&lt;BattleForceSPA,Integer&gt; specialAbilities) {
+<span class="nc" id="L2553">        super.addBattleForceSpecialAbilities(specialAbilities);</span>
+<span class="nc" id="L2554">        specialAbilities.put(BattleForceSPA.CAR, (int)Math.ceil(getWeight()));</span>
+<span class="nc bnc" id="L2555" title="All 2 branches missed.">        if (getMovementMode().equals(EntityMovementMode.INF_UMU)) {</span>
+<span class="nc" id="L2556">            specialAbilities.put(BattleForceSPA.UMU, null);</span>
+        }
+<span class="nc bnc" id="L2558" title="All 2 branches missed.">        if (hasSpecialization(FIRE_ENGINEERS)) {</span>
+<span class="nc" id="L2559">            specialAbilities.put(BattleForceSPA.FF, null);</span>
+        }
+<span class="nc bnc" id="L2561" title="All 2 branches missed.">        if (hasSpecialization(MINE_ENGINEERS)) {</span>
+<span class="nc" id="L2562">            specialAbilities.put(BattleForceSPA.MSW, null);</span>
+        }
+<span class="nc bnc" id="L2564" title="All 2 branches missed.">        if (hasSpecialization(MOUNTAIN_TROOPS)) {</span>
+<span class="nc" id="L2565">            specialAbilities.put(BattleForceSPA.MTN, null);</span>
+        }
+<span class="nc bnc" id="L2567" title="All 2 branches missed.">        if (hasSpecialization(PARATROOPS)) {</span>
+<span class="nc" id="L2568">            specialAbilities.put(BattleForceSPA.PARA, null);</span>
+        }
+<span class="nc bnc" id="L2570" title="All 2 branches missed.">        if (hasSpecialization(SCUBA)) {</span>
+<span class="nc" id="L2571">            specialAbilities.put(BattleForceSPA.UMU, null);</span>
+        }
+<span class="nc bnc" id="L2573" title="All 2 branches missed.">        if (hasSpecialization(TRENCH_ENGINEERS)) {</span>
+<span class="nc" id="L2574">            specialAbilities.put(BattleForceSPA.TRN, null);</span>
+        }
+<span class="nc bnc" id="L2576" title="All 2 branches missed.">        if (hasAbility(&quot;tsm_implant&quot;)) {</span>
+<span class="nc" id="L2577">            specialAbilities.put(BattleForceSPA.TSI, null);</span>
+        }
+<span class="nc" id="L2579">    }</span>
+
+    @Override
+    public int getEngineHits() {
+<span class="nc" id="L2583">        return 0;</span>
+    }
+
+    @Override
+    public String getLocationDamage(int loc) {
+<span class="nc" id="L2588">        return &quot;&quot;;</span>
+    }
+
+    @Override
+    public boolean isCrippled() {
+<span class="nc" id="L2593">        double activeTroopPercent = (double) getInternal(LOC_INFANTRY) / getOInternal(LOC_INFANTRY);</span>
+<span class="nc bnc" id="L2594" title="All 2 branches missed.">        if (activeTroopPercent &lt; 0.25) {</span>
+<span class="nc" id="L2595">            MegaMek.getLogger().debug(getDisplayName() + &quot; CRIPPLED: Only &quot;</span>
+<span class="nc" id="L2596">                    + NumberFormat.getPercentInstance().format(activeTroopPercent) + &quot; troops remaining.&quot;);</span>
+<span class="nc" id="L2597">            return true;</span>
+        } else {
+<span class="nc" id="L2599">            return false;</span>
+        }
+    }
+
+    @Override
+    public boolean isCrippled(boolean checkCrew) {
+<span class="nc" id="L2605">        return isCrippled();</span>
+    }
+
+    @Override
+    public boolean isDmgHeavy() {
+<span class="nc bnc" id="L2610" title="All 2 branches missed.">        return (((double) getInternal(LOC_INFANTRY) / getOInternal(LOC_INFANTRY)) &lt; 0.5);</span>
+    }
+
+    @Override
+    public boolean isDmgModerate() {
+<span class="nc bnc" id="L2615" title="All 2 branches missed.">        return (((double) getInternal(LOC_INFANTRY) / getOInternal(LOC_INFANTRY)) &lt; 0.75);</span>
+    }
+
+    @Override
+    public boolean isDmgLight() {
+<span class="nc bnc" id="L2620" title="All 2 branches missed.">        return (((double) getInternal(LOC_INFANTRY) / getOInternal(LOC_INFANTRY)) &lt; 0.9);</span>
+    }
+
+    public boolean hasFieldGun() {
+<span class="nc bnc" id="L2624" title="All 2 branches missed.">        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L2625" title="All 2 branches missed.">            if (m.getLocation() == Infantry.LOC_FIELD_GUNS) {</span>
+<span class="nc" id="L2626">                return true;</span>
+            }
+<span class="nc" id="L2628">        }</span>
+<span class="nc" id="L2629">        return false;</span>
+    }
+
+    @Override
+    public boolean hasEngine() {
+<span class="nc" id="L2634">        return false;</span>
+    }
+
+    /**
+     * Mounts the specified equipment in the specified location.
+     */
+    @Override
+    public void addEquipment(Mounted mounted, int loc, boolean rearMounted) throws LocationFullException {
+        // Implement parent's behavior.
+<span class="nc" id="L2643">        super.addEquipment(mounted, loc, rearMounted);</span>
+
+        //we do need to equipment slots for ammo switching of field guns and field artillery
+        // Add the piece equipment to our slots.
+<span class="nc" id="L2647">        addCritical(loc, new CriticalSlot(mounted));</span>
+
+<span class="nc" id="L2649">    }</span>
+    
+    public boolean isConventionalInfantry() {
+<span class="nc" id="L2652">        return true;</span>
+    }
+
+    @Override
+    public long getEntityType(){
+<span class="nc" id="L2657">        return Entity.ETYPE_INFANTRY;</span>
+    }
+
+    public PilotingRollData checkLandingInHeavyWoods(
+            EntityMovementType overallMoveType, IHex curHex) {
+<span class="nc" id="L2662">        PilotingRollData roll = getBasePilotingRoll(overallMoveType);</span>
+<span class="nc" id="L2663">        roll.addModifier(TargetRoll.CHECK_FALSE,</span>
+                         &quot;Infantry cannot fall&quot;);
+<span class="nc" id="L2665">        return roll;</span>
+    }
+
+    /**
+     * Determines if there is valid cover for an infantry unit to utilize the
+     * Using Non-Infantry as Cover rules (TO pg 108).
+     * @param game
+     * @param pos
+     * @param elevation
+     * @return
+     */
+    public static boolean hasValidCover(IGame game, Coords pos, int elevation) {
+        // Can't do anything if we don't have a position
+        // If elevation &gt; 0, we're either flying, or in a building
+        // In either case, we shouldn't be allowed to take cover
+<span class="nc bnc" id="L2680" title="All 4 branches missed.">        if ((pos == null) || (elevation &gt; 0)) {</span>
+<span class="nc" id="L2681">            return false;</span>
+        }
+<span class="nc" id="L2683">        boolean hasMovedEntity = false;</span>
+        // First, look for ground untis in the same hex that have already moved
+<span class="nc bnc" id="L2685" title="All 2 branches missed.">        for (Entity e : game.getEntitiesVector(pos)) {</span>
+<span class="nc bnc" id="L2686" title="All 4 branches missed.">            if (e.isDone() &amp;&amp; !(e instanceof Infantry)</span>
+<span class="nc bnc" id="L2687" title="All 2 branches missed.">                    &amp;&amp; (e.getElevation() == elevation)) {</span>
+<span class="nc" id="L2688">                hasMovedEntity = true;</span>
+<span class="nc" id="L2689">                break;</span>
+            }
+<span class="nc" id="L2691">        }</span>
+        // If we didn't find anything, check for wrecks
+        // The rules don't explicitly cover this, but it makes sense
+<span class="nc bnc" id="L2694" title="All 2 branches missed.">        if (!hasMovedEntity) {</span>
+<span class="nc" id="L2695">            Enumeration&lt;Entity&gt; wrecks = game.getWreckedEntities();</span>
+<span class="nc bnc" id="L2696" title="All 2 branches missed.">            while (wrecks.hasMoreElements()) {</span>
+<span class="nc" id="L2697">                Entity e = wrecks.nextElement();</span>
+<span class="nc bnc" id="L2698" title="All 4 branches missed.">                if (pos.equals(e.getPosition())</span>
+                        &amp;&amp; !(e instanceof Infantry)) {
+<span class="nc" id="L2700">                    hasMovedEntity = true;</span>
+                }
+<span class="nc" id="L2702">            }</span>
+        }
+<span class="nc" id="L2704">        return hasMovedEntity;</span>
+    }
+
+    public boolean isTakingCover() {
+<span class="nc" id="L2708">        return isTakingCover;</span>
+    }
+
+    public void setTakingCover(boolean isTakingCover) {
+<span class="nc" id="L2712">        this.isTakingCover = isTakingCover;</span>
+<span class="nc" id="L2713">    }</span>
+
+    @Override
+    protected boolean hasViableWeapons() {
+<span class="nc bnc" id="L2717" title="All 2 branches missed.">        return !isCrippled();</span>
+    }
+
+    /**
+     * Used to determine the draw priority of different Entity subclasses.
+     * This allows different unit types to always be draw above/below other
+     * types.
+     *
+     * @return
+     */
+    public int getSpriteDrawPriority() {
+<span class="nc" id="L2728">        return 1;</span>
+    }
+} // End class Infantry
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

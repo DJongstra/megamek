@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BulldozerMovePath.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">BulldozerMovePath.java</span></div><h1>BulldozerMovePath.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2020 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import megamek.client.bot.princess.FireControl;
+import megamek.common.pathfinder.ShortestPathFinder;
+import megamek.common.pathfinder.BoardClusterTracker.MovementType;
+
+/**
+ * An extension of the MovePath class that stores information about terrain that needs
+ * to be destroyed in order to move along the specified route.
+ * @author NickAragua
+ */
+public class BulldozerMovePath extends MovePath {
+    private static final long serialVersionUID = 1346716014573707012L;
+
+    public static final int CANNOT_LEVEL = -1;
+
+<span class="nc" id="L38">    Map&lt;Coords, Integer&gt; coordLevelingCosts = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L39">    Map&lt;Coords, Integer&gt; additionalCosts = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L40">    List&lt;Coords&gt; coordsToLevel = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L41">    double maxPointBlankDamage = -1;</span>
+
+    public BulldozerMovePath(IGame game, Entity entity) {
+<span class="nc" id="L44">        super(game, entity);</span>
+<span class="nc" id="L45">    }</span>
+
+    /**
+     * Any additional costs of this move paths, such as stepping into water or
+     * other factors that would increase the number of turns to complete it without increasing the actual MP used.
+     */
+    public int getAdditionalCost() {
+<span class="nc" id="L52">        int totalCost = 0;</span>
+
+<span class="nc bnc" id="L54" title="All 2 branches missed.">        for (int additionalCost : additionalCosts.values()) {</span>
+<span class="nc" id="L55">            totalCost += additionalCost;</span>
+<span class="nc" id="L56">        }</span>
+
+<span class="nc" id="L58">        return totalCost;</span>
+    }
+    
+    /**
+     * An estimation of how many MP we would &quot;waste&quot; blowing down obstacles.
+     */
+    public int getLevelingCost() {
+<span class="nc" id="L65">        int totalCost = 0;</span>
+
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        for (int levelingCost : coordLevelingCosts.values()) {</span>
+<span class="nc" id="L68">            totalCost += levelingCost;</span>
+<span class="nc" id="L69">        }</span>
+
+<span class="nc" id="L71">        return totalCost;</span>
+    }
+
+    /**
+     * Override of the MovePath.addStep method, calculates leveling and other extra costs 
+     * associated with this bulldozer move path
+     */
+    @Override
+    public MovePath addStep(final MoveStepType type) {
+<span class="nc" id="L80">        BulldozerMovePath mp = (BulldozerMovePath) super.addStep(type);</span>
+<span class="nc" id="L81">        IHex hex = mp.getGame().getBoard().getHex(mp.getFinalCoords());</span>
+<span class="nc bnc" id="L82" title="All 4 branches missed.">        int hexWaterDepth = ((hex != null) &amp;&amp; hex.containsTerrain(Terrains.WATER)) ?</span>
+<span class="nc" id="L83">                hex.depth() : Integer.MIN_VALUE;</span>
+        
+<span class="nc bnc" id="L85" title="All 4 branches missed.">        if (!mp.isMoveLegal() &amp;&amp; !mp.isJumping()) {</span>
+            // here, we will check if the step is illegal because the unit in question
+            // is attempting to move through illegal terrain for its movement type, but
+            // would be able to get through if the terrain was &quot;reduced&quot;
+            // don't bother to do this for jumping paths
+<span class="nc" id="L90">            int levelingCost = calculateLevelingCost(mp.getFinalCoords(), getEntity());</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">            if(levelingCost &gt; CANNOT_LEVEL) {</span>
+<span class="nc" id="L92">                coordLevelingCosts.put(mp.getFinalCoords(), levelingCost);</span>
+<span class="nc" id="L93">                coordsToLevel.add(mp.getFinalCoords());</span>
+            }
+            
+            // we want to make note of when we're going into water (if we are capable of it)
+            // it may look cheaper, but it slows you down to max walking speed or worse, 
+            // and we should flag it as costing extra, that extra being the difference between walking and running speed
+<span class="nc bnc" id="L99" title="All 2 branches missed.">            if(hexWaterDepth &gt; 0) {</span>
+<span class="nc" id="L100">                MovementType mType = MovementType.getMovementType(mp.getEntity());</span>
+<span class="nc bnc" id="L101" title="All 6 branches missed.">                if(mType == MovementType.Walker || mType == MovementType.WheeledAmphi || mType == MovementType.TrackedAmphi) {</span>
+<span class="nc" id="L102">                    additionalCosts.put(mp.getFinalCoords(), 1);</span>
+                }
+            }
+        }
+
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        if (mp.isJumping()) {</span>
+            // if we are jumping, but not on top of a bridge (because jumping always goes to the top of a bridge)
+            // and are jumping into terrain that would impede jump jet functionality (aka water)
+            // then we are impeding future jump movement and should add an extra cost to this step
+<span class="nc bnc" id="L111" title="All 4 branches missed.">            if ((hex != null) &amp;&amp; !hex.containsTerrain(Terrains.BRIDGE)) {</span>
+                // special case - mech jumping into depth 1 water might not be all that bad, jump mp cost wise
+<span class="nc bnc" id="L113" title="All 2 branches missed.">                if (hexWaterDepth == 1) {</span>
+<span class="nc" id="L114">                    additionalCosts.put(mp.getFinalCoords(), mp.getCachedEntityState().getJumpMP() - mp.getCachedEntityState().getTorsoJumpJets());</span>
+                // jumping into water that submerges you entirely pretty much ruins jump MP for at least a turn while you clamber out
+<span class="nc bnc" id="L116" title="All 2 branches missed.">                } else if (hexWaterDepth &gt; 1) {</span>
+<span class="nc" id="L117">                    additionalCosts.put(mp.getFinalCoords(), mp.getCachedEntityState().getJumpMP());</span>
+                }
+            }
+        }
+
+<span class="nc" id="L122">        return mp;</span>
+    }
+    
+    /**
+     * Removes the last step from the path and updates its internal data structures accordingly
+     */
+    @Override
+    public void removeLastStep() {
+<span class="nc" id="L130">        Coords prevFinalCoords = getFinalCoords();</span>
+        
+<span class="nc" id="L132">        super.removeLastStep();</span>
+        
+        // if removing the last step changes the destination coordinates
+        // we need to clear out some of the data we have for this path.
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        if(!getFinalCoords().equals(prevFinalCoords)) {</span>
+<span class="nc" id="L137">            coordLevelingCosts.remove(prevFinalCoords);</span>
+<span class="nc" id="L138">            additionalCosts.remove(prevFinalCoords);</span>
+<span class="nc" id="L139">            coordsToLevel.remove(prevFinalCoords);</span>
+        }
+<span class="nc" id="L141">    }</span>
+    
+    /**
+     * Clones this path, will contain a new clone of the steps so that the clone
+     * is independent from the original.
+     *
+     * @return the cloned MovePath
+     */
+    @Override
+    public BulldozerMovePath clone() {
+<span class="nc" id="L151">        final BulldozerMovePath copy = new BulldozerMovePath(getGame(), getEntity());</span>
+<span class="nc" id="L152">        copyFields(copy);        </span>
+<span class="nc" id="L153">        copy.coordLevelingCosts = new HashMap&lt;&gt;(coordLevelingCosts);</span>
+<span class="nc" id="L154">        copy.additionalCosts = new HashMap&lt;&gt;(additionalCosts);</span>
+<span class="nc" id="L155">        copy.coordsToLevel = new ArrayList&lt;&gt;(coordsToLevel);</span>
+<span class="nc" id="L156">        copy.maxPointBlankDamage = maxPointBlankDamage;</span>
+<span class="nc" id="L157">        return copy;</span>
+    }
+
+    /**
+     * Worker function that calculates the &quot;MP cost&quot; of moving into the given set of coords
+     * if we were to stand still for the number of turns required to reduce the terrain there
+     * to a form through which the current unit can move
+     */
+    public static int calculateLevelingCost(Coords finalCoords, Entity entity) {
+<span class="nc" id="L166">        IBoard board = entity.getGame().getBoard();</span>
+<span class="nc" id="L167">        IHex destHex = board.getHex(finalCoords);</span>
+<span class="nc" id="L168">        int levelingCost = CANNOT_LEVEL;</span>
+        
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if(destHex == null) {</span>
+<span class="nc" id="L171">            return levelingCost;</span>
+        }
+        
+<span class="nc" id="L174">        EntityMovementMode movementMode = entity.getMovementMode();</span>
+<span class="nc bnc" id="L175" title="All 4 branches missed.">        boolean isTracked = movementMode == EntityMovementMode.TRACKED &amp;&amp; !entity.hasETypeFlag(Entity.ETYPE_QUADVEE);</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        boolean isHovercraft = movementMode == EntityMovementMode.HOVER;</span>
+<span class="nc bnc" id="L177" title="All 6 branches missed.">        boolean isMech = movementMode == EntityMovementMode.BIPED || movementMode == EntityMovementMode.TRIPOD ||</span>
+                movementMode == EntityMovementMode.QUAD;
+        
+<span class="nc" id="L180">        double damageNeeded = 0;</span>
+        
+        // tracked tanks can move through light woods, rough and rubble, so any terrain that can be reduced to that
+        // can eventually be moved through
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if(isTracked) {</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">            if (destHex.terrainLevel(Terrains.JUNGLE) &gt; 0) {</span>
+<span class="nc" id="L186">                damageNeeded += Terrains.getTerrainFactor(Terrains.JUNGLE, destHex.terrainLevel(Terrains.JUNGLE));           </span>
+            }
+            
+<span class="nc bnc" id="L189" title="All 2 branches missed.">            if (destHex.terrainLevel(Terrains.WOODS) &gt; 1) {</span>
+                // just what we need to reduce it to light woods
+<span class="nc" id="L191">                damageNeeded += Terrains.getTerrainFactor(Terrains.WOODS, destHex.terrainLevel(Terrains.WOODS)) -</span>
+<span class="nc" id="L192">                        Terrains.getTerrainFactor(Terrains.WOODS, 1); </span>
+            }
+            
+<span class="nc bnc" id="L195" title="All 2 branches missed.">            if (destHex.containsTerrain(Terrains.BLDG_CF)) {</span>
+<span class="nc" id="L196">                damageNeeded += board.getBuildingAt(finalCoords).getCurrentCF(finalCoords);</span>
+            }
+        }
+        
+        // mechs can't go through ultra-heavy terrain, so must reduce it to heavy terrain
+        // may as well consider blowing buildings away
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        if(isMech) {</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            if (destHex.terrainLevel(Terrains.JUNGLE) &gt; 2) {</span>
+<span class="nc" id="L204">                damageNeeded += Terrains.getTerrainFactor(Terrains.JUNGLE, destHex.terrainLevel(Terrains.JUNGLE)) -</span>
+<span class="nc" id="L205">                        Terrains.getTerrainFactor(Terrains.JUNGLE, 2);            </span>
+            }
+            
+<span class="nc bnc" id="L208" title="All 2 branches missed.">            if (destHex.terrainLevel(Terrains.WOODS) &gt; 2) {</span>
+<span class="nc" id="L209">                damageNeeded += Terrains.getTerrainFactor(Terrains.WOODS, destHex.terrainLevel(Terrains.WOODS)) -</span>
+<span class="nc" id="L210">                        Terrains.getTerrainFactor(Terrains.WOODS, 2); </span>
+            }
+            
+<span class="nc bnc" id="L213" title="All 2 branches missed.">            if (destHex.containsTerrain(Terrains.BLDG_CF)) {</span>
+<span class="nc" id="L214">                damageNeeded += board.getBuildingAt(finalCoords).getCurrentCF(finalCoords);</span>
+            }
+        }
+        
+        // hovertanks can move through rough and rubble, so any terrain that can be reduced to that
+        // can eventually be moved through
+<span class="nc bnc" id="L220" title="All 2 branches missed.">        if(isHovercraft) {</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">            if (destHex.terrainLevel(Terrains.JUNGLE) &gt; 0) {</span>
+<span class="nc" id="L222">                damageNeeded += Terrains.getTerrainFactor(Terrains.JUNGLE, destHex.terrainLevel(Terrains.JUNGLE));           </span>
+            }
+            
+<span class="nc bnc" id="L225" title="All 2 branches missed.">            if (destHex.terrainLevel(Terrains.WOODS) &gt; 0) {</span>
+<span class="nc" id="L226">                damageNeeded += Terrains.getTerrainFactor(Terrains.WOODS, destHex.terrainLevel(Terrains.WOODS)); </span>
+            }
+            
+<span class="nc bnc" id="L229" title="All 2 branches missed.">            if (destHex.containsTerrain(Terrains.BLDG_CF)) {</span>
+<span class="nc" id="L230">                damageNeeded += board.getBuildingAt(finalCoords).getCurrentCF(finalCoords);</span>
+            }
+        }
+        
+<span class="nc bnc" id="L234" title="All 2 branches missed.">        if(damageNeeded &gt; 0) {</span>
+            // basically, the MP cost of leveling this terrain is equal to how many turns we're going to waste
+            // shooting at it instead of moving.
+<span class="nc" id="L237">            levelingCost = (int) Math.round(damageNeeded / getMaxPointBlankDamage(entity)) * entity.getRunMP();</span>
+        }
+        
+        
+<span class="nc" id="L241">        return levelingCost;</span>
+    }
+    
+    /**
+     * Helper function that lazy-calculates an entity's max damage at point blank range.
+     */
+    private static double getMaxPointBlankDamage(Entity entity) {
+<span class="nc" id="L248">        return FireControl.getMaxDamageAtRange(entity, 1, false, false);</span>
+    }
+    
+    /**
+     * Whether this path will require terrain reduction to fully accomplish
+     */
+    public boolean needsLeveling() {
+<span class="nc bnc" id="L255" title="All 2 branches missed.">        return coordLevelingCosts.size() &gt; 0;</span>
+    }
+    
+    /**
+     * The coordinates which need to be leveled for this path to be performed by its unit
+     */
+    public List&lt;Coords&gt; getCoordsToLevel() {
+<span class="nc" id="L262">        return coordsToLevel;</span>
+    }
+    
+    @Override
+    public String toString() {
+<span class="nc" id="L267">        return super.toString() + &quot; Leveling Cost: &quot; + getLevelingCost() + &quot; Additional Cost: &quot; + getAdditionalCost();</span>
+    }
+    
+    /**
+     * Comparator implementation useful in comparing two bulldozer move paths by
+     * how many MP it'll take to accomplish that path, including time wasted leveling any obstacles
+     * @author NickAragua
+     *
+     */
+<span class="nc" id="L276">    public static class MPCostComparator implements Comparator&lt;BulldozerMovePath&gt; {</span>
+        /**
+         * compare the first move path to the second
+         * Favors paths that spend less mp total
+         * in case of tie, favors paths that use more hexes
+         */
+        public int compare(BulldozerMovePath first, BulldozerMovePath second) {
+<span class="nc" id="L283">            int dd = (first.getMpUsed() + first.getLevelingCost() + first.getAdditionalCost()) - </span>
+<span class="nc" id="L284">                    (second.getMpUsed() + second.getLevelingCost() + second.getAdditionalCost());</span>
+    
+<span class="nc bnc" id="L286" title="All 2 branches missed.">            if (dd != 0) {</span>
+<span class="nc" id="L287">                return dd;</span>
+            } else {
+<span class="nc" id="L289">                return first.getHexesMoved() - second.getHexesMoved();</span>
+            }           
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

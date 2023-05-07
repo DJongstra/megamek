@@ -1,0 +1,466 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ArtilleryTargetingControl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">ArtilleryTargetingControl.java</span></div><h1>ArtilleryTargetingControl.java</h1><pre class="source lang-java linenums">/*  
+* MegaMek - Copyright (C) 2018 - The MegaMek Team  
+*  
+* This program is free software; you can redistribute it and/or modify it under  
+* the terms of the GNU General Public License as published by the Free Software  
+* Foundation; either version 2 of the License, or (at your option) any later  
+* version.  
+*  
+* This program is distributed in the hope that it will be useful, but WITHOUT  
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS  
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more  
+* details.  
+*/  
+
+package megamek.client.bot.princess;
+
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import megamek.common.AmmoType;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.HexTarget;
+import megamek.common.IGame;
+import megamek.common.Mounted;
+import megamek.common.Targetable;
+import megamek.common.WeaponType;
+import megamek.common.actions.ArtilleryAttackAction;
+import megamek.common.options.OptionsConstants;
+
+/**
+ * This class handles the creation of firing plans for indirect-fire artillery and other weapons that get used during the
+ * targeting phase.
+ * @author NickAragua
+ *
+ */
+<span class="nc" id="L44">public class ArtilleryTargetingControl {</span>
+    private static final int NO_AMMO = -1;
+    // biggest known kaboom is the 120 cruise missile with a 4-hex radius, but it's not very common
+    // and greatly increases the number of spaces we need to check
+    private static final int MAX_ARTILLERY_BLAST_RADIUS = 2; 
+    
+    // per TacOps, this is the to-hit modifier for indirect artillery attacks.
+    private static final int ARTILLERY_ATTACK_MODIFIER = 7;
+    
+    // The main principle here isn't to try to anticipate enemy movement: that's unlikely, especially for faster or jump-capable units.
+    // The main principle instead is to put down fire that a) may land on enemy units
+    // b) is less likely to land on my units
+    
+    // Each potential hex is evaluated as follows:
+    // (summed over all units within blast radius of hex) (1/unit run speed + 1) * odds of hitting hex * unit friendliness factor (1 for enemy, -1 for ally)
+    // repeat and sum over all hexes within scatter pattern
+    
+    // this is a data structure that maps artillery damage value (which directly correlates with blast radius)
+    // to a dictionary containing sets of coordinates and the damage value if one of those coordinates were hit by a shell
+    // does not take into account hit odds or anything like that
+<span class="nc" id="L64">    private Map&lt;Integer, HashMap&lt;Coords, Double&gt;&gt; damageValues = new HashMap&lt;&gt;();</span>
+    
+    private Set&lt;Targetable&gt; targetSet;
+    
+    /**
+     * Worker function that calculates the total damage that would be done if a shot with the given damage value
+     * would hit the target coordinates.
+     * 
+     * Caches computation results to avoid repeat 
+     * @param damage
+     * @param coords
+     * @param shooter
+     * @param game
+     */
+    public double calculateDamageValue(int damage, Coords coords, Entity shooter, IGame game, Princess owner) {
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        if(getDamageValue(damage, coords) != null) {</span>
+<span class="nc" id="L80">            return getDamageValue(damage, coords);</span>
+        }
+        
+        // calculate blast radius = ceiling(damage / 10) - 1
+        // for each hex in blast radius, value is 
+        // (damage - (distance from center * 10)) * [over all units] 1/(unit run MP + 1) * +/-1 (depending on if unit is friendly or not
+        // it's not correct for cruise missiles, but I don't think the bot will be using those.
+<span class="nc" id="L87">        int blastRadius = (int) Math.ceil(damage / 10.0) - 1; </span>
+<span class="nc" id="L88">        double totalDamage = calculateDamageValueForHex(damage, coords, shooter, game, owner);</span>
+        
+        // loop around each concentric hex centered on the given coords
+<span class="nc bnc" id="L91" title="All 2 branches missed.">        for(int distanceFromCenter = 1; distanceFromCenter &lt;= blastRadius; distanceFromCenter++) {</span>
+            // the damage done is actual damage - 10 * # hexes from center
+<span class="nc" id="L93">            int currentDamage = damage - distanceFromCenter * 10;</span>
+
+<span class="nc bnc" id="L95" title="All 2 branches missed.">            for(Coords currentCoords : coords.allAtDistance(distanceFromCenter)) {</span>
+<span class="nc" id="L96">                totalDamage += calculateDamageValueForHex(currentDamage, currentCoords, shooter, game, owner);</span>
+<span class="nc" id="L97">            }</span>
+        }
+        
+<span class="nc" id="L100">        cacheDamageValue(damage, coords, totalDamage);</span>
+<span class="nc" id="L101">        return totalDamage;</span>
+    }
+    
+    /**
+     * Worker function that calculates the &quot;damage value&quot; of a single hex.
+     * The formula is (summed over all units in target hex) 
+     *  [incoming damage] * [1 / (unit run mp + 1)] * [-1 if friendly, +1 if enemy] 
+     * @param damage How much damage will we do
+     * @param coords Coordinates to hit
+     * @param shooter Entity doing the shooting
+     * @param game Game pointer
+     */
+    private double calculateDamageValueForHex(int damage, Coords coords, Entity shooter, IGame game, Princess owner) {
+<span class="nc" id="L114">        double value = 0;</span>
+        
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        for(Entity entity : game.getEntitiesVector(coords, true)) {</span>
+            // ignore aircraft for now, and also transported entities
+<span class="nc bnc" id="L118" title="All 6 branches missed.">            if(entity.isAirborne() || entity.isAirborneVTOLorWIGE() || entity.getTransportId() != Entity.NONE) {</span>
+<span class="nc" id="L119">                continue;</span>
+            }
+            
+<span class="nc" id="L122">            int friendlyMultiplier = -1;</span>
+            
+            // try to avoid shooting at friendlies
+            // ignore routed enemies who haven't resumed fire
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            if(entity.isEnemyOf(shooter)) {</span>
+<span class="nc" id="L127">                boolean enemyUnitBroken = owner.getHonorUtil().isEnemyBroken(entity.getId(), </span>
+<span class="nc" id="L128">                        shooter.getOwnerId(), </span>
+<span class="nc" id="L129">                        owner.getBehaviorSettings().isForcedWithdrawal());</span>
+                
+<span class="nc" id="L131">                boolean enemyDishonored = owner.getHonorUtil().isEnemyDishonored(entity.getOwnerId());</span>
+                
+<span class="nc bnc" id="L133" title="All 4 branches missed.">                if(!enemyUnitBroken || enemyDishonored) {</span>
+<span class="nc" id="L134">                    friendlyMultiplier = 1;</span>
+                } else {
+<span class="nc" id="L136">                    friendlyMultiplier = 0;</span>
+                }
+            }
+            
+<span class="nc" id="L140">            double speedMultiplier = (double) 1 / (entity.getRunMP() + 1);</span>
+<span class="nc" id="L141">            value += damage * speedMultiplier * friendlyMultiplier;</span>
+<span class="nc" id="L142">        }</span>
+        
+<span class="nc" id="L144">        return value;</span>
+    }
+    
+    /**
+     * Cache a calculated damage value for the given damage/coordinates combo
+     * @param damage
+     * @param coords
+     * @param value
+     */
+    private void cacheDamageValue(int damage, Coords coords, Double value) {
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        if(!damageValues.containsKey(damage)) {</span>
+<span class="nc" id="L155">            damageValues.put(damage, new HashMap&lt;&gt;());</span>
+        }
+        
+<span class="nc" id="L158">        damageValues.get(damage).put(coords, value);</span>
+<span class="nc" id="L159">    }</span>
+    
+    /**
+     * Retrieve a calculated damage value for the given damage/coords combo
+     * @param damage
+     * @param coords
+     * @return
+     */
+    private Double getDamageValue(int damage, Coords coords) {
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        if(damageValues.containsKey(damage)) {</span>
+<span class="nc" id="L169">            return damageValues.get(damage).get(coords);</span>
+        }
+        
+<span class="nc" id="L172">        return null;</span>
+    }
+    
+    /**
+     * Clears out all cached elements in preparation for a new targeting phase.
+     */
+    public void initializeForTargetingPhase() {
+<span class="nc" id="L179">        damageValues = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L180">        targetSet = null;</span>
+<span class="nc" id="L181">    }</span>
+    
+    /**
+     * Builds a list of eligible targets for artillery strikes.
+     * This includes hexes on and within the max radius of all non-airborne enemy entities
+     * and hexes on and within the max radius of all strategic targets.
+     * @param shooter Entity doing the shooting
+     * @param game Game pointer
+     * @param owner Bot pointer
+     */
+    private void buildTargetList(Entity shooter, IGame game, Princess owner) {
+<span class="nc" id="L192">        targetSet = new HashSet&lt;&gt;();</span>
+        
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        for(Iterator&lt;Entity&gt; enemies = game.getAllEnemyEntities(shooter); enemies.hasNext();) {</span>
+<span class="nc" id="L195">            Entity e = enemies.next();</span>
+            
+            // skip airborne entities, and those off board - we'll handle them later
+<span class="nc bnc" id="L198" title="All 6 branches missed.">            if(!e.isAirborne() &amp;&amp; !e.isAirborneVTOLorWIGE() &amp;&amp; !e.isOffBoard()) {</span>
+<span class="nc" id="L199">                targetSet.add(new HexTarget(e.getPosition(), Targetable.TYPE_HEX_ARTILLERY));</span>
+                
+                // while we're here, consider shooting at hexes within &quot;MAX_BLAST_RADIUS&quot;
+                // of the entity. 
+<span class="nc" id="L203">                addHexDonuts(e.getPosition(), targetSet, game);</span>
+            }
+<span class="nc" id="L205">        }</span>
+        
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        for(Entity enemy : game.getAllOffboardEnemyEntities(shooter.getOwner())) {</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">            if(enemy.isOffBoardObserved(shooter.getOwner().getTeam())) {</span>
+<span class="nc" id="L209">                targetSet.add(enemy);</span>
+            }
+<span class="nc" id="L211">        }</span>
+        
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        for(Coords coords : owner.getStrategicBuildingTargets()) {</span>
+<span class="nc" id="L214">            targetSet.add(new HexTarget(coords, Targetable.TYPE_HEX_ARTILLERY));</span>
+            
+            // while we're here, consider shooting at hexes within &quot;MAX_BLAST_RADIUS&quot;
+            // of the strategic targets.
+<span class="nc" id="L218">            addHexDonuts(coords, targetSet, game);</span>
+<span class="nc" id="L219">        }</span>
+<span class="nc" id="L220">    }</span>
+    
+    /**
+     * Adds on-board HexTargets within the MAX_ARTILLERY_BLAST_RADIUS of the given coordinates
+     * to the given HexTarget set. 
+     * @param coords Center coordinates
+     * @param targetList List of target hexes
+     * @param game game pointer
+     */
+    private void addHexDonuts(Coords coords, Set&lt;Targetable&gt; targetList, IGame game) {
+        // while we're here, consider shooting at hexes within &quot;MAX_BLAST_RADIUS&quot;
+        // of the designated coordinates 
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        for(int radius = 1; radius &lt;= MAX_ARTILLERY_BLAST_RADIUS; radius++) {</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">            for(Coords donutHex : coords.allAtDistance(radius)) {</span>
+                // don't bother adding off-board donuts.
+<span class="nc bnc" id="L235" title="All 2 branches missed.">                if(game.getBoard().contains(donutHex)) {</span>
+<span class="nc" id="L236">                    targetList.add(new HexTarget(donutHex, Targetable.TYPE_HEX_ARTILLERY));</span>
+                }
+<span class="nc" id="L238">            }</span>
+        }
+<span class="nc" id="L240">    }</span>
+    
+    /**
+     * Calculate an indirect artillery &quot;fire plan&quot;, taking into account the possibility of rotating the turret.
+     * @param shooter Entity doing the shooting
+     * @param game Game pointer
+     * @param owner Princess pointer
+     * @return Firing plan
+     */
+    public FiringPlan calculateIndirectArtilleryPlan(Entity shooter, IGame game, Princess owner) {
+<span class="nc" id="L250">        FiringPlan bestPlan = calculateIndirectArtilleryPlan(shooter, game, owner, 0);</span>
+        
+        // simply loop through all possible facings and see if any of those is better than the no-turning plan
+<span class="nc bnc" id="L253" title="All 2 branches missed.">        if(!shooter.isOffBoard()) {</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">            for(int facingChange : FireControl.getValidFacingChanges(shooter)) {</span>
+<span class="nc" id="L255">                FiringPlan twistPlan =  calculateIndirectArtilleryPlan(shooter, game, owner, facingChange);</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">                if(twistPlan.getUtility() &gt; bestPlan.getUtility()) {</span>
+<span class="nc" id="L257">                    bestPlan = twistPlan;</span>
+                }
+<span class="nc" id="L259">            }</span>
+        }
+        
+<span class="nc" id="L262">        return bestPlan;</span>
+    }
+    
+    /**
+     * Put together an indirect artillery &quot;fire plan&quot;.
+     * @param shooter Entity doing the shooting
+     * @param game Game pointer
+     * @param owner Princess pointer
+     * @return Firing plan
+     */
+    private FiringPlan calculateIndirectArtilleryPlan(Entity shooter, IGame game, Princess owner, int facingChange) {
+<span class="nc" id="L273">        FiringPlan retval = new FiringPlan();</span>
+        
+        // if we're fleeing and haven't been shot at, then try not to agitate guys that may pursue us.
+<span class="nc bnc" id="L276" title="All 4 branches missed.">        if(owner.isFallingBack(shooter) &amp;&amp; !owner.canShootWhileFallingBack(shooter)) {</span>
+<span class="nc" id="L277">            return retval;</span>
+        }
+        
+        // set the plan's torso twist/turret rotation
+        // also set the 
+        // make sure to remember the entity's original rotation as we're manipulating it directly
+<span class="nc" id="L283">        retval.setTwist(facingChange);</span>
+<span class="nc" id="L284">        int originalFacing = shooter.getSecondaryFacing();</span>
+<span class="nc" id="L285">        shooter.setSecondaryFacing(FireControl.correctFacing(originalFacing + facingChange));</span>
+        
+        // if we haven't built a target list yet, do so now.
+        // potential target list is the same regardless of the entity doing the shooting
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if(targetSet == null) {</span>
+<span class="nc" id="L290">            buildTargetList(shooter, game, owner);</span>
+        }
+        
+        // loop through all weapons on entity
+        // each indirect artillery piece randomly picks a target from the priority list
+        // by the end of this loop, we either have 0 max damage/0 top valued coordinates, which indicates there's nothing worth shooting at
+        // or we have a 1+ top valued coordinates.
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        for(Mounted currentWeapon : shooter.getWeaponList()) {</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">            if(currentWeapon.getType().hasFlag(WeaponType.F_ARTILLERY)) {</span>
+<span class="nc" id="L299">                WeaponType wType = (WeaponType) currentWeapon.getType();</span>
+<span class="nc" id="L300">                int damage = wType.getRackSize(); // crazy, but rack size appears to correspond to given damage values for arty pieces in tacops</span>
+                
+<span class="nc" id="L302">                List&lt;WeaponFireInfo&gt; topValuedFireInfos = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L303">                double maxDamage = 0;</span>
+                
+                // for each enemy unit, evaluate damage value of firing at its hex.
+                // keep track of top target hexes with the same value and fire at them
+<span class="nc bnc" id="L307" title="All 2 branches missed.">                for(Targetable hexTarget : targetSet) {</span>
+<span class="nc" id="L308">                    double damageValue = 0.0;</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">                    if(hexTarget.getTargetType() == Targetable.TYPE_ENTITY) {</span>
+<span class="nc" id="L310">                        damageValue = damage;</span>
+                    } else {
+<span class="nc" id="L312">                        damageValue = calculateDamageValue(damage, hexTarget.getPosition(), shooter, game, owner);</span>
+                    }
+                    
+<span class="nc" id="L315">                    WeaponFireInfo wfi = new WeaponFireInfo(shooter, hexTarget,</span>
+                            currentWeapon, game, false, owner);
+                    
+                    // factor the chance to hit when picking a target - if we've got a spotted hex or an auto-hit hex
+                    // we should prefer to hit that over something that may scatter to who knows where
+<span class="nc bnc" id="L320" title="All 2 branches missed.">                    if(wfi.getProbabilityToHit() &gt; 0) {</span>
+<span class="nc" id="L321">                        damageValue *= wfi.getProbabilityToHit();</span>
+                        
+<span class="nc bnc" id="L323" title="All 2 branches missed.">                        if(damageValue &gt; maxDamage) {</span>
+<span class="nc" id="L324">                            topValuedFireInfos.clear();</span>
+<span class="nc" id="L325">                            maxDamage = damageValue;</span>
+<span class="nc" id="L326">                            topValuedFireInfos.add(wfi);</span>
+<span class="nc bnc" id="L327" title="All 4 branches missed.">                        } else if((damageValue == maxDamage) &amp;&amp; (damageValue &gt; 0)) {</span>
+<span class="nc" id="L328">                            topValuedFireInfos.add(wfi);</span>
+                        }
+                    }
+<span class="nc" id="L331">                }</span>
+                
+                // this section is long and obnoxious:
+                // Pick a random fire info out of the ones with the top damage level
+                // Use that to create an artillery attack action, set the action's ammo
+                // then set the fire info's attack action to the created attack action
+                // add the fire info to the firing plan
+<span class="nc bnc" id="L338" title="All 2 branches missed.">                if(!topValuedFireInfos.isEmpty()) {</span>
+<span class="nc" id="L339">                    WeaponFireInfo actualFireInfo = topValuedFireInfos.get(Compute.randomInt(topValuedFireInfos.size()));</span>
+<span class="nc" id="L340">                    ArtilleryAttackAction aaa = (ArtilleryAttackAction) actualFireInfo.buildWeaponAttackAction();</span>
+<span class="nc" id="L341">                    int ammoID = findAmmo(shooter, currentWeapon, game);</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">                    if (ammoID &gt; NO_AMMO) {</span>
+                        //This can happen if princess is towing ammo trailers, which she really shouldn't be doing...
+<span class="nc" id="L344">                        aaa.setAmmoId(ammoID);</span>
+<span class="nc" id="L345">                        aaa.setAmmoCarrier(shooter.getId());</span>
+<span class="nc" id="L346">                        actualFireInfo.setAction(aaa);</span>
+<span class="nc" id="L347">                        retval.add(actualFireInfo);</span>
+<span class="nc" id="L348">                        retval.setUtility(retval.getUtility() + maxDamage);</span>
+<span class="nc" id="L349">                        owner.sendAmmoChange(shooter.getId(), shooter.getEquipmentNum(currentWeapon), ammoID);</span>
+                    }
+                }
+<span class="nc bnc" id="L352" title="All 2 branches missed.">            } else if(currentWeapon.getType().hasFlag(WeaponType.F_TAG)) {</span>
+<span class="nc" id="L353">                WeaponFireInfo tagInfo = getTAGInfo(currentWeapon, shooter, game, owner);</span>
+                
+<span class="nc bnc" id="L355" title="All 2 branches missed.">                if(tagInfo != null) {</span>
+<span class="nc" id="L356">                    retval.add(tagInfo);</span>
+<span class="nc" id="L357">                    retval.setUtility(retval.getUtility() + tagInfo.getProbabilityToHit());</span>
+                }
+            }
+<span class="nc" id="L360">        }</span>
+        
+<span class="nc" id="L362">        shooter.setSecondaryFacing(originalFacing);</span>
+        
+<span class="nc" id="L364">        return retval;</span>
+    }
+    
+    /**
+     * Worker function that calculates the shooter's &quot;best&quot; actions that result in a TAG being fired.
+     * @param shooter
+     * @param game
+     * @param owner
+     * @return
+     */
+    private WeaponFireInfo getTAGInfo(Mounted weapon, Entity shooter, IGame game, Princess owner) {
+<span class="nc" id="L375">        WeaponFireInfo retval = null;</span>
+<span class="nc" id="L376">        double hitOdds = 0.0;</span>
+        
+        // pretty simple logic here: take the best shot that you have
+<span class="nc bnc" id="L379" title="All 2 branches missed.">        for(Targetable target : FireControl.getAllTargetableEnemyEntities(owner.getLocalPlayer(), game, owner.getFireControlState())) {</span>
+<span class="nc" id="L380">            WeaponFireInfo wfi = new WeaponFireInfo(shooter, target, weapon, game, false, owner);</span>
+<span class="nc bnc" id="L381" title="All 2 branches missed.">            if(wfi.getProbabilityToHit() &gt; hitOdds) {</span>
+<span class="nc" id="L382">                hitOdds = wfi.getProbabilityToHit();</span>
+<span class="nc" id="L383">                retval = wfi;</span>
+            }
+<span class="nc" id="L385">        }</span>
+        
+<span class="nc" id="L387">        return retval;</span>
+    }
+    
+    /**
+     * Worker function that selects the appropriate ammo for the given entity and weapon.
+     * @param shooter
+     * @param currentWeapon
+     * @param game
+     * @return
+     */
+    private int findAmmo(Entity shooter, Mounted currentWeapon, IGame game) {
+<span class="nc" id="L398">        int ammoEquipmentNum = NO_AMMO;</span>
+        
+        // simply grab the first valid ammo and let 'er rip.
+<span class="nc bnc" id="L401" title="All 2 branches missed.">        for(Mounted ammo : shooter.getAmmo()) {</span>
+<span class="nc bnc" id="L402" title="All 4 branches missed.">            if(!ammo.isAmmoUsable() || !AmmoType.isAmmoValid(ammo, (WeaponType) currentWeapon.getType())) {</span>
+<span class="nc" id="L403">                continue;</span>
+            }
+            
+<span class="nc" id="L406">            ammoEquipmentNum = shooter.getEquipmentNum(ammo);</span>
+<span class="nc" id="L407">            break;</span>
+            
+            // TODO: Attempt to select homing ammo if the target is tagged. 
+            // To do so, check ammoType.getMunitionType() == AmmoType.M_HOMING
+        }
+        
+<span class="nc" id="L413">        return ammoEquipmentNum;</span>
+    }
+
+    /**
+     * Function that calculates the potential damage if an artillery attack
+     * were to land on target. 
+     * @param coords
+     * @param operator
+     * @return
+     */
+    public static double evaluateIncomingArtilleryDamage(Coords coords, Princess operator) {
+<span class="nc" id="L424">        double sum = 0;</span>
+        
+<span class="nc bnc" id="L426" title="All 2 branches missed.">        for(Enumeration&lt;ArtilleryAttackAction&gt; attackEnum = operator.getGame().getArtilleryAttacks(); attackEnum.hasMoreElements();) {</span>
+<span class="nc" id="L427">            ArtilleryAttackAction aaa = attackEnum.nextElement();</span>
+            
+            // calculate damage: damage - (10 * distance to me), floored at 0
+            // we only say that it will actually be damage if the attack coming in is landing right after the movement phase
+<span class="nc" id="L431">            double actualDamage = 0.0;</span>
+            
+<span class="nc bnc" id="L433" title="All 2 branches missed.">            if(aaa.getTurnsTilHit() == 0) {</span>
+                // damage for artillery weapons is, for some reason, derived from the weapon type's rack size
+<span class="nc" id="L435">                Mounted weapon = aaa.getEntity(operator.getGame()).getEquipment(aaa.getWeaponId());</span>
+<span class="nc" id="L436">                int damage = ((WeaponType) weapon.getType()).getRackSize();</span>
+                
+                // distance from given coordinates reduces damage
+<span class="nc" id="L439">                Coords attackDestination = aaa.getTarget(operator.getGame()).getPosition();</span>
+<span class="nc" id="L440">                int distance = coords.distance(attackDestination);</span>
+                
+                // calculate odds of attack actually hitting
+                // artillery skill may be gunnery or artillery depending on game options
+<span class="nc" id="L444">                int artySkill = aaa.getEntity(operator.getGame()).getCrew().getGunnery();</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">                if(operator.getGame().getOptions().booleanOption(OptionsConstants.RPG_ARTILLERY_SKILL)) {</span>
+<span class="nc" id="L446">                    artySkill = aaa.getEntity(operator.getGame()).getCrew().getArtillery();</span>
+                }
+                
+<span class="nc" id="L449">                double hitOdds = 0.0;</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                if(operator.getArtilleryAutoHit() != null &amp;&amp;</span>
+<span class="nc bnc" id="L451" title="All 2 branches missed.">                        operator.getArtilleryAutoHit().contains(coords)) {</span>
+<span class="nc" id="L452">                    hitOdds = 1.0;</span>
+                } else {
+<span class="nc" id="L454">                    hitOdds = Compute.oddsAbove(artySkill + ARTILLERY_ATTACK_MODIFIER);</span>
+                }
+            
+<span class="nc" id="L457">                actualDamage = Math.max(damage - (10 * distance), 0) * hitOdds;</span>
+            }
+            
+<span class="nc" id="L460">            sum += actualDamage;</span>
+<span class="nc" id="L461">        }</span>
+        
+<span class="nc" id="L463">        return sum;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

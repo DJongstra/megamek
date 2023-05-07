@@ -1,0 +1,418 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AeroGroundPathFinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.pathfinder</a> &gt; <span class="el_source">AeroGroundPathFinder.java</span></div><h1>AeroGroundPathFinder.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2017 The MegaMek Team
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+
+package megamek.common.pathfinder;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import megamek.MegaMek;
+import megamek.client.bot.princess.AeroPathUtil;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.IAero;
+import megamek.common.IGame;
+import megamek.common.MovePath;
+import megamek.common.MoveStep;
+import megamek.common.logging.LogLevel;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.pathfinder.AbstractPathFinder.Filter;
+
+/**
+ * This set of classes is intended for use for pathfinding by aerodyne units on ground maps with an atmosphere
+ * Usage anywhere else may result in &quot;unpredictable&quot; behavior
+ *
+ * @author NickAragua
+ *
+ */
+public class AeroGroundPathFinder {
+
+    public static final int OPTIMAL_STRIKE_ALTITUDE = 5; // also great for dive bombs
+    public static final int NAP_OF_THE_EARTH = 1;
+    public static final int OPTIMAL_STRAFE_ALTITUDE = 3; // future use
+
+    protected int getMinimumVelocity(IAero mover) {
+<span class="nc" id="L50">        return 1;</span>
+    }
+
+    protected int getMaximumVelocity(IAero mover) {
+<span class="nc" id="L54">        return 3;</span>
+    }
+
+    protected IGame game;
+    private List&lt;MovePath&gt; aeroGroundPaths;
+    protected int maxThrust;
+
+<span class="nc" id="L61">    protected AeroGroundPathFinder(IGame game) {</span>
+<span class="nc" id="L62">        this.game = game;</span>
+<span class="nc" id="L63">        MegaMek.getLogger().setLogLevel(LogLevel.DEBUG);</span>
+<span class="nc" id="L64">    }</span>
+
+    public Collection&lt;MovePath&gt; getAllComputedPathsUncategorized() {
+<span class="nc" id="L67">        return aeroGroundPaths;</span>
+    }
+
+    /**
+     * Computes shortest paths to nodes in the graph.
+     *
+     * @param startingEdge a collection of possible starting edges.
+     */
+    public void run(MovePath startingEdge) {
+        try {
+<span class="nc" id="L77">            aeroGroundPaths = new ArrayList&lt;MovePath&gt;();</span>
+<span class="nc" id="L78">            visitedCoords.clear();</span>
+
+            // if we're out of control, then we can't actually do anything
+<span class="nc bnc" id="L81" title="All 2 branches missed.">            if(((IAero) startingEdge.getEntity()).isOutControlTotal()) {</span>
+<span class="nc" id="L82">                return;</span>
+            }
+
+            // calculate maximum and minimum safe velocity
+            // in the case of aerospace units on ground maps, we want a velocity of at least 1 so we don't stall
+            // and at least 3 so we don't pointlessly fly around in circles or consume all available memory
+<span class="nc" id="L88">            IAero aero = (IAero) startingEdge.getEntity();</span>
+<span class="nc" id="L89">            maxThrust = AeroPathUtil.calculateMaxSafeThrust(aero);</span>
+<span class="nc" id="L90">            int maxVelocity = Math.min(getMaximumVelocity(aero), aero.getCurrentVelocity() + maxThrust);</span>
+<span class="nc" id="L91">            int minVelocity = Math.max(getMinimumVelocity(aero), aero.getCurrentVelocity() - maxThrust);</span>
+<span class="nc" id="L92">            Collection&lt;MovePath&gt; validAccelerations = AeroPathUtil.generateValidAccelerations(startingEdge, minVelocity, maxVelocity);</span>
+
+<span class="nc bnc" id="L94" title="All 2 branches missed.">            for(MovePath acceleratedPath : validAccelerations) {</span>
+<span class="nc" id="L95">                aeroGroundPaths.addAll(getAltitudeAdjustedPaths(GenerateAllPaths(acceleratedPath)));</span>
+<span class="nc" id="L96">            }</span>
+<span class="nc" id="L97">        } catch (OutOfMemoryError e) {</span>
+            /*
+             * Some implementations can run out of memory if they consider and
+             * save in memory too many paths. Usually we can recover from this
+             * by ending prematurely while preserving already computed results.
+             */
+
+<span class="nc" id="L104">            final String memoryMessage = &quot;Not enough memory to analyse all options.&quot;//$NON-NLS-1$</span>
+                    + &quot; Try setting time limit to lower value, or &quot;//$NON-NLS-1$
+                    + &quot;increase java memory limit.&quot;;
+
+<span class="nc" id="L108">            MegaMek.getLogger().error(memoryMessage, e);</span>
+<span class="nc" id="L109">        } catch(Exception e) {</span>
+<span class="nc" id="L110">            MegaMek.getLogger().error(e); //do something, don't just swallow the exception, good lord</span>
+<span class="nc" id="L111">        }</span>
+<span class="nc" id="L112">    }</span>
+
+    public static AeroGroundPathFinder getInstance(IGame game) {
+<span class="nc" id="L115">        AeroGroundPathFinder apf = new AeroGroundPathFinder(game);</span>
+
+<span class="nc" id="L117">        return apf;</span>
+    }
+
+    /**
+     *
+     * @author NickAragua
+     *
+     * @param &lt;MovePath&gt; a move path
+     *
+     * This class removes all off-board paths, but keeps track of the shortest of all the paths removed
+     */
+<span class="nc" id="L128">    public static class AeroGroundOffBoardFilter extends Filter&lt;MovePath&gt; {</span>
+
+        MovePath shortestPath;
+
+        public MovePath getShortestPath() {
+<span class="nc" id="L133">            return shortestPath;</span>
+        }
+
+        /**
+         * Returns filtered collection by removing those objects that fail
+         * {@link #shouldStay(T)} test.
+         *
+         * @param collection collection to be filtered
+         * @return filtered collection
+         */
+        @Override
+        public Collection&lt;MovePath&gt; doFilter(Collection&lt;MovePath&gt; collection) {
+<span class="nc" id="L145">            List&lt;MovePath&gt; filteredMoves = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">            for (MovePath e : collection) {</span>
+                // if the path does not go off board, then we add it to the returned collection
+<span class="nc bnc" id="L148" title="All 2 branches missed.">                if (shouldStay(e)) {</span>
+<span class="nc" id="L149">                    filteredMoves.add(e);</span>
+                } else {
+                    // if the path *does* go off board, we want to compare its length to
+                    // our current shortest off-board path and keep it in mind if it's both shorter and safe
+                    // at the end of the process, we will add the shortest path off board to the list of moves
+<span class="nc bnc" id="L154" title="All 2 branches missed.">                    if(shortestPath == null ||</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">                            (shortestPath.length() &gt; e.length()) &amp;&amp;</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">                            AeroPathUtil.isSafePathOffBoard(e)) {</span>
+<span class="nc" id="L157">                        shortestPath = e;</span>
+                    }
+                }
+<span class="nc" id="L160">            }</span>
+
+<span class="nc" id="L162">            return filteredMoves;</span>
+        }
+
+        /**
+         * Tests if the object should stay in the collection.
+         *
+         * @param path Path object is taking
+         * @return true if the object should stay in the collection
+         */
+        @Override
+        public boolean shouldStay(MovePath path) {
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            return !path.fliesOffBoard();</span>
+        }
+
+    }
+
+    // This object contains a hex and the shortest non-off-board path that has flown over it.
+    Map&lt;Coords, MovePath&gt; visitedHexes;
+
+    /**
+     * Given a list of MovePaths, applies adjustTowardsDesiredAltitude to each of them.
+     * @param startingPaths The collection of paths to process
+     * @return The new collection of resulting paths.
+     */
+    protected List&lt;MovePath&gt; getAltitudeAdjustedPaths(List&lt;MovePath&gt; startingPaths) {
+<span class="nc" id="L187">        List&lt;MovePath&gt; desiredAltitudes = new ArrayList&lt;MovePath&gt;();</span>
+
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        for(MovePath start : startingPaths) {</span>
+<span class="nc" id="L190">            boolean choppedOffFlyOff = false;</span>
+
+            // if we are going off board, we need to take some special actions, meaning chopping off the tail end
+<span class="nc bnc" id="L193" title="All 2 branches missed.">            if(start.fliesOffBoard()) {</span>
+<span class="nc" id="L194">                start.removeLastStep();</span>
+<span class="nc" id="L195">                choppedOffFlyOff = true;</span>
+            }
+
+            // repeat with 1, 3, 7 when we settle things down?
+<span class="nc" id="L199">            MovePath desiredAltitudePath = adjustTowardsDesiredAltitude(start, OPTIMAL_STRIKE_ALTITUDE);</span>
+
+<span class="nc bnc" id="L201" title="All 2 branches missed.">            if(choppedOffFlyOff) {</span>
+<span class="nc" id="L202">                desiredAltitudePath.addStep(MoveStepType.RETURN);</span>
+            }
+
+<span class="nc" id="L205">            desiredAltitudes.add(desiredAltitudePath);</span>
+<span class="nc" id="L206">        }</span>
+
+<span class="nc" id="L208">        return desiredAltitudes;</span>
+    }
+
+    /**
+     * Moves a given path towards the desired altitude.
+     * @param startingPath The path to adjust
+     * @param desiredAltitude The desired altitude
+     * @return New instance of movepath with as much altitude adjustment as possible
+     */
+    private MovePath adjustTowardsDesiredAltitude(MovePath startingPath, int desiredAltitude) {
+<span class="nc" id="L218">        MovePath altitudePath = startingPath.clone();</span>
+
+        // generate a path that involves making changes that go up or down towards the desired altitude as far as possible
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        while(altitudePath.getFinalAltitude() != desiredAltitude) {</span>
+            // up steps use thrust. Two points, to be exact
+<span class="nc bnc" id="L223" title="All 2 branches missed.">            if(altitudePath.getFinalAltitude() &lt; desiredAltitude &amp;&amp;</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">                    altitudePath.getMpUsed() &lt; maxThrust - 1) {</span>
+<span class="nc" id="L225">                altitudePath.addStep(MoveStepType.UP);</span>
+            }
+            // down steps don't use thrust, but if we take more than one, it changes the velocity, so just do one for now
+            // if we take more than two, it's a PSR, so definitely avoid that
+<span class="nc bnc" id="L229" title="All 2 branches missed.">            else if(altitudePath.getFinalAltitude() &gt; desiredAltitude &amp;&amp;</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">                    altitudePath.getFinalAltitude() &gt;=  startingPath.getFinalAltitude() - 1) {</span>
+<span class="nc" id="L231">                altitudePath.addStep(MoveStepType.DOWN);</span>
+            }
+            // we've either reached the desired altitude or have hit some other stopping condition so that's enough of that
+            else {
+                break;
+            }
+        }
+
+<span class="nc" id="L239">        return altitudePath;</span>
+    }
+
+    // the goal here is to generate a &quot;tree-like&quot; structure;
+    //
+    //               \\\|///
+    //                \\|//
+    //                 \|/
+    //                  |
+    //                  |
+    //
+    //  Then, generate smaller subtrees off the left and right sides of the tree, like so:
+    //             /-\\\|///-\
+    //            //--\\|//--\\
+    //                 \|/
+    //                  |
+    //                  |
+    // And so on until we've run out of velocity
+    // if a branch runs off board, we discard it unless it's the shortest one so far, we'll want to keep one of those around
+    // if a branch runs out of velocity, then we make note of all the hexes it has visited so far.
+    // if a hex has already been visited by another branch, then we set the current one as the visitor only if it's shorter
+    protected List&lt;MovePath&gt; GenerateAllPaths(MovePath mp) {
+<span class="nc" id="L261">        List&lt;MovePath&gt; retval = new ArrayList&lt;MovePath&gt;();</span>
+
+<span class="nc bnc" id="L263" title="All 2 branches missed.">        for(MovePath path : generateSidePaths(mp, MoveStepType.TURN_RIGHT)) {</span>
+            // we want to avoid adding paths that don't visit new hexes
+            // off-board paths will get thrown out later
+<span class="nc bnc" id="L266" title="All 4 branches missed.">            if(path.fliesOffBoard() || !pathIsRedundant(path)) {</span>
+<span class="nc" id="L267">                retval.add(path);</span>
+            }
+<span class="nc" id="L269">        }</span>
+
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        for(MovePath path : generateSidePaths(mp, MoveStepType.TURN_LEFT)) {</span>
+            // we want to avoid adding paths that don't visit new hexes
+            // off-board paths will get thrown out later
+<span class="nc bnc" id="L274" title="All 4 branches missed.">            if(path.fliesOffBoard() || !pathIsRedundant(path)) {</span>
+<span class="nc" id="L275">                retval.add(path);</span>
+            }
+<span class="nc" id="L277">        }</span>
+
+<span class="nc" id="L279">        ForwardToTheEnd(mp);</span>
+<span class="nc bnc" id="L280" title="All 4 branches missed.">        if(mp.fliesOffBoard() || !pathIsRedundant(mp)) {</span>
+<span class="nc" id="L281">            retval.add(mp);</span>
+        }
+
+<span class="nc" id="L284">        return retval;</span>
+    }
+
+    // generates and returns all paths that stick straight lines out of the current path to the right or left
+    protected List&lt;MovePath&gt; generateSidePaths(MovePath mp, MoveStepType stepType) {
+<span class="nc" id="L289">        List&lt;MovePath&gt; retval = new ArrayList&lt;MovePath&gt;();</span>
+<span class="nc" id="L290">        MovePath straightLine = mp.clone();</span>
+
+<span class="nc" id="L292">        boolean firstTurn = true;</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        while(straightLine.getFinalVelocityLeft() &gt; 0 &amp;&amp;</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">                game.getBoard().contains(straightLine.getFinalCoords())) {</span>
+
+            // little dirty hack to get around the problem where if this is the first step of a path
+            // we have no last step
+<span class="nc" id="L298">            MoveStep currentStep = straightLine.getLastStep();</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">            if(currentStep == null) {</span>
+<span class="nc" id="L300">                currentStep = new MoveStep(straightLine, MoveStepType.NONE);</span>
+            }
+
+<span class="nc" id="L303">            int turnCost = currentStep.asfTurnCost(mp.getGame(), stepType, mp.getEntity());</span>
+
+            // if we can turn
+            // *and* it's a legal turn
+            // (&quot;early&quot; turns before the &quot;free turn&quot; use thrust, so if we go over max thrust, it's an illegal move
+            //  and thus not worth evaluating further)
+<span class="nc bnc" id="L309" title="All 2 branches missed.">            if(currentStep.canAeroTurn(game) &amp;&amp;</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">                    currentStep.getMpUsed() &lt;= mp.getEntity().getRunMP() - turnCost) {</span>
+<span class="nc" id="L311">                MovePath tiltedPath = straightLine.clone();</span>
+<span class="nc" id="L312">                tiltedPath.addStep(stepType);</span>
+
+                // the first time we add a turn, we recurse in the same direction
+<span class="nc bnc" id="L315" title="All 2 branches missed.">                if(firstTurn) {</span>
+
+                    // potential to do, depending on demonstrated princess performance:
+                    // If we are going to run ourselves off the board, also generate side paths in the opposite direction of stepType
+                    // This *may* result in a drastic increase in generated paths, so maybe hold off on it for now.
+
+<span class="nc" id="L321">                    retval.addAll(generateSidePaths(tiltedPath, stepType));</span>
+                }
+
+<span class="nc" id="L324">                ForwardToTheEnd(tiltedPath);</span>
+<span class="nc" id="L325">                retval.add(tiltedPath);</span>
+<span class="nc" id="L326">                firstTurn = false;</span>
+            }
+
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            if(straightLine.nextForwardStepOffBoard()) {</span>
+<span class="nc" id="L330">                break;</span>
+            } else {
+<span class="nc" id="L332">                straightLine.addStep(MoveStepType.FORWARDS);</span>
+            }
+<span class="nc" id="L334">        }</span>
+
+<span class="nc" id="L336">        return retval;</span>
+    }
+
+    // helper function to move the path forward until we run out of velocity or off the board
+    // &quot;respect&quot; board edges by attempting a turn
+    protected void ForwardToTheEnd(MovePath mp) {
+<span class="nc bnc" id="L342" title="All 2 branches missed.">        while(mp.getFinalVelocityLeft() &gt; 0) {</span>
+                // don't generate an illegal move that flies off the board
+<span class="nc bnc" id="L344" title="All 2 branches missed.">                if(!mp.nextForwardStepOffBoard()) {</span>
+<span class="nc" id="L345">                    mp.addStep(MoveStepType.FORWARDS);</span>
+                }
+
+                // if we have arrived on the edge, and we can turn, then attempt to &quot;bounce off&quot; or &quot;ride&quot; the edge.
+                // as long as we're not trying to go off board, then forget about it
+                // this slightly increases the area covered by the aero in cases where the path takes it near the edge
+<span class="nc bnc" id="L351" title="All 2 branches missed.">                if(mp.nextForwardStepOffBoard() &amp;&amp;</span>
+<span class="nc bnc" id="L352" title="All 2 branches missed.">                        mp.getEntity().getDamageLevel() != Entity.DMG_CRIPPLED &amp;&amp;</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">                        mp.getLastStep().canAeroTurn(game)) {</span>
+
+                    // we want to generate a path that looks like this:
+                    // ||
+                    // ||
+                    // |\
+                    // | \
+                    // |  \
+                    // at this point, we can know that going forward will take us off board
+                    // we can either turn right or left
+                    // if turning right and going forwards still takes us off board, then we go left
+                    // you can approach the top and bottom edges of the board in such a way that neither left
+                    // nor right produces an off-board path
+                    // there's probably a better mathematical way to formulate this but I'm not really a math guy.
+<span class="nc" id="L367">                    mp.addStep(MoveStepType.TURN_RIGHT);</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">                    if(mp.nextForwardStepOffBoard()) {</span>
+<span class="nc" id="L369">                        mp.removeLastStep();</span>
+                    }
+
+<span class="nc" id="L372">                    mp.addStep(MoveStepType.TURN_LEFT);</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">                    if(mp.nextForwardStepOffBoard()) {</span>
+<span class="nc" id="L374">                        mp.removeLastStep();</span>
+                    }
+                }
+
+                // if we're going off board (even after all this turning stuff)
+<span class="nc bnc" id="L379" title="All 2 branches missed.">                if(mp.nextForwardStepOffBoard())</span>
+                {
+<span class="nc bnc" id="L381" title="All 2 branches missed.">                    if(mp.getEntity().getDamageLevel() != Entity.DMG_CRIPPLED) {</span>
+<span class="nc" id="L382">                        mp.addStep(MoveStepType.RETURN);</span>
+                    }
+                    // &quot;I'm too beat up, bugging out!&quot;
+                    else {
+<span class="nc" id="L386">                        mp.addStep(MoveStepType.FLEE);</span>
+                    }
+<span class="nc" id="L388">                    return;</span>
+                }
+        }
+<span class="nc" id="L391">    }</span>
+
+<span class="nc" id="L393">    private Map&lt;Coords, MovePath&gt; visitedCoords = new HashMap&lt;Coords, MovePath&gt;();</span>
+    /**
+     * Determines if the given move path is &quot;redundant&quot;.
+     * In this case, it means that the path has not visited any new hexes.
+     * @param mp The move path to examine.
+     * @return Whether or not the move path is redundant.
+     */
+    // goes through a path.
+    // if it does not take us off-board, records the coordinates it visits
+    // returns true if this path visits hexes that have not been visited before
+    protected boolean pathIsRedundant(MovePath mp) {
+<span class="nc" id="L404">        boolean newHexVisited = false;</span>
+
+<span class="nc bnc" id="L406" title="All 2 branches missed.">        if(!mp.fliesOffBoard()) {</span>
+<span class="nc bnc" id="L407" title="All 2 branches missed.">            for(MoveStep step : mp.getStepVector()) {</span>
+<span class="nc bnc" id="L408" title="All 2 branches missed.">                if(!visitedCoords.containsKey(step.getPosition())) {</span>
+<span class="nc" id="L409">                    visitedCoords.put(step.getPosition(), mp);</span>
+<span class="nc" id="L410">                    newHexVisited = true;</span>
+                }
+<span class="nc" id="L412">            }</span>
+        }
+
+<span class="nc bnc" id="L415" title="All 2 branches missed.">        return !newHexVisited;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

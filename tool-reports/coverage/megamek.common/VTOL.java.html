@@ -1,0 +1,703 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VTOL.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">VTOL.java</span></div><h1>VTOL.java</h1><pre class="source lang-java linenums">/**
+ * MegaMek - Copyright (C) 2004 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+/*
+ * Created on Jun 1, 2005
+ *
+ */
+package megamek.common;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import megamek.common.options.OptionsConstants;
+
+/**
+ * @author Andrew Hunter VTOLs are helicopters (more or less.)
+ */
+<span class="nc" id="L30">public class VTOL extends Tank implements IBomber {</span>
+
+    /**
+     *
+     */
+    private static final long serialVersionUID = -7406911547399249173L;
+
+    public static final int LOC_ROTOR = 5;
+    public static final int LOC_TURRET = 6;
+    public static final int LOC_TURRET_2 = 7;
+    public static final int LOC_NUM = 8;
+
+    // VTOLs can have at most one (chin) turret, sponsons don't count and dual
+    // turrets aren't allowed.
+<span class="nc" id="L44">    private static String[] LOCATION_ABBRS = { &quot;BD&quot;, &quot;FR&quot;, &quot;RS&quot;, &quot;LS&quot;, &quot;RR&quot;,</span>
+            &quot;RO&quot;, &quot;TU&quot; };
+<span class="nc" id="L46">    private static String[] LOCATION_NAMES = { &quot;Body&quot;, &quot;Front&quot;, &quot;Right&quot;,</span>
+            &quot;Left&quot;, &quot;Rear&quot;, &quot;Rotor&quot;, &quot;Turret&quot;};
+
+    // critical hits
+    public static final int CRIT_COPILOT = 15;
+    public static final int CRIT_PILOT = 16;
+    public static final int CRIT_ROTOR_DAMAGE = 17;
+    public static final int CRIT_ROTOR_DESTROYED = 18;
+    public static final int CRIT_FLIGHT_STABILIZER = 19;
+
+    @Override
+    public int getUnitType() {
+<span class="nc" id="L58">        return UnitType.VTOL;</span>
+    }
+
+    @Override
+    public String[] getLocationAbbrs() {
+<span class="nc" id="L63">        return LOCATION_ABBRS;</span>
+    }
+
+    @Override
+    public String[] getLocationNames() {
+<span class="nc" id="L68">        return LOCATION_NAMES;</span>
+    }
+
+    @Override
+    public int getLocTurret() {
+<span class="nc" id="L73">        return LOC_TURRET;</span>
+    }
+    
+    public int getLocTurret2() {
+<span class="nc" id="L77">        return LOC_TURRET_2;</span>
+    }
+
+<span class="nc" id="L80">    private int[] bombChoices = new int[BombType.B_NUM];</span>
+<span class="nc" id="L81">    private Targetable bombTarget = null;</span>
+<span class="nc" id="L82">    private List&lt;Coords&gt; strafingCoords = new ArrayList&lt;&gt;();</span>
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see megamek.common.Entity#checkSkid(int, megamek.common.IHex, int,
+     *      megamek.common.MoveStep, int, int, megamek.common.Coords,
+     *      megamek.common.Coords, boolean, int)
+     */
+    @Override
+	public PilotingRollData checkSkid(EntityMovementType moveType, IHex prevHex, EntityMovementType overallMoveType,
+	        MoveStep prevStep, MoveStep currStep, int prevFacing, int curFacing, Coords lastPos, Coords curPos,
+	        boolean isInfantry, int distance) {
+<span class="nc" id="L95">		PilotingRollData roll = getBasePilotingRoll(overallMoveType);</span>
+<span class="nc" id="L96">		roll.addModifier(TargetRoll.CHECK_FALSE, &quot;Check false: VTOLs can't skid&quot;);</span>
+<span class="nc" id="L97">		return roll;</span>
+	}
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see megamek.common.Tank#canCharge()
+     */
+    @Override
+    public boolean canCharge() {
+<span class="nc" id="L107">        return false;</span>
+    }
+
+    @Override
+    public int getMaxElevationChange() {
+<span class="nc" id="L112">        return UNLIMITED_JUMP_DOWN;</span>
+    }
+
+    @Override
+    public boolean isLocationProhibited(Coords c, int currElevation) {
+<span class="nc" id="L117">        IHex hex = game.getBoard().getHex(c);</span>
+        // Additional restrictions for hidden units
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        if (isHidden()) {</span>
+            // Can't deploy in paved hexes
+<span class="nc bnc" id="L121" title="All 2 branches missed.">            if (hex.containsTerrain(Terrains.PAVEMENT)</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">                    || hex.containsTerrain(Terrains.ROAD)) {</span>
+<span class="nc" id="L123">                return true;</span>
+            }
+            // Can't deploy on a bridge
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            if ((hex.terrainLevel(Terrains.BRIDGE_ELEV) == currElevation)</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">                    &amp;&amp; hex.containsTerrain(Terrains.BRIDGE)) {</span>
+<span class="nc" id="L128">                return true;</span>
+            }
+            // Can't deploy on the surface of water
+<span class="nc bnc" id="L131" title="All 4 branches missed.">            if (hex.containsTerrain(Terrains.WATER) &amp;&amp; (currElevation == 0)) {</span>
+<span class="nc" id="L132">                return true;</span>
+            }
+            // Airborne units can't deploy hidden
+<span class="nc bnc" id="L135" title="All 2 branches missed.">            if (currElevation &gt; 0) {</span>
+<span class="nc" id="L136">                return true;</span>
+            }
+        }
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (hex.containsTerrain(Terrains.IMPASSABLE)) {</span>
+<span class="nc" id="L140">            return true;</span>
+        }
+<span class="nc bnc" id="L142" title="All 4 branches missed.">        if (hex.containsTerrain(Terrains.SPACE) &amp;&amp; doomedInSpace()) {</span>
+<span class="nc" id="L143">            return true;</span>
+        }
+
+<span class="nc" id="L146">        return false;</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see megamek.common.Tank#isRepairable()
+     */
+    @Override
+    public boolean isRepairable() {
+<span class="nc" id="L156">        boolean retval = isSalvage();</span>
+<span class="nc" id="L157">        int loc = Tank.LOC_FRONT;</span>
+<span class="nc bnc" id="L158" title="All 4 branches missed.">        while (retval &amp;&amp; (loc &lt; VTOL.LOC_ROTOR)) {</span>
+<span class="nc" id="L159">            int loc_is = this.getInternal(loc);</span>
+<span class="nc" id="L160">            loc++;</span>
+<span class="nc bnc" id="L161" title="All 4 branches missed.">            retval = (loc_is != IArmorState.ARMOR_DOOMED)</span>
+                    &amp;&amp; (loc_is != IArmorState.ARMOR_DESTROYED);
+<span class="nc" id="L163">        }</span>
+<span class="nc" id="L164">        return retval;</span>
+    }
+
+    /*
+     * (non-Javadoc) This really, really isn't right.
+     */
+    @Override
+    public HitData rollHitLocation(int table, int side, int aimedLocation,
+            int aimingMode, int cover) {
+<span class="nc" id="L173">        int nArmorLoc = LOC_FRONT;</span>
+<span class="nc" id="L174">        boolean bSide = false;</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        if (side == ToHitData.SIDE_LEFT) {</span>
+<span class="nc" id="L176">            nArmorLoc = LOC_LEFT;</span>
+<span class="nc" id="L177">            bSide = true;</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">        } else if (side == ToHitData.SIDE_RIGHT) {</span>
+<span class="nc" id="L179">            nArmorLoc = LOC_RIGHT;</span>
+<span class="nc" id="L180">            bSide = true;</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        } else if (side == ToHitData.SIDE_REAR) {</span>
+<span class="nc" id="L182">            nArmorLoc = LOC_REAR;</span>
+        }
+<span class="nc" id="L184">        HitData rv = new HitData(nArmorLoc);</span>
+<span class="nc" id="L185">        boolean bHitAimed = false;</span>
+<span class="nc bnc" id="L186" title="All 4 branches missed.">        if ((aimedLocation != LOC_NONE)</span>
+                &amp;&amp; (aimingMode != IAimingModes.AIM_MODE_NONE)) {
+
+<span class="nc" id="L189">            int roll = Compute.d6(2);</span>
+
+<span class="nc bnc" id="L191" title="All 4 branches missed.">            if ((5 &lt; roll) &amp;&amp; (roll &lt; 9)) {</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">                rv = new HitData(aimedLocation, side == ToHitData.SIDE_REAR,</span>
+                        true);
+<span class="nc" id="L194">                bHitAimed = true;</span>
+            }
+        }
+<span class="nc bnc" id="L197" title="All 2 branches missed.">        if (!bHitAimed) {</span>
+<span class="nc bnc" id="L198" title="All 10 branches missed.">            switch (Compute.d6(2)) {</span>
+            case 2:
+<span class="nc" id="L200">                rv.setEffect(HitData.EFFECT_CRITICAL);</span>
+<span class="nc" id="L201">                break;</span>
+            case 3:
+<span class="nc" id="L203">                rv = new HitData(LOC_ROTOR, false,</span>
+                        HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+<span class="nc" id="L205">                break;</span>
+            case 4:
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                if (m_bHasNoTurret) {</span>
+<span class="nc" id="L208">                    rv = new HitData(LOC_ROTOR, false,</span>
+                        HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+                } else {
+<span class="nc" id="L211">                    rv = new HitData(LOC_TURRET);</span>
+                }
+<span class="nc" id="L213">                break;</span>
+            case 5:
+<span class="nc bnc" id="L215" title="All 2 branches missed.">                if (bSide) {</span>
+<span class="nc" id="L216">                    rv = new HitData(LOC_FRONT);</span>
+                } else {
+<span class="nc" id="L218">                    rv = new HitData(LOC_RIGHT);</span>
+                }
+<span class="nc" id="L220">                break;</span>
+            case 6:
+            case 7:
+<span class="nc" id="L223">                break;</span>
+            case 8:
+<span class="nc bnc" id="L225" title="All 4 branches missed.">                if (bSide &amp;&amp; !game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_VEHICLE_EFFECTIVE)) {</span>
+<span class="nc" id="L226">                    rv.setEffect(HitData.EFFECT_CRITICAL);</span>
+                }
+                break;
+            case 9:
+<span class="nc bnc" id="L230" title="All 2 branches missed.">                if (bSide) {</span>
+<span class="nc" id="L231">                    rv = new HitData(LOC_REAR);</span>
+                } else {
+<span class="nc" id="L233">                    rv = new HitData(LOC_LEFT);</span>
+                }
+<span class="nc" id="L235">                break;</span>
+            case 10:
+            case 11:
+<span class="nc" id="L238">                rv = new HitData(LOC_ROTOR, false,</span>
+                        HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+<span class="nc" id="L240">                break;</span>
+            case 12:
+<span class="nc" id="L242">                rv = new HitData(LOC_ROTOR, false, HitData.EFFECT_CRITICAL</span>
+                        | HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+            }
+        }
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (table == ToHitData.HIT_SWARM) {</span>
+<span class="nc" id="L247">            rv.setEffect(rv.getEffect() | HitData.EFFECT_CRITICAL);</span>
+        }
+<span class="nc" id="L249">        return rv;</span>
+    }
+
+    @Override
+    public boolean doomedInVacuum() {
+<span class="nc" id="L254">        return true;</span>
+    }
+
+    @Override
+    public boolean doomedInAtmosphere() {
+<span class="nc" id="L259">        return true;</span>
+    }
+    
+    @Override
+    public boolean isBomber() {
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        return (game != null)</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">                &amp;&amp; game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_TACOPS_VTOL_ATTACKS);</span>
+    }
+    
+    @Override
+    public int availableBombLocation(int cost) {
+<span class="nc" id="L270">        return LOC_FRONT;</span>
+    }
+    
+    public int getMaxBombPoints() {
+<span class="nc" id="L274">        return (int) Math.round(getWeight() / 5);</span>
+    }
+
+    public int[] getBombChoices() {
+<span class="nc" id="L278">        return bombChoices.clone();</span>
+    }
+
+    public void setBombChoices(int[] bc) {
+<span class="nc bnc" id="L282" title="All 2 branches missed.">        if (bc.length == bombChoices.length) {</span>
+<span class="nc" id="L283">            bombChoices = bc;</span>
+        }
+<span class="nc" id="L285">    }</span>
+    
+    @Override
+    public void clearBombChoices() {
+<span class="nc" id="L289">        Arrays.fill(bombChoices, 0);</span>
+<span class="nc" id="L290">    }</span>
+
+    @Override
+    public Targetable getVTOLBombTarget() {
+<span class="nc" id="L294">        return bombTarget;</span>
+    }
+    
+    @Override
+    public void setVTOLBombTarget(Targetable t) {
+<span class="nc" id="L299">        bombTarget = t;</span>
+<span class="nc" id="L300">    }</span>
+    
+    public List&lt;Coords&gt; getStrafingCoords() {
+<span class="nc" id="L303">        return strafingCoords;</span>
+    }
+    
+    @Override
+    public boolean isMakingVTOLGroundAttack() {
+<span class="nc bnc" id="L308" title="All 4 branches missed.">        return bombTarget != null || strafingCoords.size() &gt; 0;</span>
+    }
+
+    @Override
+    public boolean doomedInSpace() {
+<span class="nc" id="L313">        return true;</span>
+    }
+
+    @Override
+    public void setOnFire(boolean inferno) {
+<span class="nc" id="L318">        super.setOnFire(inferno);</span>
+<span class="nc" id="L319">        extinguishLocation(LOC_ROTOR);</span>
+<span class="nc" id="L320">    }</span>
+
+    /**
+     * get the type of critical caused by a critical roll, taking account of
+     * existing damage
+     *
+     * @param roll the final dice roll
+     * @param loc the hit location
+     * @param damagedByFire whether or not the critical was caused by fire,
+     *      which is distinct from damage for unofficial thresholding purposes.
+     * @return a critical type
+     */
+    @Override
+    public int getCriticalEffect(int roll, int loc, boolean damagedByFire) {
+<span class="nc bnc" id="L334" title="All 2 branches missed.">        if (roll &gt; 12) {</span>
+<span class="nc" id="L335">            roll = 12;</span>
+        }
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        if ((roll &lt; 6)</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">                || (game.getOptions().booleanOption(OptionsConstants.ADVCOMBAT_VEHICLES_THRESHOLD)</span>
+<span class="nc bnc" id="L339" title="All 4 branches missed.">                        &amp;&amp; !getOverThresh() &amp;&amp; !damagedByFire)) {</span>
+<span class="nc" id="L340">            return CRIT_NONE;</span>
+        }
+<span class="nc bnc" id="L342" title="All 2 branches missed.">        for (int i = 0; i &lt; 2; i++) {</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">            if (i &gt; 0) {</span>
+<span class="nc" id="L344">                roll = 6;</span>
+            }
+<span class="nc bnc" id="L346" title="All 2 branches missed.">            if (loc == LOC_FRONT) {</span>
+<span class="nc bnc" id="L347" title="All 8 branches missed.">                switch (roll) {</span>
+                    case 6:
+<span class="nc bnc" id="L349" title="All 2 branches missed.">                        if (!isDriverHit()) {</span>
+<span class="nc" id="L350">                            return CRIT_COPILOT;</span>
+<span class="nc bnc" id="L351" title="All 4 branches missed.">                        } else if (!getCrew().isDead() &amp;&amp; !getCrew().isDoomed()) {</span>
+<span class="nc" id="L352">                            return CRIT_CREW_KILLED;</span>
+                        }
+                    case 7:
+<span class="nc bnc" id="L355" title="All 2 branches missed.">                        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L356" title="All 4 branches missed.">                            if ((m.getLocation() == loc) &amp;&amp; !m.isDestroyed()</span>
+<span class="nc bnc" id="L357" title="All 4 branches missed.">                                    &amp;&amp; !m.isJammed() &amp;&amp; !m.isHit()</span>
+<span class="nc bnc" id="L358" title="All 2 branches missed.">                                    &amp;&amp; !m.jammedThisPhase()) {</span>
+<span class="nc" id="L359">                                return CRIT_WEAPON_JAM;</span>
+                            }
+<span class="nc" id="L361">                        }</span>
+                    case 8:
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                        if (!isStabiliserHit(loc)) {</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">                            for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                                if (m.getLocation() == loc) {</span>
+<span class="nc" id="L366">                                    return CRIT_STABILIZER;</span>
+                                }
+<span class="nc" id="L368">                            }</span>
+                        }
+                    case 9:
+<span class="nc bnc" id="L371" title="All 2 branches missed.">                        if (getSensorHits() &lt; 4) {</span>
+<span class="nc" id="L372">                            return CRIT_SENSOR;</span>
+                        }
+                    case 10:
+<span class="nc bnc" id="L375" title="All 2 branches missed.">                        if (!isCommanderHit()) {</span>
+<span class="nc" id="L376">                            return CRIT_PILOT;</span>
+<span class="nc bnc" id="L377" title="All 4 branches missed.">                        } else if (!getCrew().isDead() &amp;&amp; !getCrew().isDoomed()) {</span>
+<span class="nc" id="L378">                            return CRIT_CREW_KILLED;</span>
+                        }
+                    case 11:
+<span class="nc bnc" id="L381" title="All 2 branches missed.">                        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L382" title="All 4 branches missed.">                            if ((m.getLocation() == loc) &amp;&amp; !m.isDestroyed()</span>
+<span class="nc bnc" id="L383" title="All 2 branches missed.">                                    &amp;&amp; !m.isHit()) {</span>
+<span class="nc" id="L384">                                return CRIT_WEAPON_DESTROYED;</span>
+                            }
+<span class="nc" id="L386">                        }</span>
+                    case 12:
+<span class="nc bnc" id="L388" title="All 4 branches missed.">                        if (!getCrew().isDead() &amp;&amp; !getCrew().isDoomed()) {</span>
+<span class="nc" id="L389">                            return CRIT_CREW_KILLED;</span>
+                        }
+                }
+<span class="nc bnc" id="L392" title="All 2 branches missed.">            } else if (loc == LOC_REAR) {</span>
+<span class="nc bnc" id="L393" title="All 8 branches missed.">                switch (roll) {</span>
+                    case 6:
+<span class="nc bnc" id="L395" title="All 2 branches missed.">                        if (getLoadedUnits().size() &gt; 0) {</span>
+<span class="nc" id="L396">                            return CRIT_CARGO;</span>
+                        }
+                    case 7:
+<span class="nc bnc" id="L399" title="All 2 branches missed.">                        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L400" title="All 4 branches missed.">                            if ((m.getLocation() == loc) &amp;&amp; !m.isDestroyed()</span>
+<span class="nc bnc" id="L401" title="All 4 branches missed.">                                    &amp;&amp; !m.isJammed() &amp;&amp; !m.isHit()</span>
+<span class="nc bnc" id="L402" title="All 2 branches missed.">                                    &amp;&amp; !m.jammedThisPhase()) {</span>
+<span class="nc" id="L403">                                return CRIT_WEAPON_JAM;</span>
+                            }
+<span class="nc" id="L405">                        }</span>
+                    case 8:
+<span class="nc bnc" id="L407" title="All 2 branches missed.">                        if (!isStabiliserHit(loc)) {</span>
+<span class="nc bnc" id="L408" title="All 2 branches missed.">                            for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">                                if (m.getLocation() == loc) {</span>
+<span class="nc" id="L410">                                    return CRIT_STABILIZER;</span>
+                                }
+<span class="nc" id="L412">                            }</span>
+                        }
+                    case 9:
+<span class="nc bnc" id="L415" title="All 2 branches missed.">                        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L416" title="All 4 branches missed.">                            if ((m.getLocation() == loc) &amp;&amp; !m.isDestroyed()</span>
+<span class="nc bnc" id="L417" title="All 2 branches missed.">                                    &amp;&amp; !m.isHit()) {</span>
+<span class="nc" id="L418">                                return CRIT_WEAPON_DESTROYED;</span>
+                            }
+<span class="nc" id="L420">                        }</span>
+                    case 10:
+<span class="nc bnc" id="L422" title="All 2 branches missed.">                        if (getSensorHits() &lt; 4) {</span>
+<span class="nc" id="L423">                            return CRIT_SENSOR;</span>
+                        }
+                    case 11:
+<span class="nc bnc" id="L426" title="All 2 branches missed.">                        if (!engineHit) {</span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">                            return (hasEngine() ? CRIT_ENGINE : CRIT_NONE);</span>
+                        }
+                    case 12:
+<span class="nc bnc" id="L430" title="All 2 branches missed.">                        if(hasEngine()) {</span>
+<span class="nc bnc" id="L431" title="All 4 branches missed.">                            if (getEngine().isFusion() &amp;&amp; !engineHit) {</span>
+<span class="nc" id="L432">                                return CRIT_ENGINE;</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">                            } else if (!getEngine().isFusion()) {</span>
+<span class="nc" id="L434">                                return CRIT_FUEL_TANK;</span>
+                            }
+                        } else {
+<span class="nc" id="L437">                            return CRIT_NONE;</span>
+                        }
+                }
+<span class="nc bnc" id="L440" title="All 2 branches missed.">            } else if (loc == LOC_ROTOR) {</span>
+<span class="nc bnc" id="L441" title="All 4 branches missed.">                switch (roll) {</span>
+                    case 6:
+                    case 7:
+                    case 8:
+<span class="nc bnc" id="L445" title="All 2 branches missed.">                        if (!isImmobile()) {</span>
+<span class="nc" id="L446">                            return CRIT_ROTOR_DAMAGE;</span>
+                        }
+                    case 9:
+                    case 10:
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                        if (!isStabiliserHit(loc)) {</span>
+<span class="nc" id="L451">                            return CRIT_FLIGHT_STABILIZER;</span>
+                        }
+                    case 11:
+                    case 12:
+<span class="nc" id="L455">                        return CRIT_ROTOR_DESTROYED;</span>
+                }
+<span class="nc bnc" id="L457" title="All 2 branches missed.">            } else if (loc == LOC_TURRET) {</span>
+<span class="nc bnc" id="L458" title="All 8 branches missed.">                switch (roll) {</span>
+                    case 6:
+<span class="nc" id="L460">                        return CRIT_STABILIZER;</span>
+                    case 7:
+<span class="nc" id="L462">                        return CRIT_TURRET_JAM;</span>
+                    case 8:
+<span class="nc bnc" id="L464" title="All 2 branches missed.">                        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L465" title="All 4 branches missed.">                            if ((m.getLocation() == loc) &amp;&amp; !m.isDestroyed()</span>
+<span class="nc bnc" id="L466" title="All 4 branches missed.">                                    &amp;&amp; !m.isJammed() &amp;&amp; !m.isHit()</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">                                    &amp;&amp; !m.jammedThisPhase()) {</span>
+<span class="nc" id="L468">                                return CRIT_WEAPON_JAM;</span>
+                            }
+<span class="nc" id="L470">                        }</span>
+                    case 9:
+<span class="nc" id="L472">                        return CRIT_TURRET_LOCK;</span>
+                    case 10:
+<span class="nc bnc" id="L474" title="All 2 branches missed.">                        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L475" title="All 4 branches missed.">                            if ((m.getLocation() == loc) &amp;&amp; !m.isDestroyed()</span>
+<span class="nc bnc" id="L476" title="All 2 branches missed.">                                    &amp;&amp; !m.isHit()) {</span>
+<span class="nc" id="L477">                                return CRIT_WEAPON_DESTROYED;</span>
+                            }
+<span class="nc" id="L479">                        }</span>
+                    case 11:
+<span class="nc bnc" id="L481" title="All 2 branches missed.">                        for (Mounted m : getAmmo()) {</span>
+<span class="nc bnc" id="L482" title="All 6 branches missed.">                            if (!m.isDestroyed() &amp;&amp; !m.isHit() &amp;&amp; (m.getLocation() != Entity.LOC_NONE)) {</span>
+<span class="nc" id="L483">                                return CRIT_AMMO;</span>
+                            }
+<span class="nc" id="L485">                        }</span>
+                    case 12:
+<span class="nc" id="L487">                        return CRIT_TURRET_DESTROYED;</span>
+                }
+            } else {
+<span class="nc bnc" id="L490" title="All 8 branches missed.">                switch (roll) {</span>
+                    case 6:
+<span class="nc bnc" id="L492" title="All 2 branches missed.">                        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L493" title="All 4 branches missed.">                            if ((m.getLocation() == loc) &amp;&amp; !m.isDestroyed()</span>
+<span class="nc bnc" id="L494" title="All 4 branches missed.">                                    &amp;&amp; !m.isJammed() &amp;&amp; !m.isHit()</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">                                    &amp;&amp; !m.jammedThisPhase()) {</span>
+<span class="nc" id="L496">                                return CRIT_WEAPON_JAM;</span>
+                            }
+<span class="nc" id="L498">                        }</span>
+                    case 7:
+<span class="nc bnc" id="L500" title="All 2 branches missed.">                        if (getLoadedUnits().size() &gt; 0) {</span>
+<span class="nc" id="L501">                            return CRIT_CARGO;</span>
+                        }
+                    case 8:
+<span class="nc bnc" id="L504" title="All 2 branches missed.">                        if (!isStabiliserHit(loc)) {</span>
+<span class="nc bnc" id="L505" title="All 2 branches missed.">                            for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">                                if (m.getLocation() == loc) {</span>
+<span class="nc" id="L507">                                    return CRIT_STABILIZER;</span>
+                                }
+<span class="nc" id="L509">                            }</span>
+                        }
+                    case 9:
+                        // TODO: fix for new TW rules
+                        // roll 1d6, 1-3, defending player
+                        // chooses which weapon gets destroyed
+                        // 4-6: attacker chooses which weapon gets destroyed
+<span class="nc bnc" id="L516" title="All 2 branches missed.">                        for (Mounted m : getWeaponList()) {</span>
+<span class="nc bnc" id="L517" title="All 4 branches missed.">                            if ((m.getLocation() == loc) &amp;&amp; !m.isDestroyed()</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">                                    &amp;&amp; !m.isHit()) {</span>
+<span class="nc" id="L519">                                return CRIT_WEAPON_DESTROYED;</span>
+                            }
+<span class="nc" id="L521">                        }</span>
+                    case 10:
+<span class="nc bnc" id="L523" title="All 2 branches missed.">                        if (!engineHit) {</span>
+<span class="nc bnc" id="L524" title="All 2 branches missed.">                            return (hasEngine() ? CRIT_ENGINE : CRIT_NONE);</span>
+                        }
+                    case 11:
+<span class="nc bnc" id="L527" title="All 2 branches missed.">                        for (Mounted m : getAmmo()) {</span>
+<span class="nc bnc" id="L528" title="All 6 branches missed.">                            if (!m.isDestroyed() &amp;&amp; !m.isHit() &amp;&amp; (m.getLocation() != Entity.LOC_NONE)) {</span>
+<span class="nc" id="L529">                                return CRIT_AMMO;</span>
+                            }
+<span class="nc" id="L531">                        }</span>
+                    case 12:
+<span class="nc bnc" id="L533" title="All 2 branches missed.">                        if(hasEngine()) {</span>
+<span class="nc bnc" id="L534" title="All 4 branches missed.">                            if (getEngine().isFusion() &amp;&amp; !engineHit) {</span>
+<span class="nc" id="L535">                                return CRIT_ENGINE;</span>
+<span class="nc bnc" id="L536" title="All 2 branches missed.">                            } else if (!getEngine().isFusion()) {</span>
+<span class="nc" id="L537">                                return CRIT_FUEL_TANK;</span>
+                            }
+                        } else {
+<span class="nc" id="L540">                            return CRIT_NONE;</span>
+                        }
+                }
+            }
+        }
+<span class="nc" id="L545">        return CRIT_NONE;</span>
+    }
+
+    @Override
+    public PilotingRollData addEntityBonuses(PilotingRollData prd) {
+<span class="nc bnc" id="L550" title="All 2 branches missed.">        if (motivePenalty &gt; 0) {</span>
+<span class="nc" id="L551">            prd.addModifier(motivePenalty, &quot;Steering Damage&quot;);</span>
+        }
+<span class="nc bnc" id="L553" title="All 2 branches missed.">        if (isDriverHit()) {</span>
+<span class="nc" id="L554">            prd.addModifier(2, &quot;pilot injured&quot;);</span>
+        }
+<span class="nc bnc" id="L556" title="All 2 branches missed.">        if (isStabiliserHit(LOC_ROTOR)) {</span>
+<span class="nc" id="L557">            prd.addModifier(3, &quot;flight stabiliser damaged&quot;);</span>
+        }
+
+        // VDNI bonus?
+<span class="nc bnc" id="L561" title="All 2 branches missed.">        if (hasAbility(OptionsConstants.MD_VDNI)</span>
+<span class="nc bnc" id="L562" title="All 2 branches missed.">                &amp;&amp; !hasAbility(OptionsConstants.MD_BVDNI)) {</span>
+<span class="nc" id="L563">            prd.addModifier(-1, &quot;VDNI&quot;);</span>
+        }
+
+<span class="nc" id="L566">        return prd;</span>
+    }
+
+
+    @Override
+    public void newRound(int roundNumber) {
+<span class="nc" id="L572">        super.newRound(roundNumber);</span>
+        
+<span class="nc" id="L574">        bombTarget = null;</span>
+<span class="nc" id="L575">        strafingCoords.clear();</span>
+<span class="nc" id="L576">    }</span>
+
+    @Override
+    public int getWalkMP(boolean gravity, boolean ignoreheat,
+            boolean ignoremodulararmor) {
+<span class="nc" id="L581">        int j = getOriginalWalkMP();</span>
+<span class="nc bnc" id="L582" title="All 2 branches missed.">        if (engineHit) {</span>
+<span class="nc" id="L583">            return 0;</span>
+        }
+<span class="nc bnc" id="L585" title="All 2 branches missed.">        if (isLocationBad(LOC_ROTOR)) {</span>
+<span class="nc" id="L586">            return 0;</span>
+        }
+<span class="nc" id="L588">        j = Math.max(0, j - motiveDamage);</span>
+<span class="nc" id="L589">        j = Math.max(0, j - getCargoMpReduction(this));</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">        if (null != game) {</span>
+<span class="nc" id="L591">            int weatherMod = game.getPlanetaryConditions().getMovementMods(this);</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">            if (weatherMod != 0) {</span>
+<span class="nc" id="L593">                j = Math.max(j + weatherMod, 0);</span>
+            }
+        }
+
+<span class="nc bnc" id="L597" title="All 4 branches missed.">        if (!ignoremodulararmor &amp;&amp; hasModularArmor()) {</span>
+<span class="nc" id="L598">            j--;</span>
+        }
+<span class="nc bnc" id="L600" title="All 2 branches missed.">        if (hasWorkingMisc(MiscType.F_DUNE_BUGGY)) {</span>
+<span class="nc" id="L601">            j--;</span>
+        }
+
+        // Per TacOps errata v3.0, movement reduction is per bomb rather than per 5 bomb points
+<span class="nc bnc" id="L605" title="All 2 branches missed.">        for (Mounted m : getBombs()) {</span>
+<span class="nc bnc" id="L606" title="All 2 branches missed.">            if (m.getUsableShotsLeft() &gt; 0) {</span>
+<span class="nc" id="L607">                j--;</span>
+            }
+<span class="nc" id="L609">        }</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">        if (j &lt; 0) {</span>
+<span class="nc" id="L611">            j = 0;</span>
+        }
+
+<span class="nc bnc" id="L614" title="All 2 branches missed.">        if (gravity) {</span>
+<span class="nc" id="L615">            j = applyGravityEffectsOnMP(j);</span>
+        }
+
+<span class="nc" id="L618">        return j;</span>
+
+    }
+
+    @Override
+    public int height() {
+<span class="nc bnc" id="L624" title="All 2 branches missed.">        if (isSuperHeavy()) {</span>
+<span class="nc" id="L625">            return 1;</span>
+        }
+<span class="nc" id="L627">        return 0;</span>
+    }
+
+    @Override
+    public boolean isSuperHeavy() {
+<span class="nc bnc" id="L632" title="All 2 branches missed.">        return getWeight() &gt; 30;</span>
+    }
+
+    @Override
+    public int locations() {
+<span class="nc bnc" id="L637" title="All 2 branches missed.">        if (m_bHasNoTurret) {</span>
+<span class="nc" id="L638">            return 6;</span>
+        } else {
+<span class="nc" id="L640">            return 7;</span>
+        }
+    }
+
+    @Override
+    public double getBaseBattleForceMovement() {
+<span class="nc" id="L646">        double move = getOriginalWalkMP();</span>
+
+<span class="nc bnc" id="L648" title="All 2 branches missed.">        if (getMisc().stream().anyMatch(m -&gt; m.getType().hasFlag(MiscType.F_JET_BOOSTER))) {</span>
+<span class="nc" id="L649">            move *= 1.25;</span>
+        }
+
+<span class="nc" id="L652">        return move;</span>
+    }
+    
+    @Override
+    public double getBattleForceLocationMultiplier(int index, int location, boolean rearMounted) {
+<span class="nc bnc" id="L657" title="All 4 branches missed.">        if (index == 1 &amp;&amp; location == LOC_REAR) {</span>
+<span class="nc" id="L658">            return 1.0;</span>
+<span class="nc bnc" id="L659" title="All 14 branches missed.">        } else if (location == LOC_REAR || location == LOC_BODY || location == LOC_ROTOR</span>
+                || (index == 0 &amp;&amp; location &gt;= LOC_TURRET)
+                || (index == 1 &amp;&amp; location &lt; LOC_TURRET)) {
+<span class="nc" id="L662">            return 0.0;</span>
+        }
+<span class="nc" id="L664">        return 1.0; </span>
+    }
+
+    public void addBattleForceSpecialAbilities(Map&lt;BattleForceSPA,Integer&gt; specialAbilities) {
+<span class="nc" id="L668">        super.addBattleForceSpecialAbilities(specialAbilities);</span>
+<span class="nc" id="L669">        specialAbilities.put(BattleForceSPA.ATMO, null);</span>
+<span class="nc" id="L670">    }</span>
+    
+    @Override
+    public long getEntityType(){
+<span class="nc" id="L674">        return Entity.ETYPE_TANK | Entity.ETYPE_VTOL;</span>
+    }
+
+    public static TechAdvancement getChinTurretTA() {
+<span class="nc" id="L678">        return new TechAdvancement(TECH_BASE_ALL)</span>
+<span class="nc" id="L679">                .setAdvancement(DATE_PS, 3079, 3080).setApproximate(false, true, false)</span>
+<span class="nc" id="L680">                .setTechRating(RATING_B).setAvailability(RATING_F, RATING_F, RATING_F, RATING_D)</span>
+<span class="nc" id="L681">                .setStaticTechLevel(SimpleTechLevel.EXPERIMENTAL);</span>
+    }
+
+    protected void addSystemTechAdvancement(CompositeTechLevel ctl) {
+<span class="nc" id="L685">        super.addSystemTechAdvancement(ctl);</span>
+<span class="nc bnc" id="L686" title="All 2 branches missed.">        if (!hasNoTurret()) {</span>
+<span class="nc" id="L687">            ctl.addComponent(getChinTurretTA());</span>
+        }
+<span class="nc" id="L689">    }</span>
+    
+    /**
+     * Used to determine the draw priority of different Entity subclasses.
+     * This allows different unit types to always be draw above/below other
+     * types.
+     *
+     * @return
+     */
+    public int getSpriteDrawPriority() {
+<span class="nc" id="L699">        return 8;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

@@ -1,0 +1,620 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>HexTileset.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing.tileset</a> &gt; <span class="el_source">HexTileset.java</span></div><h1>HexTileset.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2002 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+/*
+ * HexTileset.java
+ *
+ * Created on May 9, 2002, 1:33 PM
+ */
+
+package megamek.client.ui.swing.tileset;
+
+import java.awt.Component;
+import java.awt.Image;
+import java.awt.MediaTracker;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.StreamTokenizer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.Vector;
+
+import megamek.MegaMek;
+import megamek.client.ui.swing.util.ImageCache;
+import megamek.common.*;
+import megamek.common.event.*;
+import megamek.common.logging.*;
+import megamek.common.util.ImageUtil;
+import megamek.common.util.fileUtils.MegaMekFile;
+import megamek.common.util.StringUtil;
+
+/**
+ * Matches each hex with an appropriate image.
+ *
+ * @author Ben
+ */
+public class HexTileset implements BoardListener {
+    
+<span class="nc" id="L55">    private static final LogLevel LOGLVL = LogLevel.WARNING;</span>
+
+    /**
+     * The image width of a hex image.
+     */
+    public static final int HEX_W = 84;
+
+    /**
+     * The image height of a hex image.
+     */
+    public static final int HEX_H = 72;
+
+    public static final String TRANSPARENT_THEME = &quot;transparent&quot;;
+    
+    private IGame game;
+
+<span class="nc" id="L71">    private ArrayList&lt;HexEntry&gt; bases = new ArrayList&lt;HexEntry&gt;();</span>
+<span class="nc" id="L72">    private ArrayList&lt;HexEntry&gt; supers = new ArrayList&lt;HexEntry&gt;();</span>
+<span class="nc" id="L73">    private ArrayList&lt;HexEntry&gt; orthos = new ArrayList&lt;HexEntry&gt;();</span>
+<span class="nc" id="L74">    private Set&lt;String&gt; themes = new TreeSet&lt;String&gt;();</span>
+<span class="nc" id="L75">    private ImageCache&lt;IHex, Image&gt; basesCache = new ImageCache&lt;IHex, Image&gt;();</span>
+<span class="nc" id="L76">    private ImageCache&lt;IHex, List&lt;Image&gt;&gt; supersCache = new ImageCache&lt;IHex, List&lt;Image&gt;&gt;();</span>
+<span class="nc" id="L77">    private ImageCache&lt;IHex, List&lt;Image&gt;&gt; orthosCache = new ImageCache&lt;IHex, List&lt;Image&gt;&gt;();</span>
+
+    /**
+     * Creates new HexTileset
+     */
+<span class="nc" id="L82">    public HexTileset(IGame g) {</span>
+<span class="nc" id="L83">        game = g;</span>
+<span class="nc" id="L84">        game.addGameListener(gameListener);</span>
+<span class="nc" id="L85">        game.getBoard().addBoardListener(this);</span>
+<span class="nc" id="L86">        MegaMek.getLogger().setLogLevel(LOGLVL);</span>
+<span class="nc" id="L87">    }</span>
+
+    /** Clears the image cache for the given hex. */
+    public synchronized void clearHex(IHex hex) {
+<span class="nc" id="L91">        basesCache.remove(hex);</span>
+<span class="nc" id="L92">        supersCache.remove(hex);</span>
+<span class="nc" id="L93">        orthosCache.remove(hex);</span>
+<span class="nc" id="L94">    }</span>
+
+    /** Clears the image cache for all hexes. */
+    public synchronized void clearAllHexes() {
+<span class="nc" id="L98">        basesCache = new ImageCache&lt;IHex, Image&gt;();</span>
+<span class="nc" id="L99">        supersCache = new ImageCache&lt;IHex, List&lt;Image&gt;&gt;();</span>
+<span class="nc" id="L100">        orthosCache = new ImageCache&lt;IHex, List&lt;Image&gt;&gt;();</span>
+<span class="nc" id="L101">    }</span>
+    
+    /**
+     * This assigns images to a hex based on the best matches it can find.
+     * &lt;p/&gt;
+     * First it assigns any images to be superimposed on a hex. These images must
+     * have a match value of 1.0 to be added, and any time a match of this level is
+     * achieved, any terrain involved in the match is removed from further
+     * consideration.
+     * &lt;p/&gt;
+     * Any terrain left is used to match a base image for the hex. This time, a
+     * match can be any value, and the first, best image is used.
+     */
+    public synchronized Object[] assignMatch(IHex hex, Component comp) {
+<span class="nc" id="L115">        IHex hexCopy = hex.duplicate();</span>
+<span class="nc" id="L116">        List&lt;Image&gt; ortho = orthoFor(hexCopy, comp);</span>
+<span class="nc" id="L117">        List&lt;Image&gt; supers = supersFor(hexCopy, comp);</span>
+<span class="nc" id="L118">        Image base = baseFor(hexCopy, comp);</span>
+<span class="nc" id="L119">        Object[] pair = new Object[] { base, supers, ortho };</span>
+<span class="nc" id="L120">        basesCache.put(hex, base);</span>
+<span class="nc" id="L121">        supersCache.put(hex, supers);</span>
+<span class="nc" id="L122">        orthosCache.put(hex, ortho);</span>
+<span class="nc" id="L123">        return pair;</span>
+    }
+
+    public synchronized Image getBase(IHex hex, Component comp) {
+<span class="nc" id="L127">        Image i = basesCache.get(hex);</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        if (i == null) {</span>
+<span class="nc" id="L129">            Object[] pair = assignMatch(hex, comp);</span>
+<span class="nc" id="L130">            return (Image) pair[0];</span>
+        }
+<span class="nc" id="L132">        return i;</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public synchronized List&lt;Image&gt; getSupers(IHex hex, Component comp) {
+<span class="nc" id="L137">        List&lt;Image&gt; l = supersCache.get(hex);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (l == null) {</span>
+<span class="nc" id="L139">            Object[] pair = assignMatch(hex, comp);</span>
+<span class="nc" id="L140">            return (List&lt;Image&gt;) pair[1];</span>
+        }
+<span class="nc" id="L142">        return l;</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public synchronized List&lt;Image&gt; getOrtho(IHex hex, Component comp) {
+<span class="nc" id="L147">        List&lt;Image&gt; o = orthosCache.get(hex);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (o == null) {</span>
+<span class="nc" id="L149">            Object[] pair = assignMatch(hex, comp);</span>
+<span class="nc" id="L150">            return (List&lt;Image&gt;) pair[2];</span>
+        }
+<span class="nc" id="L152">        return o;</span>
+    }
+
+    /**
+     * Returns a list of orthographic images to be tiled above the hex. As noted
+     * above, all matches must be 1.0, and if such a match is achieved, all terrain
+     * elements from the tileset hex are removed from the hex. Thus you want to pass
+     * a copy of the original to this function.
+     */
+    private List&lt;Image&gt; orthoFor(IHex hex, Component comp) {
+<span class="nc" id="L162">        ArrayList&lt;Image&gt; matches = new ArrayList&lt;Image&gt;();</span>
+
+        // find orthographic image matches
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        for (HexEntry entry : orthos) {</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">            if (orthoMatch(hex, entry.getHex()) &gt;= 1.0) {</span>
+<span class="nc" id="L167">                Image img = entry.getImage(comp, hex.getCoords().hashCode());</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">                if (img != null) {</span>
+<span class="nc" id="L169">                    matches.add(img);</span>
+                } else {
+<span class="nc" id="L171">                    matches.add(ImageUtil.createAcceleratedImage(HEX_W, HEX_H));</span>
+                }
+                // remove involved terrain from consideration
+<span class="nc bnc" id="L174" title="All 2 branches missed.">                for (int terr : entry.getHex().getTerrainTypes()) {</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">                    if (entry.getHex().containsTerrain(terr)) {</span>
+<span class="nc" id="L176">                        hex.removeTerrain(terr);</span>
+                    }
+                }
+            }
+<span class="nc" id="L180">        }</span>
+<span class="nc" id="L181">        return matches;</span>
+    }
+
+    /**
+     * Returns a list of images to be superimposed on the hex. As noted above, all
+     * matches must be 1.0, and if such a match is achieved, all terrain elements
+     * from the tileset hex are removed from the hex. Thus you want to pass a copy
+     * of the original to this function.
+     */
+    private List&lt;Image&gt; supersFor(IHex hex, Component comp) {
+<span class="nc" id="L191">        ArrayList&lt;Image&gt; matches = new ArrayList&lt;Image&gt;();</span>
+
+        // find superimposed image matches
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        for (HexEntry entry : supers) {</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">            if (superMatch(hex, entry.getHex()) &gt;= 1.0) {</span>
+<span class="nc" id="L196">                Image img = entry.getImage(comp, hex.getCoords().hashCode());</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">                if (img != null) {</span>
+<span class="nc" id="L198">                    matches.add(img);</span>
+                } else {
+<span class="nc" id="L200">                    matches.add(ImageUtil.createAcceleratedImage(HEX_W, HEX_H));</span>
+                }
+                // remove involved terrain from consideration
+<span class="nc bnc" id="L203" title="All 2 branches missed.">                for (int terr : entry.getHex().getTerrainTypes()) {</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                    if (entry.getHex().containsTerrain(terr)) {</span>
+<span class="nc" id="L205">                        hex.removeTerrain(terr);</span>
+                    }
+                }
+            }
+<span class="nc" id="L209">        }</span>
+<span class="nc" id="L210">        return matches;</span>
+    }
+
+    /**
+     * Returns the best matching base image for this hex. This works best if any
+     * terrain with a &quot;super&quot; image is removed.
+     */
+    private Image baseFor(IHex hex, Component comp) {
+<span class="nc" id="L218">        HexEntry bestMatch = null;</span>
+<span class="nc" id="L219">        double match = -1;</span>
+
+        // match a base image to the hex
+<span class="nc bnc" id="L222" title="All 2 branches missed.">        for (HexEntry entry : bases) {</span>
+
+            // Metal deposits don't count for visual
+<span class="nc bnc" id="L225" title="All 2 branches missed.">            if (entry.getHex().containsTerrain(Terrains.METAL_CONTENT)) {</span>
+<span class="nc" id="L226">                hex.removeTerrain(Terrains.METAL_CONTENT);</span>
+            }
+
+<span class="nc" id="L229">            double thisMatch = baseMatch(hex, entry.getHex());</span>
+            // stop if perfect match
+<span class="nc bnc" id="L231" title="All 2 branches missed.">            if (thisMatch == 1.0) {</span>
+<span class="nc" id="L232">                bestMatch = entry;</span>
+<span class="nc" id="L233">                break;</span>
+            }
+            // compare match with best
+<span class="nc bnc" id="L236" title="All 2 branches missed.">            if (thisMatch &gt; match) {</span>
+<span class="nc" id="L237">                bestMatch = entry;</span>
+<span class="nc" id="L238">                match = thisMatch;</span>
+            }
+<span class="nc" id="L240">        }</span>
+
+<span class="nc" id="L242">        Image img = bestMatch.getImage(comp, hex.getCoords().hashCode());</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">        if (img == null) {</span>
+<span class="nc" id="L244">            img = ImageUtil.createAcceleratedImage(HEX_W, HEX_H);</span>
+        }
+<span class="nc" id="L246">        return img;</span>
+    }
+
+    // perfect match
+    // all but theme
+    // all but elevation
+    // all but elevation &amp; theme
+
+    /** Recursion depth counter to prevent freezing from circular includes */
+<span class="nc" id="L255">    public int incDepth = 0;</span>
+
+    public void loadFromFile(String filename) throws IOException {
+<span class="nc" id="L258">        long startTime = System.currentTimeMillis();</span>
+        // make input stream for board
+<span class="nc" id="L260">        Reader r = new BufferedReader(new FileReader(new MegaMekFile(Configuration.hexesDir(), filename).getFile()));</span>
+        // read board, looking for &quot;size&quot;
+<span class="nc" id="L262">        StreamTokenizer st = new StreamTokenizer(r);</span>
+<span class="nc" id="L263">        st.eolIsSignificant(true);</span>
+<span class="nc" id="L264">        st.commentChar('#');</span>
+<span class="nc" id="L265">        st.quoteChar('&quot;');</span>
+<span class="nc" id="L266">        st.wordChars('_', '_');</span>
+<span class="nc bnc" id="L267" title="All 2 branches missed.">        while (st.nextToken() != StreamTokenizer.TT_EOF) {</span>
+<span class="nc" id="L268">            int elevation = 0;</span>
+            // int levity = 0;
+<span class="nc" id="L270">            String terrain = null;</span>
+<span class="nc" id="L271">            String theme = null;</span>
+<span class="nc" id="L272">            String imageName = null;</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">            if ((st.ttype == StreamTokenizer.TT_WORD)</span>
+<span class="nc bnc" id="L274" title="All 6 branches missed.">                    &amp;&amp; (st.sval.equals(&quot;base&quot;) || st.sval.equals(&quot;super&quot;) || st.sval.equals(&quot;ortho&quot;))) { //$NON-NLS-3$ //$NON-NLS-2$</span>
+<span class="nc" id="L275">                boolean bas = st.sval.equals(&quot;base&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L276">                boolean sup = st.sval.equals(&quot;super&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L277">                boolean ort = st.sval.equals(&quot;ortho&quot;); //$NON-NLS-1$</span>
+
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                if (st.nextToken() == StreamTokenizer.TT_NUMBER) {</span>
+<span class="nc" id="L280">                    elevation = (int) st.nval;</span>
+                } else {
+<span class="nc" id="L282">                    elevation = ITerrain.WILDCARD;</span>
+                }
+<span class="nc" id="L284">                st.nextToken();</span>
+<span class="nc" id="L285">                terrain = st.sval;</span>
+<span class="nc" id="L286">                st.nextToken();</span>
+<span class="nc" id="L287">                theme = st.sval;</span>
+<span class="nc" id="L288">                themes.add(theme);</span>
+<span class="nc" id="L289">                st.nextToken();</span>
+<span class="nc" id="L290">                imageName = st.sval;</span>
+                // add to list
+<span class="nc bnc" id="L292" title="All 2 branches missed.">                if (bas) {</span>
+<span class="nc" id="L293">                    bases.add(new HexEntry(new Hex(elevation, terrain, theme), imageName));</span>
+                }
+<span class="nc bnc" id="L295" title="All 2 branches missed.">                if (sup) {</span>
+<span class="nc" id="L296">                    supers.add(new HexEntry(new Hex(elevation, terrain, theme), imageName));</span>
+                }
+<span class="nc bnc" id="L298" title="All 2 branches missed.">                if (ort) {</span>
+<span class="nc" id="L299">                    orthos.add(new HexEntry(new Hex(elevation, terrain, theme), imageName));</span>
+                }
+<span class="nc bnc" id="L301" title="All 4 branches missed.">            } else if ((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp; st.sval.equals(&quot;include&quot;)) {</span>
+<span class="nc" id="L302">                st.nextToken();</span>
+<span class="nc" id="L303">                incDepth++;</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">                if (incDepth &lt; 100) {</span>
+<span class="nc" id="L305">                    String incFile = st.sval;</span>
+<span class="nc" id="L306">                    MegaMek.getLogger().info(&quot;Including &quot; + incFile);</span>
+<span class="nc" id="L307">                    loadFromFile(incFile);</span>
+                }
+            }
+            // else if((st.ttype == StreamTokenizer.TT_WORD) &amp;&amp;
+            // st.sval.equals(&quot;ortho&quot;)){}
+<span class="nc" id="L312">        }</span>
+<span class="nc" id="L313">        r.close();</span>
+<span class="nc" id="L314">        themes.add(TRANSPARENT_THEME);</span>
+<span class="nc" id="L315">        long endTime = System.currentTimeMillis();</span>
+        
+<span class="nc" id="L317">        String loadInfo = String.format(&quot;Loaded %o base images, %o super images and %o ortho images&quot;, </span>
+<span class="nc" id="L318">                bases.size(), supers.size(), orthos.size());</span>
+<span class="nc" id="L319">        MegaMek.getLogger().info(loadInfo);</span>
+        
+<span class="nc bnc" id="L321" title="All 2 branches missed.">        if (incDepth == 0) {</span>
+<span class="nc" id="L322">            MegaMek.getLogger().info(&quot;HexTileset loaded in &quot; + (endTime - startTime) + &quot;ms.&quot;);</span>
+        }
+<span class="nc" id="L324">        incDepth--;</span>
+<span class="nc" id="L325">    }</span>
+    
+    /**
+     * Initializes all the images in this tileset and adds them to the tracker
+     */
+    public void loadAllImages(Component comp, MediaTracker tracker) {
+<span class="nc bnc" id="L331" title="All 2 branches missed.">        for (HexEntry entry: bases) {</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            if (entry.getImage() == null) {</span>
+<span class="nc" id="L333">                entry.loadImage(comp);</span>
+            }
+<span class="nc" id="L335">            tracker.addImage(entry.getImage(), 1);</span>
+<span class="nc" id="L336">        }</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        for (HexEntry entry: supers) {</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">            if (entry.getImage() == null) {</span>
+<span class="nc" id="L339">                entry.loadImage(comp);</span>
+            }
+<span class="nc" id="L341">            tracker.addImage(entry.getImage(), 1);</span>
+<span class="nc" id="L342">        }</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">        for (HexEntry entry: orthos) {</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">            if (entry.getImage() == null) {</span>
+<span class="nc" id="L345">                entry.loadImage(comp);</span>
+            }
+<span class="nc" id="L347">            tracker.addImage(entry.getImage(), 1);</span>
+<span class="nc" id="L348">        }</span>
+<span class="nc" id="L349">    }</span>
+
+    public Set&lt;String&gt; getThemes() {
+<span class="nc" id="L352">        return new TreeSet&lt;String&gt;(themes);</span>
+    }
+
+    /**
+     * Adds all images associated with the hex to the specified tracker
+     */
+    public synchronized void trackHexImages(IHex hex, MediaTracker tracker) {
+
+<span class="nc" id="L360">        Image base = basesCache.get(hex);</span>
+<span class="nc" id="L361">        List&lt;Image&gt; superImgs = supersCache.get(hex);</span>
+<span class="nc" id="L362">        List&lt;Image&gt; orthoImgs = orthosCache.get(hex);</span>
+
+        // add base
+<span class="nc" id="L365">        tracker.addImage(base, 1);</span>
+        // add superImgs
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        if (superImgs != null) {</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">            for (Image img: superImgs) {</span>
+<span class="nc" id="L369">                tracker.addImage(img, 1);</span>
+<span class="nc" id="L370">            }</span>
+        }
+<span class="nc bnc" id="L372" title="All 2 branches missed.">        if (orthoImgs != null) {</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">            for (Image img: orthoImgs) {</span>
+<span class="nc" id="L374">                tracker.addImage(img, 1);</span>
+<span class="nc" id="L375">            }</span>
+        }
+<span class="nc" id="L377">    }</span>
+
+    /**
+     * Match the two hexes using the &quot;ortho&quot; super* formula. All matches must be
+     * exact, however the match only depends on the original hex matching all the
+     * elements of the comparison, not vice versa.
+     * &lt;p/&gt;
+     * EXCEPTION: a themed original matches any unthemed comparison.
+     */
+    private double orthoMatch(IHex org, IHex com) {
+        // check elevation
+<span class="nc bnc" id="L388" title="All 4 branches missed.">        if ((com.getLevel() != ITerrain.WILDCARD) &amp;&amp; (org.getLevel() != com.getLevel())) {</span>
+<span class="nc" id="L389">            return 0;</span>
+        }
+
+        // A themed original matches any unthemed comparison.
+<span class="nc bnc" id="L393" title="All 4 branches missed.">        if ((com.getTheme() != null) &amp;&amp; !com.getTheme().equalsIgnoreCase(org.getTheme())) {</span>
+<span class="nc" id="L394">            return 0.0;</span>
+        }
+
+        // org terrains must match com terrains
+<span class="nc bnc" id="L398" title="All 2 branches missed.">        if (org.terrainsPresent() &lt; com.terrainsPresent())</span>
+<span class="nc" id="L399">            return 0.0;</span>
+
+        // check terrain
+<span class="nc" id="L402">        int cTerrainTypes[] = com.getTerrainTypes();</span>
+<span class="nc bnc" id="L403" title="All 2 branches missed.">        for (int i = 0; i &lt; cTerrainTypes.length; i++) {</span>
+<span class="nc" id="L404">            int cTerrType = cTerrainTypes[i];</span>
+<span class="nc" id="L405">            ITerrain cTerr = com.getTerrain(cTerrType);</span>
+<span class="nc" id="L406">            ITerrain oTerr = org.getTerrain(cTerrType);</span>
+<span class="nc bnc" id="L407" title="All 2 branches missed.">            if (cTerr == null) {</span>
+<span class="nc" id="L408">                continue;</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">            } else if ((oTerr == null)</span>
+<span class="nc bnc" id="L410" title="All 4 branches missed.">                    || ((cTerr.getLevel() != ITerrain.WILDCARD) &amp;&amp; (oTerr.getLevel() != cTerr.getLevel()))</span>
+<span class="nc bnc" id="L411" title="All 4 branches missed.">                    || (cTerr.hasExitsSpecified() &amp;&amp; (oTerr.getExits() != cTerr.getExits()))) {</span>
+<span class="nc" id="L412">                return 0;</span>
+            }
+        }
+
+<span class="nc" id="L416">        return 1.0;</span>
+    }
+
+    /**
+     * Match the two hexes using the &quot;super&quot; formula. All matches must be exact,
+     * however the match only depends on the original hex matching all the elements
+     * of the comparision, not vice versa.
+     * &lt;p/&gt;
+     * EXCEPTION: a themed original matches any unthemed comparason.
+     */
+    private double superMatch(IHex org, IHex com) {
+        // check elevation
+<span class="nc bnc" id="L428" title="All 4 branches missed.">        if ((com.getLevel() != ITerrain.WILDCARD) &amp;&amp; (org.getLevel() != com.getLevel())) {</span>
+<span class="nc" id="L429">            return 0;</span>
+        }
+
+        // A themed original matches any unthemed comparison.
+<span class="nc bnc" id="L433" title="All 4 branches missed.">        if ((com.getTheme() != null) &amp;&amp; !com.getTheme().equalsIgnoreCase(org.getTheme())) {</span>
+<span class="nc" id="L434">            return 0.0;</span>
+        }
+
+        // org terrains must match com terrains
+<span class="nc bnc" id="L438" title="All 2 branches missed.">        if (org.terrainsPresent() &lt; com.terrainsPresent())</span>
+<span class="nc" id="L439">            return 0.0;</span>
+
+        // check terrain
+<span class="nc" id="L442">        int cTerrainTypes[] = com.getTerrainTypes();</span>
+<span class="nc bnc" id="L443" title="All 2 branches missed.">        for (int i = 0; i &lt; cTerrainTypes.length; i++) {</span>
+<span class="nc" id="L444">            int cTerrType = cTerrainTypes[i];</span>
+<span class="nc" id="L445">            ITerrain cTerr = com.getTerrain(cTerrType);</span>
+<span class="nc" id="L446">            ITerrain oTerr = org.getTerrain(cTerrType);</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">            if (cTerr == null) {</span>
+<span class="nc" id="L448">                continue;</span>
+<span class="nc bnc" id="L449" title="All 2 branches missed.">            } else if ((oTerr == null)</span>
+<span class="nc bnc" id="L450" title="All 4 branches missed.">                    || ((cTerr.getLevel() != ITerrain.WILDCARD) &amp;&amp; (oTerr.getLevel() != cTerr.getLevel()))</span>
+<span class="nc bnc" id="L451" title="All 4 branches missed.">                    || (cTerr.hasExitsSpecified() &amp;&amp; (oTerr.getExits() != cTerr.getExits()))) {</span>
+<span class="nc" id="L452">                return 0;</span>
+            }
+        }
+
+<span class="nc" id="L456">        return 1.0;</span>
+    }
+
+    /**
+     * Match the two hexes using the &quot;base&quot; formula.
+     * &lt;p/&gt;
+     * Returns a value indicating how close of a match the original hex is to the
+     * comparison hex. 0 means no match, 1 means perfect match.
+     */
+    private double baseMatch(IHex org, IHex com) {
+        double elevation;
+        double terrain;
+        double theme;
+
+        // check elevation
+<span class="nc bnc" id="L471" title="All 2 branches missed.">        if (com.getLevel() == ITerrain.WILDCARD) {</span>
+<span class="nc" id="L472">            elevation = 1.0;</span>
+        } else {
+<span class="nc" id="L474">            elevation = 1.01 / (Math.abs(org.getLevel() - com.getLevel()) + 1.01);</span>
+        }
+
+        // Determine maximum number of terrain matches.
+        // Bug 732188: Have a non-zero minimum terrain match.
+<span class="nc" id="L479">        double maxTerrains = Math.max(org.terrainsPresent(), com.terrainsPresent());</span>
+<span class="nc" id="L480">        double matches = 0.0;</span>
+
+<span class="nc" id="L482">        int[] orgTerrains = org.getTerrainTypes();</span>
+
+<span class="nc bnc" id="L484" title="All 2 branches missed.">        for (int i = 0; i &lt; orgTerrains.length; i++) {</span>
+<span class="nc" id="L485">            int terrType = orgTerrains[i];</span>
+<span class="nc" id="L486">            ITerrain cTerr = com.getTerrain(terrType);</span>
+<span class="nc" id="L487">            ITerrain oTerr = org.getTerrain(terrType);</span>
+<span class="nc bnc" id="L488" title="All 4 branches missed.">            if ((cTerr == null) || (oTerr == null)) {</span>
+<span class="nc" id="L489">                continue;</span>
+            }
+<span class="nc" id="L491">            double thisMatch = 0;</span>
+
+<span class="nc bnc" id="L493" title="All 2 branches missed.">            if (cTerr.getLevel() == ITerrain.WILDCARD) {</span>
+<span class="nc" id="L494">                thisMatch = 1.0;</span>
+            } else {
+<span class="nc" id="L496">                thisMatch = 1.0 / (Math.abs(oTerr.getLevel() - cTerr.getLevel()) + 1.0);</span>
+            }
+            // without exit match, terrain counts... um, half?
+<span class="nc bnc" id="L499" title="All 4 branches missed.">            if (cTerr.hasExitsSpecified() &amp;&amp; (oTerr.getExits() != cTerr.getExits())) {</span>
+<span class="nc" id="L500">                thisMatch *= 0.5;</span>
+            }
+            // add up match value
+<span class="nc" id="L503">            matches += thisMatch;</span>
+        }
+<span class="nc bnc" id="L505" title="All 2 branches missed.">        if (maxTerrains == 0) {</span>
+<span class="nc" id="L506">            terrain = 1.0;</span>
+        } else {
+<span class="nc" id="L508">            terrain = matches / maxTerrains;</span>
+        }
+
+        // check theme
+<span class="nc bnc" id="L512" title="All 2 branches missed.">        if ((com.getTheme() == org.getTheme())</span>
+<span class="nc bnc" id="L513" title="All 4 branches missed.">                || ((com.getTheme() != null) &amp;&amp; com.getTheme().equalsIgnoreCase(org.getTheme()))) {</span>
+<span class="nc" id="L514">            theme = 1.0;</span>
+<span class="nc bnc" id="L515" title="All 4 branches missed.">        } else if ((org.getTheme() != null) &amp;&amp; (com.getTheme() == null)) {</span>
+            // If no precise themed match, slightly favor unthemed comparisons
+<span class="nc" id="L517">            theme = 0.001;</span>
+        } else {
+            // also don't throw a match entirely out because the theme is off
+<span class="nc" id="L520">            theme = 0.0001;</span>
+        }
+
+<span class="nc" id="L523">        return elevation * terrain * theme;</span>
+    }
+
+    private class HexEntry {
+        private IHex hex;
+        private Image image;
+        private Vector&lt;Image&gt; images;
+        private Vector&lt;String&gt; filenames;
+
+<span class="nc" id="L532">        public HexEntry(IHex hex, String imageFile) {</span>
+<span class="nc" id="L533">            this.hex = hex;</span>
+<span class="nc" id="L534">            filenames = StringUtil.splitString(imageFile, &quot;;&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L535">        }</span>
+
+        public IHex getHex() {
+<span class="nc" id="L538">            return hex;</span>
+        }
+
+        public Image getImage() {
+<span class="nc" id="L542">            return image;</span>
+        }
+
+        public Image getImage(Component comp, int seed) {
+<span class="nc bnc" id="L546" title="All 4 branches missed.">            if ((null == images) || images.isEmpty()) {</span>
+<span class="nc" id="L547">                loadImage(comp);</span>
+            }
+<span class="nc bnc" id="L549" title="All 2 branches missed.">            if (images.isEmpty()) {</span>
+<span class="nc" id="L550">                return null;</span>
+            }
+<span class="nc bnc" id="L552" title="All 2 branches missed.">            if (images.size() &gt; 1) {</span>
+<span class="nc" id="L553">                int rand = (seed % images.size());</span>
+<span class="nc" id="L554">                return images.elementAt(rand);</span>
+            }
+<span class="nc" id="L556">            return images.firstElement();</span>
+        }
+
+        public void loadImage(Component c2) {
+<span class="nc" id="L560">            images = new Vector&lt;Image&gt;();</span>
+<span class="nc bnc" id="L561" title="All 2 branches missed.">            for (String filename: filenames) {</span>
+<span class="nc" id="L562">                File imgFile = new MegaMekFile(Configuration.hexesDir(), filename).getFile();</span>
+<span class="nc" id="L563">                Image image = ImageUtil.loadImageFromFile(imgFile.toString());</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">                if (null != image) {</span>
+<span class="nc" id="L565">                    images.add(image);</span>
+                } else {
+<span class="nc" id="L567">                    MegaMek.getLogger().error(&quot;Received null image from &quot;</span>
+                            + &quot;ImageUtil.loadImageFromFile! File: &quot; + imgFile);
+                }
+<span class="nc" id="L570">            }</span>
+<span class="nc" id="L571">        }</span>
+
+        @Override
+        public String toString() {
+<span class="nc" id="L575">            return &quot;HexTileset: &quot; + hex.toString();</span>
+        }
+    }
+    
+    // The Board and Game listeners
+    // The HexTileSet caches images with the hex object as key. Therefore it
+    // must listen to Board events to clear changed (but not replaced) 
+    // hexes from the cache. 
+    // It must listen to Game events to catch when a board is entirely replaced
+    // to be able to register itself to the new board.
+<span class="nc" id="L585">    private GameListener gameListener = new GameListenerAdapter() {</span>
+
+        @Override
+        public void gameBoardNew(GameBoardNewEvent e) {
+<span class="nc" id="L589">            clearAllHexes();</span>
+<span class="nc" id="L590">            replacedBoard(e);</span>
+<span class="nc" id="L591">        }</span>
+
+        @Override
+        public void gameBoardChanged(GameBoardChangeEvent e) {
+<span class="nc" id="L595">            clearAllHexes();</span>
+<span class="nc" id="L596">        }</span>
+
+    };
+    
+    private void replacedBoard(GameBoardNewEvent e) {
+<span class="nc" id="L601">        e.getOldBoard().removeBoardListener(this);</span>
+<span class="nc" id="L602">        e.getNewBoard().addBoardListener(this);</span>
+<span class="nc" id="L603">    }</span>
+    
+    @Override
+    public void boardNewBoard(BoardEvent b) {
+<span class="nc" id="L607">        clearAllHexes();</span>
+<span class="nc" id="L608">   }</span>
+
+    @Override
+    public void boardChangedHex(BoardEvent b) {
+<span class="nc" id="L612">        clearHex(((Board)b.getSource()).getHex(b.getCoords()));</span>
+<span class="nc" id="L613">    }</span>
+
+    @Override
+    public void boardChangedAllHexes(BoardEvent b) {
+<span class="nc" id="L617">        clearAllHexes();</span>
+<span class="nc" id="L618">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

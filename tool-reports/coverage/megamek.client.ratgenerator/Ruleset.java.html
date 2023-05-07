@@ -1,0 +1,544 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Ruleset.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ratgenerator</a> &gt; <span class="el_source">Ruleset.java</span></div><h1>Ruleset.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2016 The MegaMek Team
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.ratgenerator;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.xml.parsers.DocumentBuilder;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
+import megamek.MegaMek;
+import megamek.client.generator.RandomNameGenerator;
+import megamek.utils.MegaMekXmlUtil;
+
+/**
+ * Container for all the rule nodes for a faction. Has methods for processing the rules to
+ * fill out a ForceDescriptor.
+ * 
+ * @author Neoancient
+ *
+ */
+public class Ruleset {
+
+<span class="nc" id="L48">    public enum RatingSystem {</span>
+<span class="nc" id="L49">        IS (&quot;F&quot;,&quot;D&quot;,&quot;C&quot;,&quot;B&quot;,&quot;A&quot;),</span>
+<span class="nc" id="L50">        SL (&quot;C&quot;,&quot;B&quot;,&quot;A&quot;), // used for SLDF and CS/WoB</span>
+<span class="nc" id="L51">        CLAN (&quot;PG&quot;,&quot;Sol&quot;,&quot;SL&quot;,&quot;FL&quot;,&quot;Keshik&quot;),</span>
+<span class="nc" id="L52">        ROS (&quot;TP&quot;,&quot;PG&quot;,&quot;HS&quot;,&quot;SB&quot;),</span>
+<span class="nc" id="L53">        NONE ();</span>
+
+        String[] vals;
+<span class="nc" id="L56">        private RatingSystem(String... vals) {</span>
+<span class="nc" id="L57">            this.vals = vals;</span>
+<span class="nc" id="L58">        }</span>
+
+        public int indexOf(String val) {
+<span class="nc bnc" id="L61" title="All 2 branches missed.">            for (int i = 0; i &lt; vals.length; i++) {</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">                if (val.equals(vals[i])) {</span>
+<span class="nc" id="L63">                    return i;</span>
+                }
+            }
+<span class="nc" id="L66">            return -1;</span>
+        }
+    };
+
+    private static final String directory = &quot;data/forcegenerator/faction_rules&quot;;
+    private static final String CONSTANTS_FILE = &quot;constants.txt&quot;;
+
+    private static HashMap&lt;String,String&gt; constants;
+<span class="nc" id="L74">    private static Pattern constantPattern = Pattern.compile(&quot;%(.*?)%&quot;);</span>
+    private static HashMap&lt;String,Ruleset&gt; rulesets;
+    private static boolean initialized;
+    private static boolean initializing;
+
+    private String faction;
+    private RatingSystem ratingSystem;
+    private DefaultsNode defaults;
+    private TOCNode toc;
+    private int customRankBase;
+    private HashMap&lt;Integer,String&gt; customRanks;
+    private ArrayList&lt;ForceNode&gt; forceNodes;
+    private String parent;
+    
+<span class="nc" id="L88">    private Ruleset() {</span>
+<span class="nc" id="L89">        faction = &quot;IS&quot;;</span>
+<span class="nc" id="L90">        ratingSystem = RatingSystem.IS;</span>
+<span class="nc" id="L91">        defaults = new DefaultsNode();</span>
+<span class="nc" id="L92">        toc = new TOCNode();</span>
+<span class="nc" id="L93">        customRanks = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L94">        forceNodes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L95">        parent = null;</span>
+<span class="nc" id="L96">    }</span>
+
+    public static String substituteConstants(String str) {
+<span class="nc" id="L99">        Matcher matcher = constantPattern.matcher(str);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        while (matcher.find()) {</span>
+<span class="nc" id="L101">            String val = constants.get(matcher.group(1));</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">            if (val == null) {</span>
+<span class="nc" id="L103">                val = &quot;0&quot;;</span>
+            }
+<span class="nc" id="L105">            str = str.replace(matcher.group(0), val);</span>
+<span class="nc" id="L106">        }</span>
+<span class="nc" id="L107">        return str;</span>
+    }
+
+    public static Ruleset findRuleset(ForceDescriptor fd) {
+<span class="nc" id="L111">        return findRuleset(fd.getFaction());</span>
+    }
+
+    public static Ruleset findRuleset(String faction) {
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        if (faction == null) {</span>
+<span class="nc" id="L116">            faction = &quot;IS&quot;;</span>
+        }
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (rulesets.containsKey(faction)) {</span>
+<span class="nc" id="L119">            return rulesets.get(faction);</span>
+        }
+<span class="nc" id="L121">        FactionRecord fRec = RATGenerator.getInstance().getFaction(faction);</span>
+        /* First check all parents without recursion. If none is found, do
+         * a recursive check on all parents.
+         */
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        if (fRec != null) {</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            for (String parent : fRec.getParentFactions()) {</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">                if (rulesets.containsKey(parent)) {</span>
+<span class="nc" id="L128">                    return findRuleset(parent);</span>
+                }
+<span class="nc" id="L130">            }</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">            for (String parent : fRec.getParentFactions()) {</span>
+<span class="nc" id="L132">                Ruleset rs = findRuleset(parent);</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">                if (rs != null) {</span>
+<span class="nc" id="L134">                    return rs;</span>
+                }
+<span class="nc" id="L136">            }</span>
+        }
+        // This shouldn't happen unless the data is missing. Throw out a default ruleset to prevent barfing.
+<span class="nc" id="L139">        return new Ruleset();</span>
+    }
+
+    public int getCustomRankBase() {
+<span class="nc" id="L143">        return customRankBase;</span>
+    }
+
+    public HashMap&lt;Integer,String&gt; getCustomRanks() {
+<span class="nc" id="L147">        return customRanks;</span>
+    }
+
+    @FunctionalInterface
+    public interface ProgressListener {
+        /**
+         * Notifies listener of progress in generating force.
+         * 
+         * @param progress The fraction of the task that has been completed in this step.
+         * @param message A message that describes the current step.
+         *
+         */
+        void updateProgress(double progress, String message);
+    }
+
+    public void processRoot(ForceDescriptor fd, ProgressListener l) {
+<span class="nc" id="L163">        defaults.apply(fd);</span>
+        // save the setting so it can be restored after assigning names
+<span class="nc" id="L165">        String rngFaction = RandomNameGenerator.getInstance().getChosenFaction();</span>
+
+<span class="nc" id="L167">        buildForceTree(fd, l, 0.05);</span>
+<span class="nc" id="L168">        fd.generateUnits(l, 0.5);</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (null != l) {</span>
+<span class="nc" id="L170">            l.updateProgress(0, &quot;Finalizing formation&quot;);</span>
+        }
+<span class="nc" id="L172">        fd.recalcWeightClass();</span>
+<span class="nc" id="L173">        fd.assignCommanders();</span>
+<span class="nc" id="L174">        fd.assignPositions();</span>
+        
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (null != l) {</span>
+<span class="nc" id="L177">            l.updateProgress(0.05, &quot;Finalizing formation&quot;);</span>
+        }
+<span class="nc" id="L179">        fd.loadEntities(l, 0.4);</span>
+        //      fd.assignBloodnames();
+
+<span class="nc" id="L182">        ForceDescriptor transports = fd.assignTransport();</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        if (null != transports) {</span>
+<span class="nc" id="L184">            transports.loadEntities(l, 0);</span>
+<span class="nc" id="L185">            fd.addAttached(transports);</span>
+        }
+
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        if (null != l) {</span>
+<span class="nc" id="L189">            l.updateProgress(0, &quot;Complete&quot;);</span>
+        }
+
+<span class="nc" id="L192">        RandomNameGenerator.getInstance().setChosenFaction(rngFaction);</span>
+<span class="nc" id="L193">    }</span>
+
+    /**
+     * Recursively build the force structure by assigning appropriate values to the current node,
+     * including number and type of subforce and attached force nodes, and process those as well.
+     * 
+     * @param fd
+     */
+    private void buildForceTree (ForceDescriptor fd, ProgressListener l, double progress) {
+        //Find the most specific ruleset for this faction.
+<span class="nc" id="L203">        Ruleset rs = findRuleset(fd.getFaction());</span>
+<span class="nc" id="L204">        boolean applied = false;</span>
+<span class="nc" id="L205">        ForceNode fn = null;</span>
+        //Find the first node matching node in the ruleset and apply the options to the current force descriptor.
+        //If no matching node is found in the ruleset, move to the parent ruleset.
+        do {
+<span class="nc" id="L209">            fn = rs.findForceNode(fd);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">            if (fn == null) {</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">                if (rs.getParent() == null) {</span>
+<span class="nc" id="L212">                    rs = null;</span>
+                } else {
+<span class="nc" id="L214">                    rs = rulesets.get(rs.getParent());</span>
+                }				
+            } else {
+<span class="nc" id="L217">                applied = fn.apply(fd);</span>
+<span class="nc" id="L218">                MegaMek.getLogger().debug(&quot;Selecting force node &quot; + fn.show()</span>
+<span class="nc" id="L219">                        + &quot; from ruleset &quot; + rs.getFaction());</span>
+            }
+<span class="nc bnc" id="L221" title="All 6 branches missed.">        } while (rs != null &amp;&amp; (fn == null || !applied));</span>
+
+<span class="nc" id="L223">        int count = fd.getSubforces().size() + fd.getAttached().size();</span>
+
+        //Process subforces recursively. It is possible that the subforce has
+        //a different faction, in which case the ruleset appropriate to that faction is used.
+<span class="nc bnc" id="L227" title="All 2 branches missed.">        for (ForceDescriptor sub : fd.getSubforces()) {</span>
+<span class="nc" id="L228">            rs = this;</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">            if (!fd.getFaction().equals(sub.getFaction())) {</span>
+<span class="nc" id="L230">                rs = findRuleset(sub.getFaction());</span>
+            }
+<span class="nc bnc" id="L232" title="All 2 branches missed.">            if (rs == null) {</span>
+<span class="nc" id="L233">                buildForceTree(sub, l, progress / count);</span>
+            } else {
+<span class="nc" id="L235">                rs.buildForceTree(sub, l, progress / count);</span>
+            }
+<span class="nc" id="L237">        }</span>
+
+        //Any attached support units are then built.
+<span class="nc bnc" id="L240" title="All 2 branches missed.">        for (ForceDescriptor sub : fd.getAttached()) {</span>
+<span class="nc" id="L241">            buildForceTree(sub, l, progress / count);</span>
+<span class="nc" id="L242">        }</span>
+        /*
+		//Each attached formation is essentially a new top-level node
+		for (ForceDescriptor sub : fd.getAttached()) {
+		    sub.generateUnits(l, progress * 0.7 / count);
+			sub.assignCommanders();
+			sub.assignPositions();
+			sub.loadEntities(l, progress * 0.1 / count);
+//			sub.assignBloodnames();
+		}
+         */
+<span class="nc bnc" id="L253" title="All 4 branches missed.">        if (count == 0 &amp;&amp; null != l) {</span>
+<span class="nc" id="L254">            l.updateProgress(progress, &quot;Building force tree&quot;);</span>
+        }
+<span class="nc" id="L256">    }</span>
+
+    public int getRatingIndex(String key) {
+<span class="nc" id="L259">        return ratingSystem.indexOf(key);</span>
+    }
+
+    public Integer getDefaultUnitType(ForceDescriptor fd) {
+<span class="nc" id="L263">        String def = defaults.getUnitType(fd);</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        if (def != null) {</span>
+<span class="nc" id="L265">            return ModelRecord.parseUnitType(def);</span>
+        }
+<span class="nc" id="L267">        return null;</span>
+    }
+
+    public String getDefaultEschelon(ForceDescriptor fd) {
+<span class="nc" id="L271">        return defaults.getEschelon(fd);</span>
+    }
+
+    public String getDefaultRating(ForceDescriptor fd) {
+<span class="nc" id="L275">        return defaults.getRating(fd);</span>
+    }
+
+    public TOCNode getTOCNode() {
+<span class="nc" id="L279">        return toc;</span>
+    }
+
+    public ForceNode findForceNode(ForceDescriptor fd) {
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        for (ForceNode n : forceNodes) {</span>
+<span class="nc bnc" id="L284" title="All 4 branches missed.">            if (n.getEschelon().equals(fd.getEschelon()) &amp;&amp; n.matches(fd)) {</span>
+<span class="nc" id="L285">                return n;</span>
+            }
+<span class="nc" id="L287">        }		</span>
+<span class="nc" id="L288">        return null;</span>
+    }
+
+    public ForceNode findForceNode(ForceDescriptor fd, int eschelon, boolean augmented) {
+<span class="nc bnc" id="L292" title="All 2 branches missed.">        for (ForceNode n : forceNodes) {</span>
+<span class="nc bnc" id="L293" title="All 4 branches missed.">            if (n.getEschelon() == eschelon &amp;&amp; n.matches(fd, augmented)) {</span>
+<span class="nc" id="L294">                return n;</span>
+            }
+<span class="nc" id="L296">        }		</span>
+<span class="nc" id="L297">        return null;</span>
+    }
+
+    public HashMap&lt;String,String&gt; getEschelonNames(String unitType) {
+<span class="nc" id="L301">        HashMap&lt;String,String&gt; retVal = new HashMap&lt;String,String&gt;();</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">        for (ForceNode n : forceNodes) {</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">            if (n.matchesPredicate(unitType, &quot;ifUnitType&quot;)) {</span>
+<span class="nc" id="L304">                retVal.put(n.getEschelonCode(), n.getEschelonName());</span>
+            }
+<span class="nc" id="L306">        }</span>
+<span class="nc" id="L307">        return retVal;</span>
+    }
+
+    public String getEschelonName(ForceDescriptor fd) {
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        for (ForceNode fn : forceNodes) {</span>
+<span class="nc bnc" id="L312" title="All 4 branches missed.">            if (fn.matches(fd) &amp;&amp; fn.getEschelon().equals(fd.getEschelon())) {</span>
+<span class="nc" id="L313">                return fn.getEschelonName();</span>
+            }
+<span class="nc" id="L315">        }</span>
+<span class="nc" id="L316">        return null;</span>
+    }
+
+    public CommanderNode getCoNode(ForceDescriptor fd) {
+<span class="nc bnc" id="L320" title="All 2 branches missed.">        for (ForceNode fn : forceNodes) {</span>
+<span class="nc bnc" id="L321" title="All 4 branches missed.">            if (fn.getEschelon().equals(fd.getEschelon()) &amp;&amp; fn.matches(fd)) {</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">                for (CommanderNode rn : fn.getCoNodes()) {</span>
+<span class="nc bnc" id="L323" title="All 2 branches missed.">                    if (rn.matches(fd)) {</span>
+<span class="nc" id="L324">                        return rn;</span>
+                    }
+<span class="nc" id="L326">                }</span>
+            }
+<span class="nc" id="L328">        }</span>
+<span class="nc" id="L329">        return null;</span>
+    }
+
+    public CommanderNode getXoNode(ForceDescriptor fd) {
+<span class="nc bnc" id="L333" title="All 2 branches missed.">        for (ForceNode fn : forceNodes) {</span>
+<span class="nc bnc" id="L334" title="All 4 branches missed.">            if (fn.getEschelon().equals(fd.getEschelon()) &amp;&amp; fn.matches(fd)) {</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">                for (CommanderNode rn : fn.getXoNodes()) {</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">                    if (rn.matches(fd)) {</span>
+<span class="nc" id="L337">                        return rn;</span>
+                    }
+<span class="nc" id="L339">                }</span>
+            }
+<span class="nc" id="L341">        }</span>
+<span class="nc" id="L342">        return null;</span>
+    }
+
+    public String getParent() {
+<span class="nc" id="L346">        return parent;</span>
+    }
+
+    public static void loadConstants(File f) {
+<span class="nc" id="L350">        constants = new HashMap&lt;&gt;();</span>
+        InputStream is;
+        try {
+<span class="nc" id="L353">            is = new FileInputStream(f);</span>
+<span class="nc" id="L354">            BufferedReader reader = new BufferedReader(new InputStreamReader(is,</span>
+<span class="nc" id="L355">                    Charset.forName(&quot;UTF-8&quot;)));</span>
+<span class="nc" id="L356">            String line = null;</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">            while ((line = reader.readLine()) != null) {</span>
+<span class="nc bnc" id="L358" title="All 4 branches missed.">                if (!line.startsWith(&quot;#&quot;) &amp;&amp; line.contains(&quot;:&quot;)) {</span>
+<span class="nc" id="L359">                    String[] fields = line.split(&quot;:&quot;);</span>
+                    try {
+<span class="nc" id="L361">                        constants.put(fields[0], fields[1]);</span>
+<span class="nc" id="L362">                    } catch (NumberFormatException e) {</span>
+<span class="nc" id="L363">                        MegaMek.getLogger().error(&quot;Malformed line in force generator constants file: &quot; + line);</span>
+<span class="nc" id="L364">                    }</span>
+<span class="nc" id="L365">                }</span>
+            }
+<span class="nc" id="L367">            reader.close();</span>
+<span class="nc" id="L368">        } catch (IOException e) {</span>
+<span class="nc" id="L369">            MegaMek.getLogger().error(e);</span>
+<span class="nc" id="L370">        }</span>
+<span class="nc" id="L371">    }</span>
+
+    public static void loadData() {
+<span class="nc" id="L374">        initialized = false;</span>
+<span class="nc" id="L375">        initializing = true;</span>
+<span class="nc" id="L376">        rulesets = new HashMap&lt;String,Ruleset&gt;();</span>
+
+<span class="nc" id="L378">        File dir = new File(directory);</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">        if (!dir.exists()) {</span>
+<span class="nc" id="L380">            MegaMek.getLogger().error(&quot;Could not locate force generator faction rules.&quot;);</span>
+<span class="nc" id="L381">            initializing = false;</span>
+<span class="nc" id="L382">            return;</span>
+        }
+
+<span class="nc" id="L385">        loadConstants(new File(dir, CONSTANTS_FILE));</span>
+
+        //We need this so we can determine parent faction if not stated explicitly.
+<span class="nc bnc" id="L388" title="All 2 branches missed.">        while (!RATGenerator.getInstance().isInitialized()) {</span>
+            try {
+<span class="nc" id="L390">                Thread.sleep(50);</span>
+<span class="nc" id="L391">            } catch (InterruptedException e) {</span>
+                // Ignore
+<span class="nc" id="L393">            }</span>
+        }
+
+<span class="nc bnc" id="L396" title="All 2 branches missed.">        for (File f : dir.listFiles()) {</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">            if (!f.getPath().endsWith(&quot;.xml&quot;)) {</span>
+<span class="nc" id="L398">                continue;</span>
+            }
+            try {
+<span class="nc" id="L401">                Ruleset rs = createFromFile(f);</span>
+<span class="nc bnc" id="L402" title="All 2 branches missed.">                if (rs != null) {</span>
+<span class="nc" id="L403">                    rulesets.put(rs.getFaction(), rs);</span>
+                }
+<span class="nc" id="L405">            } catch (IllegalArgumentException ex) {</span>
+<span class="nc" id="L406">                MegaMek.getLogger().error(&quot;While parsing file &quot; + f.toString() + &quot;: &quot; + ex.getMessage());</span>
+<span class="nc" id="L407">            }</span>
+        }
+<span class="nc" id="L409">        initialized = true;</span>
+<span class="nc" id="L410">        initializing = false;</span>
+<span class="nc" id="L411">    }</span>
+
+    private static Ruleset createFromFile(File f) {
+<span class="nc" id="L414">        Document xmlDoc = null;</span>
+
+        DocumentBuilder db;
+        try {
+<span class="nc" id="L418">            FileInputStream fis = new FileInputStream(f);</span>
+<span class="nc" id="L419">            db = MegaMekXmlUtil.newSafeDocumentBuilder();</span>
+<span class="nc" id="L420">            xmlDoc = db.parse(fis);</span>
+<span class="nc" id="L421">            fis.close();</span>
+<span class="nc" id="L422">        } catch (Exception e) {</span>
+<span class="nc" id="L423">            MegaMek.getLogger().error(&quot;While loading force template from file &quot; + f.getName() + &quot;: &quot;</span>
+<span class="nc" id="L424">                    + e.getMessage());</span>
+<span class="nc" id="L425">            return null;</span>
+<span class="nc" id="L426">        }</span>
+
+<span class="nc" id="L428">        Ruleset retVal = new Ruleset();</span>
+
+<span class="nc" id="L430">        Element elem = xmlDoc.getDocumentElement();</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">        if (!elem.getNodeName().equals(&quot;ruleset&quot;)) {</span>
+<span class="nc" id="L432">            MegaMek.getLogger().error(&quot;Could not find ruleset element in file &quot; + f.getName());</span>
+<span class="nc" id="L433">            return null;</span>
+        }
+<span class="nc bnc" id="L435" title="All 2 branches missed.">        if (elem.getAttribute(&quot;faction&quot;).length() &gt; 0) {</span>
+<span class="nc" id="L436">            retVal.faction = elem.getAttribute(&quot;faction&quot;);</span>
+        } else {
+<span class="nc" id="L438">            MegaMek.getLogger().error(&quot;Faction is not declared in ruleset file &quot; + f.getName());</span>
+<span class="nc" id="L439">            return null;</span>
+        }
+<span class="nc bnc" id="L441" title="All 2 branches missed.">        if (elem.getAttribute(&quot;parent&quot;).length() &gt; 0) {</span>
+<span class="nc" id="L442">            retVal.parent = elem.getAttribute(&quot;parent&quot;);</span>
+        } else {
+<span class="nc bnc" id="L444" title="All 2 branches missed.">            if (retVal.faction.contains(&quot;.&quot;)) {</span>
+<span class="nc" id="L445">                retVal.parent = retVal.faction.split(&quot;\\.&quot;)[0];</span>
+            } else {
+<span class="nc" id="L447">                FactionRecord fRec = RATGenerator.getInstance().getFaction(retVal.faction);</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">                if (fRec == null) {</span>
+<span class="nc" id="L449">                    retVal.parent = null;</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                } else if (fRec.isClan()) {</span>
+<span class="nc" id="L451">                    retVal.parent = &quot;CLAN&quot;; </span>
+<span class="nc bnc" id="L452" title="All 2 branches missed.">                } else if (fRec.isPeriphery()) {</span>
+<span class="nc" id="L453">                    retVal.parent = &quot;PERIPHERY&quot;; </span>
+                } else {
+<span class="nc" id="L455">                    retVal.parent = &quot;IS&quot;;</span>
+                }
+<span class="nc bnc" id="L457" title="All 2 branches missed.">                if (retVal.faction.equals(retVal.parent)) {</span>
+<span class="nc" id="L458">                    retVal.parent = null;</span>
+                }
+            }
+        }
+        //Rating system defaults to IS if not present. If present but cannot be parsed, is set to NONE.
+<span class="nc bnc" id="L463" title="All 2 branches missed.">        if (elem.getAttribute(&quot;ratingSystem&quot;).length() &gt; 0) {</span>
+<span class="nc bnc" id="L464" title="All 5 branches missed.">            switch (elem.getAttribute(&quot;ratingSystem&quot;)) {</span>
+                case &quot;IS&quot;:
+<span class="nc" id="L466">                    retVal.ratingSystem = RatingSystem.IS;</span>
+<span class="nc" id="L467">                    break;</span>
+                case &quot;SL&quot;:
+<span class="nc" id="L469">                    retVal.ratingSystem = RatingSystem.SL;</span>
+<span class="nc" id="L470">                    break;</span>
+                case &quot;CLAN&quot;:
+<span class="nc" id="L472">                    retVal.ratingSystem = RatingSystem.CLAN;</span>
+<span class="nc" id="L473">                    break;</span>
+                case &quot;ROS&quot;:
+<span class="nc" id="L475">                    retVal.ratingSystem = RatingSystem.ROS;</span>
+<span class="nc" id="L476">                    break;</span>
+                default:
+<span class="nc" id="L478">                    retVal.ratingSystem = RatingSystem.NONE;</span>
+<span class="nc" id="L479">                    break;</span>
+            }
+        } else {
+<span class="nc" id="L482">            retVal.ratingSystem = RatingSystem.IS;			</span>
+        }
+<span class="nc" id="L484">        NodeList nl = elem.getChildNodes();</span>
+<span class="nc" id="L485">        elem.normalize();</span>
+
+<span class="nc bnc" id="L487" title="All 2 branches missed.">        for (int x = 0; x &lt; nl.getLength(); x++) {</span>
+<span class="nc" id="L488">            Node wn = nl.item(x);</span>
+<span class="nc bnc" id="L489" title="All 5 branches missed.">            switch (wn.getNodeName()) {</span>
+                case &quot;defaults&quot;:
+<span class="nc" id="L491">                    retVal.defaults = DefaultsNode.createFromXml(wn);</span>
+<span class="nc" id="L492">                    break;</span>
+                case &quot;toc&quot;:
+<span class="nc" id="L494">                    retVal.toc = TOCNode.createFromXml(wn);</span>
+<span class="nc" id="L495">                    break;</span>
+                case &quot;customRanks&quot;:
+<span class="nc bnc" id="L497" title="All 2 branches missed.">                    for (int y = 0; y &lt; wn.getChildNodes().getLength(); y++) {</span>
+<span class="nc" id="L498">                        Node wn2 = wn.getChildNodes().item(y);</span>
+<span class="nc bnc" id="L499" title="All 3 branches missed.">                        switch (wn2.getNodeName()) {</span>
+                            case &quot;base&quot;:
+<span class="nc" id="L501">                                retVal.customRankBase = Integer.parseInt(substituteConstants(wn2.getTextContent()));</span>
+<span class="nc" id="L502">                                break;</span>
+                            case &quot;rank&quot;:
+<span class="nc" id="L504">                                String[] fields = wn2.getTextContent().split(&quot;:&quot;);</span>
+<span class="nc" id="L505">                                int rank = Integer.parseInt(substituteConstants(fields[0]));</span>
+<span class="nc" id="L506">                                retVal.customRanks.put(rank, fields[1]);</span>
+                                break;
+                        }
+                    }
+<span class="nc" id="L510">                    break;</span>
+                case &quot;force&quot;:
+<span class="nc" id="L512">                    ForceNode fn = null;</span>
+                    try {
+<span class="nc" id="L514">                        fn = ForceNode.createFromXml(wn);</span>
+<span class="nc" id="L515">                    } catch (IllegalArgumentException ex) {</span>
+<span class="nc" id="L516">                        MegaMek.getLogger().error(&quot;In file &quot; + f.getName() + &quot; while processing force node&quot; </span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">                                + ((wn.getAttributes().getNamedItem(&quot;eschName&quot;) == null) ? &quot;&quot; : &quot; &quot; </span>
+<span class="nc" id="L518">                                        + wn.getAttributes().getNamedItem(&quot;eschName&quot;)) </span>
+<span class="nc" id="L519">                                + &quot;: &quot; + ex.getMessage());</span>
+<span class="nc" id="L520">                    }</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">                    if (fn != null) {</span>
+<span class="nc" id="L522">                        retVal.forceNodes.add(fn);</span>
+                    }
+                    break;
+            }
+        }		
+
+<span class="nc" id="L528">        return retVal;</span>
+    }
+
+    public static boolean isInitialized() {
+<span class="nc" id="L532">        return initialized;</span>
+    }
+
+    public static boolean isInitializing() {
+<span class="nc" id="L536">        return initializing;</span>
+    }
+
+    public String getFaction() {
+<span class="nc" id="L540">        return faction;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

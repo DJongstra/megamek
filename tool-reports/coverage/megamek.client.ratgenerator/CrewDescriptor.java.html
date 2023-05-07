@@ -1,0 +1,334 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CrewDescriptor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ratgenerator</a> &gt; <span class="el_source">CrewDescriptor.java</span></div><h1>CrewDescriptor.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2016 The MegaMek Team
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.ratgenerator;
+
+import java.util.Iterator;
+
+import megamek.client.generator.RandomGenderGenerator;
+import megamek.client.generator.RandomNameGenerator;
+import megamek.common.Compute;
+import megamek.common.Crew;
+import megamek.common.CrewType;
+import megamek.common.UnitType;
+import megamek.common.enums.Gender;
+
+/**
+ * Description of crew.
+ * 
+ * @author Neoancient
+ */
+public class CrewDescriptor {
+    public static final int SKILL_GREEN = 0;
+    public static final int SKILL_REGULAR = 1;
+    public static final int SKILL_VETERAN = 2;
+    public static final int SKILL_ELITE = 3;
+
+    private String name;
+    private String bloodname;
+    private Gender gender;
+    private int rank;
+    private ForceDescriptor assignment;
+    private int gunnery;
+    private int piloting;
+    private String title;
+
+<span class="nc" id="L46">    public CrewDescriptor(ForceDescriptor assignment) {</span>
+<span class="nc" id="L47">        this.assignment = assignment;</span>
+<span class="nc" id="L48">        gender = RandomGenderGenerator.generate();</span>
+<span class="nc" id="L49">        name = generateName(gender);</span>
+<span class="nc bnc" id="L50" title="All 2 branches missed.">        rank = assignment.getCoRank() == null ? 0 : assignment.getCoRank();</span>
+<span class="nc" id="L51">        title = null;</span>
+<span class="nc" id="L52">        setSkills();</span>
+<span class="nc" id="L53">    }</span>
+
+    private String generateName(Gender gender) {
+<span class="nc bnc" id="L56" title="All 2 branches missed.">        if (assignment.getFactionRec().isClan()) {</span>
+<span class="nc" id="L57">            return RandomNameGenerator.getInstance().generate(gender, true, RandomNameGenerator.KEY_DEFAULT_CLAN);</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">        } else if (!assignment.getFaction().contains(&quot;.&quot;)) {</span>
+            // Try to match our faction to one of the rng settings.
+<span class="nc bnc" id="L60" title="All 2 branches missed.">            for (String faction : RandomNameGenerator.getInstance().getFactions()) {</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">                if (assignment.getFaction().equalsIgnoreCase(faction)) {</span>
+<span class="nc" id="L62">                    return RandomNameGenerator.getInstance().generate(gender, false, faction);</span>
+                }
+<span class="nc" id="L64">            }</span>
+        }
+        // Go up one parent level and try again
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        for (String parent : assignment.getFactionRec().getParentFactions()) {</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">            for (String faction : RandomNameGenerator.getInstance().getFactions()) {</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">                if (parent.equalsIgnoreCase(faction)) {</span>
+<span class="nc" id="L70">                    return RandomNameGenerator.getInstance().generate(gender, false, faction);</span>
+                }
+<span class="nc" id="L72">            }</span>
+<span class="nc" id="L73">        }</span>
+
+        //Give up and use the default
+<span class="nc" id="L76">        return RandomNameGenerator.getInstance().generate(gender, false, RandomNameGenerator.KEY_DEFAULT_FACTION);</span>
+    }
+
+    /**
+     * Assigns skills based on the tables in TW, p. 271-3, with supplemental mods based on the
+     * BattleForce rules, StratOps, p. 320-1
+     */
+    private void setSkills() {
+<span class="nc" id="L84">        boolean clan = RATGenerator.getInstance().getFaction(assignment.getFaction()).isClan();</span>
+
+        int experience;
+<span class="nc bnc" id="L87" title="All 2 branches missed.">        if (null == assignment.getExperience()) {</span>
+<span class="nc" id="L88">            experience = randomExperienceLevel();</span>
+        } else {
+<span class="nc" id="L90">            experience = SKILL_GREEN + assignment.getExperience();</span>
+        }
+
+<span class="nc" id="L93">        int bonus = 0;</span>
+<span class="nc" id="L94">        int ratingLevel = assignment.getRatingLevel();</span>
+        // StratOps gives a +1 for A and -1 for F. There are a few IS factions that don't have
+        // A-F ratings, so we give +1 to the best and -1 to the worst, unless there is only one.
+        // For Clan units we give a +/-1 for each rating level above or below second line. This
+        // is an expansion of the StratOps table which only included FL, SL, and Solahma.
+<span class="nc" id="L99">        int levels = assignment.getFactionRec().getRatingLevels().size();</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (clan) {</span>
+<span class="nc" id="L101">            bonus = ratingLevel - levels / 2;</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        } else if (levels &gt; 1) {</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">            if (ratingLevel == 0) {</span>
+<span class="nc" id="L104">                bonus--;</span>
+            }
+<span class="nc bnc" id="L106" title="All 2 branches missed.">            if (ratingLevel ==  levels - 1) {</span>
+<span class="nc" id="L107">                bonus++;</span>
+            }
+        }
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (clan) {</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">            if (assignment.getUnitType() != null) {</span>
+<span class="nc bnc" id="L112" title="All 3 branches missed.">                switch (assignment.getUnitType()) {</span>
+                    case UnitType.MEK:
+                    case UnitType.BATTLE_ARMOR:
+<span class="nc" id="L115">                        bonus += 2;</span>
+<span class="nc" id="L116">                        break;</span>
+                    case UnitType.TANK:
+                    case UnitType.VTOL:
+                    case UnitType.NAVAL:
+                    case UnitType.INFANTRY:
+                    case UnitType.CONV_FIGHTER:
+<span class="nc" id="L122">                        bonus--;</span>
+                        break;
+                }
+            }
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            if (assignment.getRoles().contains(MissionRole.SUPPORT)) {</span>
+<span class="nc" id="L127">                bonus--;</span>
+            }
+        } else {
+<span class="nc bnc" id="L130" title="All 2 branches missed.">            if (assignment.getRoles().contains(MissionRole.SUPPORT)) {</span>
+<span class="nc" id="L131">                bonus--;</span>
+            }
+<span class="nc bnc" id="L133" title="All 2 branches missed.">            if (assignment.getFaction().equals(&quot;WOB.SD&quot;)) {</span>
+<span class="nc" id="L134">                bonus++;</span>
+            }
+        }
+
+<span class="nc" id="L138">        gunnery = randomSkillRating(GUNNERY_SKILL_TABLE, experience, bonus);</span>
+<span class="nc bnc" id="L139" title="All 4 branches missed.">        if (assignment.getUnitType() != null &amp;&amp; assignment.getUnitType().equals(UnitType.INFANTRY)</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">                &amp;&amp; !assignment.getRoles().contains(MissionRole.ANTI_MEK)) {</span>
+<span class="nc" id="L141">            piloting = 8;</span>
+        } else {
+<span class="nc" id="L143">            piloting = randomSkillRating(PILOTING_SKILL_TABLE, experience, bonus);</span>
+        }
+<span class="nc" id="L145">    }</span>
+
+    /**
+     * Determines random experience level using the table on TW p. 273.
+     * 
+     * @return The experience rating index, starting at green as zero.
+     */
+    public static int randomExperienceLevel() {
+<span class="nc" id="L153">        int roll = Compute.d6(2);</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        if (roll &lt; 6) {</span>
+<span class="nc" id="L155">            return SKILL_GREEN;</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        } else if (roll &lt; 10) {</span>
+<span class="nc" id="L157">            return SKILL_REGULAR;</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        } else if (roll &lt; 12) {</span>
+<span class="nc" id="L159">            return SKILL_VETERAN;</span>
+        } else {
+<span class="nc" id="L161">            return SKILL_ELITE;</span>
+        }
+    }
+
+<span class="nc" id="L165">    private static final int[][] PILOTING_SKILL_TABLE = {</span>
+            {7, 7, 6, 6, 6, 6, 5, 5, 4},
+            {6, 6, 6, 5, 5, 4, 4, 3, 3},
+            {6, 5, 5, 4, 4, 3, 3, 2, 2},
+            {5, 4, 4, 3, 3, 2, 2, 1, 1}
+
+    };
+
+<span class="nc" id="L173">    private static final int[][] GUNNERY_SKILL_TABLE = {</span>
+            {7, 6, 5, 5, 4, 4, 4, 4, 3},
+            {5, 4, 4, 4, 4, 3, 3, 2, 2},
+            {4, 4, 4, 3, 3, 2, 2, 1, 1},
+            {4, 3, 3, 2, 2, 1, 1, 0, 0}
+
+    };
+
+    /**
+     * Selects the piloting or gunnery skill rating based on overall unit experience level and
+     * modifiers.
+     * 
+     * @param table      Either the piloting or the gunnery skill table
+     * @param experience The overall experience rating of the force
+     * @param mod        Situational modifiers to the skill roll
+     * @return           The skill rating
+     */
+    private int randomSkillRating(int[][] table, int experience, int mod) {
+<span class="nc" id="L191">        int column = Math.max(0, Math.min(experience, table.length - 1));</span>
+<span class="nc" id="L192">        int roll = Compute.d6() + mod;</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        if (roll &lt; 0) {</span>
+<span class="nc" id="L194">            return table[column][0];</span>
+        } else {
+<span class="nc" id="L196">            return table[column][Math.min(roll, table[column].length - 1)];</span>
+        }
+    }
+
+    /*
+	public void assignBloodname() {
+		final int[] ratingMods = {-3, -2, -1, 1, 4};
+		int mod = 0;
+		if (assignment.getRatingLevel() &gt;= 0) {
+			mod = ratingMods[assignment.getRatingLevel()];
+		}
+		if (assignment.getFaction().equals(&quot;BAN&quot;)) {
+			mod -= 2;
+		}
+
+		int type = Bloodname.P_GENERAL;
+		if (assignment.isElement()) {
+			switch (assignment.getUnitType()) {
+			case &quot;Mek&quot;:
+				type = Bloodname.P_MECHWARRIOR;
+				break;
+			case &quot;Aero&quot;:
+				type = Bloodname.P_AEROSPACE;
+				break;
+			case &quot;Conventional Fighter&quot;:
+				type = Bloodname.P_AEROSPACE;
+				mod -= 2;
+				break;
+			case &quot;BattleArmor&quot;:
+				type = Bloodname.P_ELEMENTAL;
+				break;
+			case &quot;Infantry&quot;:
+				type = Bloodname.P_ELEMENTAL;
+				mod -= 2;
+				break;
+			case &quot;ProtoMek&quot;:
+				type = Bloodname.P_PROTOMECH;
+				break;
+			case &quot;Dropship&quot;:
+			case &quot;Warship&quot;:
+				if (assignment.getFaction().startsWith(&quot;CSR&quot;)) {
+					type = Bloodname.P_NAVAL;
+				} else {
+					mod -= 2;
+				}
+				break;
+			case &quot;Tank&quot;:
+			case &quot;VTOL&quot;:
+			case &quot;Jumpship&quot;:
+				return;
+			}
+		}
+		int roll = Compute.d6(2) + mod -
+				getGunnery() -
+				getPiloting();
+		if (assignment.getYear() &lt;= 2950) roll++;
+		if (assignment.getYear() &gt; 3055) roll--;
+		if (assignment.getYear() &gt; 3065) roll--;
+		if (assignment.getYear() &gt; 3080) roll--;
+		if (getRank() &gt;= 30) {
+			roll += getRank() - 30;
+		}
+		if (roll &gt;= 6) {
+			setBloodname(Bloodname.randomBloodname(assignment.getFaction().split(&quot;\\.&quot;)[0],
+					type, assignment.getYear()));
+		}
+	}
+     */
+    public String getName() {
+<span class="nc" id="L265">        return name;</span>
+    }
+
+    public void setName(String name) {
+<span class="nc" id="L269">        this.name = name;</span>
+<span class="nc" id="L270">    }</span>
+
+    public String getBloodname() {
+<span class="nc" id="L273">        return bloodname;</span>
+    }
+
+    public void setBloodname(String bloodname) {
+<span class="nc" id="L277">        this.bloodname = bloodname;</span>
+<span class="nc" id="L278">    }</span>
+
+    public Gender getGender() {
+<span class="nc" id="L281">        return gender;</span>
+    }
+
+    public void setGender(Gender gender) {
+<span class="nc" id="L285">        this.gender = gender;</span>
+<span class="nc" id="L286">    }</span>
+
+    public int getRank() {
+<span class="nc" id="L289">        return rank;</span>
+    }
+
+    public void setRank(int rank) {
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        if (rank &gt; this.rank) { </span>
+<span class="nc" id="L294">            this.rank = rank;</span>
+        }
+<span class="nc" id="L296">    }</span>
+
+    public String getTitle() {
+<span class="nc" id="L299">        return title;</span>
+    }
+
+    public void setTitle(String title) {
+<span class="nc" id="L303">        this.title = title;</span>
+<span class="nc" id="L304">    }</span>
+
+    public ForceDescriptor getAssignment() {
+<span class="nc" id="L307">        return assignment;</span>
+    }
+
+    public void setAssignment(ForceDescriptor assignment) {
+<span class="nc" id="L311">        this.assignment = assignment;</span>
+<span class="nc" id="L312">    }</span>
+
+    public int getGunnery() {
+<span class="nc" id="L315">        return gunnery;</span>
+    }
+
+    public void setGunnery(int gunnery) {
+<span class="nc" id="L319">        this.gunnery = gunnery;</span>
+<span class="nc" id="L320">    }</span>
+
+    public int getPiloting() {
+<span class="nc" id="L323">        return piloting;</span>
+    }
+
+    public void setPiloting(int piloting) {
+<span class="nc" id="L327">        this.piloting = piloting;</span>
+<span class="nc" id="L328">    }</span>
+
+    public Crew createCrew(CrewType crewType) {
+<span class="nc" id="L331">        return new Crew(crewType, name, 1, gunnery, piloting, gender, null);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

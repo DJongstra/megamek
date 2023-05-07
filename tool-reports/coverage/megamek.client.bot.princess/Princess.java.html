@@ -1,0 +1,2108 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Princess.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.bot.princess</a> &gt; <span class="el_source">Princess.java</span></div><h1>Princess.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2011 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.bot.princess;
+
+import java.io.File;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Vector;
+import java.util.concurrent.ConcurrentHashMap;
+
+import megamek.client.bot.BotClient;
+import megamek.client.bot.ChatProcessor;
+import megamek.client.bot.PhysicalCalculator;
+import megamek.client.bot.PhysicalOption;
+import megamek.client.bot.princess.FireControl.FireControlType;
+import megamek.client.bot.princess.PathRanker.PathRankerType;
+import megamek.client.bot.princess.UnitBehavior.BehaviorType;
+import megamek.client.ui.SharedUtility;
+import megamek.common.AmmoType;
+import megamek.common.BattleArmor;
+import megamek.common.Building;
+import megamek.common.BuildingTarget;
+import megamek.common.BulldozerMovePath;
+import megamek.common.Coords;
+import megamek.common.EjectedCrew;
+import megamek.common.Compute;
+import megamek.common.Entity;
+import megamek.common.GunEmplacement;
+import megamek.common.HexTarget;
+import megamek.common.IAero;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.Infantry;
+import megamek.common.LosEffects;
+import megamek.common.Mech;
+import megamek.common.MechWarrior;
+import megamek.common.Minefield;
+import megamek.common.Mounted;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.actions.EntityAction;
+import megamek.common.actions.SearchlightAttackAction;
+import megamek.common.MoveStep;
+import megamek.common.PilotingRollData;
+import megamek.common.PlanetaryConditions;
+import megamek.common.Tank;
+import megamek.common.Targetable;
+import megamek.common.Terrains;
+import megamek.common.Transporter;
+import megamek.common.WeaponType;
+import megamek.common.annotations.Nullable;
+import megamek.common.containers.PlayerIDandList;
+import megamek.common.event.GameCFREvent;
+import megamek.common.event.GamePlayerChatEvent;
+import megamek.common.logging.LogLevel;
+import megamek.common.logging.DefaultMmLogger;
+import megamek.common.logging.MMLogger;
+import megamek.common.net.Packet;
+import megamek.common.options.OptionsConstants;
+import megamek.common.pathfinder.BoardClusterTracker;
+import megamek.common.pathfinder.PathDecorator;
+import megamek.common.util.BoardUtilities;
+import megamek.common.util.StringUtil;
+import megamek.common.weapons.AmmoWeapon;
+
+public class Princess extends BotClient {
+
+    private static final String LOGGING_CATEGORY = &quot;megamek.client.bot.princess&quot;;
+
+    private static final char PLUS = '+';
+    private static final char MINUS = '-';
+
+<span class="nc" id="L93">    private final IHonorUtil honorUtil = new HonorUtil();</span>
+
+<span class="nc" id="L95">    private boolean initialized = false;</span>
+   
+    // path rankers and fire controls, organized by their explicitly given types to avoid confusion
+    private HashMap&lt;PathRankerType, IPathRanker&gt; pathRankers;
+    private HashMap&lt;FireControlType, FireControl&gt; fireControls;
+    private UnitBehavior unitBehaviorTracker;
+    private FireControlState fireControlState;
+    private PathRankerState pathRankerState;
+    private ArtilleryTargetingControl atc;
+    
+<span class="nc" id="L105">    private Integer spinupThreshold = null;</span>
+    
+    private BehaviorSettings behaviorSettings;
+<span class="nc" id="L108">    private double moveEvaluationTimeEstimate = 0;</span>
+    private final Precognition precognition;
+    private final Thread precogThread;
+    /**
+     * Mapping to hold the damage allocated to each targetable, stored by ID.
+     * Used to allocate damage more intelligently and avoid overkill.
+     */
+<span class="nc" id="L115">    private final ConcurrentHashMap&lt;Integer, Double&gt; damageMap = new ConcurrentHashMap&lt;&gt;(); </span>
+<span class="nc" id="L116">    private final Set&lt;Coords&gt; strategicBuildingTargets = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L117">    private boolean fallBack = false;</span>
+<span class="nc" id="L118">    private final ChatProcessor chatProcessor = new ChatProcessor();</span>
+<span class="nc" id="L119">    private boolean fleeBoard = false;</span>
+<span class="nc" id="L120">    private final IMoralUtil moralUtil = new MoralUtil(getLogger());</span>
+<span class="nc" id="L121">    private final Set&lt;Integer&gt; attackedWhileFleeing = Collections.newSetFromMap(new ConcurrentHashMap&lt;Integer, Boolean&gt;());</span>
+<span class="nc" id="L122">    private final Set&lt;Integer&gt; crippledUnits = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L123">    private MMLogger logger = null;</span>
+
+    /**
+     * Constructor - initializes a new instance of the Princess bot.
+     * @param name The display name.
+     * @param host The host address to which to connect.
+     * @param port The port on the host where to connect.
+     * @param verbosity The verbosity of the bot's reporting and logging.
+     */
+    public Princess(final String name,
+                    final String host,
+                    final int port,
+                    final LogLevel verbosity) {
+<span class="nc" id="L136">        super(name, host, port);</span>
+<span class="nc" id="L137">        getLogger().setLogLevel(LOGGING_CATEGORY, verbosity);</span>
+<span class="nc" id="L138">        setBehaviorSettings(BehaviorSettingsFactory.getInstance(getLogger())</span>
+                                    .DEFAULT_BEHAVIOR);
+        
+<span class="nc" id="L141">        fireControlState = new FireControlState();</span>
+<span class="nc" id="L142">        pathRankerState = new PathRankerState();</span>
+        
+        // Start-up precog now, so that it can instantiate its game instance,
+        // and it will stay up-to date.
+<span class="nc" id="L146">        precognition = new Precognition(this);</span>
+<span class="nc" id="L147">        precogThread = new Thread(precognition, &quot;Princess-precognition (&quot;</span>
+<span class="nc" id="L148">                + getName() + &quot;)&quot;);</span>
+<span class="nc" id="L149">        precogThread.start();</span>
+<span class="nc" id="L150">    }</span>
+
+    public MMLogger getLogger() {
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (null == logger) {</span>
+<span class="nc" id="L154">            logger = DefaultMmLogger.getInstance();</span>
+        }
+<span class="nc" id="L156">        return logger;</span>
+    }
+
+    /**
+     * Use to set a fake logger during unit testing.
+     *
+     * @param logger The logger to be used.
+     */
+    void setLogger(final MMLogger logger) {
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        if (null == logger) {</span>
+<span class="nc" id="L166">            return;</span>
+        }
+<span class="nc" id="L168">        this.logger = logger;</span>
+<span class="nc" id="L169">    }</span>
+
+    public void setVerbosity(final LogLevel level) {
+<span class="nc" id="L172">        getBehaviorSettings().setVerbosity(level);</span>
+<span class="nc" id="L173">    }</span>
+
+    public LogLevel getVerbosity() {
+<span class="nc" id="L176">        return getBehaviorSettings().getVerbosity();</span>
+    }
+    
+    /**
+     * Lazy-loading accessor for the artillery targeting control.
+     * @return
+     */
+    public ArtilleryTargetingControl getArtilleryTargetingControl() {
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if(atc == null) {</span>
+<span class="nc" id="L185">            atc = new ArtilleryTargetingControl();</span>
+        }
+        
+<span class="nc" id="L188">        return atc;</span>
+    }
+
+    /**
+     * Gets the appropriate path ranker instance given an entity
+     * Uses the entity's EType flags to figure out which one to return
+     * Returns BasicPathRanker by default.
+     * @param entity The entity whose ETYPE to check
+     * @return Path ranker instance
+     */
+    IPathRanker getPathRanker(Entity entity) {
+<span class="nc bnc" id="L199" title="All 2 branches missed.">        if(entity.hasETypeFlag(Entity.ETYPE_INFANTRY)) {</span>
+<span class="nc" id="L200">            return pathRankers.get(PathRankerType.Infantry);</span>
+<span class="nc bnc" id="L201" title="All 4 branches missed.">        } else if (entity.isAero() &amp;&amp; game.useVectorMove()) {</span>
+<span class="nc" id="L202">            return pathRankers.get(PathRankerType.NewtonianAerospace);</span>
+        }
+        
+<span class="nc" id="L205">        return pathRankers.get(PathRankerType.Basic);</span>
+    }
+    
+    IPathRanker getPathRanker(PathRankerType pathRankerType) {
+<span class="nc" id="L209">        return pathRankers.get(pathRankerType);</span>
+    }
+
+    public boolean getFallBack() {
+<span class="nc" id="L213">        return fallBack;</span>
+    }
+
+    boolean getFleeBoard() {
+<span class="nc" id="L217">        return fleeBoard;</span>
+    }
+    
+    /**
+     * Picks a tag target based on the data contained within the given GameCFREvent
+     * Expects the event to have some tag targets and tag target types.
+     */
+    protected int pickTagTarget(GameCFREvent evt) {
+<span class="nc" id="L225">        List&lt;Integer&gt; TAGTargets = evt.getTAGTargets();</span>
+<span class="nc" id="L226">        List&lt;Integer&gt; TAGTargetTypes = evt.getTAGTargetTypes();</span>
+<span class="nc" id="L227">        Map&lt;Coords, Integer&gt; tagTargetHexes = new HashMap&lt;&gt;(); // maps coordinates to target index</span>
+        
+        // Algorithm:
+        // get a list of the hexes being tagged
+        // figure out how much damage a hit to each of the tagged hexes will do (relatively)
+        // pick the one which will result in the best damage
+        
+        // get list of targetable hexes
+<span class="nc bnc" id="L235" title="All 2 branches missed.">        for (int tagIndex = 0; tagIndex &lt; TAGTargets.size(); tagIndex++) {</span>
+<span class="nc" id="L236">            int nType = TAGTargetTypes.get(tagIndex);</span>
+<span class="nc" id="L237">            Targetable tgt = getGame().getTarget(nType, TAGTargets.get(tagIndex));</span>
+<span class="nc bnc" id="L238" title="All 4 branches missed.">            if (tgt != null &amp;&amp; !tagTargetHexes.containsKey(tgt.getPosition())) {</span>
+<span class="nc" id="L239">                tagTargetHexes.put(tgt.getPosition(), tagIndex);</span>
+            }
+        }
+        
+<span class="nc" id="L243">        Entity arbitraryEntity = getArbitraryEntity();</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if(arbitraryEntity == null) {</span>
+<span class="nc" id="L245">            return 0;</span>
+        }
+        
+<span class="nc" id="L248">        double maxDamage = -Double.MAX_VALUE;</span>
+<span class="nc" id="L249">        Coords maxDamageHex = null;</span>
+        
+        // invoke ArtilleryTargetingControl.calculateDamageValue
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        for(Coords targetHex : tagTargetHexes.keySet()) {</span>
+            // a note on parameters:
+            // we don't care about exact damage value since we're just comparing them relative to one another
+            //  note: technically we should, 
+            // we don't care about specific firing entity, we just want one on our side
+            //      since we only use it to determine friendlyness 
+<span class="nc" id="L258">            double currentDamage = getArtilleryTargetingControl().calculateDamageValue(10, targetHex, arbitraryEntity, game, this);</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">            if(currentDamage &gt; maxDamage) {</span>
+<span class="nc" id="L260">                maxDamage = currentDamage;</span>
+<span class="nc" id="L261">                maxDamageHex = targetHex;</span>
+            }
+<span class="nc" id="L263">        }</span>
+        
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        if(maxDamageHex != null) {</span>
+<span class="nc" id="L266">            return tagTargetHexes.get(maxDamageHex);</span>
+        } else {
+<span class="nc" id="L268">            return 0;</span>
+        }
+    }
+
+    boolean getForcedWithdrawal() {
+<span class="nc" id="L273">        return getBehaviorSettings().isForcedWithdrawal();</span>
+    }
+
+    private void setFleeBoard(final boolean fleeBoard, final String reason) {
+<span class="nc" id="L277">        getLogger().debug(&quot;Setting Flee Board &quot; + fleeBoard + &quot; because: &quot; + reason);</span>
+
+<span class="nc" id="L279">        this.fleeBoard = fleeBoard;</span>
+<span class="nc" id="L280">    }</span>
+
+    public FireControlState getFireControlState() {
+<span class="nc" id="L283">        return fireControlState;</span>
+    }
+    
+    public PathRankerState getPathRankerState() {
+<span class="nc" id="L287">        return pathRankerState;</span>
+    }
+    
+    Precognition getPrecognition() {
+<span class="nc" id="L291">        return precognition;</span>
+    }
+    
+    public int getMaxWeaponRange(Entity entity) {
+<span class="nc" id="L295">        return getMaxWeaponRange(entity, false);</span>
+    }
+    
+    /**
+     * Retrieves maximum weapon range for the given entity.
+     * Cached version of entity.getMaxWeaponRange() 
+     * @param entity Entity we're checking
+     * @param airborneTarget Whether the potential target is in the air, only relevant for
+     *          aircraft shooting at other aircraft on ground maps.
+     * @return
+     */
+    public int getMaxWeaponRange(Entity entity, boolean airborneTarget) {
+<span class="nc" id="L307">        return getFireControlState().getWeaponRanges(airborneTarget).</span>
+<span class="nc" id="L308">            computeIfAbsent(entity.getId(), ent -&gt; entity.getMaxWeaponRange(airborneTarget));</span>
+    }
+
+    public void setFallBack(final boolean fallBack,
+                            final String reason) {
+<span class="nc" id="L313">        getLogger().debug(&quot;Setting Fall Back &quot; + fallBack + &quot; because: &quot; + reason);</span>
+<span class="nc" id="L314">        this.fallBack = fallBack;</span>
+<span class="nc" id="L315">    }</span>
+
+    public void setBehaviorSettings(final BehaviorSettings behaviorSettings) {
+<span class="nc" id="L318">        getLogger().info(&quot;New behavior settings for &quot; + getName() +</span>
+<span class="nc" id="L319">            &quot;\n&quot; + behaviorSettings.toLog());</span>
+        try {
+<span class="nc" id="L321">            this.behaviorSettings = behaviorSettings.getCopy();</span>
+<span class="nc" id="L322">        } catch (final PrincessException e) {</span>
+<span class="nc" id="L323">            getLogger().error(e);</span>
+<span class="nc" id="L324">            return;</span>
+<span class="nc" id="L325">        }</span>
+<span class="nc" id="L326">        getStrategicBuildingTargets().clear();</span>
+<span class="nc" id="L327">        setFallBack(behaviorSettings.shouldGoHome(),</span>
+                    &quot;Fall Back Configuration.&quot;);
+<span class="nc" id="L329">        setFleeBoard(behaviorSettings.shouldAutoFlee(),</span>
+                     &quot;Flee Board Configuration.&quot;);
+<span class="nc bnc" id="L331" title="All 2 branches missed.">        if (getFallBack()) {</span>
+<span class="nc" id="L332">            return;</span>
+        }
+
+<span class="nc bnc" id="L335" title="All 2 branches missed.">        for (final String targetCoords : behaviorSettings.getStrategicBuildingTargets()) {</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">            if (!StringUtil.isPositiveInteger(targetCoords) ||</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">                (4 != targetCoords.length())) {</span>
+<span class="nc" id="L338">                continue;</span>
+            }
+<span class="nc" id="L340">            final String x = targetCoords.substring(0, 2);</span>
+<span class="nc" id="L341">            final String y = targetCoords.replaceFirst(x, &quot;&quot;);</span>
+            // Need to subtract 1, since we are given a Hex number string, 
+            // which is Coords X+1Y+1 
+<span class="nc" id="L344">            final Coords coords = new Coords(Integer.parseInt(x) - 1,</span>
+<span class="nc" id="L345">                                       Integer.parseInt(y) - 1);</span>
+<span class="nc" id="L346">            getStrategicBuildingTargets().add(coords);</span>
+<span class="nc" id="L347">        }</span>
+        
+<span class="nc" id="L349">        spinupThreshold = null;</span>
+<span class="nc" id="L350">    }</span>
+
+    /**
+     * Get the appropriate instance of a FireControl object for the given entity.
+     * @param entity The entity in question.
+     * @return Instance of FireControl
+     */
+    FireControl getFireControl(Entity entity) {
+<span class="nc bnc" id="L358" title="All 2 branches missed.">        if(entity.hasETypeFlag(Entity.ETYPE_INFANTRY)) {</span>
+<span class="nc" id="L359">            return fireControls.get(FireControlType.Infantry);</span>
+        // some entities can shoot at multiple targets without undergoing too much penalty
+        // so let's get them doing that.
+<span class="nc bnc" id="L362" title="All 2 branches missed.">        } else if(entity.getCrew().getCrewType().getMaxPrimaryTargets() &gt; 1 ||</span>
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                entity.hasQuirk(OptionsConstants.QUIRK_POS_MULTI_TRAC) ||</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">                entity.hasAbility(OptionsConstants.GUNNERY_MULTI_TASKER) ||</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                entity.getCrew().getCrewType().getMaxPrimaryTargets() &lt; 0) {</span>
+<span class="nc" id="L366">            return fireControls.get(FireControlType.MultiTarget);</span>
+        }
+        
+<span class="nc" id="L369">        return fireControls.get(FireControlType.Basic);</span>
+    }
+    
+    FireControl getFireControl(FireControlType fireControlType) {
+<span class="nc" id="L373">        return fireControls.get(fireControlType);        </span>
+    }
+    
+    public UnitBehavior getUnitBehaviorTracker() {
+<span class="nc" id="L377">        return unitBehaviorTracker;</span>
+    }
+
+    double getDamageAlreadyAssigned(final Targetable target) {
+<span class="nc" id="L381">        final Integer targetId = target.getTargetId();</span>
+<span class="nc bnc" id="L382" title="All 2 branches missed.">        if(damageMap.containsKey(targetId)) {</span>
+<span class="nc" id="L383">            return damageMap.get(targetId);</span>
+        }
+<span class="nc" id="L385">        return 0.0; // If we have no entry, return zero</span>
+    }
+
+    public BehaviorSettings getBehaviorSettings() {
+<span class="nc" id="L389">        return behaviorSettings;</span>
+    }
+
+    public Set&lt;Coords&gt; getStrategicBuildingTargets() {
+<span class="nc" id="L393">        return strategicBuildingTargets;</span>
+    }
+
+    public void addStrategicBuildingTarget(final Coords coords) {
+<span class="nc bnc" id="L397" title="All 2 branches missed.">        if (null == coords) {</span>
+<span class="nc" id="L398">            throw new NullPointerException(&quot;Coords is null.&quot;);</span>
+        }
+<span class="nc bnc" id="L400" title="All 2 branches missed.">        if (!getGame().getBoard().contains(coords)) {</span>
+<span class="nc" id="L401">            getLogger().warning(&quot;Board does not contain &quot; + coords.toFriendlyString());</span>
+<span class="nc" id="L402">            return;</span>
+        }
+<span class="nc" id="L404">        getStrategicBuildingTargets().add(coords);</span>
+<span class="nc" id="L405">    }</span>
+
+    public Set&lt;Integer&gt; getPriorityUnitTargets() {
+<span class="nc" id="L408">        return getBehaviorSettings().getPriorityUnitTargets();</span>
+    }
+    
+    public Targetable getAppropriateTarget(Coords strategicTarget) {
+<span class="nc bnc" id="L412" title="All 2 branches missed.">        if (null == game.getBoard().getBuildingAt(strategicTarget)) {</span>
+<span class="nc" id="L413">            return new HexTarget(strategicTarget, Targetable.TYPE_HEX_CLEAR);</span>
+        } else {
+<span class="nc" id="L415">            return new BuildingTarget(strategicTarget, game.getBoard(), false);</span>
+        }
+    }
+
+    @Override
+    protected Vector&lt;Coords&gt; calculateArtyAutoHitHexes() {
+<span class="nc" id="L421">        getLogger().methodBegin();</span>
+
+        try {
+            // currently returns no artillery hit spots
+            // make an empty list
+<span class="nc" id="L426">            final PlayerIDandList&lt;Coords&gt; artyAutoHitHexes = new PlayerIDandList&lt;&gt;();</span>
+            // attach my player id to it
+<span class="nc" id="L428">            artyAutoHitHexes.setPlayerID(getLocalPlayer().getId());</span>
+<span class="nc" id="L429">            return artyAutoHitHexes;</span>
+        } finally {
+<span class="nc" id="L431">            getLogger().methodEnd();</span>
+        }
+    }
+    
+    @Override
+    protected void initTargeting() {
+<span class="nc" id="L437">        getArtilleryTargetingControl().initializeForTargetingPhase();</span>
+<span class="nc" id="L438">    }</span>
+
+    @Override
+    protected void calculateDeployment() {
+        // get the first unit
+<span class="nc" id="L443">        final int entityNum = game.getFirstDeployableEntityNum(game.getTurnForPlayer(localPlayerNumber));</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">        if (getLogger().getLogLevel(LOGGING_CATEGORY).toInt() &gt; LogLevel.WARNING.toInt()) {</span>
+<span class="nc" id="L445">            sendChat(&quot;deploying unit &quot; + getEntity(entityNum).getChassis(), LogLevel.INFO);</span>
+        }
+
+        // if we are using forced withdrawal, and the entity being considered is crippled
+        // we will opt to not re-deploy the entity
+<span class="nc bnc" id="L450" title="All 4 branches missed.">        if (getForcedWithdrawal() &amp;&amp; getEntity(entityNum).isCrippled()) {</span>
+<span class="nc" id="L451">            getLogger().info(&quot;Declining to deploy crippled unit: &quot;</span>
+<span class="nc" id="L452">                    + getEntity(entityNum).getChassis() + &quot;. Removing unit.&quot;);</span>
+<span class="nc" id="L453">            sendDeleteEntity(entityNum);</span>
+<span class="nc" id="L454">            return;</span>
+        }
+        
+        // get a list of all coordinates to which we can deploy
+<span class="nc" id="L458">        final List&lt;Coords&gt; startingCoords = getStartingCoordsArray(game.getEntity(entityNum));</span>
+<span class="nc bnc" id="L459" title="All 2 branches missed.">        if (0 == startingCoords.size()) {</span>
+<span class="nc" id="L460">            getLogger().error(&quot;No valid locations to deploy &quot; + getEntity(entityNum).getDisplayName());</span>
+        }
+
+        // get the coordinates I can deploy on
+<span class="nc" id="L464">        final Coords deployCoords = getFirstValidCoords(getEntity(entityNum), startingCoords);</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">        if (null == deployCoords) {</span>
+            // if I cannot deploy anywhere, then I get rid of the entity instead so that we may go about our business                
+<span class="nc" id="L467">            getLogger().error(&quot;getCoordsAround gave no location for &quot;</span>
+<span class="nc" id="L468">                    + getEntity(entityNum).getChassis() + &quot;. Removing unit.&quot;);</span>
+            
+<span class="nc" id="L470">            sendDeleteEntity(entityNum);</span>
+<span class="nc" id="L471">            return;</span>
+        }
+
+        // first coordinate that it is legal to put this unit on now find 
+        // some sort of reasonable facing. If there are deployed enemies, 
+        // face them
+        
+        // specifically, face the last deployed enemy.
+<span class="nc" id="L479">        int decentFacing = -1;</span>
+<span class="nc bnc" id="L480" title="All 2 branches missed.">        for (final Entity e : getEnemyEntities()) {</span>
+<span class="nc bnc" id="L481" title="All 4 branches missed.">            if (e.isDeployed() &amp;&amp; !e.isOffBoard()) {</span>
+<span class="nc" id="L482">                decentFacing = deployCoords.direction(e.getPosition());</span>
+<span class="nc" id="L483">                break;</span>
+            }
+<span class="nc" id="L485">        }</span>
+
+        // if I haven't found a decent facing, then at least face towards 
+        // the center of the board
+<span class="nc bnc" id="L489" title="All 2 branches missed.">        if (-1 == decentFacing) {</span>
+<span class="nc" id="L490">            final Coords center = new Coords(game.getBoard().getWidth() / 2,</span>
+<span class="nc" id="L491">                                       game.getBoard().getHeight() / 2);</span>
+<span class="nc" id="L492">            decentFacing = deployCoords.direction(center);</span>
+        }
+
+<span class="nc" id="L495">        final Entity deployEntity = game.getEntity(entityNum);</span>
+<span class="nc" id="L496">        final IHex deployHex = game.getBoard().getHex(deployCoords);</span>
+
+<span class="nc" id="L498">        int deployElevation = getDeployElevation(deployEntity, deployHex);</span>
+
+        // Compensate for hex elevation where != 0...
+<span class="nc" id="L501">        deployElevation -= deployHex.getLevel();</span>
+<span class="nc" id="L502">        deploy(entityNum, deployCoords, decentFacing, deployElevation);</span>
+<span class="nc" id="L503">    }</span>
+    
+    /**
+     * Calculate the deployment elevation for the given entity.
+     * Gun Emplacements should deploy on the rooftop of the building for maximum visibility.
+     */
+    private int getDeployElevation(Entity deployEntity, IHex deployHex) {
+        // Entity.elevationOccupied performs a null check on IHex
+<span class="nc bnc" id="L511" title="All 2 branches missed.">        if (deployEntity instanceof GunEmplacement) {</span>
+<span class="nc" id="L512">           return deployEntity.elevationOccupied(deployHex) + deployHex.terrainLevel(Terrains.BLDG_ELEV);</span>
+        } else {
+<span class="nc" id="L514">            return deployEntity.elevationOccupied(deployHex);</span>
+        }
+    }
+
+    /**
+     * Returns the first set of valid deployment coordinates for the given unit out of the given deployment coordinates.
+     * It's possible to return null, which indicates that there are no valid hexes for the given unit to deploy into.
+     */
+    @Nullable
+    @Override
+    protected Coords getFirstValidCoords(final Entity deployedUnit,
+                                         final List&lt;Coords&gt; possibleDeployCoords) {
+<span class="nc bnc" id="L526" title="All 2 branches missed.">        if (Entity.ETYPE_GUN_EMPLACEMENT == (deployedUnit.getEntityType() &amp; Entity.ETYPE_GUN_EMPLACEMENT)) {</span>
+<span class="nc" id="L527">            final List&lt;Coords&gt; validCoords = calculateTurretDeploymentLocations((GunEmplacement) deployedUnit,</span>
+                                                                                possibleDeployCoords);
+<span class="nc bnc" id="L529" title="All 2 branches missed.">            if (0 &lt; validCoords.size()) {            </span>
+<span class="nc" id="L530">                return validCoords.get(0);</span>
+            }
+            
+<span class="nc" id="L533">            return null;</span>
+        }
+<span class="nc bnc" id="L535" title="All 2 branches missed.">        else if(getGame().useVectorMove()) {</span>
+<span class="nc" id="L536">            return calculateAdvancedAerospaceDeploymentCoords(deployedUnit, possibleDeployCoords);</span>
+        } else {
+<span class="nc" id="L538">            return super.getFirstValidCoords(deployedUnit, possibleDeployCoords);</span>
+        }
+    }
+    
+    /**
+     * Function that calculates deployment coordinates 
+     * @param deployedUnit The unit being considered for deployment
+     * @param possibleDeployCoords The coordinates being considered for deployment
+     * @return The first valid deployment coordinates.
+     */
+    private Coords calculateAdvancedAerospaceDeploymentCoords(final Entity deployedUnit,
+                                                                    final List&lt;Coords&gt; possibleDeployCoords) {
+<span class="nc bnc" id="L550" title="All 2 branches missed.">        for(Coords coords : possibleDeployCoords) {</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">            if(!NewtonianAerospacePathRanker.willFlyOffBoard(deployedUnit, coords)) {</span>
+<span class="nc" id="L552">                return coords;</span>
+            }
+<span class="nc" id="L554">        }</span>
+        
+        // if we can't find any good deployment coordinates, deploy anyway to the first available one
+        // and maybe eventually we'll slow down enough that we can deploy without immediately flying off
+<span class="nc bnc" id="L558" title="All 2 branches missed.">        if(possibleDeployCoords.size() &gt; 0) {</span>
+<span class="nc" id="L559">            return possibleDeployCoords.get(0);</span>
+        }
+        
+<span class="nc" id="L562">        return null;</span>
+    }
+    
+    /**
+     * Helper function that calculates the possible locations where a given gun emplacement can be deployed
+     * @param deployedUnit The unit to check
+     * @param possibleDeployCoords The list of possible deployment coordinates
+     */
+    private List&lt;Coords&gt; calculateTurretDeploymentLocations(final GunEmplacement deployedUnit,
+                                                            final List&lt;Coords&gt; possibleDeployCoords) {
+        // algorithm:
+        // get all hexes in deployment zone with buildings
+        // for each building, if deploying on the roof does not cause a stacking violation, add it to the list
+        // sort the list in decreasing order based on CF then height
+<span class="nc" id="L576">        final List&lt;Coords&gt; turretDeploymentLocations = new Vector&lt;&gt;();</span>
+
+<span class="nc bnc" id="L578" title="All 2 branches missed.">        for (final Coords coords : possibleDeployCoords) {</span>
+<span class="nc" id="L579">            final Building building = game.getBoard().getBuildingAt(coords);</span>
+<span class="nc" id="L580">            final IHex hex = game.getBoard().getHex(coords);</span>
+
+<span class="nc bnc" id="L582" title="All 2 branches missed.">            if (null != building) {</span>
+<span class="nc" id="L583">                final int buildingHeight = hex.terrainLevel(Terrains.BLDG_ELEV);</span>
+                
+                // check stacking violation at the roof level
+<span class="nc" id="L586">                final Entity violation = Compute.stackingViolation(game,</span>
+                                                                   deployedUnit,
+                                                                   coords,
+                                                                   buildingHeight,
+                                                                   coords,
+                                                                   null);
+                // Ignore coords that could cause a stacking violation
+<span class="nc bnc" id="L593" title="All 2 branches missed.">                if (null == violation) {</span>
+<span class="nc" id="L594">                    turretDeploymentLocations.add(coords);</span>
+                }
+            }
+<span class="nc" id="L597">        }</span>
+
+<span class="nc" id="L599">        turretDeploymentLocations.sort((arg0, arg1) -&gt; calculateTurretDeploymentValue(arg1) - calculateTurretDeploymentValue(</span>
+                arg0));        
+<span class="nc" id="L601">        return turretDeploymentLocations;</span>
+    }
+    
+    /**
+     * Helper function that calculates the &quot;utility&quot; of placing a turret at the given coords
+     * @param coords The location of the building being considered.
+     * @return An &quot;arbitrary&quot; utility number
+     */
+    private int calculateTurretDeploymentValue(final Coords coords) {
+        // algorithm: a building is valued by the following formula:
+        //      (CF + height * 2) / # turrets placed on the roof
+        //      This way, we will generally favor unpopulated higher CF buildings, 
+        //      but have some wiggle room in case of a really tall high CF building
+<span class="nc" id="L614">        final Building building = game.getBoard().getBuildingAt(coords);</span>
+<span class="nc" id="L615">        final IHex hex = game.getBoard().getHex(coords);</span>
+<span class="nc" id="L616">        final int turretCount = 1 + game.getGunEmplacements(coords).size();</span>
+
+<span class="nc" id="L618">        return (building.getCurrentCF(coords) + hex.terrainLevel(Terrains.BLDG_ELEV) * 2) / turretCount;</span>
+    }
+    
+    @Override
+    protected void calculateFiringTurn() {
+<span class="nc" id="L623">        getLogger().methodBegin();</span>
+
+        try {
+            // get the first entity that can act this turn make sure weapons 
+            // are loaded
+<span class="nc" id="L628">            final Entity shooter = getEntityToFire(fireControlState);</span>
+
+            // Forego firing if 
+            // a) hidden, 
+            // b) under &quot;peaceful&quot; forced withdrawal, 
+            // c) majority firepower is jammed 
+            // d) best firing plan comes up as crap (no expected damage/null)
+            //
+            // If foregoing firing, unjam highest-damage weapons first, then turret
+            
+<span class="nc" id="L638">            boolean skipFiring = false;</span>
+            
+            // If my unit is forced to withdraw, don't fire unless I've been fired on.
+<span class="nc bnc" id="L641" title="All 4 branches missed.">            if (getForcedWithdrawal() &amp;&amp; shooter.isCrippled()) {</span>
+<span class="nc" id="L642">                final StringBuilder msg = new StringBuilder(shooter.getDisplayName())</span>
+<span class="nc" id="L643">                        .append(&quot; is crippled and withdrawing.&quot;);</span>
+                try {
+<span class="nc bnc" id="L645" title="All 2 branches missed.">                    if (attackedWhileFleeing.contains(shooter.getId())) {</span>
+<span class="nc" id="L646">                        msg.append(&quot;\n\tBut I was fired on, so I will return fire.&quot;);</span>
+                    } else {
+<span class="nc" id="L648">                        msg.append(&quot;\n\tI will not fire so long as I'm not fired on.&quot;);</span>
+<span class="nc" id="L649">                        skipFiring = true;</span>
+                    }
+                } finally {
+<span class="nc" id="L652">                    getLogger().info(msg.toString());</span>
+                }
+            }
+            
+<span class="nc bnc" id="L656" title="All 2 branches missed.">            if(shooter.isHidden()) {</span>
+<span class="nc" id="L657">                skipFiring = true;</span>
+<span class="nc" id="L658">                getLogger().info(&quot;Hidden unit skips firing.&quot;);</span>
+            }
+
+            // calculating a firing plan is somewhat expensive, so 
+            // we skip this step if we have already decided not to fire due to being hidden or under &quot;peaceful forced withdrawal&quot;
+<span class="nc bnc" id="L663" title="All 2 branches missed.">            if(!skipFiring) {</span>
+                // Set up ammo conservation.
+<span class="nc" id="L665">                final Map&lt;Mounted, Double&gt; ammoConservation = calcAmmoConservation(shooter);</span>
+    
+                // entity that can act this turn make sure weapons are loaded
+<span class="nc" id="L668">                final FiringPlan plan = getFireControl(shooter).getBestFiringPlan(shooter,</span>
+<span class="nc" id="L669">                                                                      getHonorUtil(),</span>
+                                                                      game,
+                                                                      ammoConservation);
+<span class="nc bnc" id="L672" title="All 4 branches missed.">                if ((null != plan) &amp;&amp; (plan.getExpectedDamage() &gt; 0)) {</span>
+<span class="nc" id="L673">                    getFireControl(shooter).loadAmmo(shooter, plan);</span>
+<span class="nc" id="L674">                    plan.sortPlan();</span>
+    
+<span class="nc" id="L676">                    getLogger().info(shooter.getDisplayName() + &quot; - Best Firing Plan: &quot; +</span>
+<span class="nc bnc" id="L677" title="All 2 branches missed.">                        plan.getDebugDescription(LogLevel.DEBUG == getVerbosity()));</span>
+    
+                    // Add expected damage from the chosen FiringPlan to the 
+                    // damageMap for the target enemy.
+                    // while we're looping through all the shots anyway, send any firing mode changes
+<span class="nc bnc" id="L682" title="All 2 branches missed.">                    for(WeaponFireInfo shot : plan) {</span>
+<span class="nc" id="L683">                        Integer targetId = shot.getTarget().getTargetId();</span>
+<span class="nc" id="L684">                        double existingTargetDamage = damageMap.getOrDefault(targetId, 0.0);</span>
+<span class="nc" id="L685">                        double newDamage = existingTargetDamage + shot.getExpectedDamage();</span>
+<span class="nc" id="L686">                        damageMap.put(targetId, newDamage);</span>
+                        
+<span class="nc bnc" id="L688" title="All 2 branches missed.">                        if(shot.getUpdatedFiringMode() != null) {</span>
+<span class="nc" id="L689">                        	super.sendModeChange(shooter.getId(), shooter.getEquipmentNum(shot.getWeapon()), shot.getUpdatedFiringMode());</span>
+                        }
+<span class="nc" id="L691">                    }</span>
+    
+                    // tell the game I want to fire
+<span class="nc" id="L694">                    Vector&lt;EntityAction&gt; actions = new Vector&lt;&gt;();</span>
+                    
+                    // if using search light, it needs to go before the other actions so we can light up what we're shooting at
+<span class="nc" id="L697">                    SearchlightAttackAction searchLightAction = getFireControl(shooter).getSearchLightAction(shooter, plan);</span>
+<span class="nc bnc" id="L698" title="All 2 branches missed.">                    if(searchLightAction != null) {</span>
+<span class="nc" id="L699">                        actions.add(searchLightAction);</span>
+                    }
+                    
+<span class="nc" id="L702">                    actions.addAll(plan.getEntityActionVector());</span>
+                    
+<span class="nc" id="L704">                    EntityAction spotAction = getFireControl(shooter).getSpotAction(plan, shooter, fireControlState);</span>
+<span class="nc bnc" id="L705" title="All 2 branches missed.">                	if(spotAction != null) {</span>
+<span class="nc" id="L706">                		actions.add(spotAction);</span>
+                	}
+                    
+<span class="nc" id="L709">                    sendAttackData(shooter.getId(), actions);</span>
+<span class="nc" id="L710">                    return;</span>
+                } else {
+<span class="nc" id="L712">                    getLogger().info(&quot;No best firing plan for &quot; + shooter.getDisplayName());</span>
+<span class="nc" id="L713">                    skipFiring = true;</span>
+                }
+            }
+            
+            // if I have decided to skip firing, let's consider unjamming some weapons or turrets anyway
+<span class="nc bnc" id="L718" title="All 2 branches missed.">            if(skipFiring) {</span>
+<span class="nc" id="L719">                Vector&lt;EntityAction&gt; unjamPlan = getFireControl(shooter).getUnjamWeaponPlan(shooter);</span>
+                
+<span class="nc bnc" id="L721" title="All 2 branches missed.">                if(unjamPlan.size() == 0) {</span>
+<span class="nc" id="L722">                	EntityAction spotAction = getFireControl(shooter).getSpotAction(null, shooter, fireControlState);</span>
+<span class="nc bnc" id="L723" title="All 2 branches missed.">                	if(spotAction != null) {</span>
+<span class="nc" id="L724">                		unjamPlan.add(spotAction);</span>
+                	}
+                	
+<span class="nc" id="L727">                	SearchlightAttackAction searchLightAction = getFireControl(shooter).getSearchLightAction(shooter, null);</span>
+<span class="nc bnc" id="L728" title="All 2 branches missed.">                    if(searchLightAction != null) {</span>
+<span class="nc" id="L729">                        unjamPlan.add(searchLightAction);</span>
+                    }
+                }
+                
+<span class="nc" id="L733">                sendAttackData(shooter.getId(), unjamPlan);</span>
+<span class="nc" id="L734">                return;</span>
+            }
+            
+        } finally {
+<span class="nc" id="L738">            getLogger().methodEnd();</span>
+        }
+<span class="nc" id="L740">    }</span>
+    
+    /**
+     * Calculates the targeting/offboard turn
+     * This includes firing TAG and non-direct-fire artillery
+     */
+    @Override
+    protected void calculateTargetingOffBoardTurn() {
+<span class="nc" id="L748">        Entity entityToFire = getGame().getFirstEntity(getMyTurn());</span>
+<span class="nc" id="L749">        FiringPlan firingPlan = getArtilleryTargetingControl().calculateIndirectArtilleryPlan(entityToFire, getGame(), this);</span>
+        
+<span class="nc" id="L751">        sendAttackData(entityToFire.getId(), firingPlan.getEntityActionVector());</span>
+<span class="nc" id="L752">        sendDone(true);</span>
+<span class="nc" id="L753">    }</span>
+    
+    private Map&lt;Mounted, Double&gt; calcAmmoConservation(final Entity shooter) {
+<span class="nc" id="L756">        final double aggroFactor =</span>
+<span class="nc" id="L757">                (10 - getBehaviorSettings().getHyperAggressionIndex()) * 2;</span>
+<span class="nc" id="L758">        final StringBuilder msg =</span>
+                new StringBuilder(&quot;\nCalculating ammo conservation for &quot;)
+<span class="nc" id="L760">                        .append(shooter.getDisplayName());</span>
+<span class="nc" id="L761">        msg.append(&quot;\nAggression Factor = &quot;).append(aggroFactor);</span>
+
+        try {
+<span class="nc" id="L764">            final Map&lt;AmmoType, Integer&gt; ammoCounts = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L765">            msg.append(&quot;\nPooling Ammo:&quot;);</span>
+<span class="nc bnc" id="L766" title="All 2 branches missed.">            for (final Mounted ammo : shooter.getAmmo()) {</span>
+<span class="nc" id="L767">                final AmmoType ammoType = (AmmoType) ammo.getType();</span>
+<span class="nc" id="L768">                msg.append(&quot;\n\t&quot;).append(ammoType);</span>
+<span class="nc bnc" id="L769" title="All 2 branches missed.">                if (ammoCounts.containsKey(ammoType)) {</span>
+<span class="nc" id="L770">                    ammoCounts.put(ammoType, ammoCounts.get(ammoType) +</span>
+<span class="nc" id="L771">                                             ammo.getUsableShotsLeft());</span>
+<span class="nc" id="L772">                    msg.append(&quot; + &quot;).append(ammo.getUsableShotsLeft())</span>
+<span class="nc" id="L773">                       .append(&quot; = &quot;).append(ammoCounts.get(ammoType));</span>
+<span class="nc" id="L774">                    continue;</span>
+                }
+<span class="nc" id="L776">                ammoCounts.put(ammoType, ammo.getUsableShotsLeft());</span>
+<span class="nc" id="L777">                msg.append(&quot; + &quot;).append(ammo.getUsableShotsLeft())</span>
+<span class="nc" id="L778">                   .append(&quot; = &quot;).append(ammoCounts.get(ammoType));</span>
+<span class="nc" id="L779">            }</span>
+
+<span class="nc" id="L781">            final Map&lt;Mounted, Double&gt; ammoConservation = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L782">            msg.append(&quot;\nCalculating conservation for each weapon&quot;);</span>
+<span class="nc bnc" id="L783" title="All 2 branches missed.">            for (final Mounted weapon : shooter.getWeaponList()) {</span>
+<span class="nc" id="L784">                final WeaponType weaponType = (WeaponType) weapon.getType();</span>
+<span class="nc" id="L785">                msg.append(&quot;\n\t&quot;).append(weaponType);</span>
+<span class="nc bnc" id="L786" title="All 2 branches missed.">                if (!(weaponType instanceof AmmoWeapon)) {</span>
+<span class="nc" id="L787">                    ammoConservation.put(weapon, 0.0);</span>
+<span class="nc" id="L788">                    msg.append(&quot; doesn't use ammo.&quot;);</span>
+<span class="nc" id="L789">                    continue;</span>
+                }
+
+<span class="nc" id="L792">                int ammoCount = 0;</span>
+<span class="nc bnc" id="L793" title="All 2 branches missed.">                for (final AmmoType ammoType : ammoCounts.keySet()) {</span>
+<span class="nc bnc" id="L794" title="All 2 branches missed.">                    if (!AmmoType.isAmmoValid(ammoType, weaponType)) {</span>
+<span class="nc" id="L795">                        continue;</span>
+                    }
+<span class="nc" id="L797">                    ammoCount += ammoCounts.get(ammoType);</span>
+<span class="nc" id="L798">                }</span>
+<span class="nc" id="L799">                msg.append(&quot; has &quot;).append(ammoCount).append(&quot; shots left&quot;);</span>
+<span class="nc" id="L800">                final double toHitThreshold =</span>
+<span class="nc" id="L801">                        Math.max(0.0, 1 - (ammoCount / aggroFactor));</span>
+<span class="nc" id="L802">                msg.append(&quot;; To Hit Threshold = &quot;)</span>
+<span class="nc" id="L803">                   .append(new DecimalFormat(&quot;0.000&quot;)</span>
+<span class="nc" id="L804">                                   .format(toHitThreshold));</span>
+<span class="nc" id="L805">                ammoConservation.put(weapon, toHitThreshold);</span>
+<span class="nc" id="L806">            }</span>
+
+<span class="nc" id="L808">            return ammoConservation;</span>
+        } finally {
+<span class="nc" id="L810">            getLogger().debug(msg.toString());</span>
+        }
+    }
+
+    /**
+     * Worker method that calculates a point blank shot action vector given a firing entity ID and a target ID.
+     * 
+     * @param firingEntityID the ID of the entity taking the point blank shot
+     * @param targetID the ID of the entity being shot at potentially
+     */
+    protected Vector&lt;EntityAction&gt; calculatePointBlankShot(int firingEntityID, int targetID) {
+<span class="nc" id="L821">        Entity shooter = getGame().getEntity(firingEntityID);</span>
+<span class="nc" id="L822">        Targetable target = getGame().getEntity(targetID); </span>
+        
+<span class="nc" id="L824">        final FiringPlanCalculationParameters fccp = </span>
+<span class="nc" id="L825">                new FiringPlanCalculationParameters.Builder().buildExact(shooter, target, calcAmmoConservation(shooter));</span>
+<span class="nc" id="L826">        FiringPlan plan = getFireControl(shooter).determineBestFiringPlan(fccp); </span>
+<span class="nc" id="L827">        getFireControl(shooter).loadAmmo(shooter, plan);</span>
+<span class="nc" id="L828">        plan.sortPlan();</span>
+
+<span class="nc" id="L830">        return plan.getEntityActionVector();</span>
+    }
+    
+    @Override
+    protected Vector&lt;Minefield&gt; calculateMinefieldDeployment() {
+<span class="nc" id="L835">        getLogger().methodBegin();</span>
+
+        try {
+            // currently returns no minefields
+            // make an empty vector
+<span class="nc" id="L840">            return new Vector&lt;&gt;();</span>
+        } finally {
+<span class="nc" id="L842">            getLogger().methodEnd();</span>
+        }
+    }
+
+    /**
+     * Calculates the move index for the given unit.
+     * In general, faster units and units closer to the enemy should move before others.
+     * Additional modifiers for being prone, stealthed, unit type and so on are also factored in.
+     *
+     * @param entity The unit to be indexed.
+     * @return The movement index of this unit.  May be positive or negative.  Higher index values should move first.
+     */
+    double calculateMoveIndex(final Entity entity,
+                              final StringBuilder msg) {
+
+<span class="nc" id="L857">        final double PRIORITY_PRONE = 1.1;</span>
+<span class="nc" id="L858">        final double PRIORITY_TANK = 1.5;</span>
+<span class="nc" id="L859">        final double PRIORITY_BA = 2;</span>
+<span class="nc" id="L860">        final double PRIORITY_INF = 3;</span>
+<span class="nc" id="L861">        final double PRIORITY_FALLBACK = 2;</span>
+<span class="nc" id="L862">        final double PRIORITY_COMMANDER = 0.5;</span>
+<span class="nc" id="L863">        final double PRIORITY_CIVILIAN = 5;</span>
+<span class="nc" id="L864">        final double PRIORITY_STEALTH = 1.0 / 3;</span>
+
+<span class="nc" id="L866">        msg.append(&quot;\n\tCalculating move index for &quot;)</span>
+<span class="nc" id="L867">           .append(entity.getDisplayName());</span>
+<span class="nc" id="L868">        final StringBuilder modifiers = new StringBuilder();</span>
+<span class="nc" id="L869">        final NumberFormat numberFormat = DecimalFormat.getInstance();</span>
+<span class="nc" id="L870">        double total = 0;</span>
+        try {
+            // Find out how fast this unit can move.
+<span class="nc" id="L873">            int fastestMove = entity.getRunMP(true, false,</span>
+                                              false);
+<span class="nc bnc" id="L875" title="All 2 branches missed.">            if (entity.getJumpMP(true) &gt; fastestMove) {</span>
+<span class="nc" id="L876">                fastestMove = entity.getJumpMP(true);</span>
+            }
+<span class="nc" id="L878">            msg.append(&quot;\n\t\tFastest Move = &quot;).append(fastestMove);</span>
+
+            // Get the distance to the nearest enemy.
+<span class="nc" id="L881">            final double distance = getPathRanker(entity).distanceToClosestEnemy(entity, entity.getPosition(), game);</span>
+            
+<span class="nc" id="L883">            msg.append(&quot;\n\t\tDistance to Nearest Enemy: &quot;)</span>
+<span class="nc" id="L884">               .append(numberFormat.format(distance));</span>
+
+            // Get the ratio of distance to speed.
+            // Faster units that are closer to the enemy should move later.
+<span class="nc bnc" id="L888" title="All 2 branches missed.">            if (0 == fastestMove) {</span>
+                // This unit should have already moved due to the isImmobilized 
+                // check.
+<span class="nc" id="L891">                total = distance * 2;</span>
+            } else {
+<span class="nc" id="L893">                total = distance / fastestMove;</span>
+            }
+<span class="nc" id="L895">            msg.append(&quot;\n\t\tDistance to Move Ratio (dist / move): &quot;)</span>
+<span class="nc" id="L896">               .append(numberFormat.format(total));</span>
+
+            // Prone enemies move sooner.
+<span class="nc bnc" id="L899" title="All 2 branches missed.">            if (entity.isProne()) {</span>
+<span class="nc" id="L900">                total *= PRIORITY_PRONE;</span>
+<span class="nc" id="L901">                modifiers.append(&quot;\tx1.1 (Is Prone)&quot;);</span>
+            }
+
+            // If all else is equal, Infantry before Battle Armor before Tanks 
+            // before Mechs.
+<span class="nc bnc" id="L906" title="All 2 branches missed.">            if (entity instanceof BattleArmor) {</span>
+<span class="nc" id="L907">                total *= PRIORITY_BA;</span>
+<span class="nc" id="L908">                modifiers.append(&quot;\tx2.0 (is BA)&quot;);</span>
+<span class="nc bnc" id="L909" title="All 2 branches missed.">            } else if (entity instanceof Infantry) {</span>
+<span class="nc" id="L910">                total *= PRIORITY_INF;</span>
+<span class="nc" id="L911">                modifiers.append(&quot;\tx3.0 (is Inf)&quot;);</span>
+<span class="nc bnc" id="L912" title="All 2 branches missed.">            } else if (entity instanceof Tank) {</span>
+<span class="nc" id="L913">                total *= PRIORITY_TANK;</span>
+<span class="nc" id="L914">                modifiers.append(&quot;\tx1.5 (is Tank)&quot;);</span>
+            }
+
+            // Fleeing entities should move before those not fleeing.
+<span class="nc bnc" id="L918" title="All 2 branches missed.">            if (isFallingBack(entity)) {</span>
+<span class="nc" id="L919">                total *= PRIORITY_FALLBACK;</span>
+<span class="nc" id="L920">                modifiers.append(&quot;\tx2.0 (is Fleeing)&quot;);</span>
+            }
+
+            // Move commanders after other units.
+<span class="nc bnc" id="L924" title="All 2 branches missed.">            if (entity.isCommander()) {</span>
+<span class="nc" id="L925">                total *= PRIORITY_COMMANDER;</span>
+<span class="nc" id="L926">                modifiers.append(&quot;\tx0.5 (is Commander)&quot;);</span>
+            }
+
+            // Move civilian units before military.
+<span class="nc bnc" id="L930" title="All 2 branches missed.">            if (!entity.isMilitary()) {</span>
+<span class="nc" id="L931">                total *= PRIORITY_CIVILIAN;</span>
+<span class="nc" id="L932">                modifiers.append(&quot;\tx5.0 (is Civilian)&quot;);</span>
+            }
+
+            // Move stealthy units later.
+<span class="nc bnc" id="L936" title="All 4 branches missed.">            if (entity.isStealthActive() || entity.isStealthOn() ||</span>
+<span class="nc bnc" id="L937" title="All 4 branches missed.">                entity.isVoidSigActive() || entity.isVoidSigOn()) {</span>
+<span class="nc" id="L938">                total *= PRIORITY_STEALTH;</span>
+<span class="nc" id="L939">                modifiers.append(&quot;\tx1/3 (is Stealthed)&quot;);</span>
+            }
+
+<span class="nc" id="L942">            return total;</span>
+        } finally {
+<span class="nc" id="L944">            msg.append(&quot;\n\t\tModifiers:&quot;).append(modifiers);</span>
+<span class="nc" id="L945">            msg.append(&quot;\n\t\tTotal = &quot;).append(numberFormat.format(total));</span>
+        }
+    }
+
+    /**
+     * Gets an entity eligible to fire from a list contained in the fire control state.
+     */
+    Entity getEntityToFire(FireControlState fireControlState) {
+<span class="nc bnc" id="L953" title="All 2 branches missed.">    	if(fireControlState.getOrderedFiringEntities().size() == 0) {</span>
+<span class="nc" id="L954">    		initFiringEntities(fireControlState);</span>
+    	}
+    	
+    	//if, even after initializing entities, we have no valid entities
+    	//we'll let the game determine 
+<span class="nc bnc" id="L959" title="All 2 branches missed.">    	if(fireControlState.getOrderedFiringEntities().size() == 0) {</span>
+<span class="nc" id="L960">    	    return game.getFirstEntity(getMyTurn());</span>
+    	}
+    	
+<span class="nc" id="L963">    	Entity entityToReturn = fireControlState.getOrderedFiringEntities().getFirst();</span>
+<span class="nc" id="L964">    	fireControlState.getOrderedFiringEntities().removeFirst();</span>
+<span class="nc" id="L965">    	return entityToReturn;</span>
+    }
+    
+    /**
+     * Sorts firing entities to ensure that entities that can do indirect fire go after
+     * entities that cannot, so that IDF units go after spotting units.
+     */
+    private void initFiringEntities(FireControlState fireControlState) {
+<span class="nc" id="L973">    	List&lt;Entity&gt; myEntities = game.getPlayerEntities(this.getLocalPlayer(), true);</span>
+<span class="nc" id="L974">    	fireControlState.clearOrderedFiringEntities();</span>
+    	
+<span class="nc bnc" id="L976" title="All 2 branches missed.">    	for(Entity entity : myEntities) {</span>
+    	    // if you can't fire, you can't fire.
+<span class="nc bnc" id="L978" title="All 2 branches missed.">    		if(!getMyTurn().isValidEntity(entity, game)) {</span>
+<span class="nc" id="L979">    			continue;</span>
+    		}
+    		
+<span class="nc bnc" id="L982" title="All 2 branches missed.">    		if(getFireControl(entity).entityCanIndirectFireMissile(fireControlState, entity)) {</span>
+<span class="nc" id="L983">    			fireControlState.getOrderedFiringEntities().addLast(entity);</span>
+    		} else {
+<span class="nc" id="L985">    			fireControlState.getOrderedFiringEntities().addFirst(entity);</span>
+    		}
+<span class="nc" id="L987">    	}</span>
+<span class="nc" id="L988">    }</span>
+    
+    /**
+     * Loops through the list of entities controlled by this Princess instance 
+     * and decides which should be moved first.
+     * Immobile units and ejected mechwarriors/crews will be moved first.  
+     * After that, each unit is given an index// This unit should have already 
+     * moved due to the isImmobilized check. via the 
+     * {@link #calculateMoveIndex(Entity, StringBuilder)} method.  The highest 
+     * index value is moved first.
+     *
+     * @return The entity that should be moved next.
+     */
+    Entity getEntityToMove() {
+
+        // first move useless units: immobile units, ejected mechwarrior, etc
+<span class="nc" id="L1004">        Entity movingEntity = null;</span>
+<span class="nc" id="L1005">        final List&lt;Entity&gt; myEntities = getEntitiesOwned();</span>
+<span class="nc" id="L1006">        double highestIndex = -Double.MAX_VALUE;</span>
+<span class="nc" id="L1007">        final StringBuilder msg = new StringBuilder(&quot;Deciding who to move next.&quot;);</span>
+<span class="nc bnc" id="L1008" title="All 2 branches missed.">        for (final Entity entity : myEntities) {</span>
+<span class="nc" id="L1009">            msg.append(&quot;\n\tUnit &quot;).append(entity.getDisplayName());</span>
+            
+<span class="nc bnc" id="L1011" title="All 2 branches missed.">            if(entity.isDone()) {</span>
+<span class="nc" id="L1012">                msg.append(&quot;has already moved this phase&quot;);</span>
+<span class="nc" id="L1013">                continue;</span>
+            }
+            
+<span class="nc bnc" id="L1016" title="All 2 branches missed.">            if ((entity.isOffBoard() </span>
+<span class="nc bnc" id="L1017" title="All 2 branches missed.">                    || (null == entity.getPosition())</span>
+<span class="nc bnc" id="L1018" title="All 2 branches missed.">                    || entity.isUnloadedThisTurn()</span>
+<span class="nc bnc" id="L1019" title="All 2 branches missed.">                    || !getGame().getTurn().isValidEntity(entity, getGame()))</span>
+<span class="nc bnc" id="L1020" title="All 2 branches missed.">                            &amp;&amp; !getGame().isPhaseSimultaneous()){</span>
+<span class="nc" id="L1021">                msg.append(&quot;cannot be moved.&quot;);</span>
+<span class="nc" id="L1022">                continue;</span>
+            }
+
+            // Move immobile units &amp; ejected mechwarriors immediately.
+<span class="nc bnc" id="L1026" title="All 4 branches missed.">            if (isImmobilized(entity) &amp;&amp; !(entity instanceof Infantry)) {</span>
+<span class="nc" id="L1027">                msg.append(&quot;is immobile.&quot;);</span>
+<span class="nc" id="L1028">                movingEntity = entity;</span>
+<span class="nc" id="L1029">                break;</span>
+            }
+            
+<span class="nc bnc" id="L1032" title="All 2 branches missed.">            if (entity instanceof MechWarrior) {</span>
+<span class="nc" id="L1033">                msg.append(&quot;is ejected crew.&quot;);</span>
+<span class="nc" id="L1034">                movingEntity = entity;</span>
+<span class="nc" id="L1035">                break;</span>
+            }
+            
+            // can't do anything with out-of-control aeros, so use them as init sinks
+<span class="nc bnc" id="L1039" title="All 4 branches missed.">            if(entity.isAero() &amp;&amp; ((IAero) entity).isOutControlTotal()) {</span>
+<span class="nc" id="L1040">                msg.append(&quot;is out-of-control aero.&quot;);</span>
+<span class="nc" id="L1041">                movingEntity = entity;</span>
+<span class="nc" id="L1042">                break;</span>
+            }
+
+            // If I only have 1 unit, no need to calculate an index.
+<span class="nc bnc" id="L1046" title="All 2 branches missed.">            if (1 == myEntities.size()) {</span>
+<span class="nc" id="L1047">                msg.append(&quot;is my only unit.&quot;);</span>
+<span class="nc" id="L1048">                movingEntity = entity;</span>
+<span class="nc" id="L1049">                break;</span>
+            }
+
+            // We will move the entity with the highest index.
+<span class="nc" id="L1053">            final double moveIndex = calculateMoveIndex(entity, msg);</span>
+<span class="nc" id="L1054">            msg.append(&quot;\n\thas index &quot;).append(moveIndex).append(&quot; vs &quot;)</span>
+<span class="nc" id="L1055">               .append(highestIndex);</span>
+<span class="nc bnc" id="L1056" title="All 2 branches missed.">            if (moveIndex &gt;= highestIndex) {</span>
+<span class="nc" id="L1057">                highestIndex = moveIndex;</span>
+<span class="nc" id="L1058">                movingEntity = entity;</span>
+            }
+<span class="nc" id="L1060">        }</span>
+
+<span class="nc bnc" id="L1062" title="All 2 branches missed.">        final LogLevel level = (null == movingEntity ? LogLevel.WARNING :</span>
+<span class="nc" id="L1063">                                LogLevel.DEBUG);</span>
+<span class="nc" id="L1064">        getLogger().log(level, msg.toString(), null);</span>
+
+<span class="nc" id="L1066">        return movingEntity;</span>
+    }
+
+    @Override
+    protected MovePath calculateMoveTurn() {
+<span class="nc" id="L1071">        getLogger().methodBegin();</span>
+
+        try {
+<span class="nc" id="L1074">            return continueMovementFor(getEntityToMove());</span>
+        } finally {
+<span class="nc" id="L1076">            getLogger().methodEnd();</span>
+        }
+    }
+
+    @Override
+    protected PhysicalOption calculatePhysicalTurn() {
+<span class="nc" id="L1082">        getLogger().methodBegin();</span>
+
+        try {
+<span class="nc" id="L1085">            initialize();</span>
+            // get the first entity that can act this turn
+<span class="nc" id="L1087">            final Entity attacker = game.getFirstEntity(getMyTurn());</span>
+
+            // If my unit is forced to withdraw, don't attack unless I've been 
+            // attacked.
+<span class="nc bnc" id="L1091" title="All 4 branches missed.">            if (getForcedWithdrawal() &amp;&amp; attacker.isCrippled()) {</span>
+<span class="nc" id="L1092">                final StringBuilder msg =</span>
+<span class="nc" id="L1093">                        new StringBuilder(attacker.getDisplayName())</span>
+<span class="nc" id="L1094">                                .append(&quot; is crippled and withdrawing.&quot;);</span>
+<span class="nc bnc" id="L1095" title="All 2 branches missed.">                if (attackedWhileFleeing.contains(attacker.getId())) {</span>
+<span class="nc" id="L1096">                    msg.append(&quot;\n\tBut I was fired on, so I will hit back.&quot;);</span>
+                } else {
+<span class="nc" id="L1098">                    msg.append(&quot;\n\tI will not attack so long as I'm not fired on.&quot;);</span>
+<span class="nc" id="L1099">                    return null;</span>
+                }
+<span class="nc" id="L1101">                getLogger().info(msg.toString());</span>
+            }
+
+            // the original bot's physical options seem superior
+<span class="nc" id="L1105">            PhysicalOption bestPhysical = PhysicalCalculator.getBestPhysical(attacker, game);</span>
+<span class="nc" id="L1106">            return bestPhysical;</span>
+        } finally {
+<span class="nc" id="L1108">            getLogger().methodEnd();</span>
+        }
+    }
+
+    boolean wantsToFallBack(final Entity entity) {
+<span class="nc bnc" id="L1113" title="All 6 branches missed.">        return (entity.isCrippled() &amp;&amp; getForcedWithdrawal()) || getFallBack();</span>
+    }
+
+    IMoralUtil getMoralUtil() {
+<span class="nc" id="L1117">        return moralUtil;</span>
+    }
+
+    /**
+     * Logic to determine if this entity is &quot;falling back&quot; for any reason
+     * @param entity The entity to check.
+     * @return Whether or not the entity is falling back.
+     */
+    boolean isFallingBack(final Entity entity) {
+<span class="nc bnc" id="L1126" title="All 2 branches missed.">        return (getBehaviorSettings().getDestinationEdge() != CardinalEdge.NEAREST_OR_NONE) ||</span>
+<span class="nc bnc" id="L1127" title="All 4 branches missed.">                (getBehaviorSettings().isForcedWithdrawal() &amp;&amp; entity.isCrippled(true));</span>
+    }
+
+    /**
+     * Logic to determine if this entity is in a state where it can shoot due to being attacked while fleeing.
+     * @param entity Entity to check.
+     * @return Whether or not this entity can shoot while falling back.
+     */
+    boolean canShootWhileFallingBack(Entity entity) {
+<span class="nc" id="L1136">        return attackedWhileFleeing.contains(entity.getId());</span>
+    }
+    
+    boolean mustFleeBoard(final Entity entity) {
+<span class="nc bnc" id="L1140" title="All 2 branches missed.">        if (!isFallingBack(entity)) {</span>
+<span class="nc" id="L1141">            return false;</span>
+        }
+<span class="nc bnc" id="L1143" title="All 2 branches missed.">        if (!entity.canFlee()) {</span>
+<span class="nc" id="L1144">            return false;</span>
+        }
+<span class="nc bnc" id="L1146" title="All 2 branches missed.">        if (0 &lt; getPathRanker(entity).distanceToHomeEdge(entity.getPosition(),</span>
+<span class="nc" id="L1147">                                                   getHomeEdge(entity), getGame())) {</span>
+<span class="nc" id="L1148">            return false;</span>
+        }
+        //noinspection RedundantIfStatement
+<span class="nc bnc" id="L1151" title="All 6 branches missed.">        if (!getFleeBoard() &amp;&amp; !(entity.isCrippled() &amp;&amp; getForcedWithdrawal())) {</span>
+<span class="nc" id="L1152">            return false;</span>
+        }
+<span class="nc" id="L1154">        return true;</span>
+    }
+
+    boolean isImmobilized(final Entity mover) {
+<span class="nc bnc" id="L1158" title="All 4 branches missed.">        if (mover.isImmobile() &amp;&amp; !mover.isShutDown()) {</span>
+<span class="nc" id="L1159">            getLogger().info(&quot;Is truly immobile.&quot;);</span>
+<span class="nc" id="L1160">            return true;</span>
+        }
+<span class="nc bnc" id="L1162" title="All 2 branches missed.">        if (1 &gt; mover.getRunMP()) {</span>
+<span class="nc" id="L1163">            getLogger().info(&quot;Has 0 movement.&quot;);</span>
+<span class="nc" id="L1164">            return true;</span>
+        }
+<span class="nc bnc" id="L1166" title="All 2 branches missed.">        if (!(mover instanceof Mech)) {</span>
+<span class="nc" id="L1167">            return false;</span>
+        }
+
+<span class="nc" id="L1170">        final Mech mech = (Mech) mover;</span>
+<span class="nc bnc" id="L1171" title="All 6 branches missed.">        if (!mech.isProne() &amp;&amp; !mech.isStuck() &amp;&amp; !mech.isStalled()) {</span>
+<span class="nc" id="L1172">            return false;</span>
+        }
+
+<span class="nc" id="L1175">        final MovePath movePath = new MovePath(getGame(), mover);</span>
+
+        // For a normal fall-shame setting (index 5), our threshold should be 
+        // a 10+ piloting roll.
+        final int threshold;
+<span class="nc bnc" id="L1180" title="All 7 branches missed.">        switch (getBehaviorSettings().getFallShameIndex()) {</span>
+            case 10:
+<span class="nc" id="L1182">                threshold = 7;</span>
+<span class="nc" id="L1183">                break;</span>
+            case 9:
+<span class="nc" id="L1185">                threshold = 8;</span>
+<span class="nc" id="L1186">                break;</span>
+            case 8:
+            case 7:
+<span class="nc" id="L1189">                threshold = 9;</span>
+<span class="nc" id="L1190">                break;</span>
+            case 6:
+            case 5:
+<span class="nc" id="L1193">                threshold = 10;</span>
+<span class="nc" id="L1194">                break;</span>
+            case 4:
+<span class="nc" id="L1196">                threshold = 11;</span>
+<span class="nc" id="L1197">                break;</span>
+            case 3:
+<span class="nc" id="L1199">                threshold = 12;</span>
+<span class="nc" id="L1200">                break;</span>
+            default:
+<span class="nc" id="L1202">                threshold = 13; // Actually impossible.</span>
+        }
+
+        // If we're prone, see if we have a chance of getting up.
+<span class="nc bnc" id="L1206" title="All 2 branches missed.">        if (mech.isProne()) {</span>
+<span class="nc bnc" id="L1207" title="All 2 branches missed.">            if (mech.cannotStandUpFromHullDown()) {</span>
+<span class="nc" id="L1208">                getLogger().info(&quot;Cannot stand up.&quot;);</span>
+<span class="nc" id="L1209">                return true;</span>
+            }
+
+<span class="nc bnc" id="L1212" title="All 2 branches missed.">            final MovePath.MoveStepType type = (getBooleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_CAREFUL_STAND) ?</span>
+<span class="nc" id="L1213">                                                MovePath.MoveStepType.CAREFUL_STAND :</span>
+<span class="nc" id="L1214">                                                MovePath.MoveStepType.GET_UP);</span>
+<span class="nc" id="L1215">            final MoveStep getUp = new MoveStep(movePath, type);</span>
+
+            // If our odds to get up are equal to or worse than the threshold, 
+            // consider ourselves immobile.
+<span class="nc" id="L1219">            final PilotingRollData target = mech.checkGetUp(getUp,</span>
+<span class="nc" id="L1220">                                                            movePath.getLastStepMovementType());</span>
+<span class="nc" id="L1221">            getLogger().info(&quot;Need to roll &quot; + target.getValue() +</span>
+                &quot; to stand and our tolerance is &quot; + threshold);
+<span class="nc bnc" id="L1223" title="All 2 branches missed.">            return (target.getValue() &gt;= threshold);</span>
+        }
+
+        // How likely are we to get unstuck.
+<span class="nc" id="L1227">        final MovePath.MoveStepType type = MovePath.MoveStepType.FORWARDS;</span>
+<span class="nc" id="L1228">        final MoveStep walk = new MoveStep(movePath, type);</span>
+<span class="nc" id="L1229">        final IHex hex = getHex(mech.getPosition());</span>
+<span class="nc" id="L1230">        final PilotingRollData target = mech.checkBogDown(walk,</span>
+<span class="nc" id="L1231">                                                          movePath.getLastStepMovementType(), hex,</span>
+<span class="nc" id="L1232">                                                          mech.getPriorPosition(), mech.getPosition(), hex.getLevel(),</span>
+                                                          false);
+<span class="nc" id="L1234">        getLogger().info(&quot;Need to roll &quot; + target.getValue() +</span>
+            &quot; to get unstuck and our tolerance is &quot; + threshold);
+<span class="nc bnc" id="L1236" title="All 2 branches missed.">        return (target.getValue() &gt;= threshold);</span>
+    }
+
+    boolean getBooleanOption(final String name) {
+<span class="nc" id="L1240">        return getGame().getOptions().booleanOption(name);</span>
+    }
+
+    protected IHex getHex(final Coords coords) {
+<span class="nc" id="L1244">        return getBoard().getHex(coords);</span>
+    }
+
+    @Override
+    protected MovePath continueMovementFor(final Entity entity) {
+<span class="nc" id="L1249">        getLogger().methodBegin();</span>
+
+<span class="nc bnc" id="L1251" title="All 2 branches missed.">        if (null == entity) {</span>
+<span class="nc" id="L1252">            throw new NullPointerException(&quot;Entity is null.&quot;);</span>
+        }
+
+        try {
+            // figure out who moved last, and who's move lists need to be 
+            // updated
+
+            // moves this entity during movement phase
+<span class="nc" id="L1260">            getLogger().debug(&quot;Moving &quot; + entity.getDisplayName() + &quot; (ID &quot; + entity.getId() + &quot;)&quot;);</span>
+<span class="nc" id="L1261">            getPrecognition().ensureUpToDate();</span>
+
+<span class="nc bnc" id="L1263" title="All 2 branches missed.">            if (isFallingBack(entity)) {</span>
+<span class="nc" id="L1264">                String msg = entity.getDisplayName();</span>
+<span class="nc bnc" id="L1265" title="All 2 branches missed.">                if (getFallBack()) {</span>
+<span class="nc" id="L1266">                    msg += &quot; is falling back.&quot;;</span>
+<span class="nc bnc" id="L1267" title="All 2 branches missed.">                } else if (entity.isCrippled()) {</span>
+<span class="nc" id="L1268">                    msg += &quot; is crippled and withdrawing.&quot;;</span>
+                }
+<span class="nc" id="L1270">                getLogger().debug(msg);</span>
+<span class="nc" id="L1271">                sendChat(msg, LogLevel.WARNING);</span>
+
+                // If this entity is falling back, able to flee the board, on 
+                // its home edge, and must flee, do so.
+<span class="nc bnc" id="L1275" title="All 2 branches missed.">                if (mustFleeBoard(entity)) {</span>
+<span class="nc" id="L1276">                    final MovePath mp = new MovePath(game, entity);</span>
+<span class="nc" id="L1277">                    mp.addStep(MovePath.MoveStepType.FLEE);</span>
+<span class="nc" id="L1278">                    return mp;</span>
+                }
+
+                // If we want to flee, but cannot, eject the crew.
+<span class="nc bnc" id="L1282" title="All 4 branches missed.">                if (isImmobilized(entity) &amp;&amp; entity.isEjectionPossible()) {</span>
+<span class="nc" id="L1283">                    msg = entity.getDisplayName() +</span>
+                          &quot; is immobile.  Abandoning unit.&quot;;
+<span class="nc" id="L1285">                    getLogger().info(msg);</span>
+<span class="nc" id="L1286">                    sendChat(msg, LogLevel.WARNING);</span>
+<span class="nc" id="L1287">                    final MovePath mp = new MovePath(game, entity);</span>
+<span class="nc" id="L1288">                    mp.addStep(MovePath.MoveStepType.EJECT);</span>
+<span class="nc" id="L1289">                    return mp;</span>
+                }
+            }
+
+<span class="nc" id="L1293">            final List&lt;MovePath&gt; paths = getMovePathsAndSetNecessaryTargets(entity, false);</span>
+
+<span class="nc bnc" id="L1295" title="All 2 branches missed.">            if (null == paths) {</span>
+<span class="nc" id="L1296">                getLogger().warning(&quot;No valid paths found.&quot;);</span>
+<span class="nc" id="L1297">                return performPathPostProcessing(new MovePath(game, entity), 0);</span>
+            }
+
+<span class="nc" id="L1300">            final double thisTimeEstimate =</span>
+<span class="nc" id="L1301">                    (paths.size() * moveEvaluationTimeEstimate) / 1e3;</span>
+<span class="nc bnc" id="L1302" title="All 2 branches missed.">            if (getVerbosity().willLog(LogLevel.INFO)) {</span>
+<span class="nc" id="L1303">                String timeestimate = &quot;unknown.&quot;;</span>
+<span class="nc bnc" id="L1304" title="All 2 branches missed.">                if (0 != thisTimeEstimate) {</span>
+<span class="nc" id="L1305">                    timeestimate = Integer.toString((int) thisTimeEstimate)</span>
+                                   + &quot; seconds&quot;;
+                }
+<span class="nc" id="L1308">                final String message = &quot;Moving &quot; + entity.getChassis() + &quot;. &quot;</span>
+<span class="nc" id="L1309">                                       + Long.toString(paths.size())</span>
+                                       + &quot; paths to consider.  Estimated time to completion: &quot;
+                                       + timeestimate;
+<span class="nc" id="L1312">                sendChat(message, LogLevel.INFO);</span>
+            }
+
+<span class="nc" id="L1315">            final long startTime = System.currentTimeMillis();</span>
+<span class="nc" id="L1316">            getPathRanker(entity).initUnitTurn(entity, getGame());</span>
+<span class="nc" id="L1317">            final double fallTolerance =</span>
+<span class="nc" id="L1318">                    getBehaviorSettings().getFallShameIndex() / 10d;</span>
+<span class="nc" id="L1319">            final int startingHomeDistance = getPathRanker(entity).distanceToHomeEdge(</span>
+<span class="nc" id="L1320">                    entity.getPosition(),</span>
+<span class="nc" id="L1321">                    getBehaviorSettings().getDestinationEdge(),</span>
+<span class="nc" id="L1322">                    getGame());</span>
+                       
+<span class="nc" id="L1324">            final List&lt;RankedPath&gt; rankedpaths = getPathRanker(entity).rankPaths(paths,</span>
+<span class="nc" id="L1325">                                                    getGame(),</span>
+<span class="nc" id="L1326">                                                    getMaxWeaponRange(entity),</span>
+                                                    fallTolerance,
+                                                    startingHomeDistance,
+<span class="nc" id="L1329">                                                    getEnemyEntities(),</span>
+<span class="nc" id="L1330">                                                    getFriendEntities());</span>
+            
+<span class="nc" id="L1332">            final long stop_time = System.currentTimeMillis();</span>
+
+            // update path evaluation time estimate
+<span class="nc" id="L1335">            final double updatedEstimate =</span>
+<span class="nc" id="L1336">                    ((double) (stop_time - startTime)) / ((double) paths.size());</span>
+<span class="nc bnc" id="L1337" title="All 2 branches missed.">            if (0 == moveEvaluationTimeEstimate) {</span>
+<span class="nc" id="L1338">                moveEvaluationTimeEstimate = updatedEstimate;</span>
+            }
+            
+<span class="nc" id="L1341">            moveEvaluationTimeEstimate = 0.5 * (updatedEstimate + moveEvaluationTimeEstimate);</span>
+            
+<span class="nc bnc" id="L1343" title="All 2 branches missed.">            if (0 == rankedpaths.size()) {</span>
+<span class="nc" id="L1344">                return performPathPostProcessing(new MovePath(game, entity), 0);</span>
+            }
+            
+<span class="nc" id="L1347">            getLogger().debug(&quot;Path ranking took &quot; + Long.toString(stop_time - startTime) + &quot; millis&quot;);</span>
+            
+<span class="nc" id="L1349">            final RankedPath bestpath = getPathRanker(entity).getBestPath(rankedpaths);</span>
+<span class="nc" id="L1350">            getLogger().info(&quot;Best Path: &quot; + bestpath.getPath() + &quot;  Rank: &quot; + bestpath.getRank());</span>
+            
+<span class="nc" id="L1352">            return performPathPostProcessing(bestpath);</span>
+        } finally {
+<span class="nc" id="L1354">            precognition.unPause();</span>
+<span class="nc" id="L1355">            getLogger().methodEnd();</span>
+        }
+    }
+
+    @Override
+    protected void initFiring() {
+<span class="nc" id="L1361">        getLogger().methodBegin();</span>
+
+        try {
+<span class="nc" id="L1364">            initialize();</span>
+
+            // ----Debugging: print out any errors made in guessing to hit
+            // values-----
+<span class="nc" id="L1368">            final List&lt;Entity&gt; ents = game.getEntitiesVector();</span>
+<span class="nc bnc" id="L1369" title="All 2 branches missed.">            for (final Entity ent : ents) {</span>
+<span class="nc" id="L1370">                final String errors = getFireControl(ent).checkAllGuesses(ent, game);</span>
+<span class="nc bnc" id="L1371" title="All 2 branches missed.">                if (!StringUtil.isNullOrEmpty(errors)) {</span>
+<span class="nc" id="L1372">                    getLogger().warning(errors);</span>
+                }
+<span class="nc" id="L1374">            }</span>
+            // -----------------------------------------------------------------------
+
+            // Pick up on any infantry/BA in buildings post-movement and shoot
+            // their buildings, similar to the turret check
+            // pre-movement(infantry can move so we only set target buildings
+            // after they do).
+<span class="nc" id="L1381">            final Enumeration&lt;Building&gt; buildings = game.getBoard().getBuildings();</span>
+<span class="nc bnc" id="L1382" title="All 2 branches missed.">            while (buildings.hasMoreElements()) {</span>
+<span class="nc" id="L1383">                final Building bldg = buildings.nextElement();</span>
+<span class="nc" id="L1384">                final Enumeration&lt;Coords&gt; bldgCoords = bldg.getCoords();</span>
+<span class="nc bnc" id="L1385" title="All 2 branches missed.">                while (bldgCoords.hasMoreElements()) {</span>
+<span class="nc" id="L1386">                    final Coords coords = bldgCoords.nextElement();</span>
+<span class="nc bnc" id="L1387" title="All 2 branches missed.">                    for (final Entity entity : game.getEntitiesVector(coords)) {</span>
+<span class="nc" id="L1388">                        final BuildingTarget bt = new BuildingTarget(coords,</span>
+<span class="nc" id="L1389">                                                                     game.getBoard(), false);</span>
+                        // Want to target buildings with hostile infantry/BA
+                        // inside them, since there's no other way to attack
+                        // them.
+<span class="nc bnc" id="L1393" title="All 2 branches missed.">                        if (isEnemyInfantry(entity, coords)</span>
+<span class="nc bnc" id="L1394" title="All 2 branches missed.">                                &amp;&amp; Compute.isInBuilding(game, entity)</span>
+<span class="nc bnc" id="L1395" title="All 2 branches missed.">                                &amp;&amp; !entity.isHidden()) {</span>
+<span class="nc" id="L1396">                            fireControlState.getAdditionalTargets().add(bt);</span>
+<span class="nc" id="L1397">                            sendChat(&quot;Building in Hex &quot;</span>
+<span class="nc" id="L1398">                                     + coords.toFriendlyString()</span>
+                                     + &quot; designated target due to&quot;
+                                     + &quot; infantry inside building.&quot;, LogLevel.INFO);
+                        }
+<span class="nc" id="L1402">                    }</span>
+<span class="nc" id="L1403">                }</span>
+<span class="nc" id="L1404">            }</span>
+
+            //Next, collect the ID's of each potential target and store them in 
+            // the damageMap for allocating damage during firing.
+
+            //Reset the map generated during the movement phase- The available 
+            // targets may have changed during that time(ejections, enemies 
+            // fleeing, etc).
+<span class="nc" id="L1412">            damageMap.clear();</span>
+            //Now add an ID for each possible target.
+<span class="nc" id="L1414">            final List&lt;Targetable&gt; potentialTargets =</span>
+<span class="nc" id="L1415">                    FireControl.getAllTargetableEnemyEntities(getLocalPlayer(),</span>
+<span class="nc" id="L1416">                                                              getGame(),</span>
+<span class="nc" id="L1417">                                                              getFireControlState());</span>
+<span class="nc bnc" id="L1418" title="All 2 branches missed.">            for (final Targetable target : potentialTargets) {</span>
+<span class="nc" id="L1419">                damageMap.put(target.getTargetId(), 0d);</span>
+<span class="nc" id="L1420">            }</span>
+
+<span class="nc" id="L1422">            getFireControlState().clearTransientData();</span>
+        } finally {
+<span class="nc" id="L1424">            getLogger().methodEnd();</span>
+        }
+<span class="nc" id="L1426">    }</span>
+    
+    /**
+     * Function with side effects. Retrieves the move path collection we want
+     * the entity to consider. Sometimes it's the standard &quot;circle&quot;, sometimes it's pruned long-range movement paths
+     */
+    public List&lt;MovePath&gt; getMovePathsAndSetNecessaryTargets(Entity mover, boolean forceMoveToContact) {
+        // if the mover can't move, then there's nothing for us to do here, let's cut out.
+<span class="nc bnc" id="L1434" title="All 2 branches missed.">        if(mover.isImmobile()) {</span>
+<span class="nc" id="L1435">            return Collections.emptyList();</span>
+        }
+        
+<span class="nc bnc" id="L1438" title="All 2 branches missed.">        BehaviorType behavior = forceMoveToContact ? BehaviorType.MoveToContact : unitBehaviorTracker.getBehaviorType(mover, this);</span>
+        // during the movement phase, it is technically necessary to clear this data between each unit
+        // as the state of the board may have changed due to crashes etc. 
+        // generating movable clusters is a relatively cheap operation, so it's not a big deal
+<span class="nc" id="L1442">        getClusterTracker().clearMovableAreas();</span>
+<span class="nc" id="L1443">        getClusterTracker().updateMovableAreas(mover);</span>
+        
+        // basic idea: 
+        // if we're &quot;in battle&quot;, just use the standard set of move paths
+        // if we're trying to get somewhere
+        //  - sort all long range paths by &quot;mp cost&quot; (actual MP + how long it'll take to do terrain leveling)
+        //  - set the first terrain/building as 'strategic target' if the shortest path requires terrain leveling
+        //  - if the first strategic target is in LOS at the pruned end of the shortest path,  
+        //      then we actually return the paths for &quot;engaged&quot; behavior
+        //  - if we're unable to get where we're going, use standard set of move paths
+        
+<span class="nc bnc" id="L1454" title="All 2 branches missed.">        switch(behavior) {</span>
+        case Engaged:
+<span class="nc" id="L1456">            return getPrecognition().getPathEnumerator()</span>
+<span class="nc" id="L1457">                    .getUnitPaths()</span>
+<span class="nc" id="L1458">                    .get(mover.getId());</span>
+        case MoveToDestination:
+        case MoveToContact:
+        case ForcedWithdrawal:
+        default:
+<span class="nc" id="L1463">            List&lt;BulldozerMovePath&gt; bulldozerPaths = getPrecognition().getPathEnumerator().</span>
+<span class="nc" id="L1464">                getLongRangePaths().get(mover.getId());</span>
+            
+            // for whatever reason (most likely it's wheeled), there are no long-range paths for this unit, 
+            // so just have it mill around in place as usual. Also set the behavior to &quot;no path to destination&quot;
+            // so it doesn't hump the walls due to &quot;self preservation mods&quot;
+<span class="nc bnc" id="L1469" title="All 4 branches missed.">            if ((bulldozerPaths == null) || (bulldozerPaths.size() == 0)) {</span>
+                
+<span class="nc bnc" id="L1471" title="All 2 branches missed.">                if (!mover.isAirborne()) {</span>
+<span class="nc" id="L1472">                    getUnitBehaviorTracker().overrideBehaviorType(mover, BehaviorType.NoPathToDestination);</span>
+                }
+<span class="nc" id="L1474">                return getPrecognition().getPathEnumerator()</span>
+<span class="nc" id="L1475">                        .getUnitPaths()</span>
+<span class="nc" id="L1476">                        .get(mover.getId());</span>
+            }
+            
+<span class="nc" id="L1479">            Collections.sort(bulldozerPaths, new BulldozerMovePath.MPCostComparator());</span>
+            
+            // if the quickest route needs some terrain adjustments, let's get working on that
+<span class="nc" id="L1482">            Targetable levelingTarget = null;</span>
+            
+<span class="nc bnc" id="L1484" title="All 2 branches missed.">            if (bulldozerPaths.get(0).needsLeveling()) {</span>
+<span class="nc" id="L1485">                levelingTarget = getAppropriateTarget(bulldozerPaths.get(0).getCoordsToLevel().get(0));</span>
+<span class="nc" id="L1486">                getFireControlState().getAdditionalTargets().add(levelingTarget);</span>
+<span class="nc" id="L1487">                sendChat(&quot;Hex &quot; + levelingTarget.getPosition().toFriendlyString() + &quot; impedes route to destination, targeting for clearing.&quot;, </span>
+                        LogLevel.INFO);
+            }
+            
+            // if any of the long range paths, pruned, are within LOS of leveling coordinates, then we're actually
+            // just going to go back to the standard unit paths
+<span class="nc" id="L1493">            List&lt;MovePath&gt; prunedPaths = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1494" title="All 2 branches missed.">            for (BulldozerMovePath movePath : bulldozerPaths) {</span>
+<span class="nc" id="L1495">                BulldozerMovePath prunedPath = movePath.clone();</span>
+<span class="nc" id="L1496">                prunedPath.clipToPossible();</span>
+                
+<span class="nc bnc" id="L1498" title="All 2 branches missed.">                if(levelingTarget != null) {</span>
+<span class="nc" id="L1499">                    LosEffects los = LosEffects.calculateLos(game, mover.getId(), levelingTarget, </span>
+<span class="nc" id="L1500">                            prunedPath.getFinalCoords(), levelingTarget.getPosition(), false);</span>
+                    
+                    // break out of this loop, we can get to the thing we're trying to level this turn, so let's
+                    // use normal movement routines to move into optimal position to blow it up
+                    // Also set the behavior to &quot;engaged&quot;
+                    // so it doesn't hump walls due to &quot;self preservation mods&quot;
+<span class="nc bnc" id="L1506" title="All 2 branches missed.">                    if(los.canSee()) {</span>
+                        // if we've explicitly forced 'move to contact' behavior, don't flip back to 'engaged'
+<span class="nc bnc" id="L1508" title="All 2 branches missed.">                        if(!forceMoveToContact) {</span>
+<span class="nc" id="L1509">                            getUnitBehaviorTracker().overrideBehaviorType(mover, BehaviorType.Engaged);</span>
+                        }
+                        
+<span class="nc" id="L1512">                        return getPrecognition().getPathEnumerator()</span>
+<span class="nc" id="L1513">                                .getUnitPaths()</span>
+<span class="nc" id="L1514">                                .get(mover.getId());</span>
+                    }
+                }
+                
+                // add the pruned path to the list of paths we'll be returning
+<span class="nc" id="L1519">                prunedPaths.add(prunedPath);</span>
+                
+                // also return some paths that go a little slower than max speed
+                // in case the faster path would force an unwanted PSR or MASC check 
+<span class="nc bnc" id="L1523" title="All 2 branches missed.">                for(MovePath childBMP : PathDecorator.decoratePath(prunedPath)) {</span>
+<span class="nc" id="L1524">                    prunedPaths.add(childBMP);</span>
+<span class="nc" id="L1525">                }</span>
+<span class="nc" id="L1526">            }</span>
+            
+<span class="nc" id="L1528">            return prunedPaths;</span>
+        }
+        
+    }
+
+    private void checkForDishonoredEnemies() {
+<span class="nc" id="L1534">        final StringBuilder msg = new StringBuilder(&quot;Checking for dishonored enemies.&quot;);</span>
+
+        try {
+            // If the Forced Withdrawal rule is not turned on, then it's a 
+            // fight to the death anyway.
+<span class="nc bnc" id="L1539" title="All 2 branches missed.">            if (!getForcedWithdrawal()) {</span>
+<span class="nc" id="L1540">                msg.append(&quot;\n\tForced withdrawal turned off.&quot;);</span>
+<span class="nc" id="L1541">                return;</span>
+            }
+
+<span class="nc bnc" id="L1544" title="All 2 branches missed.">            for (final Entity mine : getEntitiesOwned()) {</span>
+
+                // Who just attacked me?
+<span class="nc" id="L1547">                final Collection&lt;Integer&gt; attackedBy = mine.getAttackedByThisTurn();</span>
+<span class="nc bnc" id="L1548" title="All 2 branches missed.">                if (attackedBy.isEmpty()) {</span>
+<span class="nc" id="L1549">                    continue;</span>
+                }
+
+                // Is my unit trying to withdraw as per forced withdrawal rules?
+                // shortcut: we already check for forced withdrawal above, so need to do that here
+<span class="nc" id="L1554">                final boolean fleeing = crippledUnits.contains(mine.getId()); </span>
+
+<span class="nc bnc" id="L1556" title="All 2 branches missed.">                for (final int id : attackedBy) {</span>
+<span class="nc" id="L1557">                    final Entity entity = getGame().getEntity(id);</span>
+<span class="nc bnc" id="L1558" title="All 2 branches missed.">                    if (null == entity) {</span>
+<span class="nc" id="L1559">                        continue;</span>
+                    }
+
+<span class="nc bnc" id="L1562" title="All 2 branches missed.">                    if (getHonorUtil().isEnemyBroken(entity.getTargetId(),</span>
+<span class="nc" id="L1563">                                                     entity.getOwnerId(),</span>
+<span class="nc" id="L1564">                                                     getForcedWithdrawal()) ||</span>
+<span class="nc bnc" id="L1565" title="All 2 branches missed.">                        !entity.isMilitary()) {</span>
+                        // If he'd just continued running, I would have let him 
+                        // go, but the bastard shot at me!
+<span class="nc" id="L1568">                        msg.append(&quot;\n\t&quot;)</span>
+<span class="nc" id="L1569">                           .append(entity.getDisplayName())</span>
+<span class="nc" id="L1570">                           .append(&quot;dishonored himself by attacking me even though he is &quot;);</span>
+<span class="nc bnc" id="L1571" title="All 2 branches missed.">                        if (!entity.isMilitary()) {</span>
+<span class="nc" id="L1572">                            msg.append(&quot;a civilian.&quot;);</span>
+                        } else {
+<span class="nc" id="L1574">                            msg.append(&quot;fleeing.&quot;);</span>
+                        }
+<span class="nc" id="L1576">                        getHonorUtil().setEnemyDishonored(entity.getOwnerId());</span>
+<span class="nc" id="L1577">                        continue;</span>
+                    }
+
+                    // He shot me while I was running away!
+<span class="nc bnc" id="L1581" title="All 2 branches missed.">                    if (fleeing) {</span>
+<span class="nc" id="L1582">                        msg.append(&quot;\n\t&quot;)</span>
+<span class="nc" id="L1583">                           .append(entity.getDisplayName())</span>
+<span class="nc" id="L1584">                           .append(&quot;dishonored himself by attacking a fleeing unit (&quot;)</span>
+<span class="nc" id="L1585">                           .append(mine.getDisplayName())</span>
+<span class="nc" id="L1586">                           .append(&quot;).&quot;);</span>
+<span class="nc" id="L1587">                        getHonorUtil().setEnemyDishonored(entity.getOwnerId());</span>
+<span class="nc" id="L1588">                        attackedWhileFleeing.add(mine.getId());</span>
+                    }
+<span class="nc" id="L1590">                }</span>
+<span class="nc" id="L1591">            }</span>
+        } finally {
+<span class="nc" id="L1593">            getLogger().info(msg.toString());</span>
+        }
+<span class="nc" id="L1595">    }</span>
+
+    private void checkForBrokenEnemies() {
+
+        // If the Forced Withdrawal rule is not turned on, then it's a fight 
+        // to the death anyway.
+<span class="nc bnc" id="L1601" title="All 2 branches missed.">        if (!getForcedWithdrawal()) {</span>
+<span class="nc" id="L1602">            return;</span>
+        }
+
+<span class="nc bnc" id="L1605" title="All 2 branches missed.">        for (final Entity entity : getEnemyEntities()) {</span>
+<span class="nc" id="L1606">            getHonorUtil().checkEnemyBroken(entity, getForcedWithdrawal());</span>
+<span class="nc" id="L1607">        }</span>
+<span class="nc" id="L1608">    }</span>
+    
+    /** Update the various state trackers for a specific entity.
+     * Useful to call when receiving an entity update packet */
+    public void updateEntityState(Entity entity) {
+<span class="nc bnc" id="L1613" title="All 2 branches missed.">        if(entity.getOwner().isEnemyOf(getLocalPlayer())) {</span>
+            // currently just the honor util, and only update it for hostile units
+<span class="nc" id="L1615">            getHonorUtil().checkEnemyBroken(entity, getForcedWithdrawal());</span>
+        }
+<span class="nc" id="L1617">    }</span>
+
+    @Override
+    protected void initMovement() {
+<span class="nc" id="L1621">        getLogger().methodBegin();</span>
+
+        try {
+<span class="nc" id="L1624">            initialize();</span>
+<span class="nc" id="L1625">            checkMoral();</span>
+<span class="nc" id="L1626">            unitBehaviorTracker.clear();</span>
+
+            // reset strategic targets
+<span class="nc" id="L1629">            fireControlState.setAdditionalTargets(new ArrayList&lt;&gt;());</span>
+<span class="nc bnc" id="L1630" title="All 2 branches missed.">            for (final Coords strategicTarget : getStrategicBuildingTargets()) {</span>
+<span class="nc bnc" id="L1631" title="All 2 branches missed.">                if (null == game.getBoard().getBuildingAt(strategicTarget)) {</span>
+<span class="nc" id="L1632">                    fireControlState.getAdditionalTargets().add(</span>
+<span class="nc" id="L1633">                            getAppropriateTarget(strategicTarget));</span>
+<span class="nc" id="L1634">                    sendChat(&quot;No building to target in Hex &quot; +</span>
+<span class="nc" id="L1635">                             strategicTarget.toFriendlyString() +</span>
+                             &quot;, targeting for clearing.&quot;, LogLevel.INFO);
+                } else {
+<span class="nc" id="L1638">                    fireControlState.getAdditionalTargets().add(</span>
+<span class="nc" id="L1639">                            getAppropriateTarget(strategicTarget));</span>
+<span class="nc" id="L1640">                    sendChat(&quot;Building in Hex &quot; +</span>
+<span class="nc" id="L1641">                             strategicTarget.toFriendlyString() +</span>
+                             &quot; designated strategic target.&quot;, LogLevel.INFO);
+                }
+<span class="nc" id="L1644">            }</span>
+
+            // Pick up on any turrets and shoot their buildings as well.
+<span class="nc" id="L1647">            final Enumeration&lt;Building&gt; buildings = game.getBoard().getBuildings();</span>
+<span class="nc bnc" id="L1648" title="All 2 branches missed.">            while (buildings.hasMoreElements()) {</span>
+<span class="nc" id="L1649">                final Building bldg = buildings.nextElement();</span>
+<span class="nc" id="L1650">                final Enumeration&lt;Coords&gt; bldgCoords = bldg.getCoords();</span>
+<span class="nc bnc" id="L1651" title="All 2 branches missed.">                while (bldgCoords.hasMoreElements()) {</span>
+<span class="nc" id="L1652">                    final Coords coords = bldgCoords.nextElement();</span>
+<span class="nc bnc" id="L1653" title="All 2 branches missed.">                    for (final Entity entity : game.getEntitiesVector(coords,</span>
+                                                                      true)) {
+<span class="nc" id="L1655">                        final Targetable bt = getAppropriateTarget(coords);</span>
+                        
+<span class="nc bnc" id="L1657" title="All 2 branches missed.">                        if (isEnemyGunEmplacement(entity, coords)) {</span>
+<span class="nc" id="L1658">                            fireControlState.getAdditionalTargets().add(bt);</span>
+<span class="nc" id="L1659">                            sendChat(&quot;Building in Hex &quot; +</span>
+<span class="nc" id="L1660">                                     coords.toFriendlyString()</span>
+                                     + &quot; designated target due to Gun Emplacement.&quot;, LogLevel.INFO);
+                        }
+<span class="nc" id="L1663">                    }</span>
+<span class="nc" id="L1664">                }</span>
+<span class="nc" id="L1665">            }</span>
+
+            //Next, collect the ID's of each potential target and store them in 
+            // the damageMap for allocating damage during movement.
+            //Right now, this doesn't get filled because I can't find where 
+            // FiringPlans for potential move paths are calculated(pretty sure 
+            // they are, though). This needs to be fixed at some point.
+
+            //Reset last round's damageMap
+<span class="nc" id="L1674">            damageMap.clear();</span>
+            //Now add an ID for each possible target.
+<span class="nc" id="L1676">            final List&lt;Targetable&gt; potentialTargets =</span>
+<span class="nc" id="L1677">                    FireControl.getAllTargetableEnemyEntities(getLocalPlayer(),</span>
+<span class="nc" id="L1678">                                                              getGame(),</span>
+                                                              fireControlState);
+<span class="nc bnc" id="L1680" title="All 2 branches missed.">            for (final Targetable target : potentialTargets) {</span>
+<span class="nc" id="L1681">                damageMap.put(target.getTargetId(), 0d);</span>
+<span class="nc" id="L1682">            }</span>
+
+        } finally {
+<span class="nc" id="L1685">            getLogger().methodEnd();</span>
+        }
+<span class="nc" id="L1687">    }</span>
+
+    public IGame getGame() {
+<span class="nc" id="L1690">        return game;</span>
+    }
+
+    @Override
+    public void initialize() {
+<span class="nc" id="L1695">        getLogger().methodBegin();</span>
+
+        try {
+<span class="nc bnc" id="L1698" title="All 2 branches missed.">            if (initialized) {</span>
+<span class="nc" id="L1699">                return; // no need to initialize twice</span>
+            }
+
+<span class="nc" id="L1702">            checkForDishonoredEnemies();</span>
+<span class="nc" id="L1703">            checkForBrokenEnemies();</span>
+<span class="nc" id="L1704">            refreshCrippledUnits();</span>
+            
+<span class="nc" id="L1706">            initializePathRankers();</span>
+<span class="nc" id="L1707">            fireControlState = new FireControlState();</span>
+<span class="nc" id="L1708">            pathRankerState = new PathRankerState();</span>
+<span class="nc" id="L1709">            unitBehaviorTracker = new UnitBehavior();</span>
+<span class="nc" id="L1710">            boardClusterTracker = new BoardClusterTracker();</span>
+
+            // Pick up any turrets and add their buildings to the strategic 
+            // targets list.
+<span class="nc" id="L1714">            final Enumeration&lt;Building&gt; buildings = getGame().getBoard()</span>
+<span class="nc" id="L1715">                                                             .getBuildings();</span>
+<span class="nc bnc" id="L1716" title="All 2 branches missed.">            while (buildings.hasMoreElements()) {</span>
+<span class="nc" id="L1717">                final Building bldg = buildings.nextElement();</span>
+<span class="nc" id="L1718">                final Enumeration&lt;Coords&gt; bldgCoords = bldg.getCoords();</span>
+<span class="nc bnc" id="L1719" title="All 2 branches missed.">                while (bldgCoords.hasMoreElements()) {</span>
+<span class="nc" id="L1720">                    final Coords coords = bldgCoords.nextElement();</span>
+<span class="nc bnc" id="L1721" title="All 2 branches missed.">                    for (final Entity entity : game.getEntitiesVector(coords,</span>
+                                                                      true)) {
+<span class="nc bnc" id="L1723" title="All 2 branches missed.">                        if (isEnemyGunEmplacement(entity, coords)) {</span>
+<span class="nc" id="L1724">                            getStrategicBuildingTargets().add(coords);</span>
+<span class="nc" id="L1725">                            sendChat(&quot;Building in Hex &quot; +</span>
+<span class="nc" id="L1726">                                     coords.toFriendlyString() +</span>
+                                     &quot; designated target due to Gun Emplacement.&quot;, LogLevel.INFO);
+                        }
+<span class="nc" id="L1729">                    }</span>
+<span class="nc" id="L1730">                }</span>
+<span class="nc" id="L1731">            }</span>
+
+<span class="nc" id="L1733">            initialized = true;</span>
+<span class="nc" id="L1734">            BotGeometry.debugSelfTest(this);</span>
+        } finally {
+<span class="nc" id="L1736">            getLogger().methodEnd();</span>
+        }
+<span class="nc" id="L1738">    }</span>
+    
+    /**
+     * Initialize the fire controls.
+     */
+    public void initializeFireControls() {
+<span class="nc" id="L1744">        fireControls = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L1746">        FireControl fireControl = new FireControl(this);</span>
+<span class="nc" id="L1747">        fireControls.put(FireControlType.Basic, fireControl);</span>
+        
+<span class="nc" id="L1749">        InfantryFireControl infantryFireControl = new InfantryFireControl(this);</span>
+<span class="nc" id="L1750">        fireControls.put(FireControlType.Infantry, infantryFireControl);</span>
+        
+<span class="nc" id="L1752">        MultiTargetFireControl multiTargetFireControl = new MultiTargetFireControl(this);</span>
+<span class="nc" id="L1753">        fireControls.put(FireControlType.MultiTarget, multiTargetFireControl);</span>
+<span class="nc" id="L1754">    }</span>
+
+    /**
+     * Initialize the possible path rankers.
+     * Has a dependency on the fire controls being initialized.
+     */
+    public void initializePathRankers() {
+<span class="nc" id="L1761">        initializeFireControls();</span>
+        
+<span class="nc" id="L1763">        pathRankers = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L1765">        BasicPathRanker basicPathRanker = new BasicPathRanker(this);</span>
+<span class="nc" id="L1766">        basicPathRanker.setPathEnumerator(precognition.getPathEnumerator());</span>
+<span class="nc" id="L1767">        pathRankers.put(PathRankerType.Basic, basicPathRanker);</span>
+        
+<span class="nc" id="L1769">        InfantryPathRanker infantryPathRanker = new InfantryPathRanker(this);</span>
+<span class="nc" id="L1770">        infantryPathRanker.setPathEnumerator(precognition.getPathEnumerator());</span>
+<span class="nc" id="L1771">        pathRankers.put(PathRankerType.Infantry, infantryPathRanker);</span>
+        
+<span class="nc" id="L1773">        NewtonianAerospacePathRanker newtonianAerospacePathRanker = new NewtonianAerospacePathRanker(this);</span>
+<span class="nc" id="L1774">        newtonianAerospacePathRanker.setPathEnumerator(precognition.getPathEnumerator());</span>
+<span class="nc" id="L1775">        pathRankers.put(PathRankerType.NewtonianAerospace, newtonianAerospacePathRanker);</span>
+<span class="nc" id="L1776">    }</span>
+    
+    /**
+     * Load the list of units considered crippled at the time the bot was loaded or the beginning of the turn,
+     * whichever is the more recent.
+     */
+    public void refreshCrippledUnits() {
+        // if we're not following 'forced withdrawal' rules, there's no need for this
+<span class="nc bnc" id="L1784" title="All 2 branches missed.">        if(!getForcedWithdrawal()) {</span>
+<span class="nc" id="L1785">            return;</span>
+        }
+        
+        // this approach is a little bit inefficient, but the running time is only O(n) where n is the number
+        // of princess owned units, so it shouldn't be a big deal. 
+<span class="nc" id="L1790">        crippledUnits.clear();</span>
+        
+<span class="nc bnc" id="L1792" title="All 2 branches missed.">        for(Entity e : this.getEntitiesOwned()) {</span>
+<span class="nc bnc" id="L1793" title="All 2 branches missed.">            if(e.isCrippled(true)) {</span>
+<span class="nc" id="L1794">                crippledUnits.add(e.getId());</span>
+            }
+<span class="nc" id="L1796">        }</span>
+<span class="nc" id="L1797">    }</span>
+    
+    private boolean isEnemyGunEmplacement(final Entity entity,
+                                          final Coords coords) {
+        // crippled gun turrets aren't worth shooting at, even if we're fighting to the death
+<span class="nc bnc" id="L1802" title="All 2 branches missed.">        return entity.hasETypeFlag(Entity.ETYPE_GUN_EMPLACEMENT)</span>
+<span class="nc bnc" id="L1803" title="All 2 branches missed.">               &amp;&amp; entity.getOwner().isEnemyOf(getLocalPlayer())</span>
+<span class="nc bnc" id="L1804" title="All 2 branches missed.">               &amp;&amp; !getStrategicBuildingTargets().contains(coords)</span>
+<span class="nc bnc" id="L1805" title="All 2 branches missed.">               &amp;&amp; !entity.isCrippled();</span>
+    }
+
+    private boolean isEnemyInfantry(final Entity entity,
+                                    final Coords coords) {
+        // crippled infantry aren't worth shooting at, even if we're fighting to the death
+<span class="nc bnc" id="L1811" title="All 4 branches missed.">        return entity.hasETypeFlag(Entity.ETYPE_INFANTRY) &amp;&amp; !entity.hasETypeFlag(Entity.ETYPE_MECHWARRIOR)</span>
+<span class="nc bnc" id="L1812" title="All 2 branches missed.">               &amp;&amp; entity.getOwner().isEnemyOf(getLocalPlayer())</span>
+<span class="nc bnc" id="L1813" title="All 2 branches missed.">               &amp;&amp; !getStrategicBuildingTargets().contains(coords)</span>
+<span class="nc bnc" id="L1814" title="All 2 branches missed.">               &amp;&amp; !entity.isCrippled();</span>
+    }
+
+    @Override
+    public synchronized void die() {
+<span class="nc" id="L1819">        super.die();</span>
+<span class="nc bnc" id="L1820" title="All 2 branches missed.">        if (null != precognition) {</span>
+<span class="nc" id="L1821">            precognition.signalDone();</span>
+<span class="nc" id="L1822">            precogThread.interrupt();</span>
+        }
+<span class="nc" id="L1824">    }</span>
+
+    @Override
+    protected void processChat(final GamePlayerChatEvent ge) {
+<span class="nc" id="L1828">        chatProcessor.processChat(ge, this);</span>
+<span class="nc" id="L1829">    }</span>
+
+    CardinalEdge getHomeEdge(Entity entity) {
+        // if I am crippled and using forced withdrawal rules, my home edge is the &quot;retreat&quot; edge        
+<span class="nc bnc" id="L1833" title="All 4 branches missed.">        if(entity.isCrippled(true) &amp;&amp; getBehaviorSettings().isForcedWithdrawal()) {</span>
+<span class="nc bnc" id="L1834" title="All 2 branches missed.">            if(getBehaviorSettings().getRetreatEdge() == CardinalEdge.NEAREST_OR_NONE) {</span>
+<span class="nc" id="L1835">                return BoardUtilities.getClosestEdge(entity);                </span>
+            } else {
+<span class="nc" id="L1837">                return getBehaviorSettings().getRetreatEdge();</span>
+            }
+        }
+        
+        // otherwise, return the destination edge
+<span class="nc" id="L1842">        return getBehaviorSettings().getDestinationEdge();</span>
+    }
+
+    public int calculateAdjustment(final String ticks) {
+        
+<span class="nc" id="L1847">        int adjustment = 0;</span>
+<span class="nc bnc" id="L1848" title="All 2 branches missed.">        if (StringUtil.isNullOrEmpty(ticks)) {</span>
+<span class="nc" id="L1849">            return 0;</span>
+        }
+<span class="nc bnc" id="L1851" title="All 2 branches missed.">        for (final char tick : ticks.toCharArray()) {</span>
+<span class="nc bnc" id="L1852" title="All 2 branches missed.">            if (PLUS == tick) {</span>
+<span class="nc" id="L1853">                adjustment++;</span>
+<span class="nc bnc" id="L1854" title="All 2 branches missed.">            } else if (MINUS == tick) {</span>
+<span class="nc" id="L1855">                adjustment--;</span>
+            } else {
+<span class="nc" id="L1857">                getLogger().warning(&quot;Invalid tick: '&quot; + tick + &quot;'.&quot;);</span>
+            }
+        }
+<span class="nc" id="L1860">        return adjustment;</span>
+    }
+
+    @Override
+    protected void checkMoral() {
+<span class="nc" id="L1865">        moralUtil.checkMoral(behaviorSettings.isForcedWithdrawal(),</span>
+<span class="nc" id="L1866">                             behaviorSettings.getBraveryIndex(),</span>
+<span class="nc" id="L1867">                             behaviorSettings.getSelfPreservationIndex(),</span>
+<span class="nc" id="L1868">                             getLocalPlayer(),</span>
+                             game);
+<span class="nc" id="L1870">    }</span>
+
+    IHonorUtil getHonorUtil() {
+<span class="nc" id="L1873">        return honorUtil;</span>
+    }
+    
+    /**
+     * Lazy-loaded calculation of the &quot;to-hit target number&quot; threshold for
+     * spinning up a rapid fire autocannon.
+     */
+    public int getSpinupThreshold() {
+<span class="nc bnc" id="L1881" title="All 2 branches missed.">        if(spinupThreshold == null) {</span>
+    	// we start spinning up the cannon at 11+ TN at highest aggression levels
+        // dropping it down to 6+ TN at the lower aggression levels
+<span class="nc" id="L1884">        	spinupThreshold = Math.min(11, Math.max(getBehaviorSettings().getHyperAggressionIndex() + 2, 6));</span>
+        }
+        
+<span class="nc" id="L1887">        return spinupThreshold;</span>
+    }
+    
+    public void resetSpinupThreshold() {
+<span class="nc" id="L1891">    	spinupThreshold = null;</span>
+<span class="nc" id="L1892">    }</span>
+
+    @Override
+    public void endOfTurnProcessing() {
+<span class="nc" id="L1896">        getLogger().methodBegin();</span>
+<span class="nc" id="L1897">        checkForDishonoredEnemies();</span>
+<span class="nc" id="L1898">        checkForBrokenEnemies();</span>
+        // refreshCrippledUnits should happen after checkForDishonoredEnemies, since checkForDishoneredEnemies
+        // wants to examine the units that were considered crippled at the *beginning* of the turn and were attacked.
+<span class="nc" id="L1901">        refreshCrippledUnits();</span>
+<span class="nc" id="L1902">        getLogger().methodEnd();</span>
+<span class="nc" id="L1903">    }</span>
+
+    protected void handlePacket(final Packet c) {
+<span class="nc" id="L1906">        final StringBuilder msg = new StringBuilder(&quot;Received packet, cmd: &quot;</span>
+<span class="nc" id="L1907">                                                    + c.getCommand());</span>
+        try {
+<span class="nc" id="L1909">            super.handlePacket(c);</span>
+<span class="nc" id="L1910">            getPrecognition().handlePacket(c);</span>
+        }
+        finally {
+<span class="nc" id="L1913">            getLogger().trace(msg.toString());</span>
+        }
+<span class="nc" id="L1915">    }</span>
+    
+    /**
+     * sends a load game file to the server
+     */
+    public void sendLoadGame(final File f) {
+<span class="nc" id="L1921">        precognition.resetGame();</span>
+<span class="nc" id="L1922">        super.sendLoadGame(f);</span>
+<span class="nc" id="L1923">    }</span>
+    
+    protected void disconnected() {
+<span class="nc bnc" id="L1926" title="All 2 branches missed.">        if (null != precognition) {</span>
+<span class="nc" id="L1927">            precognition.signalDone();</span>
+<span class="nc" id="L1928">            precogThread.interrupt();</span>
+        }
+<span class="nc" id="L1930">        super.disconnected();</span>
+<span class="nc" id="L1931">    }</span>
+
+    int getHighestEnemyInitiativeId() {
+<span class="nc" id="L1934">        int highestEnemyInitiativeBonus = -1;</span>
+<span class="nc" id="L1935">        int highestEnemyInitiativeId = -1;</span>
+<span class="nc bnc" id="L1936" title="All 2 branches missed.">        for (final Entity entity : getEnemyEntities()) {</span>
+<span class="nc" id="L1937">            final int initBonus = entity.getHQIniBonus() +</span>
+<span class="nc" id="L1938">                                  entity.getQuirkIniBonus();</span>
+<span class="nc bnc" id="L1939" title="All 2 branches missed.">            if (initBonus &gt; highestEnemyInitiativeBonus) {</span>
+<span class="nc" id="L1940">                highestEnemyInitiativeBonus = initBonus;</span>
+<span class="nc" id="L1941">                highestEnemyInitiativeId = entity.getId();</span>
+            }
+<span class="nc" id="L1943">        }</span>
+<span class="nc" id="L1944">        return highestEnemyInitiativeId;</span>
+    }
+    
+    /**
+     * Helper function to perform some modifications to a given path.
+     * Intended to happen after we pick the best path. 
+     * @param path The ranked path to process
+     * @return Altered move path
+     */
+    private MovePath performPathPostProcessing(final RankedPath path) {
+<span class="nc" id="L1954">        return performPathPostProcessing(path.getPath(), path.getExpectedDamage());</span>
+    }
+    
+    /**
+     * Helper function to perform some modifications to a given path.
+     * @param path The move path to process
+     * @param expectedDamage The damage expected to be done by the unit as a result of the path
+     * @return Altered move path
+     */
+    private MovePath performPathPostProcessing(MovePath path, double expectedDamage) {
+<span class="nc" id="L1964">        MovePath retval = path;</span>
+<span class="nc bnc" id="L1965" title="All 2 branches missed.">        evadeIfNotFiring(retval, expectedDamage &gt;= 0);</span>
+<span class="nc bnc" id="L1966" title="All 2 branches missed.">        turnOnSearchLight(retval, expectedDamage &gt;= 0);</span>
+<span class="nc" id="L1967">        unloadTransportedInfantry(retval);</span>
+<span class="nc" id="L1968">        unjamRAC(retval);</span>
+        
+        // if we are using vector movement, there's a whole bunch of post-processing that happens to
+        // aircraft flight paths when a player does it, so we apply it here.
+<span class="nc bnc" id="L1972" title="All 6 branches missed.">        if(path.getEntity().isAero() || (path.getEntity() instanceof EjectedCrew &amp;&amp; path.getEntity().isSpaceborne())) {</span>
+<span class="nc" id="L1973">            retval = SharedUtility.moveAero(retval, null);</span>
+        }
+        
+<span class="nc" id="L1976">        return retval;</span>
+    }
+    
+    /**
+     * Helper function that appends an unjam RAC command to the end of a qualifying path.
+     * @param path The path to process.
+     */
+    private void unjamRAC(MovePath path) { 
+<span class="nc bnc" id="L1984" title="All 2 branches missed.">        if(path.getEntity().canUnjamRAC() &amp;&amp; </span>
+<span class="nc bnc" id="L1985" title="All 2 branches missed.">                (path.getMpUsed() &lt;= path.getEntity().getWalkMP()) &amp;&amp;</span>
+<span class="nc bnc" id="L1986" title="All 2 branches missed.">                !path.isJumping()) {</span>
+<span class="nc" id="L1987">            path.addStep(MoveStepType.UNJAM_RAC);</span>
+        }
+<span class="nc" id="L1989">    }</span>
+    
+    /**
+     * Helper function that insinuates an &quot;evade&quot; step for aircraft that will not be shooting.
+     * @param path The path to process
+     */
+    private void evadeIfNotFiring(MovePath path, boolean possibleToInflictDamage) {
+<span class="nc" id="L1996">        Entity pathEntity = path.getEntity();</span>
+        
+        // we cannot evade if we are out of control
+<span class="nc bnc" id="L1999" title="All 6 branches missed.">        if(pathEntity.isAero() &amp;&amp; pathEntity.isAirborne() &amp;&amp; ((IAero) pathEntity).isOutControlTotal()) {</span>
+<span class="nc" id="L2000">            return;</span>
+        }
+        
+        // if we're an airborne aircraft
+        // and we're not going to do any damage anyway
+        // and we can do so without causing a PSR
+        // then evade
+<span class="nc bnc" id="L2007" title="All 4 branches missed.">        if(pathEntity.isAirborne() &amp;&amp;</span>
+           !possibleToInflictDamage &amp;&amp;
+<span class="nc bnc" id="L2009" title="All 2 branches missed.">           (path.getMpUsed() &lt;= AeroPathUtil.calculateMaxSafeThrust((IAero) path.getEntity()) - 2)) {</span>
+<span class="nc" id="L2010">            path.addStep(MoveStepType.EVADE);</span>
+        }
+<span class="nc" id="L2012">    }</span>
+    
+    /**
+     * Turn on the searchlight if we expect to be shooting at something and it's dark out
+     * @param path Path being considered
+     * @param possibleToInflictDamage Whether we expect to be shooting at something.
+     */
+    private void turnOnSearchLight(MovePath path, boolean possibleToInflictDamage) {
+<span class="nc" id="L2020">        Entity pathEntity = path.getEntity();</span>
+<span class="nc bnc" id="L2021" title="All 2 branches missed.">        if(possibleToInflictDamage &amp;&amp;</span>
+<span class="nc bnc" id="L2022" title="All 2 branches missed.">                pathEntity.hasSpotlight() &amp;&amp; </span>
+<span class="nc bnc" id="L2023" title="All 2 branches missed.">                !pathEntity.isUsingSpotlight() &amp;&amp;</span>
+<span class="nc bnc" id="L2024" title="All 2 branches missed.">                (path.getGame().getPlanetaryConditions().getLight() &gt;= PlanetaryConditions.L_FULL_MOON)) {</span>
+<span class="nc" id="L2025">            path.addStep(MoveStepType.SEARCHLIGHT);</span>
+        }
+<span class="nc" id="L2027">    }</span>
+    
+    /**
+     * Helper function that adds an &quot;unload&quot; step for units that are transporting infantry
+     * if the conditions for unloading are favorable.
+     * 
+     * Infantry unloading logic is different from, for example, hot-dropping mechs or launching aerospace fighters,
+     * so we handle it separately.
+     * @param path The path to modify
+     */
+    private void unloadTransportedInfantry(MovePath path) {
+        // if my objective is to cross the board, even though it's tempting, I won't be leaving the infantry
+        // behind. They're not that good at screening against high speed pursuit anyway.
+<span class="nc bnc" id="L2040" title="All 2 branches missed.">        if(getBehaviorSettings().shouldGoHome()) {</span>
+<span class="nc" id="L2041">            return;</span>
+        }
+        
+<span class="nc" id="L2044">        Entity movingEntity = path.getEntity();</span>
+<span class="nc" id="L2045">        Coords pathEndpoint = path.getFinalCoords();</span>
+<span class="nc" id="L2046">        Targetable closestEnemy = getPathRanker(movingEntity).findClosestEnemy(movingEntity, pathEndpoint, getGame(), false);</span>
+
+        // if there are no enemies on the board, then we're not unloading anything.
+        // infantry can't clear hexes, so let's not use th
+<span class="nc bnc" id="L2050" title="All 4 branches missed.">        if((null == closestEnemy) || (closestEnemy.getTargetType() == Targetable.TYPE_HEX_CLEAR)) {</span>
+<span class="nc" id="L2051">            return;</span>
+        }
+        
+<span class="nc" id="L2054">        int distanceToClosestEnemy = pathEndpoint.distance(closestEnemy.getPosition());</span>
+        
+        // loop through all entities carried by the current entity
+<span class="nc bnc" id="L2057" title="All 2 branches missed.">        for(Transporter transport : movingEntity.getTransports()) {</span>
+<span class="nc bnc" id="L2058" title="All 2 branches missed.">            for(Entity loadedEntity : transport.getLoadedUnits()) {</span>
+                // there's really no good reason for Princess to disconnect trailers.
+                // Let's skip those for now. We don't want to create a bogus 'unload' step for them anyhow.
+<span class="nc bnc" id="L2061" title="All 4 branches missed.">                if (loadedEntity.isTrailer() &amp;&amp; loadedEntity.getTowedBy() != Entity.NONE) {</span>
+<span class="nc" id="L2062">                    continue;</span>
+                }
+                // favorable conditions include: 
+                // - the loaded entity should be able to enter the current terrain
+                // - the loaded entity should be within max weapons range + movement range of an enemy
+                // - unloading the loaded entity cannot violate stacking limits
+                // - only one unit 
+                
+                // this condition is a simple check that we're not unloading infantry into deep space
+                // or into lava or some other such nonsense
+<span class="nc bnc" id="L2072" title="All 2 branches missed.">                boolean unloadFatal = loadedEntity.isBoardProhibited(getGame().getBoard().getType()) ||</span>
+<span class="nc bnc" id="L2073" title="All 2 branches missed.">                        loadedEntity.isLocationProhibited(pathEndpoint);</span>
+                
+                // Unloading a unit may sometimes cause a stacking violation, take that into account when planning
+<span class="nc bnc" id="L2076" title="All 2 branches missed.">                boolean unloadIllegal = Compute.stackingViolation(getGame(), loadedEntity, pathEndpoint, movingEntity) != null;</span>
+                
+                // this is a primitive condition that checks whether we're within &quot;engagement range&quot; of an enemy
+                // where &quot;engagement range&quot; is defined as the maximum range of our weapons plus our walking movement
+<span class="nc bnc" id="L2080" title="All 2 branches missed.">                boolean inEngagementRange = loadedEntity.getWalkMP() + getMaxWeaponRange(loadedEntity) &gt;= distanceToClosestEnemy;</span>
+                
+<span class="nc bnc" id="L2082" title="All 6 branches missed.">                if(!unloadFatal &amp;&amp; !unloadIllegal &amp;&amp; inEngagementRange) {</span>
+<span class="nc" id="L2083">                    path.addStep(MoveStepType.UNLOAD, loadedEntity, pathEndpoint);</span>
+<span class="nc" id="L2084">                    return; // we can only unload one infantry unit per hex per turn, so once we've unloaded, we're done. </span>
+                }
+<span class="nc" id="L2086">            }</span>
+<span class="nc" id="L2087">        }</span>
+<span class="nc" id="L2088">    }</span>
+    
+    public void sendChat(final String message,
+                         final LogLevel logLevel) {
+<span class="nc bnc" id="L2092" title="All 2 branches missed.">        if (getVerbosity().willLog(logLevel)) {</span>
+<span class="nc" id="L2093">            super.sendChat(message);</span>
+        }
+<span class="nc" id="L2095">    }</span>
+    
+    /**
+     * Override for the 'receive entity update' handler
+     * Updates internal state in addition to base client functionality
+     */
+    @Override    
+    public void receiveEntityUpdate(Packet c) {
+<span class="nc" id="L2103">        super.receiveEntityUpdate(c);</span>
+<span class="nc" id="L2104">        Entity entity = (Entity) c.getObject(1);</span>
+<span class="nc" id="L2105">        updateEntityState(entity);</span>
+<span class="nc" id="L2106">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

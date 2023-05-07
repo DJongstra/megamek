@@ -1,0 +1,1550 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Crew.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common</a> &gt; <span class="el_source">Crew.java</span></div><h1>Crew.java</h1><pre class="source lang-java linenums">/*
+* MegaMek -
+* Copyright (C) 2000, 2001, 2002, 2003, 2004 Ben Mazur (bmazur@sev.org)
+* Copyright (C) 2018 - The MegaMek Team. All Rights Reserved.
+*
+* This program is free software; you can redistribute it and/or modify it under
+* the terms of the GNU General Public License as published by the Free Software
+* Foundation; either version 2 of the License, or (at your option) any later
+* version.
+*
+* This program is distributed in the hope that it will be useful, but WITHOUT
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+* details.
+*/
+package megamek.common;
+
+import java.io.Serializable;
+import java.util.Arrays;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.Vector;
+
+import megamek.client.generator.RandomGenderGenerator;
+import megamek.common.enums.Gender;
+import megamek.common.icons.AbstractIcon;
+import megamek.common.icons.Portrait;
+import megamek.common.options.IOption;
+import megamek.common.options.IOptionGroup;
+import megamek.common.options.OptionsConstants;
+import megamek.common.options.PilotOptions;
+import megamek.common.util.CrewSkillSummaryUtil;
+
+/**
+ *  Health status, skills, and miscellanea for an Entity crew.
+ *
+ *  While vehicle and vessel crews are treated as a single collective, with one set of skills,
+ *  some multi-crew cockpits (Tripod, QuadVee, dual, command console) require tracking the health
+ *  and skills of each crew member independently. These are referred to as &quot;slots&quot; and the slot
+ *  number corresponds to an array index for the appropriate field.
+ */
+public class Crew implements Serializable {
+    private static final long serialVersionUID = -141169182388269619L;
+
+    private Map&lt;Integer, Map&lt;String, String&gt;&gt; extraData;
+
+    private final CrewType crewType;
+    private int size;
+    private int currentSize;
+
+    private final String[] name;
+    private final Gender[] gender;
+
+    private final int[] gunnery;
+    private final int[] piloting;
+    private final int[] hits; // hits taken
+
+    private final String[] nickname;
+
+    private final String[] externalId;
+
+    private final boolean[] unconscious;
+    private final boolean[] dead;
+    //Allow for the possibility that the unit is fielded with less than full crew.
+    private final boolean[] missing;
+
+    //The following only apply to the entire crew.
+    private boolean doomed; // scheduled to die at end of phase
+    private boolean ejected;
+
+    // StratOps fatigue points
+    private int fatigue;
+    //also need to track turns for fatigue by pilot because some may have later deployment
+    private int fatigueCount;
+
+    /**
+     * Additional RPG Skills **
+     */
+    // MW3e uses 3 different gunnery skills
+    private final int[] gunneryL;
+    private final int[] gunneryM;
+    private final int[] gunneryB;
+
+    // Separate artillery skill
+    private final int[] artillery;
+
+    // init bonuses
+    // bonus for individual initiative
+    private int initBonus;
+    // commander bonus
+    private int commandBonus;
+
+    // a toughness bonus that is applied to all KO checks
+    private final int[] toughness;
+
+    private int pilotPos;
+    private int gunnerPos;
+
+    //Designate the slot index of the crew member that will fill in if the pilot or gunner is incapacitated.
+    //This is only relevant for superheavy tripods, as other types have at most a single other option.
+    private int backupPilot;
+    private int backupGunner;
+
+    //For cockpit command console, we need to track which crew members have acted as the pilot, making them
+    //ineligible to provide command bonus the next round.
+    private final boolean[] actedThisTurn;
+    //The crew slots in a command console can swap roles in the end phase of any turn.
+    private boolean swapConsoleRoles;
+
+    /**
+     * End RPG Skills **
+     */
+
+    // these are only used on the server:
+    private final boolean[] koThisRound; // did I go KO this game round?
+
+    //TODO: Allow individual crew to have SPAs, which involves determining which work for individuals
+    //and which work for the entire unit.
+<span class="nc" id="L121">    private PilotOptions options = new PilotOptions();</span>
+
+    // pathway to pilot portrait
+    private final String[] portraitCategory;
+    private final String[] portraitFileName;
+
+    //SPA RangeMaster range bands
+    public static final String RANGEMASTER_NONE = &quot;None&quot;;
+    public static final String RANGEMASTER_MEDIUM = &quot;Medium&quot;;
+    public static final String RANGEMASTER_LONG = &quot;Long&quot;;
+    public static final String RANGEMASTER_EXTREME = &quot;Extreme&quot;;
+
+    // SPA Human TRO entity types
+    public static final String HUMANTRO_NONE = &quot;None&quot;;
+    public static final String HUMANTRO_MECH = &quot;Mek&quot;;
+    public static final String HUMANTRO_AERO = &quot;Aero&quot;;
+    public static final String HUMANTRO_VEE = &quot;Vee&quot;;
+    public static final String HUMANTRO_BA = &quot;BA&quot;;
+
+    public static final String SPECIAL_NONE = &quot;None&quot;;
+    public static final String SPECIAL_ENERGY = &quot;Energy&quot;;
+    public static final String SPECIAL_BALLISTIC = &quot;Ballistic&quot;;
+    public static final String SPECIAL_MISSILE = &quot;Missile&quot;;
+
+<span class="nc" id="L145">    private static double[][] bvMod = new double[][]{</span>
+            {2.42, 2.31, 2.21, 2.10, 1.93, 1.75, 1.68, 1.59, 1.50},
+            {2.21, 2.11, 2.02, 1.92, 1.76, 1.60, 1.54, 1.46, 1.38},
+            {1.93, 1.85, 1.76, 1.68, 1.54, 1.40, 1.35, 1.28, 1.21},
+            {1.66, 1.58, 1.51, 1.44, 1.32, 1.20, 1.16, 1.10, 1.04},
+            {1.38, 1.32, 1.26, 1.20, 1.10, 1.00, 0.95, 0.90, 0.85},
+            {1.31, 1.19, 1.13, 1.08, 0.99, 0.90, 0.86, 0.81, 0.77},
+            {1.24, 1.12, 1.07, 1.02, 0.94, 0.85, 0.81, 0.77, 0.72},
+            {1.17, 1.06, 1.01, 0.96, 0.88, 0.80, 0.76, 0.72, 0.68},
+            {1.10, 0.99, 0.95, 0.90, 0.83, 0.75, 0.71, 0.68, 0.64},
+    };
+<span class="nc" id="L156">    private static double[][] alternateBvMod = new double[][]{</span>
+            {2.70, 2.52, 2.34, 2.16, 1.98, 1.80, 1.75, 1.67, 1.59},
+            {2.40, 2.24, 2.08, 1.98, 1.76, 1.60, 1.58, 1.51, 1.44},
+            {2.10, 1.96, 1.82, 1.68, 1.54, 1.40, 1.33, 1.31, 1.25},
+            {1.80, 1.68, 1.56, 1.44, 1.32, 1.20, 1.14, 1.08, 1.06},
+            {1.50, 1.40, 1.30, 1.20, 1.10, 1.00, 0.95, 0.90, 0.85},
+            {1.50, 1.35, 1.26, 1.17, 1.04, 0.90, 0.86, 0.81, 0.77},
+            {1.43, 1.33, 1.19, 1.11, 0.98, 0.85, 0.81, 0.77, 0.72},
+            {1.36, 1.26, 1.16, 1.04, 0.92, 0.80, 0.76, 0.72, 0.68},
+            {1.28, 1.19, 1.10, 1.01, 0.86, 0.75, 0.71, 0.68, 0.64},
+    };
+
+    //region extraData inner map keys
+    public static final String MAP_GIVEN_NAME = &quot;givenName&quot;;
+    public static final String MAP_SURNAME = &quot;surname&quot;;
+    public static final String MAP_BLOODNAME = &quot;bloodname&quot;;
+    public static final String MAP_PHENOTYPE = &quot;phenotype&quot;;
+    //endregion extraData inner map keys
+    /**
+     * The number of hits that a pilot can take before he dies.
+     */
+    static public final int DEATH = 6;
+
+    /**
+     * Defines the maximum value a Crew can have in any skill
+     */
+    static public final int MAX_SKILL = 8;
+
+    /**
+     * Creates a nameless P5/G4 crew of the given size.
+     *
+     * @param crewType the crew type to use.
+     */
+    public Crew(CrewType crewType) {
+<span class="nc" id="L190">        this(crewType, &quot;Unnamed&quot;, crewType.getCrewSlots(), 4, 5, Gender.FEMALE, null);</span>
+<span class="nc" id="L191">    }</span>
+
+    /**
+     * @param name     the name of the crew or commander.
+     * @param size     the crew size.
+     * @param gunnery  the crew's Gunnery skill.
+     * @param piloting the crew's Piloting or Driving skill.
+     * @deprecated by multi-crew cockpit support. Replaced by {@link #Crew(CrewType, String, int, int, int, Gender, Map)}.
+     *
+     * Creates a basic crew for a self-piloted unit. Using this constructor for a naval vessel will
+     * result in a secondary target modifier for additional targets past the first.
+     */
+    @Deprecated
+    public Crew(String name, int size, int gunnery, int piloting) {
+<span class="nc" id="L205">        this(CrewType.SINGLE, name, size, gunnery, gunnery, gunnery, piloting, null);</span>
+<span class="nc" id="L206">    }</span>
+
+    /**
+     * @param crewType the type of crew
+     * @param name     the name of the crew or commander.
+     * @param size     the crew size.
+     * @param gunnery  the crew's Gunnery skill.
+     * @param piloting the crew's Piloting or Driving skill.
+     * @deprecated by gender support. Replaced by {@link #Crew(CrewType, String, int, int, int, Gender, Map)}.
+     */
+    @Deprecated //18-Feb-2020 as part of the addition of gender to MegaMek
+    public Crew(CrewType crewType, String name, int size, int gunnery, int piloting) {
+<span class="nc" id="L218">        this(crewType, name, size, gunnery, gunnery, gunnery, piloting, null);</span>
+<span class="nc" id="L219">    }</span>
+
+    /**
+     * @param crewType the type of crew.
+     * @param name     the name of the crew or commander.
+     * @param size     the crew size.
+     * @param gunneryL the crew's &quot;laser&quot; Gunnery skill.
+     * @param gunneryM the crew's &quot;missile&quot; Gunnery skill.
+     * @param gunneryB the crew's &quot;ballistic&quot; Gunnery skill.
+     * @param piloting the crew's Piloting or Driving skill.
+     * @deprecated by gender support. Replaced by {@link #Crew(CrewType, String, int, int, int, int, int, Gender, Map)}.
+     */
+    @Deprecated //18-Feb-2020 as part of the addition of gender to MegaMek
+    public Crew(CrewType crewType, String name, int size, int gunneryL, int gunneryM, int gunneryB,
+                int piloting) {
+<span class="nc" id="L234">        this(crewType, name, size, gunneryL, gunneryM, gunneryB, piloting, null);</span>
+<span class="nc" id="L235">    }</span>
+
+    /**
+     * @param crewType  the type of crew.
+     * @param name      the name of the crew or commander.
+     * @param size      the crew size.
+     * @param gunneryL  the crew's &quot;laser&quot; Gunnery skill.
+     * @param gunneryM  the crew's &quot;missile&quot; Gunnery skill.
+     * @param gunneryB  the crew's &quot;ballistic&quot; Gunnery skill.
+     * @param piloting  the crew's Piloting or Driving skill.
+     * @param extraData any extra data passed to be stored with this Crew.
+     * @deprecated by gender support. Replaced by {@link #Crew(CrewType, String, int, int, int, int, int, Gender, Map)}.
+     */
+    @Deprecated //18-Feb-2020 as part of the addition of gender to MegaMek
+    public Crew(CrewType crewType, String name, int size, int gunneryL, int gunneryM, int gunneryB,
+                int piloting, Map&lt;Integer, Map&lt;String, String&gt;&gt; extraData) {
+<span class="nc" id="L251">        this(crewType, name, size, gunneryL, gunneryM, gunneryB, piloting, RandomGenderGenerator.generate(), extraData);</span>
+<span class="nc" id="L252">    }</span>
+
+    /**
+     * @param crewType  the type of crew
+     * @param name      the name of the crew or commander.
+     * @param size      the crew size.
+     * @param gunnery   the crew's Gunnery skill.
+     * @param piloting  the crew's Piloting or Driving skill.
+     * @param gender    the gender of the crew or commander
+     * @param extraData any extra data passed to be stored with this Crew.
+     */
+    public Crew(CrewType crewType, String name, int size, int gunnery, int piloting, Gender gender,
+                Map&lt;Integer, Map&lt;String, String&gt;&gt; extraData) {
+<span class="nc" id="L265">        this(crewType, name, size, gunnery, gunnery, gunnery, piloting, gender, extraData);</span>
+<span class="nc" id="L266">    }</span>
+
+    /**
+     * @param crewType  the type of crew.
+     * @param name      the name of the crew or commander.
+     * @param size      the crew size.
+     * @param gunneryL  the crew's &quot;laser&quot; Gunnery skill.
+     * @param gunneryM  the crew's &quot;missile&quot; Gunnery skill.
+     * @param gunneryB  the crew's &quot;ballistic&quot; Gunnery skill.
+     * @param piloting  the crew's Piloting or Driving skill.
+     * @param gender    the gender of the crew or commander
+     * @param extraData any extra data passed to be stored with this Crew.
+     */
+    public Crew(CrewType crewType, String name, int size, int gunneryL, int gunneryM, int gunneryB,
+<span class="nc" id="L280">                int piloting, Gender gender, Map&lt;Integer, Map&lt;String, String&gt;&gt; extraData) {</span>
+<span class="nc" id="L281">        this.crewType = crewType;</span>
+<span class="nc" id="L282">        this.size = Math.max(size, crewType.getCrewSlots());</span>
+<span class="nc" id="L283">        this.currentSize = size;</span>
+
+<span class="nc" id="L285">        this.extraData = extraData;</span>
+
+<span class="nc" id="L287">        int slots = crewType.getCrewSlots();</span>
+<span class="nc" id="L288">        this.name = new String[slots];</span>
+<span class="nc" id="L289">        Arrays.fill(this.name, name);</span>
+<span class="nc" id="L290">        this.nickname = new String[slots];</span>
+<span class="nc" id="L291">        Arrays.fill(this.nickname, &quot;&quot;);</span>
+<span class="nc" id="L292">        this.gender = new Gender[slots];</span>
+<span class="nc" id="L293">        Arrays.fill(this.gender, Gender.RANDOMIZE);</span>
+<span class="nc" id="L294">        this.gender[0] = gender;</span>
+
+<span class="nc" id="L296">        int avGunnery = (int) Math.round((gunneryL + gunneryM + gunneryB) / 3.0);</span>
+<span class="nc" id="L297">        this.gunnery = new int[slots];</span>
+<span class="nc" id="L298">        Arrays.fill(this.gunnery, avGunnery);</span>
+<span class="nc" id="L299">        this.gunneryL = new int[slots];</span>
+<span class="nc" id="L300">        Arrays.fill(this.gunneryL, gunneryL);</span>
+<span class="nc" id="L301">        this.gunneryB = new int[slots];</span>
+<span class="nc" id="L302">        Arrays.fill(this.gunneryB, gunneryB);</span>
+<span class="nc" id="L303">        this.gunneryM = new int[slots];</span>
+<span class="nc" id="L304">        Arrays.fill(this.gunneryM, gunneryM);</span>
+<span class="nc" id="L305">        this.artillery = new int[slots];</span>
+<span class="nc" id="L306">        Arrays.fill(this.artillery, avGunnery);</span>
+<span class="nc" id="L307">        this.piloting = new int[slots];</span>
+<span class="nc" id="L308">        Arrays.fill(this.piloting, piloting);</span>
+
+<span class="nc" id="L310">        initBonus = 0;</span>
+<span class="nc" id="L311">        commandBonus = 0;</span>
+<span class="nc" id="L312">        hits = new int[slots];</span>
+<span class="nc" id="L313">        unconscious = new boolean[slots];</span>
+<span class="nc" id="L314">        dead = new boolean[slots];</span>
+<span class="nc" id="L315">        missing = new boolean[slots];</span>
+<span class="nc" id="L316">        koThisRound = new boolean[slots];</span>
+<span class="nc" id="L317">        fatigue = 0;</span>
+<span class="nc" id="L318">        toughness = new int[slots];</span>
+<span class="nc" id="L319">        portraitCategory = new String[slots];</span>
+<span class="nc" id="L320">        Arrays.fill(portraitCategory, AbstractIcon.ROOT_CATEGORY);</span>
+<span class="nc" id="L321">        portraitFileName = new String[slots];</span>
+<span class="nc" id="L322">        Arrays.fill(portraitFileName, AbstractIcon.DEFAULT_ICON_FILENAME);</span>
+
+<span class="nc" id="L324">        options.initialize();</span>
+
+<span class="nc" id="L326">        pilotPos = crewType.getPilotPos();</span>
+<span class="nc" id="L327">        gunnerPos = crewType.getGunnerPos();</span>
+
+        //For 2-slot crews, this will designate the other crew member as backup. For superheavy tripods,
+        //this will designate the pilot and gunner as backups for each other.
+<span class="nc bnc" id="L331" title="All 2 branches missed.">        if (getSlotCount() &gt; 1) {</span>
+<span class="nc" id="L332">            backupPilot = 1 - pilotPos;</span>
+<span class="nc" id="L333">            backupGunner = 1 - gunnerPos;</span>
+        }
+<span class="nc" id="L335">        actedThisTurn = new boolean[slots];</span>
+<span class="nc" id="L336">        resetActedFlag();</span>
+
+        //set a random UUID for external ID, this will help us sort enemy salvage and prisoners in MHQ
+        //and should have no effect on MM (but need to make sure it doesn't screw up MekWars)
+<span class="nc" id="L340">        externalId = new String[slots];</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">        for (int i = 0; i &lt; slots; i++) {</span>
+<span class="nc" id="L342">            externalId[i] = UUID.randomUUID().toString();</span>
+        }
+<span class="nc" id="L344">    }</span>
+
+    public String getName() {
+<span class="nc" id="L347">        return name[0];</span>
+    }
+
+    public String getName(int pos) {
+<span class="nc" id="L351">        return name[pos];</span>
+    }
+
+    public String getNickname() {
+<span class="nc" id="L355">        return nickname[0];</span>
+    }
+
+    public String getNickname(int pos) {
+<span class="nc" id="L359">        return nickname[pos];</span>
+    }
+
+    public Gender getGender() {
+<span class="nc" id="L363">        return gender[0];</span>
+    }
+
+    public Gender getGender(int pos) {
+        // The randomize return value is used in MekHQ to create new personnel following a battle,
+        // and should not be changed without ensuring it doesn't break on that side
+<span class="nc bnc" id="L369" title="All 2 branches missed.">        if (pos &lt; gender.length) {</span>
+<span class="nc" id="L370">            return gender[pos];</span>
+        } else {
+<span class="nc" id="L372">            return Gender.RANDOMIZE;</span>
+        }
+    }
+
+    /**
+     * @param pos The slot index for multi-crewed cockpits
+     * @return For multi-slot crews, the crew member's name followed by the role. For-slot crews, the
+     * crew name only.
+     */
+    public String getNameAndRole(int pos) {
+<span class="nc bnc" id="L382" title="All 2 branches missed.">        if (getSlotCount() &lt; 2) {</span>
+<span class="nc" id="L383">            return getName(pos);</span>
+        }
+<span class="nc" id="L385">        return getName(pos) + &quot; (&quot; + crewType.getRoleName(pos) + &quot;)&quot;;</span>
+    }
+
+    /**
+     * The size of this crew.
+     *
+     * @return the number of crew members.
+     */
+    public int getSize() {
+<span class="nc" id="L394">        return size;</span>
+    }
+    
+    /**
+     * The currentsize of this crew.
+     *
+     * @return the current number of crew members.
+     */
+    public int getCurrentSize() {
+<span class="nc" id="L403">        return currentSize;</span>
+    }
+
+    public CrewType getCrewType() {
+<span class="nc" id="L407">        return crewType;</span>
+    }
+
+    /**
+     * @return The number of crew members that are tracked individually
+     */
+    public int getSlotCount() {
+<span class="nc" id="L414">        return crewType.getCrewSlots();</span>
+    }
+
+    public int getGunnery() {
+<span class="nc" id="L418">        return gunnery[gunnerPos];</span>
+    }
+
+    public int getGunnery(int pos) {
+<span class="nc" id="L422">        return gunnery[pos];</span>
+    }
+
+    public int getGunneryL() {
+<span class="nc" id="L426">        return gunneryL[gunnerPos];</span>
+    }
+
+    public int getGunneryL(int pos) {
+<span class="nc" id="L430">        return gunneryL[pos];</span>
+    }
+
+    public int getGunneryM() {
+<span class="nc" id="L434">        return gunneryM[gunnerPos];</span>
+    }
+
+    public int getGunneryM(int pos) {
+<span class="nc" id="L438">        return gunneryM[pos];</span>
+    }
+
+    public int getGunneryB() {
+<span class="nc" id="L442">        return gunneryB[gunnerPos];</span>
+    }
+
+    public int getGunneryB(int pos) {
+<span class="nc" id="L446">        return gunneryB[pos];</span>
+    }
+
+    public int getArtillery() {
+<span class="nc" id="L450">        return artillery[gunnerPos];</span>
+    }
+
+    public int getArtillery(int pos) {
+<span class="nc" id="L454">        return artillery[pos];</span>
+    }
+
+    public int getPiloting() {
+<span class="nc" id="L458">        return piloting[pilotPos];</span>
+    }
+
+    public int getPiloting(int pos) {
+<span class="nc" id="L462">        return piloting[pos];</span>
+    }
+
+    /**
+     * LAMs use a different skill in AirMech mode depending on whether they are grounded or airborne.
+     */
+    public int getPiloting(EntityMovementType moveType) {
+<span class="nc" id="L469">        return piloting[pilotPos];</span>
+    }
+
+    /**
+     * @return a String showing the overall skills in the format gunnery/piloting
+     */
+    public String getSkillsAsString(boolean rpgSkills) {
+<span class="nc" id="L476">        return getSkillsAsString(true, rpgSkills);</span>
+    }
+
+    /**
+     * @param showPiloting if false, only the gunnery skill is shown (used for protomechs; may be ignored
+     *                     for other unit types)
+     * @return a String showing the overall skills in the format gunnery/piloting
+     */
+    public String getSkillsAsString(boolean showPiloting, boolean rpgSkills) {
+<span class="nc bnc" id="L485" title="All 2 branches missed.">        if (showPiloting) {</span>
+<span class="nc" id="L486">            return CrewSkillSummaryUtil.getPilotSkillSummary(</span>
+<span class="nc" id="L487">                    getGunnery(),</span>
+<span class="nc" id="L488">                    getGunneryL(),</span>
+<span class="nc" id="L489">                    getGunneryM(),</span>
+<span class="nc" id="L490">                    getGunneryB(),</span>
+<span class="nc" id="L491">                    getPiloting(),</span>
+                    rpgSkills);
+        } else {
+<span class="nc" id="L494">            return CrewSkillSummaryUtil.getGunnerySkillSummary(</span>
+<span class="nc" id="L495">                    getGunnery(),</span>
+<span class="nc" id="L496">                    getGunneryL(),</span>
+<span class="nc" id="L497">                    getGunneryM(),</span>
+<span class="nc" id="L498">                    getGunneryB(),</span>
+                    rpgSkills);
+        }
+    }
+
+    /**
+     * @return a String showing the skills for a particular slot in the format gunnery/piloting
+     */
+    public String getSkillsAsString(int pos, boolean rpgSkills) {
+<span class="nc" id="L507">        return getSkillsAsString(pos, true, rpgSkills);</span>
+    }
+
+    /**
+     * @param showPiloting if false, only the gunnery skill is shown (used for protomechs; may be ignored
+     *                     for other unit types)
+     * @return a String showing the skills for a particular slot in the format gunnery/piloting
+     */
+    public String getSkillsAsString(int pos, boolean showPiloting, boolean rpgSkills) {
+<span class="nc bnc" id="L516" title="All 2 branches missed.">        if (showPiloting) {</span>
+<span class="nc" id="L517">            return CrewSkillSummaryUtil.getPilotSkillSummary(</span>
+<span class="nc" id="L518">                    getGunnery(pos),</span>
+<span class="nc" id="L519">                    getGunneryL(pos),</span>
+<span class="nc" id="L520">                    getGunneryM(pos),</span>
+<span class="nc" id="L521">                    getGunneryB(pos),</span>
+<span class="nc" id="L522">                    getPiloting(pos),</span>
+                    rpgSkills);
+        } else {
+<span class="nc" id="L525">            return CrewSkillSummaryUtil.getGunnerySkillSummary(</span>
+<span class="nc" id="L526">                    getGunnery(pos),</span>
+<span class="nc" id="L527">                    getGunneryL(pos),</span>
+<span class="nc" id="L528">                    getGunneryM(pos),</span>
+<span class="nc" id="L529">                    getGunneryB(pos),</span>
+                    rpgSkills);
+        }
+    }
+
+    /**
+     * Used to determine whether the death threshold has been passed. As the crew is not dead until
+     * each crew member slot is dead, we return the lowest value.
+     *
+     * @return The damage level of the least damaged crew member.
+     */
+    public int getHits() {
+<span class="nc" id="L541">        return Arrays.stream(hits).min().orElse(0);</span>
+    }
+    
+    /**
+     * Uses the table on TO p206 to calculate the number of crew hits based on percentage
+     * of total casualties. Used for ejection, boarding actions and such
+     * @return 
+     */
+    public int calculateHits() {
+<span class="nc bnc" id="L550" title="All 2 branches missed.">        if (currentSize == 0) {</span>
+            //100% casualties
+<span class="nc" id="L552">            return 6;</span>
+        }
+<span class="nc" id="L554">        double percentage = 1 - ((double) currentSize / (double) size);</span>
+<span class="nc" id="L555">        int hits = 0;</span>
+<span class="nc bnc" id="L556" title="All 4 branches missed.">        if (percentage &gt; 0.05 &amp;&amp; percentage &lt;= 0.20) {</span>
+<span class="nc" id="L557">            hits = 1;</span>
+<span class="nc bnc" id="L558" title="All 4 branches missed.">        } else if (percentage &gt; 0.20 &amp;&amp; percentage &lt;= 0.35) {</span>
+<span class="nc" id="L559">            hits = 2;</span>
+<span class="nc bnc" id="L560" title="All 4 branches missed.">        } else if (percentage &gt; 0.35 &amp;&amp; percentage &lt;= 0.50) {</span>
+<span class="nc" id="L561">            hits = 3;</span>
+<span class="nc bnc" id="L562" title="All 4 branches missed.">        } else if (percentage &gt; 0.50 &amp;&amp; percentage &lt;= 0.65) {</span>
+<span class="nc" id="L563">            hits = 4;</span>
+<span class="nc bnc" id="L564" title="All 4 branches missed.">        } else if (percentage &gt; 0.65 &amp;&amp; percentage &lt;= 0.80) {</span>
+<span class="nc" id="L565">            hits = 5;</span>
+<span class="nc bnc" id="L566" title="All 2 branches missed.">        } else if (percentage &gt; 0.80) {</span>
+<span class="nc" id="L567">            hits = 6;</span>
+        }
+<span class="nc" id="L569">        return hits;</span>
+    }
+
+    public int getHits(int pos) {
+<span class="nc" id="L573">        return hits[pos];</span>
+    }
+
+    public int getInitBonus() {
+<span class="nc" id="L577">        return initBonus;</span>
+    }
+
+    public int getCommandBonus() {
+<span class="nc" id="L581">        return commandBonus;</span>
+    }
+
+    public void setName(String name, int pos) {
+<span class="nc" id="L585">        this.name[pos] = name;</span>
+<span class="nc" id="L586">    }</span>
+
+    public void setNickname(String nickname, int pos) {
+<span class="nc" id="L589">        this.nickname[pos] = nickname;</span>
+<span class="nc" id="L590">    }</span>
+
+    public void setGender(Gender gender, int pos) {
+<span class="nc" id="L593">        this.gender[pos] = gender;</span>
+<span class="nc" id="L594">    }</span>
+
+    /**
+     * Accessor method to set the crew size.
+     *
+     * @param newSize The new size of this crew.
+     */
+    public void setSize(int newSize) {
+<span class="nc" id="L602">        size = newSize;</span>
+<span class="nc" id="L603">    }</span>
+    
+    /**
+     * Accessor method to set the current crew size.
+     *
+     * @param newSize The new size of this crew.
+     */
+    public void setCurrentSize(int newSize) {
+<span class="nc" id="L611">        currentSize = newSize;</span>
+<span class="nc" id="L612">    }</span>
+
+    public void setGunnery(int gunnery, int pos) {
+<span class="nc" id="L615">        this.gunnery[pos] = gunnery;</span>
+<span class="nc" id="L616">    }</span>
+
+    public void setGunneryL(int gunnery, int pos) {
+<span class="nc" id="L619">        gunneryL[pos] = gunnery;</span>
+<span class="nc" id="L620">    }</span>
+
+    public void setGunneryM(int gunnery, int pos) {
+<span class="nc" id="L623">        gunneryM[pos] = gunnery;</span>
+<span class="nc" id="L624">    }</span>
+
+    public void setGunneryB(int gunnery, int pos) {
+<span class="nc" id="L627">        gunneryB[pos] = gunnery;</span>
+<span class="nc" id="L628">    }</span>
+
+    public void setArtillery(int artillery, int pos) {
+<span class="nc" id="L631">        this.artillery[pos] = artillery;</span>
+<span class="nc" id="L632">    }</span>
+
+    public void setPiloting(int piloting, int pos) {
+<span class="nc" id="L635">        this.piloting[pos] = piloting;</span>
+<span class="nc" id="L636">    }</span>
+
+    public void setHits(int hits, int pos) {
+        // Ejected pilots stop taking hits.
+<span class="nc bnc" id="L640" title="All 4 branches missed.">        if (!ejected &amp;&amp; !missing[pos]) {</span>
+<span class="nc" id="L641">            this.hits[pos] = hits;</span>
+<span class="nc bnc" id="L642" title="All 2 branches missed.">            if (hits &gt;= DEATH) {</span>
+<span class="nc" id="L643">                setDead(true, pos);</span>
+            }
+        }
+<span class="nc" id="L646">    }</span>
+
+    public void setInitBonus(int bonus) {
+<span class="nc" id="L649">        initBonus = bonus;</span>
+<span class="nc" id="L650">    }</span>
+
+    public void setCommandBonus(int bonus) {
+<span class="nc" id="L653">        commandBonus = bonus;</span>
+<span class="nc" id="L654">    }</span>
+
+    /**
+     * The crew is considered unconscious as a whole if none are active and at least one is not dead.
+     *
+     * @return Whether at least one crew member is alive but none are conscious.
+     */
+    public boolean isUnconscious() {
+<span class="nc bnc" id="L662" title="All 4 branches missed.">        return !isDead() &amp;&amp; !isActive();</span>
+    }
+
+    public boolean isUnconscious(int pos) {
+<span class="nc bnc" id="L666" title="All 6 branches missed.">        return unconscious[pos] &amp;&amp; !dead[pos] &amp;&amp; hits[pos] &lt; DEATH;</span>
+    }
+
+    public void setUnconscious(boolean unconscious) {
+<span class="nc bnc" id="L670" title="All 2 branches missed.">        for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc" id="L671">            setUnconscious(unconscious, i);</span>
+        }
+<span class="nc" id="L673">    }</span>
+
+    public void setUnconscious(boolean unconscious, int pos) {
+<span class="nc" id="L676">        this.unconscious[pos] = unconscious;</span>
+<span class="nc bnc" id="L677" title="All 2 branches missed.">        if (getSlotCount() &gt; 1) {</span>
+<span class="nc" id="L678">            activeStatusChanged();</span>
+        }
+<span class="nc" id="L680">    }</span>
+
+    /**
+     * The crew is considered dead as a whole if all members are dead.
+     *
+     * @return Whether all members of the crew are dead.
+     */
+    public boolean isDead() {
+<span class="nc bnc" id="L688" title="All 2 branches missed.">        for (int i = 0; i &lt; this.getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L689" title="All 2 branches missed.">            if (!dead[i]) {</span>
+<span class="nc" id="L690">                return false;</span>
+            }
+        }
+<span class="nc" id="L693">        return true;</span>
+    }
+
+    public boolean isDead(int pos) {
+<span class="nc" id="L697">        return dead[pos];</span>
+    }
+
+    public void setDead(boolean dead) {
+<span class="nc bnc" id="L701" title="All 2 branches missed.">        if (!ejected) {</span>
+<span class="nc bnc" id="L702" title="All 2 branches missed.">            for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc" id="L703">                setDead(dead, i);</span>
+            }
+        }
+<span class="nc" id="L706">    }</span>
+
+    public void setDead(boolean dead, int pos) {
+        // Ejected pilots stop taking hits.
+<span class="nc bnc" id="L710" title="All 4 branches missed.">        if (!ejected &amp;&amp; !missing[pos]) {</span>
+<span class="nc" id="L711">            this.dead[pos] = dead;</span>
+<span class="nc bnc" id="L712" title="All 2 branches missed.">            if (dead) {</span>
+<span class="nc" id="L713">                hits[pos] = 6;</span>
+            }
+<span class="nc bnc" id="L715" title="All 2 branches missed.">            if (getSlotCount() &gt; 1) {</span>
+<span class="nc" id="L716">                activeStatusChanged();</span>
+            }
+        }
+<span class="nc" id="L719">    }</span>
+
+    /**
+     * @return Whether the unit was fielded without a crew member in the slot.
+     */
+    public boolean isMissing(int pos) {
+<span class="nc" id="L725">        return missing[pos];</span>
+    }
+
+    /**
+     * Allows a unit with a multi-crew cockpit to fielded with less than a full crew. Does not apply
+     * to collective crew (vehicles, infantry, large craft).
+     */
+    public void setMissing(boolean missing, int pos) {
+<span class="nc" id="L733">        this.missing[pos] = missing;</span>
+<span class="nc" id="L734">        activeStatusChanged();</span>
+<span class="nc" id="L735">    }</span>
+
+    /**
+     * Doomed status only applies to the crew as a whole.
+     *
+     * @return Whether the crew is scheduled to die at the end of the phase.
+     */
+    public boolean isDoomed() {
+<span class="nc" id="L743">        return doomed;</span>
+    }
+
+    /**
+     * Doomed status only applies to the crew as a whole.
+     *
+     * @param doomed Whether the crew is scheduled to die at the end of the phase.
+     */
+    public void setDoomed(boolean doomed) {
+        // Ejected pilots stop taking hits.
+<span class="nc bnc" id="L753" title="All 2 branches missed.">        if (!ejected) {</span>
+<span class="nc" id="L754">            this.doomed = doomed;</span>
+<span class="nc bnc" id="L755" title="All 2 branches missed.">            if (doomed) {</span>
+<span class="nc bnc" id="L756" title="All 2 branches missed.">                for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc" id="L757">                    hits[i] = 6;</span>
+                }
+            }
+        }
+<span class="nc" id="L761">    }</span>
+
+    /**
+     * The crew as a whole is considered active if any member is active.
+     *
+     * @return Whether the crew has at least one active member.
+     */
+    public boolean isActive() {
+<span class="nc bnc" id="L769" title="All 2 branches missed.">        for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L770" title="All 2 branches missed.">            if (isActive(i)) {</span>
+<span class="nc" id="L771">                return true;</span>
+            }
+        }
+<span class="nc" id="L774">        return false;</span>
+    }
+
+    public boolean isActive(int pos) {
+<span class="nc bnc" id="L778" title="All 6 branches missed.">        return !unconscious[pos] &amp;&amp; !dead[pos] &amp;&amp; !missing[pos];</span>
+    }
+
+    /**
+     * The crew as a whole is considered ko this round if all active members are ko this round.
+     *
+     * @return true if all active members of the crew as knocked out this round
+     */
+    public boolean isKoThisRound() {
+<span class="nc bnc" id="L787" title="All 2 branches missed.">        for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L788" title="All 4 branches missed.">            if (isActive(i) &amp;&amp; !koThisRound[i]) {</span>
+<span class="nc" id="L789">                return false;</span>
+            }
+        }
+<span class="nc" id="L792">        return true;</span>
+    }
+
+    public boolean isKoThisRound(int pos) {
+<span class="nc" id="L796">        return koThisRound[pos];</span>
+    }
+
+    /**
+     * Set ko value for all slots.
+     *
+     * @param koThisRound Whether the crew will go unconscious during this round.
+     */
+    public void setKoThisRound(boolean koThisRound) {
+<span class="nc" id="L805">        Arrays.fill(this.koThisRound, koThisRound);</span>
+<span class="nc" id="L806">    }</span>
+
+    public void setKoThisRound(boolean koThisRound, int pos) {
+<span class="nc" id="L809">        this.koThisRound[pos] = koThisRound;</span>
+<span class="nc" id="L810">    }</span>
+
+    public void setOptions(PilotOptions options) {
+<span class="nc" id="L813">        this.options = options;</span>
+<span class="nc" id="L814">    }</span>
+
+    public PilotOptions getOptions() {
+<span class="nc" id="L817">        return options;</span>
+    }
+
+    public void clearOptions(String grpKey) {
+<span class="nc bnc" id="L821" title="All 2 branches missed.">        for (Enumeration&lt;IOptionGroup&gt; i = options.getGroups(); i.hasMoreElements(); ) {</span>
+<span class="nc" id="L822">            IOptionGroup group = i.nextElement();</span>
+
+<span class="nc bnc" id="L824" title="All 2 branches missed.">            if (!group.getKey().equalsIgnoreCase(grpKey)) {</span>
+<span class="nc" id="L825">                continue;</span>
+            }
+
+<span class="nc bnc" id="L828" title="All 2 branches missed.">            for (Enumeration&lt;IOption&gt; j = group.getOptions(); j.hasMoreElements(); ) {</span>
+<span class="nc" id="L829">                IOption option = j.nextElement();</span>
+
+<span class="nc" id="L831">                option.clearValue();</span>
+<span class="nc" id="L832">            }</span>
+<span class="nc" id="L833">        }</span>
+
+<span class="nc" id="L835">    }</span>
+
+    public int countOptions() {
+<span class="nc" id="L838">        return options.count();</span>
+    }
+
+    public int countOptions(String grpKey) {
+<span class="nc" id="L842">        return options.count(grpKey);</span>
+    }
+
+    /**
+     * Returns the options of the given category that this pilot has
+     */
+    public Enumeration&lt;IOption&gt; getOptions(String grpKey) {
+<span class="nc bnc" id="L849" title="All 2 branches missed.">        for (Enumeration&lt;IOptionGroup&gt; i = options.getGroups(); i.hasMoreElements(); ) {</span>
+<span class="nc" id="L850">            IOptionGroup group = i.nextElement();</span>
+
+<span class="nc bnc" id="L852" title="All 2 branches missed.">            if (group.getKey().equalsIgnoreCase(grpKey)) {</span>
+<span class="nc" id="L853">                return group.getOptions();</span>
+            }
+<span class="nc" id="L855">        }</span>
+
+        // no pilot advantages -- return an empty Enumeration
+<span class="nc" id="L858">        return new Vector&lt;IOption&gt;().elements();</span>
+    }
+
+    /**
+     * Returns a string of all the option &quot;codes&quot; for this pilot, for a given
+     * group, using sep as the separator
+     */
+    public String getOptionList(String sep, String grpKey) {
+<span class="nc" id="L866">        return options.getOptionListString(sep, grpKey);</span>
+    }
+
+    // Helper function to reverse getAdvantageList() above
+    public static String parseAdvantageName(String s) {
+<span class="nc" id="L871">        s = s.trim();</span>
+<span class="nc" id="L872">        int index = s.indexOf(&quot; &quot;);</span>
+<span class="nc bnc" id="L873" title="All 2 branches missed.">        if (index == -1) {</span>
+<span class="nc" id="L874">            index = s.length();</span>
+        }
+<span class="nc" id="L876">        return s.substring(0, index);</span>
+    }
+
+    // Helper function to reverse getAdvantageList() above
+    public static Object parseAdvantageValue(String s) {
+<span class="nc" id="L881">        s = s.trim();</span>
+<span class="nc" id="L882">        int index = s.indexOf(&quot; &quot;);</span>
+<span class="nc bnc" id="L883" title="All 2 branches missed.">        if (index == -1) {</span>
+<span class="nc" id="L884">            return Boolean.TRUE;</span>
+        }
+<span class="nc" id="L886">        String t = s.substring(index + 1);</span>
+        Object result;
+        try {
+<span class="nc" id="L889">            result = Integer.valueOf(t);</span>
+<span class="nc" id="L890">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L891">            result = t;</span>
+<span class="nc" id="L892">        } // try-catch</span>
+<span class="nc" id="L893">        return result;</span>
+    }
+
+    /**
+     * Overall crew description, using the name of the first crew member in the case of multi-crew cockpits.
+     */
+    public String getDesc() {
+<span class="nc" id="L900">        return getDesc(0);</span>
+    }
+
+    public String getDesc(int pos) {
+<span class="nc bnc" id="L904" title="All 2 branches missed.">        if (isMissing(pos)) {</span>
+<span class="nc" id="L905">            return &quot;[missing]&quot;;</span>
+        }
+<span class="nc" id="L907">        String s = name[pos];</span>
+<span class="nc bnc" id="L908" title="All 2 branches missed.">        if (hits[pos] &gt; 0) {</span>
+<span class="nc" id="L909">            s += &quot; (&quot; + hits[pos] + &quot; hit(s)&quot;;</span>
+<span class="nc bnc" id="L910" title="All 2 branches missed.">            if (isUnconscious(pos)) {</span>
+<span class="nc" id="L911">                s += &quot; [ko]&quot;;</span>
+<span class="nc bnc" id="L912" title="All 2 branches missed.">            } else if (isDead(pos)) {</span>
+<span class="nc" id="L913">                s += &quot; [dead]&quot;;</span>
+            }
+<span class="nc" id="L915">            s += &quot;)&quot;;</span>
+<span class="nc bnc" id="L916" title="All 2 branches missed.">        } else if (isUnconscious(pos)) {</span>
+<span class="nc" id="L917">            s += &quot; [ko]&quot;;</span>
+<span class="nc bnc" id="L918" title="All 2 branches missed.">        } else if (isDead(pos)) {</span>
+<span class="nc" id="L919">            s += &quot; [dead]&quot;;</span>
+        }
+<span class="nc" id="L921">        return s;</span>
+    }
+
+    /**
+     * Crew summary report used for victory phase.
+     *
+     * @param gunneryOnly Do not show the piloting skill
+     */
+    public Vector&lt;Report&gt; getDescVector(boolean gunneryOnly) {
+<span class="nc" id="L930">        Vector&lt;Report&gt; vDesc = new Vector&lt;&gt;();</span>
+        Report r;
+
+<span class="nc bnc" id="L933" title="All 2 branches missed.">        for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L934" title="All 2 branches missed.">            if (missing[i]) {</span>
+<span class="nc" id="L935">                continue;</span>
+            }
+<span class="nc" id="L937">            r = new Report();</span>
+<span class="nc" id="L938">            r.type = Report.PUBLIC;</span>
+<span class="nc" id="L939">            r.add(name[i]);</span>
+<span class="nc bnc" id="L940" title="All 2 branches missed.">            if (getSlotCount() &gt; 1) {</span>
+<span class="nc" id="L941">                r.add(&quot; (&quot; + crewType.getRoleName(i) + &quot;)&quot;);</span>
+            }
+<span class="nc bnc" id="L943" title="All 2 branches missed.">            if (gunneryOnly) {</span>
+<span class="nc" id="L944">                r.messageId = 7050;</span>
+<span class="nc" id="L945">                r.add(getGunnery(i));</span>
+            } else {
+<span class="nc" id="L947">                r.messageId = 7045;</span>
+<span class="nc" id="L948">                r.add(getGunnery(i));</span>
+<span class="nc" id="L949">                r.add(getPiloting(i));</span>
+            }
+
+<span class="nc bnc" id="L952" title="All 6 branches missed.">            if ((hits[i] &gt; 0) || isUnconscious(i) || isDead(i)) {</span>
+<span class="nc" id="L953">                Report r2 = new Report();</span>
+<span class="nc" id="L954">                r2.type = Report.PUBLIC;</span>
+<span class="nc bnc" id="L955" title="All 2 branches missed.">                if (hits[i] &gt; 0) {</span>
+<span class="nc" id="L956">                    r2.messageId = 7055;</span>
+<span class="nc" id="L957">                    r2.add(hits[i]);</span>
+<span class="nc bnc" id="L958" title="All 2 branches missed.">                    if (isUnconscious(i)) {</span>
+<span class="nc" id="L959">                        r2.messageId = 7060;</span>
+<span class="nc" id="L960">                        r2.choose(true);</span>
+<span class="nc bnc" id="L961" title="All 2 branches missed.">                    } else if (isDead(i)) {</span>
+<span class="nc" id="L962">                        r2.messageId = 7060;</span>
+<span class="nc" id="L963">                        r2.choose(false);</span>
+                    }
+<span class="nc bnc" id="L965" title="All 2 branches missed.">                } else if (isUnconscious(i)) {</span>
+<span class="nc" id="L966">                    r2.messageId = 7065;</span>
+<span class="nc" id="L967">                    r2.choose(true);</span>
+<span class="nc bnc" id="L968" title="All 2 branches missed.">                } else if (isDead(i)) {</span>
+<span class="nc" id="L969">                    r2.messageId = 7065;</span>
+<span class="nc" id="L970">                    r2.choose(false);</span>
+                }
+<span class="nc" id="L972">                r.newlines = 0;</span>
+<span class="nc" id="L973">                vDesc.addElement(r);</span>
+<span class="nc" id="L974">                vDesc.addElement(r2);</span>
+<span class="nc" id="L975">            } else {</span>
+<span class="nc" id="L976">                vDesc.addElement(r);</span>
+            }
+        }
+<span class="nc" id="L979">        return vDesc;</span>
+    }
+
+    /**
+     * Returns whether this pilot has non-standard piloting or gunnery values
+     */
+    public boolean isCustom() {
+<span class="nc bnc" id="L986" title="All 4 branches missed.">        return (getGunnery() != 4) || (getPiloting() != 5);</span>
+    }
+
+    /**
+     * Returns the BV multiplier for this pilot's gunnery/piloting
+     *
+     * @param game the game to use to determine the modifier
+     */
+    public double getBVSkillMultiplier(IGame game) {
+<span class="nc" id="L995">        return getBVSkillMultiplier(true, game);</span>
+    }
+
+    /**
+     * Returns the BV multiplier for this pilot's gunnery/piloting
+     *
+     * @param usePiloting whether or not to use the default value non-anti-mech
+     *                    infantry/BA should not use the anti-mech skill
+     * @param game the game to use to determine the modifier
+     */
+    public double getBVSkillMultiplier(boolean usePiloting, IGame game) {
+<span class="nc" id="L1006">        int pilotVal = getPiloting();</span>
+<span class="nc bnc" id="L1007" title="All 2 branches missed.">        if (!usePiloting) {</span>
+<span class="nc" id="L1008">            pilotVal = 5;</span>
+        }
+<span class="nc" id="L1010">        return getBVImplantMultiplier() * getBVSkillMultiplier(getGunnery(), pilotVal, game);</span>
+    }
+
+    public double getBVImplantMultiplier() {
+
+        // get highest level
+<span class="nc" id="L1016">        int level = 1;</span>
+<span class="nc bnc" id="L1017" title="All 2 branches missed.">        if (options.booleanOption(OptionsConstants.MD_PAIN_SHUNT)) {</span>
+<span class="nc" id="L1018">            level = 2;</span>
+        }
+<span class="nc bnc" id="L1020" title="All 2 branches missed.">        if (options.booleanOption(OptionsConstants.MD_VDNI)) {</span>
+<span class="nc" id="L1021">            level = 3;</span>
+        }
+<span class="nc bnc" id="L1023" title="All 2 branches missed.">        if (options.booleanOption(OptionsConstants.MD_BVDNI)) {</span>
+<span class="nc" id="L1024">            level = 5;</span>
+        }
+
+<span class="nc" id="L1027">        return (level / 4.0) + 0.75;</span>
+
+    }
+
+    /**
+     * Returns the BV multiplier for a pilots gunnery/piloting. This function is
+     * static to evaluate the BV of a unit, even when they have not yet been
+     * assigned a pilot.
+     *
+     * @param gunnery  the gunnery skill of the pilot
+     * @param piloting the piloting skill of the pilot
+     * @return a multiplier to the BV of whatever unit the pilot is piloting.
+     */
+    public static double getBVSkillMultiplier(int gunnery, int piloting) {
+<span class="nc" id="L1041">        return getBVSkillMultiplier(gunnery, piloting, null);</span>
+    }
+
+    public static double getBVSkillMultiplier(int gunnery, int piloting, IGame game) {
+<span class="nc bnc" id="L1045" title="All 4 branches missed.">        if ((game != null) &amp;&amp; game.getOptions().booleanOption(OptionsConstants.ADVANCED_ALTERNATE_PILOT_BV_MOD)) {</span>
+<span class="nc" id="L1046">            return alternateBvMod[Math.max(Math.min(8, gunnery), 0)][Math.max(Math.min(8, piloting), 0)];</span>
+        }
+<span class="nc" id="L1048">        return bvMod[Math.max(Math.min(8, gunnery), 0)][Math.max(Math.min(8, piloting), 0)];</span>
+    }
+
+    public boolean hasEdgeRemaining() {
+<span class="nc bnc" id="L1052" title="All 2 branches missed.">        return (getOptions().intOption(OptionsConstants.EDGE) &gt; 0);</span>
+    }
+
+    public void decreaseEdge() {
+<span class="nc" id="L1056">        IOption edgeOption = getOptions().getOption(OptionsConstants.EDGE);</span>
+<span class="nc" id="L1057">        edgeOption.setValue((Integer) edgeOption.getValue() - 1);</span>
+<span class="nc" id="L1058">    }</span>
+
+    /**
+     * Determine if this pilot has abandoned her vehicle.
+     *
+     * @return &lt;code&gt;true&lt;/code&gt; if the pilot has abandoned her vehicle,
+     * &lt;code&gt;false&lt;/code&gt; if the pilot is still in the vehicle.
+     */
+    public boolean isEjected() {
+<span class="nc" id="L1067">        return ejected;</span>
+    }
+
+    /**
+     * Specify if this pilot has abandoned her vehicle.
+     *
+     * @param abandoned the &lt;code&gt;boolean&lt;/code&gt; value to set.
+     */
+    public void setEjected(boolean abandoned) {
+<span class="nc" id="L1076">        ejected = abandoned;</span>
+<span class="nc" id="L1077">    }</span>
+
+    /**
+     * for sensor ops, so these might be easily expanded later for rpg
+     */
+    public int getSensorOps() {
+<span class="nc bnc" id="L1083" title="All 2 branches missed.">        if (getPiloting() &gt; -1) {</span>
+<span class="nc" id="L1084">            return getPiloting();</span>
+        }
+<span class="nc" id="L1086">        return getGunnery();</span>
+    }
+
+    private int getPilotingFatigueTurn() {
+<span class="nc" id="L1090">        int turn = 20;</span>
+<span class="nc bnc" id="L1091" title="All 2 branches missed.">        if (getPiloting() &gt; 5) {</span>
+<span class="nc" id="L1092">            turn = 10;</span>
+<span class="nc bnc" id="L1093" title="All 2 branches missed.">        } else if (getPiloting() &gt; 3) {</span>
+<span class="nc" id="L1094">            turn = 14;</span>
+<span class="nc bnc" id="L1095" title="All 2 branches missed.">        } else if (getPiloting() &gt; 1) {</span>
+<span class="nc" id="L1096">            turn = 17;</span>
+        }
+
+        // get fatigue point modifiers
+<span class="nc" id="L1100">        int mod = (int) Math.min(Math.max(0, Math.ceil(fatigue / 4.0) - 1), 4);</span>
+<span class="nc" id="L1101">        turn = turn - mod;</span>
+
+<span class="nc" id="L1103">        return turn;</span>
+    }
+
+    public boolean isPilotingFatigued() {
+<span class="nc bnc" id="L1107" title="All 2 branches missed.">        return fatigueCount &gt;= getPilotingFatigueTurn();</span>
+    }
+
+    private int getGunneryFatigueTurn() {
+<span class="nc" id="L1111">        int turn = 20;</span>
+<span class="nc bnc" id="L1112" title="All 2 branches missed.">        if (getPiloting() &gt; 5) {</span>
+<span class="nc" id="L1113">            turn = 14;</span>
+<span class="nc bnc" id="L1114" title="All 2 branches missed.">        } else if (getPiloting() &gt; 3) {</span>
+<span class="nc" id="L1115">            turn = 17;</span>
+        }
+
+        // get fatigue point modifiers
+<span class="nc" id="L1119">        int mod = (int) Math.min(Math.max(0, Math.ceil(fatigue / 4.0) - 1), 4);</span>
+<span class="nc" id="L1120">        turn = turn - mod;</span>
+
+<span class="nc" id="L1122">        return turn;</span>
+
+    }
+
+    public boolean isGunneryFatigued() {
+<span class="nc bnc" id="L1127" title="All 2 branches missed.">        if (getPiloting() &lt; 2) {</span>
+<span class="nc" id="L1128">            return false;</span>
+        }
+<span class="nc bnc" id="L1130" title="All 2 branches missed.">        return fatigueCount &gt;= getGunneryFatigueTurn();</span>
+    }
+
+    /**
+     * @return A description of the status of a single crew member
+     */
+    public String getStatusDesc(int pos) {
+<span class="nc bnc" id="L1137" title="All 2 branches missed.">        if (isMissing(pos)) {</span>
+<span class="nc" id="L1138">            return &quot;Missing&quot;;</span>
+        }
+<span class="nc" id="L1140">        String s = &quot;&quot;;</span>
+<span class="nc bnc" id="L1141" title="All 2 branches missed.">        if (getHits(pos) &gt; 0) {</span>
+<span class="nc" id="L1142">            s += hits[pos] + &quot; hits&quot;;</span>
+<span class="nc bnc" id="L1143" title="All 2 branches missed.">            if (isUnconscious(pos)) {</span>
+<span class="nc" id="L1144">                s += &quot; (KO)&quot;;</span>
+<span class="nc bnc" id="L1145" title="All 2 branches missed.">            } else if (isDead(pos)) {</span>
+<span class="nc" id="L1146">                s += &quot; (dead)&quot;;</span>
+            }
+        }
+<span class="nc" id="L1149">        return s;</span>
+    }
+
+    public void setExternalIdAsString(String i, int pos) {
+<span class="nc" id="L1153">        externalId[pos] = i;</span>
+<span class="nc" id="L1154">    }</span>
+
+    public String getExternalIdAsString(int pos) {
+<span class="nc bnc" id="L1157" title="All 2 branches missed.">        if (pos &lt; externalId.length) {</span>
+<span class="nc" id="L1158">            return externalId[pos];</span>
+        } else {
+<span class="nc" id="L1160">            return &quot;-1&quot;;</span>
+        }
+    }
+
+    /**
+     * Use the first assigned slot as a general id for the crew.
+     *
+     * @return The id of the first slot that is not set to &quot;-1&quot;
+     */
+    public String getExternalIdAsString() {
+<span class="nc bnc" id="L1170" title="All 2 branches missed.">        for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L1171" title="All 2 branches missed.">            if (!externalId[i].equals(&quot;-1&quot;)) {</span>
+<span class="nc" id="L1172">                return externalId[i];</span>
+            }
+        }
+<span class="nc" id="L1175">        return &quot;-1&quot;;</span>
+    }
+
+    public int getExternalId(int pos) {
+<span class="nc" id="L1179">        return Integer.parseInt(externalId[pos]);</span>
+    }
+
+    public AbstractIcon getPortrait(int pos) {
+<span class="nc" id="L1183">        return new Portrait(getPortraitCategory(pos), getPortraitFileName(pos));</span>
+    }
+
+    public void setPortraitCategory(String name, int pos) {
+<span class="nc" id="L1187">        portraitCategory[pos] = name;</span>
+<span class="nc" id="L1188">    }</span>
+
+    public String getPortraitCategory(int pos) {
+<span class="nc" id="L1191">        return portraitCategory[pos];</span>
+    }
+
+    public void setPortraitFileName(String name, int pos) {
+<span class="nc" id="L1195">        portraitFileName[pos] = name;</span>
+<span class="nc" id="L1196">    }</span>
+
+    public String getPortraitFileName(int pos) {
+<span class="nc bnc" id="L1199" title="All 2 branches missed.">        if (portraitFileName.length &gt; pos) {</span>
+<span class="nc" id="L1200">            return portraitFileName[pos];</span>
+        } else {
+<span class="nc" id="L1202">            return AbstractIcon.DEFAULT_ICON_FILENAME;</span>
+        }
+    }
+
+    public int getToughness(int pos) {
+<span class="nc" id="L1207">        return toughness[pos];</span>
+    }
+
+    public void setToughness(int t, int pos) {
+<span class="nc" id="L1211">        toughness[pos] = t;</span>
+<span class="nc" id="L1212">    }</span>
+
+    public int getFatigue() {
+<span class="nc" id="L1215">        return fatigue;</span>
+    }
+
+    public void setFatigue(int i) {
+<span class="nc" id="L1219">        fatigue = i;</span>
+<span class="nc" id="L1220">    }</span>
+
+    public void incrementFatigueCount() {
+<span class="nc" id="L1223">        fatigueCount++;</span>
+<span class="nc" id="L1224">    }</span>
+
+    /**
+     * Sets crew state fields back to defaults. Used by MekHQ to clear game state.
+     */
+    public void resetGameState() {
+<span class="nc" id="L1230">        fatigueCount = 0;</span>
+<span class="nc" id="L1231">        doomed = false;</span>
+<span class="nc" id="L1232">        ejected = false;</span>
+<span class="nc bnc" id="L1233" title="All 2 branches missed.">        for (int i = 0; i &lt; crewType.getCrewSlots(); i++) {</span>
+<span class="nc" id="L1234">            unconscious[i] = false;</span>
+<span class="nc" id="L1235">            dead[i] = false;</span>
+<span class="nc" id="L1236">            missing[i] = false;</span>
+        }
+<span class="nc" id="L1238">    }</span>
+
+    public int rollGunnerySkill() {
+<span class="nc bnc" id="L1241" title="All 2 branches missed.">        if (getOptions().booleanOption(OptionsConstants.PILOT_APTITUDE_GUNNERY)) {</span>
+<span class="nc" id="L1242">            return Compute.d6(3, 2);</span>
+        }
+
+<span class="nc" id="L1245">        return Compute.d6(2);</span>
+    }
+
+    public int rollPilotingSkill() {
+<span class="nc bnc" id="L1249" title="All 2 branches missed.">        if (getOptions().booleanOption(OptionsConstants.PILOT_APTITUDE_PILOTING)) {</span>
+<span class="nc" id="L1250">            return Compute.d6(3, 2);</span>
+        }
+
+<span class="nc" id="L1253">        return Compute.d6(2);</span>
+    }
+
+    public int getCurrentPilotIndex() {
+<span class="nc" id="L1257">        return pilotPos;</span>
+    }
+
+    public int getCurrentGunnerIndex() {
+<span class="nc" id="L1261">        return gunnerPos;</span>
+    }
+
+    public int getBackupPilotPos() {
+<span class="nc" id="L1265">        return backupPilot;</span>
+    }
+
+    public void setBackupPilotPos(int pos) {
+<span class="nc" id="L1269">        backupPilot = pos;</span>
+<span class="nc" id="L1270">    }</span>
+
+    public int getBackupGunnerPos() {
+<span class="nc" id="L1273">        return backupGunner;</span>
+    }
+
+    public void setBackupGunnerPos(int pos) {
+<span class="nc" id="L1277">        backupGunner = pos;</span>
+<span class="nc" id="L1278">    }</span>
+
+    /**
+     * Set the pilot slot. If a multicrew cockpit uses the same crew member as both pilot and gunner
+     * (i.e. cockpit command console), sets the gunner as well.
+     *
+     * @param pos The slot index to set as pilot.
+     */
+    public void setCurrentPilot(int pos) {
+<span class="nc" id="L1287">        pilotPos = pos;</span>
+<span class="nc bnc" id="L1288" title="All 2 branches missed.">        if (crewType.getPilotPos() == crewType.getGunnerPos()) {</span>
+<span class="nc" id="L1289">            gunnerPos = pos;</span>
+        }
+<span class="nc" id="L1291">        actedThisTurn[pos] = true;</span>
+<span class="nc" id="L1292">    }</span>
+
+    /**
+     * Called when the active status of a crew slot changes in a unit with a multi-crew cockpit.
+     * If a pilot or gunner is incapacitated, someone else must take over the duties.
+     * A pilot or gunner that wakes up will resume normal duties.
+     */
+    private void activeStatusChanged() {
+        //Cockpit command console can be swapped deliberately by the player and should not be changed
+        //automatically unless the current pilot becomes inactive.
+<span class="nc bnc" id="L1302" title="All 2 branches missed.">        if (crewType.equals(CrewType.COMMAND_CONSOLE)</span>
+<span class="nc bnc" id="L1303" title="All 2 branches missed.">                &amp;&amp; isActive(getCurrentPilotIndex())) {</span>
+<span class="nc" id="L1304">            return;</span>
+        }
+        //Start by checking whether the default pilot is available. If not, check the designated backup.
+        //If still not available, select the first active slot. If none are active, it does not matter
+        //which slot is designated and the value is not changed.
+<span class="nc bnc" id="L1309" title="All 2 branches missed.">        if (isActive(crewType.getPilotPos())) {</span>
+<span class="nc" id="L1310">            pilotPos = crewType.getPilotPos();</span>
+<span class="nc bnc" id="L1311" title="All 2 branches missed.">        } else if (isActive(backupPilot)) {</span>
+<span class="nc" id="L1312">            pilotPos = backupPilot;</span>
+        } else {
+<span class="nc bnc" id="L1314" title="All 2 branches missed.">            for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L1315" title="All 2 branches missed.">                if (isActive(i)) {</span>
+<span class="nc" id="L1316">                    pilotPos = i;</span>
+<span class="nc" id="L1317">                    break;</span>
+                }
+            }
+        }
+<span class="nc bnc" id="L1321" title="All 2 branches missed.">        if (isActive(crewType.getGunnerPos())) {</span>
+<span class="nc" id="L1322">            gunnerPos = crewType.getGunnerPos();</span>
+<span class="nc bnc" id="L1323" title="All 2 branches missed.">        } else if (isActive(backupGunner)) {</span>
+<span class="nc" id="L1324">            gunnerPos = backupGunner;</span>
+        } else {
+<span class="nc bnc" id="L1326" title="All 2 branches missed.">            for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L1327" title="All 2 branches missed.">                if (isActive(i)) {</span>
+<span class="nc" id="L1328">                    gunnerPos = i;</span>
+<span class="nc" id="L1329">                    break;</span>
+                }
+            }
+        }
+<span class="nc" id="L1333">    }</span>
+
+    /**
+     * When assigning skills randomly, we want to make sure the skills are assigned to the most
+     * appropriate position in crews where the pilot and gunner are separate.
+     * We're going to do it the simpler way and reassign the piloting and gunnery
+     * skills individually, resulting in a more specialized crew.
+     */
+    public void sortRandomSkills() {
+<span class="nc bnc" id="L1342" title="All 4 branches missed.">        if (crewType.getCrewSlots() &lt; 2 || crewType.getPilotPos() == crewType.getGunnerPos()) {</span>
+<span class="nc" id="L1343">            return;</span>
+        }
+<span class="nc" id="L1345">        int lowest = MAX_SKILL;</span>
+<span class="nc" id="L1346">        int pos = -1;</span>
+<span class="nc bnc" id="L1347" title="All 2 branches missed.">        if (!missing[crewType.getPilotPos()]) {</span>
+<span class="nc bnc" id="L1348" title="All 2 branches missed.">            for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L1349" title="All 2 branches missed.">                if (piloting[i] &lt; lowest) {</span>
+<span class="nc" id="L1350">                    lowest = piloting[i];</span>
+<span class="nc" id="L1351">                    pos = i;</span>
+                }
+            }
+<span class="nc bnc" id="L1354" title="All 2 branches missed.">            if (pos &gt;= 0) {</span>
+<span class="nc" id="L1355">                piloting[pos] = piloting[crewType.getPilotPos()];</span>
+<span class="nc" id="L1356">                piloting[crewType.getPilotPos()] = lowest;</span>
+            }
+        }
+<span class="nc" id="L1359">        lowest = MAX_SKILL;</span>
+<span class="nc" id="L1360">        pos = -1;</span>
+<span class="nc bnc" id="L1361" title="All 2 branches missed.">        if (!missing[crewType.getGunnerPos()]) {</span>
+<span class="nc bnc" id="L1362" title="All 2 branches missed.">            for (int i = 0; i &lt; getSlotCount(); i++) {</span>
+<span class="nc bnc" id="L1363" title="All 2 branches missed.">                if (gunnery[i] &lt; lowest) {</span>
+<span class="nc" id="L1364">                    lowest = gunnery[i];</span>
+<span class="nc" id="L1365">                    pos = i;</span>
+                }
+            }
+<span class="nc bnc" id="L1368" title="All 2 branches missed.">            if (pos &gt;= 0) {</span>
+<span class="nc" id="L1369">                gunnery[pos] = gunnery[crewType.getGunnerPos()];</span>
+<span class="nc" id="L1370">                gunnery[crewType.getGunnerPos()] = lowest;</span>
+            }
+        }
+<span class="nc" id="L1373">    }</span>
+
+    /**
+     * Tripods and QuadVees get special benefits if the dedicated pilot is active.
+     *
+     * @return Whether a Mek has a separate pilot who is active.
+     */
+    public boolean hasDedicatedPilot() {
+<span class="nc bnc" id="L1381" title="All 2 branches missed.">        return isActive(crewType.getPilotPos())</span>
+<span class="nc bnc" id="L1382" title="All 2 branches missed.">                &amp;&amp; crewType.getGunnerPos() != crewType.getPilotPos();</span>
+    }
+
+    /**
+     * Tripods and QuadVees get special benefits if the dedicated gunner is active.
+     *
+     * @return Whether a Mek has a separate gunner who is active.
+     */
+    public boolean hasDedicatedGunner() {
+<span class="nc bnc" id="L1391" title="All 2 branches missed.">        return isActive(crewType.getGunnerPos())</span>
+<span class="nc bnc" id="L1392" title="All 2 branches missed.">                &amp;&amp; crewType.getGunnerPos() != crewType.getPilotPos();</span>
+    }
+
+    /**
+     * Super heavy tripods gain benefits from having a technical officer.
+     *
+     * @return Whether the tech officer is alive and conscious.
+     */
+    public boolean hasActiveTechOfficer() {
+<span class="nc bnc" id="L1401" title="All 4 branches missed.">        return crewType.getTechPos() &gt; 0 &amp;&amp; isActive(crewType.getTechPos());</span>
+    }
+
+    /**
+     * Cockpit command console provides commander init bonus if both crew members are active
+     * (also requires advanced fire control and heavy/assault unit, which is not checked here).
+     * Though the positions are named &quot;pilot&quot; and &quot;commander&quot; they can switch positions in the end
+     * phase of any turn so we need to check whichever is not currently acting as pilot.
+     *
+     * @return Whether the unit has a commander that is not also acting as pilot currently or in the previous turn.
+     */
+    public boolean hasActiveCommandConsole() {
+<span class="nc" id="L1413">        int commandPos = 1 - getCurrentPilotIndex();</span>
+<span class="nc bnc" id="L1414" title="All 6 branches missed.">        return crewType.equals(CrewType.COMMAND_CONSOLE) &amp;&amp; isActive(commandPos) &amp;&amp; !actedThisTurn[commandPos];</span>
+    }
+
+    /**
+     * Called after the initiative bonus for the round has been calculated.
+     */
+    public void resetActedFlag() {
+<span class="nc" id="L1421">        Arrays.fill(actedThisTurn, false);</span>
+<span class="nc" id="L1422">        actedThisTurn[getCurrentPilotIndex()] = true;</span>
+<span class="nc" id="L1423">        actedThisTurn[getCurrentGunnerIndex()] = true;</span>
+<span class="nc" id="L1424">    }</span>
+
+    /**
+     * @return Whether the crew members in a command console-equipped unit are scheduled to swap roles at
+     * the end of the turn.
+     */
+    public boolean getSwapConsoleRoles() {
+<span class="nc" id="L1431">        return swapConsoleRoles;</span>
+    }
+
+    /**
+     * Schedules or clears a scheduled swap of roles in a command console-equipped unit.
+     *
+     * @param swap true for crew slots in a command console to swap roles at the end of the turn,
+     *             otherwise false
+     */
+    public void setSwapConsoleRoles(boolean swap) {
+<span class="nc" id="L1441">        swapConsoleRoles = swap;</span>
+<span class="nc" id="L1442">    }</span>
+
+    /**
+     * Checks whether a role swap is scheduled for a command-console equipped unit and (if the new pilot
+     * is active) performs the swap. The swap flag is cleared regardless of whether a swap took place.
+     *
+     * @return True if a swap was performed, otherwise false.
+     */
+    public boolean doConsoleRoleSwap() {
+<span class="nc bnc" id="L1451" title="All 4 branches missed.">        if (swapConsoleRoles &amp;&amp; crewType.equals(CrewType.COMMAND_CONSOLE)) {</span>
+<span class="nc" id="L1452">            int newPilotIndex = 1 - getCurrentPilotIndex();</span>
+<span class="nc bnc" id="L1453" title="All 2 branches missed.">            if (isActive(newPilotIndex)) {</span>
+<span class="nc" id="L1454">                setCurrentPilot(newPilotIndex);</span>
+<span class="nc" id="L1455">                swapConsoleRoles = false;</span>
+<span class="nc" id="L1456">                return true;</span>
+            }
+        }
+<span class="nc" id="L1459">        swapConsoleRoles = false;</span>
+<span class="nc" id="L1460">        return false;</span>
+    }
+
+    //region extraData
+    public void setExtraData(Map&lt;Integer, Map&lt;String, String&gt;&gt; extraData) {
+<span class="nc" id="L1465">        this.extraData = extraData;</span>
+<span class="nc" id="L1466">    }</span>
+
+    public void setExtraDataForCrewMember(int crewIndex, Map&lt;String, String&gt; dataMap) {
+<span class="nc bnc" id="L1469" title="All 2 branches missed.">        if (this.extraData == null) {</span>
+<span class="nc" id="L1470">            this.extraData = new HashMap&lt;&gt;();</span>
+        }
+
+<span class="nc" id="L1473">        this.extraData.put(crewIndex, dataMap);</span>
+<span class="nc" id="L1474">    }</span>
+
+    public Map&lt;Integer, Map&lt;String, String&gt;&gt; getExtraData() {
+<span class="nc" id="L1477">        return extraData;</span>
+    }
+
+    public Map&lt;String, String&gt; getExtraDataForCrewMember(int crewIndex) {
+<span class="nc bnc" id="L1481" title="All 2 branches missed.">        if (this.extraData == null) {</span>
+<span class="nc" id="L1482">            return null;</span>
+        } else {
+<span class="nc" id="L1484">            return extraData.get(crewIndex);</span>
+        }
+    }
+
+    public String getExtraDataValue(int crewIndex, String key) {
+<span class="nc bnc" id="L1489" title="All 2 branches missed.">        if (this.extraData == null) {</span>
+<span class="nc" id="L1490">            return null;</span>
+<span class="nc bnc" id="L1491" title="All 2 branches missed.">        } else if (this.extraData.get(crewIndex) == null) {</span>
+<span class="nc" id="L1492">            return null;</span>
+        } else {
+<span class="nc" id="L1494">            return extraData.get(crewIndex).get(key);</span>
+        }
+    }
+
+    public String writeExtraDataToXMLLine(int pos) {
+<span class="nc" id="L1499">        Map&lt;String, String&gt; dataRow = getExtraDataForCrewMember(pos);</span>
+
+<span class="nc bnc" id="L1501" title="All 2 branches missed.">        if (dataRow != null) {</span>
+<span class="nc" id="L1502">            StringBuilder output = new StringBuilder();</span>
+
+<span class="nc" id="L1504">            output.append(&quot;\&quot; extraData=\&quot;&quot;);</span>
+
+<span class="nc" id="L1506">            boolean first = true;</span>
+<span class="nc bnc" id="L1507" title="All 2 branches missed.">            for (Map.Entry&lt;String, String&gt; row : dataRow.entrySet()) {</span>
+<span class="nc bnc" id="L1508" title="All 2 branches missed.">                if (!first) {</span>
+<span class="nc" id="L1509">                    output.append(&quot;|&quot;);</span>
+                } else {
+<span class="nc" id="L1511">                    first = false;</span>
+                }
+<span class="nc" id="L1513">                output.append(row.getKey()).append(&quot;=&quot;).append(row.getValue());</span>
+<span class="nc" id="L1514">            }</span>
+
+<span class="nc" id="L1516">            return output.toString();</span>
+        } else {
+<span class="nc" id="L1518">            return null;</span>
+        }
+    }
+    //endregion extraData
+
+    //region MekWars
+    /*
+     * Legacy methods used by MekWars
+     */
+    /**
+     * @deprecated by multi-crew cockpits. Replaced by {@link #setHits(int, int)}
+     */
+    @Deprecated
+    public void setHits(int hits) {
+<span class="nc" id="L1532">        setHits(hits, 0);</span>
+<span class="nc" id="L1533">    }</span>
+
+    /**
+     * Sets the piloting skill of the crew's default pilot.
+     */
+    public void setPiloting(int piloting) {
+<span class="nc" id="L1539">        setPiloting(piloting, crewType.getPilotPos());</span>
+<span class="nc" id="L1540">    }</span>
+
+    /**
+     * Sets the gunnery skill of the crew's default gunner.
+     */
+    public void setGunnery(int gunnery) {
+<span class="nc" id="L1546">        setGunnery(gunnery, crewType.getGunnerPos());</span>
+<span class="nc" id="L1547">    }</span>
+    //endregion MekWars
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

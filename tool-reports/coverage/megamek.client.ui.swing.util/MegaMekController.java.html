@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MegaMekController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing.util</a> &gt; <span class="el_source">MegaMekController.java</span></div><h1>MegaMekController.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek -
+ * Copyright (C) 2000,2001,2002,2003,2004,2005 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Nicholas Walczak (walczak@cs.umn.edu)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.ui.swing.util;
+
+import java.awt.KeyEventDispatcher;
+import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
+
+import megamek.client.ui.swing.BoardEditor;
+import megamek.client.ui.swing.ClientGUI;
+import megamek.client.ui.swing.GUIPreferences;
+
+/**
+ * This class implements a KeyEventDispatcher, which handles all generated
+ * KeyEvents. If the KeyEvent correspondes to a registerd hotkey, the action for
+ * that hotkey will be used to consume the event otherwise the event will be
+ * dispatched as normal.
+ *
+ * The idea is that the system is split into two: keys can be bound to string
+ * commands, and string commands can be bound to &lt;code&gt;CommandAction&lt;/code&gt;
+ * objects, which are a simple class that implements an &quot;actionPerformed&quot;
+ * method. The class that implements the &lt;code&gt;CommandAction&lt;/code&gt; creates the
+ * object and registers it, agnostic to what key is bound to the command. Then,
+ * somewhere else (ie; a file) can specify what keys are bound to what string
+ * commands. The possible string commands are specified in
+ * &lt;code&gt;KeyCommandBind&lt;/code&gt;.
+ *
+ * There are three things that need to be done to create a key binding. First, a
+ * command must exist, defined in &lt;code&gt;KeyCommandBind&lt;/code&gt;. Then, the command
+ * must be bound to a key in the keybind XML file (mmconf/defaultKeyBinds.xml by
+ * default). Finally, a &lt;code&gt;CommandAction&lt;/code&gt; needs to be registered
+ * somewhere.
+ *
+ * @author arlith
+ *
+ */
+public class MegaMekController implements KeyEventDispatcher {
+
+    private static final int MAX_REPEAT_RATE = 100;
+
+<span class="nc" id="L60">    public BoardEditor boardEditor = null;</span>
+<span class="nc" id="L61">    public ClientGUI clientgui = null;</span>
+
+    /**
+     * Map that maps a key code to a command string.
+     */
+    protected Set&lt;KeyCommandBind&gt; keyCmdSet;
+
+    /**
+     * Map that maps command strings to CommandAction objects.
+     */
+    protected Map&lt;String, ArrayList&lt;CommandAction&gt;&gt; cmdActionMap;
+
+    /**
+     * Timer for repeating commands for key presses. This is necessary to
+     * override the default key repeat delay.
+     */
+    protected Timer keyRepeatTimer;
+
+    /**
+     * Map that keeps track of the tasks that are currently repeating
+     */
+    protected Map&lt;KeyCommandBind, TimerTask&gt; repeatingTasks;
+
+    /**
+     * should we ignore key presses?
+     */
+<span class="nc" id="L87">    protected boolean ignoreKeyPresses = false;</span>
+
+<span class="nc" id="L89">    public MegaMekController() {</span>
+<span class="nc" id="L90">        keyCmdSet = new HashSet&lt;KeyCommandBind&gt;();</span>
+<span class="nc" id="L91">        cmdActionMap = new HashMap&lt;String, ArrayList&lt;CommandAction&gt;&gt;();</span>
+<span class="nc" id="L92">        keyRepeatTimer = new Timer(&quot;Key Repeat Timer&quot;);</span>
+<span class="nc" id="L93">        repeatingTasks = new HashMap&lt;KeyCommandBind, TimerTask&gt;();</span>
+<span class="nc" id="L94">    }</span>
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent evt) {
+
+        // Don't consider hotkeys when the clientgui has a dialog visible
+<span class="nc bnc" id="L100" title="All 6 branches missed.">        if (((clientgui != null) &amp;&amp; clientgui.shouldIgnoreHotKeys())</span>
+<span class="nc bnc" id="L101" title="All 4 branches missed.">                || ((boardEditor != null) &amp;&amp; boardEditor.shouldIgnoreHotKeys())</span>
+                || ignoreKeyPresses) {
+<span class="nc" id="L103">            return false;</span>
+        }
+
+<span class="nc" id="L106">        int keyCode = evt.getKeyCode();</span>
+<span class="nc" id="L107">        int modifiers = evt.getModifiers();</span>
+        // Get a collection of key/cmd binds that match the keycode/modifiers
+<span class="nc" id="L109">        ArrayList&lt;KeyCommandBind&gt; kcbs = KeyCommandBind.getBindByKey(keyCode,</span>
+                modifiers);
+
+        // If there's no action associated with this key bind, or the
+        // current action is invalid, do not consume this event.
+<span class="nc" id="L114">        boolean consumed = false;</span>
+
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        for (KeyCommandBind kcb : kcbs) {</span>
+            // Do we have a binding for this key?
+<span class="nc bnc" id="L118" title="All 2 branches missed.">            if (!keyCmdSet.contains(kcb)) {</span>
+<span class="nc" id="L119">                continue;</span>
+            }
+
+            // Get the actions associated with this key/cmd binding
+<span class="nc" id="L123">            ArrayList&lt;CommandAction&gt; actions = cmdActionMap.get(kcb.cmd);</span>
+            // Skip if we don't have an action vector
+<span class="nc bnc" id="L125" title="All 2 branches missed.">            if (actions == null) {</span>
+<span class="nc" id="L126">                continue;</span>
+            }
+<span class="nc bnc" id="L128" title="All 2 branches missed.">            for (CommandAction action : actions) {</span>
+                // If the action is null or shouldn't be performed, skip it
+<span class="nc bnc" id="L130" title="All 4 branches missed.">                if ((action == null) || !action.shouldPerformAction()) {</span>
+<span class="nc" id="L131">                    continue;</span>
+                }
+                // If we perform at least one action, this event is consumed
+<span class="nc" id="L134">                consumed = true;</span>
+
+<span class="nc bnc" id="L136" title="All 2 branches missed.">                if (evt.getID() == KeyEvent.KEY_PRESSED) {</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">                    if (kcb.isRepeatable) {</span>
+<span class="nc" id="L138">                        startRepeating(kcb, action);</span>
+                    } else {
+<span class="nc" id="L140">                        action.performAction();</span>
+                        // Exclusive actions are only performed once
+<span class="nc bnc" id="L142" title="All 2 branches missed.">                        if (kcb.isExclusive) {</span>
+<span class="nc" id="L143">                            break; // Stop processing the rest of the actions</span>
+                        }
+                    }
+                }
+
+<span class="nc bnc" id="L148" title="All 2 branches missed.">                if (evt.getID() == KeyEvent.KEY_RELEASED) {</span>
+                    // If the key bind is repeatable, we need to stop its timer
+<span class="nc bnc" id="L150" title="All 2 branches missed.">                    if (kcb.isRepeatable) {</span>
+<span class="nc" id="L151">                        stopRepeating(kcb);</span>
+                    }
+<span class="nc bnc" id="L153" title="All 2 branches missed.">                    if (action.hasReleaseAction()) {</span>
+<span class="nc" id="L154">                        action.releaseAction();</span>
+                    }
+                }
+<span class="nc" id="L157">            }</span>
+<span class="nc" id="L158">        }</span>
+        // If we had a binding, this event should be considered consumed
+<span class="nc" id="L160">        return consumed;</span>
+    }
+
+    public synchronized void registerKeyCommandBind(KeyCommandBind kcb) {
+<span class="nc" id="L164">        keyCmdSet.add(kcb);</span>
+<span class="nc" id="L165">    }</span>
+
+    public synchronized void removeAllKeyCommandBinds() {
+<span class="nc" id="L168">        keyCmdSet.clear();</span>
+<span class="nc" id="L169">    }</span>
+
+    public synchronized void registerCommandAction(String cmd,
+            CommandAction action) {
+<span class="nc" id="L173">        ArrayList&lt;CommandAction&gt; actions = cmdActionMap.get(cmd);</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        if (actions == null) {</span>
+<span class="nc" id="L175">            actions = new ArrayList&lt;CommandAction&gt;();</span>
+<span class="nc" id="L176">            actions.add(action);</span>
+<span class="nc" id="L177">            cmdActionMap.put(cmd, actions);</span>
+        } else {
+<span class="nc" id="L179">            actions.add(action);</span>
+        }
+<span class="nc" id="L181">    }</span>
+
+    public synchronized void removeAllActions() {
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        for (ArrayList&lt;CommandAction&gt; actions : cmdActionMap.values()) {</span>
+<span class="nc" id="L185">            actions.clear();</span>
+<span class="nc" id="L186">        }</span>
+<span class="nc" id="L187">    }</span>
+
+    /**
+     * Start a new repeating timer task for the given
+     * &lt;code&gt;KeyCommandBind&lt;/code&gt;. If the given &lt;code&gt;KeyCommandBind&lt;/code&gt;
+     * already has a repeating task, a new one is not added. Also, if there is
+     * no mapped &lt;code&gt;CommandAction&lt;c/code&gt; for the given
+     * &lt;code&gt;KeyCommandBind&lt;/code&gt; no task is scheduled.
+     *
+     * @param kcb
+     */
+    protected void startRepeating(KeyCommandBind kcb, final CommandAction action) {
+
+<span class="nc" id="L200">        GUIPreferences guip = GUIPreferences.getInstance();</span>
+        // Make sure the delay is positive
+<span class="nc" id="L202">        long delay = Math.max(0,</span>
+<span class="nc" id="L203">                guip.getInt(GUIPreferences.ADVANCED_KEY_REPEAT_DELAY));</span>
+        // Make sure the rate is positive and that it is below a maximum
+<span class="nc" id="L205">        int rate = Math.max(</span>
+                0,
+<span class="nc" id="L207">                Math.min(MAX_REPEAT_RATE,</span>
+<span class="nc" id="L208">                        guip.getInt(GUIPreferences.ADVANCED_KEY_REPEAT_RATE)));</span>
+
+<span class="nc" id="L210">        long period = (long) (1000.0 / rate);</span>
+
+        // If we're already repeating, don't add a new task
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        if (repeatingTasks.containsKey(kcb)) {</span>
+<span class="nc" id="L214">            return;</span>
+        }
+
+        // Get the corresponding action, stop if there's no mapped action
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        if (action == null) {</span>
+<span class="nc" id="L219">            return;</span>
+        }
+
+<span class="nc" id="L222">        TimerTask tt = new TimerTask() {</span>
+            // Should only be executed by keyRepeatTimer thread.
+            @Override
+            public void run() {
+<span class="nc" id="L226">                action.performAction();</span>
+
+                // Attempt to make it more responsive to key-releases.
+                // Even if there are multiple this-tasks piled up (due to
+                // &quot;scheduleAtFixedRate&quot;) we don't want this thread to take
+                // precedence over AWT thread.
+<span class="nc" id="L232">                Thread.yield();</span>
+<span class="nc" id="L233">            }</span>
+        };
+<span class="nc" id="L235">        repeatingTasks.put(kcb, tt);</span>
+<span class="nc" id="L236">        keyRepeatTimer.scheduleAtFixedRate(tt, delay, period);</span>
+<span class="nc" id="L237">    }</span>
+
+    /**
+     * Stops the repeat timer task for the given KeyCommandBind.
+     *
+     * @param kcb
+     */
+    public void stopRepeating(KeyCommandBind kcb) {
+        // If we're not repeating, there's nothing to cancel
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (!repeatingTasks.containsKey(kcb)) {</span>
+<span class="nc" id="L247">            return;</span>
+        }
+<span class="nc" id="L249">        repeatingTasks.get(kcb).cancel();</span>
+<span class="nc" id="L250">        repeatingTasks.remove(kcb);</span>
+<span class="nc" id="L251">    }</span>
+
+    /**
+     * Stop all repeat timers.
+     */
+    public void stopAllRepeating() {
+<span class="nc bnc" id="L257" title="All 2 branches missed.">        for (KeyCommandBind kcb : repeatingTasks.keySet()) {</span>
+<span class="nc" id="L258">            repeatingTasks.get(kcb).cancel();</span>
+<span class="nc" id="L259">            repeatingTasks.remove(kcb);</span>
+<span class="nc" id="L260">        }</span>
+<span class="nc" id="L261">    }</span>
+
+    /**
+     * Set wether we should ignore key presses or nor
+     *
+     * @param ignoreKeyPresses
+     */
+    public void setIgnoreKeyPresses(boolean ignoreKeyPresses) {
+<span class="nc" id="L269">        this.ignoreKeyPresses = ignoreKeyPresses;</span>
+<span class="nc" id="L270">    }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

@@ -1,0 +1,353 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ModelRecord.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ratgenerator</a> &gt; <span class="el_source">ModelRecord.java</span></div><h1>ModelRecord.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.client.ratgenerator;
+
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.Set;
+
+import megamek.MegaMek;
+import megamek.common.AmmoType;
+import megamek.common.EntityMovementMode;
+import megamek.common.EntityWeightClass;
+import megamek.common.EquipmentType;
+import megamek.common.MechSummary;
+import megamek.common.MiscType;
+import megamek.common.UnitType;
+import megamek.common.WeaponType;
+
+/**
+ * Specific unit variants; analyzes equipment to determine suitability for certain types
+ * of missions in addition to what is formally declared in the data files.
+ * 
+ * @author Neoancient
+ *
+ */
+public class ModelRecord extends AbstractUnitRecord {
+	public static final int NETWORK_NONE = 0;
+	public static final int NETWORK_C3_SLAVE = 1;
+	public static final int NETWORK_BA_C3 = 1;
+	public static final int NETWORK_C3_MASTER = 1 &lt;&lt; 1;
+	public static final int NETWORK_C3I = 1 &lt;&lt; 2;
+	public static final int NETWORK_NAVAL_C3 = 1 &lt;&lt; 2;
+	public static final int NETWORK_NOVA = 1 &lt;&lt; 3;
+	
+	public static final int NETWORK_BOOSTED = 1 &lt;&lt; 4;
+	public static final int NETWORK_COMPANY_COMMAND = 1 &lt;&lt; 5;
+	
+	public static final int NETWORK_BOOSTED_SLAVE = NETWORK_C3_SLAVE | NETWORK_BOOSTED;
+	public static final int NETWORK_BOOSTED_MASTER = NETWORK_C3_MASTER | NETWORK_BOOSTED;
+
+	private MechSummary mechSummary;
+	private boolean starLeague;
+	private int weightClass;
+	private EntityMovementMode movementMode;
+	private EnumSet&lt;MissionRole&gt; roles;
+	private ArrayList&lt;String&gt; deployedWith;
+	private ArrayList&lt;String&gt; requiredUnits;
+	private ArrayList&lt;String&gt; excludedFactions;
+	private int networkMask;
+	private double flak; //proportion of weapon BV that can fire flak ammo
+	private double longRange; //proportion of weapon BV with range &gt;= 20 hexes
+	private int speed;
+	private double ammoRequirement; //used to determine suitability for raider role
+	private boolean incendiary; //used to determine suitability for incindiary role
+	private boolean apWeapons; //used to determine suitability for anti-infantry role
+	
+	private boolean mechanizedBA;
+	private boolean magClamp;
+
+	public ModelRecord(String chassis, String model) {
+<span class="nc" id="L73">		super(chassis);</span>
+<span class="nc" id="L74">		roles = EnumSet.noneOf(MissionRole.class);</span>
+<span class="nc" id="L75">		deployedWith = new ArrayList&lt;String&gt;();</span>
+<span class="nc" id="L76">		requiredUnits = new ArrayList&lt;String&gt;();</span>
+<span class="nc" id="L77">		excludedFactions = new ArrayList&lt;String&gt;();</span>
+<span class="nc" id="L78">		networkMask = NETWORK_NONE;</span>
+<span class="nc" id="L79">		flak = 0.0;</span>
+<span class="nc" id="L80">		longRange = 0.0;</span>
+<span class="nc" id="L81">	}</span>
+	
+	public ModelRecord(MechSummary ms) {
+<span class="nc" id="L84">		this(ms.getChassis(), ms.getModel());</span>
+<span class="nc" id="L85">		mechSummary = ms;</span>
+<span class="nc" id="L86">		unitType = parseUnitType(ms.getUnitType());</span>
+<span class="nc" id="L87">		introYear = ms.getYear();</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">		if (unitType == UnitType.MEK) {</span>
+			//TODO: id quads and tripods
+<span class="nc" id="L90">			movementMode = EntityMovementMode.BIPED;</span>
+		} else {
+<span class="nc" id="L92">			movementMode = EntityMovementMode.getMode(ms.getUnitSubType().toLowerCase());</span>
+		}
+
+<span class="nc" id="L95">    	double totalBV = 0.0;</span>
+<span class="nc" id="L96">    	double flakBV = 0.0;</span>
+<span class="nc" id="L97">    	double lrBV = 0.0;</span>
+<span class="nc" id="L98">    	double ammoBV = 0.0;</span>
+<span class="nc" id="L99">    	boolean losTech = false;</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">    	for (int i = 0; i &lt; ms.getEquipmentNames().size(); i++) {</span>
+    	    //EquipmentType.get is throwing an NPE intermittently, and the only possibility I can see
+    	    //is that there is a null equipment name.
+<span class="nc bnc" id="L103" title="All 2 branches missed.">    	    if (null == ms.getEquipmentNames().get(i)) {</span>
+<span class="nc" id="L104">    	        MegaMek.getLogger().error(</span>
+    	                &quot;RATGenerator ModelRecord encountered null equipment name in MechSummary for &quot;
+<span class="nc" id="L106">    	                + ms.getName() + &quot;, index &quot; + i);</span>
+<span class="nc" id="L107">    	        continue;</span>
+    	    }
+<span class="nc" id="L109">    		EquipmentType eq = EquipmentType.get(ms.getEquipmentNames().get(i));</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">    		if (eq == null) {</span>
+<span class="nc" id="L111">    			continue;</span>
+    		}
+<span class="nc bnc" id="L113" title="All 2 branches missed.">    		if (!eq.isAvailableIn(3000)) {</span>
+    			//FIXME: needs to filter out primitive
+<span class="nc" id="L115">    			losTech = true;</span>
+    		}
+<span class="nc bnc" id="L117" title="All 2 branches missed.">    		if (eq instanceof WeaponType) {</span>
+<span class="nc" id="L118">    			totalBV += eq.getBV(null) * ms.getEquipmentQuantities().get(i);</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">    			switch (((megamek.common.weapons.Weapon)eq).getAmmoType()) {</span>
+    				case AmmoType.T_AC_LBX:
+    				case AmmoType.T_HAG:
+    				case AmmoType.T_SBGAUSS:
+<span class="nc" id="L123">        				flakBV += eq.getBV(null) * ms.getEquipmentQuantities().get(i);</span>
+    			}
+<span class="nc bnc" id="L125" title="All 2 branches missed.">    			if (eq.hasFlag(WeaponType.F_ARTILLERY)) {</span>
+<span class="nc" id="L126">    				flakBV += eq.getBV(null) * ms.getEquipmentQuantities().get(i) / 2.0;</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">    				roles.add(((WeaponType)eq).getAmmoType() == AmmoType.T_ARROW_IV?</span>
+<span class="nc" id="L128">    				        MissionRole.MISSILE_ARTILLERY : MissionRole.ARTILLERY);</span>
+    			}
+<span class="nc bnc" id="L130" title="All 4 branches missed.">        		if (eq.hasFlag(WeaponType.F_FLAMER) || eq.hasFlag(WeaponType.F_INFERNO)) {</span>
+<span class="nc" id="L131">        			incendiary = true;</span>
+<span class="nc" id="L132">        			apWeapons = true;</span>
+        		}
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        		incendiary |= ((WeaponType)eq).getAmmoType() == AmmoType.T_SRM</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">        		        || ((WeaponType)eq).getAmmoType() == AmmoType.T_SRM_IMP</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        				|| ((WeaponType)eq).getAmmoType() == AmmoType.T_MRM;</span>
+        		
+<span class="nc bnc" id="L138" title="All 4 branches missed.">        		if (eq instanceof megamek.common.weapons.mgs.MGWeapon ||</span>
+        				eq instanceof megamek.common.weapons.defensivepods.BPodWeapon) {
+<span class="nc" id="L140">        			apWeapons = true;</span>
+        		}
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        		if (((WeaponType) eq).getAmmoType() &gt; megamek.common.AmmoType.T_NA) {</span>
+<span class="nc" id="L143">        			ammoBV += eq.getBV(null) * ms.getEquipmentQuantities().get(i);</span>
+        		}
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        		if (((WeaponType)eq).getLongRange() &gt;= 20) {</span>
+<span class="nc" id="L146">        			lrBV += eq.getBV(null) * ms.getEquipmentQuantities().get(i);</span>
+        		}
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        		if (eq.hasFlag(WeaponType.F_TAG)) {</span>
+<span class="nc" id="L149">        			roles.add(MissionRole.SPOTTER);</span>
+        		}
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        		if (eq.hasFlag(WeaponType.F_C3M)) {</span>
+<span class="nc" id="L152">   					networkMask |= NETWORK_C3_MASTER;</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">   					if (ms.getEquipmentQuantities().get(i) &gt; 1) {</span>
+<span class="nc" id="L154">   						networkMask |= NETWORK_COMPANY_COMMAND;</span>
+   					}
+        		}
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        		if (eq.hasFlag(WeaponType.F_C3MBS)) {</span>
+<span class="nc" id="L158">					networkMask |= NETWORK_BOOSTED_MASTER;</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">   					if (ms.getEquipmentQuantities().get(i) &gt; 1) {</span>
+<span class="nc" id="L160">   						networkMask |= NETWORK_COMPANY_COMMAND;</span>
+    				}        			
+        		}
+<span class="nc bnc" id="L163" title="All 2 branches missed.">    		} else if (eq instanceof MiscType) {</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">    		    if (eq.hasFlag(MiscType.F_UMU)) {</span>
+<span class="nc" id="L165">   				movementMode = EntityMovementMode.BIPED_SWIM;</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        		} else if (eq.hasFlag(MiscType.F_C3S)) {</span>
+<span class="nc" id="L167">        			networkMask |= NETWORK_C3_SLAVE;</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        		} else if (eq.hasFlag(MiscType.F_C3I)) {</span>
+<span class="nc" id="L169">        			networkMask |= NETWORK_C3I;</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        		} else if (eq.hasFlag(MiscType.F_C3SBS)) {</span>
+<span class="nc" id="L171">        			networkMask |= NETWORK_BOOSTED_SLAVE;</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        		} else if (eq.hasFlag(MiscType.F_NOVA)) {</span>
+<span class="nc" id="L173">        			networkMask |= NETWORK_NOVA;</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        		} else if (eq.hasFlag(MiscType.F_MAGNETIC_CLAMP)) {</span>
+<span class="nc" id="L175">        		    magClamp = true;</span>
+        		}
+    		}
+    	}
+<span class="nc bnc" id="L179" title="All 2 branches missed.">		if (totalBV &gt; 0 &amp;&amp;</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">				(ms.getUnitType().equals(&quot;Mek&quot;) ||</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">						ms.getUnitType().equals(&quot;Tank&quot;) ||</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">						ms.getUnitType().equals(&quot;BattleArmor&quot;) ||</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">						ms.getUnitType().equals(&quot;Infantry&quot;) ||</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">						ms.getUnitType().equals(&quot;ProtoMek&quot;) ||</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">						ms.getUnitType().equals(&quot;Naval&quot;) ||</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">						ms.getUnitType().equals(&quot;Gun Emplacement&quot;))) {</span>
+<span class="nc" id="L187">			flak = flakBV / totalBV;</span>
+<span class="nc" id="L188">			longRange = lrBV / totalBV;</span>
+<span class="nc" id="L189">			ammoRequirement = ammoBV / totalBV;</span>
+		}
+<span class="nc" id="L191">    	weightClass = ms.getWeightClass();</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">    	if (weightClass &gt;= EntityWeightClass.WEIGHT_SMALL_SUPPORT) {</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">    		if (ms.getTons() &lt;= 39) {</span>
+<span class="nc" id="L194">    			weightClass = EntityWeightClass.WEIGHT_LIGHT;</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">    		} else if (ms.getTons() &lt;= 59) {</span>
+<span class="nc" id="L196">    			weightClass = EntityWeightClass.WEIGHT_MEDIUM;</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">    		} else if (ms.getTons() &lt;= 79) {</span>
+<span class="nc" id="L198">    			weightClass = EntityWeightClass.WEIGHT_HEAVY;</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">    		} else if (ms.getTons() &lt;= 100) {</span>
+<span class="nc" id="L200">    			weightClass = EntityWeightClass.WEIGHT_ASSAULT;</span>
+    		} else {
+<span class="nc" id="L202">    			weightClass = EntityWeightClass.WEIGHT_COLOSSAL;</span>
+    		}
+    	}
+<span class="nc" id="L205">    	clan = ms.isClan();</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">    	if (megamek.common.Engine.getEngineTypeByString(ms.getEngineName()) == megamek.common.Engine.XL_ENGINE</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">    			|| ms.getArmorType().contains(EquipmentType.T_ARMOR_FERRO_FIBROUS)</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">    			|| ms.getInternalsType() == EquipmentType.T_STRUCTURE_ENDO_STEEL) {</span>
+<span class="nc" id="L209">    		losTech = true;</span>
+    	}
+<span class="nc bnc" id="L211" title="All 4 branches missed.">    	starLeague = losTech &amp;&amp; !clan;</span>
+<span class="nc" id="L212">    	speed = ms.getWalkMp();</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">    	if (ms.getJumpMp() &gt; 0) {</span>
+<span class="nc" id="L214">    		speed++;</span>
+    	}
+<span class="nc" id="L216">	}</span>
+	
+	public String getModel() {
+<span class="nc" id="L219">		return mechSummary.getModel();</span>
+	}
+
+	public int getWeightClass() {
+<span class="nc" id="L223">		return weightClass;</span>
+	}
+	
+	public EntityMovementMode getMovementMode() {
+<span class="nc" id="L227">		return movementMode;</span>
+	}
+	
+	public boolean isClan() {
+<span class="nc" id="L231">		return clan;</span>
+	}
+	
+	public boolean isSL() {
+<span class="nc" id="L235">		return starLeague;</span>
+	}
+	
+	public Set&lt;MissionRole&gt; getRoles() {
+<span class="nc" id="L239">		return roles;</span>
+	}
+	public ArrayList&lt;String&gt; getDeployedWith() {
+<span class="nc" id="L242">		return deployedWith;</span>
+	}
+	public ArrayList&lt;String&gt; getRequiredUnits() {
+<span class="nc" id="L245">		return requiredUnits;</span>
+	}
+	public ArrayList&lt;String&gt; getExcludedFactions() {
+<span class="nc" id="L248">		return excludedFactions;</span>
+	}
+	public int getNetworkMask() {
+<span class="nc" id="L251">		return networkMask;</span>
+	}
+	public void setNetwork(int network) {
+<span class="nc" id="L254">		this.networkMask = network;</span>
+<span class="nc" id="L255">	}</span>
+	public double getFlak() {
+<span class="nc" id="L257">		return flak;</span>
+	}
+	public void setFlak(double flak) {
+<span class="nc" id="L260">		this.flak = flak;</span>
+<span class="nc" id="L261">	}</span>
+	
+	public double getLongRange() {
+<span class="nc" id="L264">		return longRange;</span>
+	}
+	
+	public int getSpeed() {
+<span class="nc" id="L268">		return speed;</span>
+	}
+	
+	public double getAmmoRequirement() {
+<span class="nc" id="L272">		return ammoRequirement;</span>
+	}
+	
+	public boolean hasIncendiaryWeapon() {
+<span class="nc" id="L276">		return incendiary;</span>
+	}
+	
+	public boolean hasAPWeapons() {
+<span class="nc" id="L280">		return apWeapons;</span>
+	}
+	
+	public MechSummary getMechSummary() {
+<span class="nc" id="L284">		return mechSummary;</span>
+	}
+	
+	public void addRoles(String str) {
+<span class="nc" id="L288">		String[] fields = str.split(&quot;,&quot;);</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">		for (String role : fields) {</span>
+<span class="nc" id="L290">			MissionRole mr = MissionRole.parseRole(role);</span>
+<span class="nc bnc" id="L291" title="All 2 branches missed.">			if (mr != null) {</span>
+<span class="nc" id="L292">				roles.add(mr);</span>
+			} else {
+<span class="nc" id="L294">			    MegaMek.getLogger().error(&quot;Could not parse mission role for &quot;</span>
+<span class="nc" id="L295">						+ getChassis() + &quot; &quot; + getModel() + &quot;: &quot; + role);</span>
+			}
+		}
+<span class="nc" id="L298">	}</span>
+	
+	public void setRequiredUnits(String str) {
+<span class="nc" id="L301">		String [] subfields = str.split(&quot;,&quot;);</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">		for (String unit : subfields) {</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">			if (unit.startsWith(&quot;req:&quot;)) {</span>
+<span class="nc" id="L304">				requiredUnits.add(unit.replace(&quot;req:&quot;, &quot;&quot;));</span>
+			} else {
+<span class="nc" id="L306">				deployedWith.add(unit);</span>
+			}
+		}		
+<span class="nc" id="L309">	}</span>
+
+	public void setExcludedFactions(String str) {
+<span class="nc" id="L312">		excludedFactions.clear();</span>
+<span class="nc" id="L313">		String[] fields = str.split(&quot;,&quot;);</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">		for (String faction : fields) {</span>
+<span class="nc" id="L315">			excludedFactions.add(faction);</span>
+		}
+<span class="nc" id="L317">	}</span>
+	
+	public boolean factionIsExcluded(FactionRecord fRec) {
+<span class="nc" id="L320">		return excludedFactions.contains(fRec.getKey());</span>
+	}
+	
+	public boolean factionIsExcluded(String faction, String subfaction) {
+<span class="nc bnc" id="L324" title="All 2 branches missed.">		if (subfaction == null) {</span>
+<span class="nc" id="L325">			return excludedFactions.contains(faction);</span>
+		} else {
+<span class="nc" id="L327">			return excludedFactions.contains(faction + &quot;.&quot; + subfaction);</span>
+		}
+	}
+	
+	@Override
+	public String getKey() {
+<span class="nc" id="L333">		return mechSummary.getName();</span>
+	}
+	
+	public boolean canDoMechanizedBA() {
+<span class="nc" id="L337">		return mechanizedBA;</span>
+	}
+	
+	public void setMechanizedBA(boolean mech) {
+<span class="nc" id="L341">		mechanizedBA = mech;</span>
+<span class="nc" id="L342">	}</span>
+	
+	public boolean hasMagClamp() {
+<span class="nc" id="L345">	    return magClamp;</span>
+	}
+	
+	public void setMagClamp(boolean magClamp) {
+<span class="nc" id="L349">	    this.magClamp = magClamp;</span>
+<span class="nc" id="L350">	}</span>
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

@@ -1,0 +1,933 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractUnitSelectorDialog.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing.dialog</a> &gt; <span class="el_source">AbstractUnitSelectorDialog.java</span></div><h1>AbstractUnitSelectorDialog.java</h1><pre class="source lang-java linenums">/*
+ *  MechSelectorDialog.java - Copyright (C) 2002,2004 Josh Yockey
+ *  Renamed UnitSelectorDialog - Jay Lawson &lt;jaylawson39 at yahoo.com&gt;
+ *  Renamed AbstractUnitSelectorDialog - Copyright (c) 2020 - The MegaMek Team
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+package megamek.client.ui.swing.dialog;
+
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.awt.event.WindowEvent;
+import java.util.*;
+import java.util.regex.PatternSyntaxException;
+
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.DefaultComboBoxModel;
+import javax.swing.DefaultRowSorter;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.JEditorPane;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JRootPane;
+import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
+import javax.swing.KeyStroke;
+import javax.swing.ListSelectionModel;
+import javax.swing.RowFilter;
+import javax.swing.RowSorter.SortKey;
+import javax.swing.ScrollPaneConstants;
+import javax.swing.SortOrder;
+import javax.swing.SwingConstants;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableRowSorter;
+
+import megamek.MegaMek;
+import megamek.client.ui.Messages;
+import megamek.client.ui.swing.*;
+import megamek.common.Entity;
+import megamek.common.EntityWeightClass;
+import megamek.common.MechFileParser;
+import megamek.common.MechSearchFilter;
+import megamek.common.MechSummary;
+import megamek.common.MechSummaryCache;
+import megamek.common.MechView;
+import megamek.common.TechConstants;
+import megamek.common.UnitType;
+import megamek.common.loaders.EntityLoadingException;
+import megamek.common.options.GameOptions;
+import megamek.common.options.OptionsConstants;
+import megamek.common.templates.TROView;
+import megamek.common.util.sorter.NaturalOrderComparator;
+
+/**
+ * This is a heavily reworked version of the original MechSelectorDialog which
+ * brings up a list of units for the player to select to add to their forces.
+ * The original list has been changed to a sortable table and a text filter
+ * is used for advanced searching.
+ */
+public abstract class AbstractUnitSelectorDialog extends JDialog implements Runnable, KeyListener,
+        ActionListener, ListSelectionListener {
+    //region Variable Declarations
+    private static final long serialVersionUID = 8144354264100884817L;
+
+    public static final String CLOSE_ACTION = &quot;closeAction&quot;;
+    public static final String SELECT_ACTION = &quot;selectAction&quot;;
+
+    public static final int ALLOWED_YEAR_ANY = 999999;
+
+    protected static final int TECH_LEVEL_DISPLAY_IS = 0;
+    protected static final int TECH_LEVEL_DISPLAY_CLAN = 1;
+    protected static final int TECH_LEVEL_DISPLAY_IS_CLAN = 2;
+
+    protected JButton buttonSelectClose;
+    protected JButton buttonSelect;
+    protected JButton buttonClose;
+    protected JButton buttonShowBV;
+
+    private JButton buttonAdvancedSearch;
+    private JButton buttonResetSearch;
+<span class="nc" id="L110">    protected JList&lt;String&gt; listTechLevel = new JList&lt;&gt;();</span>
+    /**
+     * We need to map the selected index of listTechLevel to the actual TL it
+     * belongs to
+     */
+<span class="nc" id="L115">    protected Map&lt;Integer, Integer&gt; techLevelListToIndex = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L116">    protected JComboBox&lt;String&gt; comboUnitType = new JComboBox&lt;&gt;();</span>
+<span class="nc" id="L117">    protected JComboBox&lt;String&gt; comboWeight = new JComboBox&lt;&gt;();</span>
+<span class="nc" id="L118">    protected JLabel labelImage = new JLabel(&quot;&quot;); //inline to avoid potential null pointer issues</span>
+    protected JTable tableUnits;
+    protected JTextField textFilter;
+    private MechViewPanel panelMechView;
+    private MechViewPanel panelTROView;
+
+<span class="nc" id="L124">    private StringBuffer searchBuffer = new StringBuffer();</span>
+<span class="nc" id="L125">    private long lastSearch = 0;</span>
+    // how long after a key is typed does a new search begin
+    private static final int KEY_TIMEOUT = 1000;
+
+<span class="nc" id="L129">    protected static MechSummaryCache mscInstance = MechSummaryCache.getInstance();</span>
+    protected MechSummary[] mechs;
+
+<span class="nc" id="L132">    private MechTableModel unitModel = new MechTableModel();</span>
+    protected MechSearchFilter searchFilter;
+
+    private UnitLoadingDialog unitLoadingDialog;
+    private AdvancedSearchDialog asd;
+    protected JFrame frame;
+
+    protected TableRowSorter&lt;MechTableModel&gt; sorter;
+
+<span class="nc" id="L141">    protected GameOptions gameOptions = null;</span>
+<span class="nc" id="L142">    protected boolean enableYearLimits = false;</span>
+<span class="nc" id="L143">    protected int allowedYear = ALLOWED_YEAR_ANY;</span>
+<span class="nc" id="L144">    protected boolean canonOnly = false;</span>
+<span class="nc" id="L145">    protected boolean allowInvalid = true;</span>
+<span class="nc" id="L146">    protected int gameTechLevel = TechConstants.T_SIMPLE_INTRO;</span>
+<span class="nc" id="L147">    protected int techLevelDisplayType = TECH_LEVEL_DISPLAY_IS_CLAN;</span>
+    //endregion Variable Declarations
+
+    protected AbstractUnitSelectorDialog(JFrame frame, UnitLoadingDialog unitLoadingDialog) {
+<span class="nc" id="L151">        super(frame, Messages.getString(&quot;MechSelectorDialog.title&quot;), true); //$NON-NLS-1$</span>
+<span class="nc" id="L152">        setName(&quot;UnitSelectorDialog&quot;);</span>
+<span class="nc" id="L153">        this.frame = frame;</span>
+<span class="nc" id="L154">        this.unitLoadingDialog = unitLoadingDialog;</span>
+<span class="nc" id="L155">        super.setVisible(false);</span>
+<span class="nc" id="L156">    }</span>
+
+    /**
+     * This is used to update any values that are set based on individual options
+     */
+    public abstract void updateOptionValues();
+
+    /**
+     * This has been set up to permit preference implementation in anything that extends this
+     */
+    private void setUserPreferences() {
+<span class="nc" id="L167">        GUIPreferences guiPreferences = GUIPreferences.getInstance();</span>
+<span class="nc" id="L168">        setSize(guiPreferences.getMechSelectorSizeWidth(), guiPreferences.getMechSelectorSizeHeight());</span>
+
+<span class="nc" id="L170">        comboUnitType.setSelectedIndex(guiPreferences.getMechSelectorUnitType());</span>
+
+<span class="nc" id="L172">        comboWeight.setSelectedIndex(guiPreferences.getMechSelectorWeightClass());</span>
+
+<span class="nc" id="L174">        updateTypeCombo(guiPreferences);</span>
+
+<span class="nc" id="L176">        List&lt;SortKey&gt; sortList = new ArrayList&lt;&gt;();</span>
+        try {
+<span class="nc" id="L178">            sortList.add(new SortKey(guiPreferences.getMechSelectorSortColumn(),</span>
+<span class="nc" id="L179">                    SortOrder.valueOf(guiPreferences.getMechSelectorSortOrder())));</span>
+<span class="nc" id="L180">        } catch (Exception e) {</span>
+<span class="nc" id="L181">            MegaMek.getLogger().error(&quot;Failed to set based on user preferences, attempting to use default&quot;, e);</span>
+
+<span class="nc" id="L183">            sortList.add(new SortKey(guiPreferences.getMechSelectorDefaultSortColumn(),</span>
+<span class="nc" id="L184">                    SortOrder.valueOf(guiPreferences.getMechSelectorDefaultSortOrder())));</span>
+<span class="nc" id="L185">        }</span>
+<span class="nc" id="L186">        tableUnits.getRowSorter().setSortKeys(sortList);</span>
+<span class="nc" id="L187">        ((DefaultRowSorter&lt;?, ?&gt;) tableUnits.getRowSorter()).sort();</span>
+
+<span class="nc" id="L189">        tableUnits.invalidate(); // force re-layout of window</span>
+<span class="nc" id="L190">        pack();</span>
+<span class="nc" id="L191">    }</span>
+
+    protected void initialize() {
+<span class="nc" id="L194">        initComponents();</span>
+
+<span class="nc" id="L196">        setLocationRelativeTo(frame);</span>
+<span class="nc" id="L197">        asd = new AdvancedSearchDialog(frame, allowedYear);</span>
+<span class="nc" id="L198">    }</span>
+
+    private void initComponents() {
+<span class="nc" id="L201">        GridBagConstraints gridBagConstraints = new GridBagConstraints();</span>
+
+        // To use the below you MUST AND ONLY modify the gridx and gridy components
+<span class="nc" id="L204">        GridBagConstraints gridBagConstraintsWest = new GridBagConstraints();</span>
+<span class="nc" id="L205">        gridBagConstraintsWest.anchor = GridBagConstraints.WEST;</span>
+
+<span class="nc" id="L207">        setMinimumSize(new Dimension(640, 480));</span>
+<span class="nc" id="L208">        getContentPane().setLayout(new GridBagLayout());</span>
+
+        //region Unit Preview Pane
+<span class="nc" id="L211">        JTabbedPane panePreview = new JTabbedPane();</span>
+
+<span class="nc" id="L213">        panelMechView = new MechViewPanel();</span>
+<span class="nc" id="L214">        panelMechView.setMinimumSize(new Dimension(300, 500));</span>
+<span class="nc" id="L215">        panelMechView.setPreferredSize(new Dimension(300, 600));</span>
+<span class="nc" id="L216">        panePreview.addTab(&quot;Summary&quot;, panelMechView);</span>
+
+<span class="nc" id="L218">        panelTROView = new MechViewPanel();</span>
+<span class="nc" id="L219">        panePreview.addTab(&quot;TRO&quot;, panelTROView);</span>
+        //endregion Unit Preview Pane
+
+        //region Selection Panel
+<span class="nc" id="L223">        JPanel selectionPanel = new JPanel(new GridBagLayout());</span>
+<span class="nc" id="L224">        selectionPanel.setMinimumSize(new Dimension(500, 500));</span>
+<span class="nc" id="L225">        selectionPanel.setPreferredSize(new Dimension(500, 600));</span>
+
+<span class="nc" id="L227">        tableUnits = new JTable(unitModel);</span>
+<span class="nc" id="L228">        tableUnits.setName(&quot;tableUnits&quot;);</span>
+<span class="nc" id="L229">        tableUnits.addKeyListener(this);</span>
+<span class="nc" id="L230">        tableUnits.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(</span>
+<span class="nc" id="L231">                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), &quot;&quot;);</span>
+<span class="nc" id="L232">        tableUnits.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);</span>
+<span class="nc" id="L233">        sorter = new TableRowSorter&lt;&gt;(unitModel);</span>
+<span class="nc" id="L234">        sorter.setComparator(MechTableModel.COL_CHASSIS, new NaturalOrderComparator());</span>
+<span class="nc" id="L235">        sorter.setComparator(MechTableModel.COL_MODEL, new NaturalOrderComparator());</span>
+<span class="nc" id="L236">        tableUnits.setRowSorter(sorter);</span>
+<span class="nc" id="L237">        tableUnits.getSelectionModel().addListSelectionListener(</span>
+                evt -&gt; {
+                    // There can be multiple events for one selection. Check to see if this is the last.
+<span class="nc bnc" id="L240" title="All 2 branches missed.">                    if (!evt.getValueIsAdjusting()) {</span>
+<span class="nc" id="L241">                        refreshUnitView();</span>
+                    }
+<span class="nc" id="L243">                });</span>
+        TableColumn column;
+<span class="nc bnc" id="L245" title="All 2 branches missed.">        for (int i = 0; i &lt; MechTableModel.N_COL; i++) {</span>
+<span class="nc" id="L246">            column = tableUnits.getColumnModel().getColumn(i);</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">            if (i == MechTableModel.COL_CHASSIS) {</span>
+<span class="nc" id="L248">                column.setPreferredWidth(125);</span>
+<span class="nc bnc" id="L249" title="All 4 branches missed.">            } else if ((i == MechTableModel.COL_MODEL) || (i == MechTableModel.COL_COST)) {</span>
+<span class="nc" id="L250">                column.setPreferredWidth(75);</span>
+<span class="nc bnc" id="L251" title="All 4 branches missed.">            } else if ((i == MechTableModel.COL_WEIGHT) || (i == MechTableModel.COL_BV)) {</span>
+<span class="nc" id="L252">                column.setPreferredWidth(50);</span>
+            } else {
+<span class="nc" id="L254">                column.setPreferredWidth(25);</span>
+            }
+        }
+<span class="nc" id="L257">        tableUnits.setFont(new Font(&quot;Monospaced&quot;, Font.PLAIN, 12)); //$NON-NLS-1$</span>
+
+<span class="nc" id="L259">        JScrollPane scrollTableUnits = new JScrollPane(tableUnits);</span>
+<span class="nc" id="L260">        scrollTableUnits.setName(&quot;scrollTableUnits&quot;);</span>
+<span class="nc" id="L261">        scrollTableUnits.setMinimumSize(new Dimension(500, 400));</span>
+<span class="nc" id="L262">        scrollTableUnits.setPreferredSize(new Dimension(500, 400));</span>
+<span class="nc" id="L263">        gridBagConstraints.gridx = 0;</span>
+<span class="nc" id="L264">        gridBagConstraints.gridy = 2;</span>
+<span class="nc" id="L265">        gridBagConstraints.fill = GridBagConstraints.BOTH;</span>
+<span class="nc" id="L266">        gridBagConstraints.anchor = GridBagConstraints.NORTHWEST;</span>
+<span class="nc" id="L267">        gridBagConstraints.weightx = 1.0;</span>
+<span class="nc" id="L268">        gridBagConstraints.weighty = 1.0;</span>
+<span class="nc" id="L269">        selectionPanel.add(scrollTableUnits, gridBagConstraints);</span>
+
+<span class="nc" id="L271">        JPanel panelFilterButtons = new JPanel(new GridBagLayout());</span>
+<span class="nc" id="L272">        panelFilterButtons.setMinimumSize(new Dimension(300, 180));</span>
+<span class="nc" id="L273">        panelFilterButtons.setPreferredSize(new Dimension(300, 180));</span>
+
+<span class="nc" id="L275">        JLabel labelType = new JLabel(Messages.getString(&quot;MechSelectorDialog.m_labelType&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L276">        labelType.setToolTipText(Messages.getString(&quot;MechSelectorDialog.m_labelType.ToolTip&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L277">        gridBagConstraintsWest.gridx = 0;</span>
+<span class="nc" id="L278">        gridBagConstraintsWest.gridy = 2;</span>
+<span class="nc" id="L279">        panelFilterButtons.add(labelType, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L281">        listTechLevel.setToolTipText(Messages.getString(&quot;MechSelectorDialog.m_labelType.ToolTip&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L282">        JScrollPane techLevelScroll = new JScrollPane(listTechLevel);</span>
+<span class="nc" id="L283">        techLevelScroll.setMinimumSize(new Dimension(300, 100));</span>
+<span class="nc" id="L284">        techLevelScroll.setPreferredSize(new Dimension(300, 100));</span>
+<span class="nc" id="L285">        gridBagConstraintsWest.gridx = 1;</span>
+<span class="nc" id="L286">        gridBagConstraintsWest.gridy = 2;</span>
+<span class="nc" id="L287">        panelFilterButtons.add(techLevelScroll, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L289">        JLabel labelWeight = new JLabel(Messages.getString(&quot;MechSelectorDialog.m_labelWeightClass&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L290">        labelWeight.setName(&quot;labelWeight&quot;);</span>
+<span class="nc" id="L291">        gridBagConstraintsWest.gridx = 0;</span>
+<span class="nc" id="L292">        gridBagConstraintsWest.gridy = 1;</span>
+<span class="nc" id="L293">        panelFilterButtons.add(labelWeight, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L295">        DefaultComboBoxModel&lt;String&gt; weightModel = new DefaultComboBoxModel&lt;&gt;();</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">        for (int i = 0; i &lt; EntityWeightClass.SIZE; i++) {</span>
+<span class="nc" id="L297">            weightModel.addElement(EntityWeightClass.getClassName(i));</span>
+        }
+<span class="nc" id="L299">        weightModel.addElement(Messages.getString(&quot;MechSelectorDialog.All&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L300">        comboWeight.setModel(weightModel);</span>
+<span class="nc" id="L301">        comboWeight.setName(&quot;comboWeight&quot;);</span>
+<span class="nc" id="L302">        comboWeight.setMinimumSize(new Dimension(300, 27));</span>
+<span class="nc" id="L303">        comboWeight.setPreferredSize(new Dimension(300, 27));</span>
+<span class="nc" id="L304">        comboWeight.addActionListener(this);</span>
+<span class="nc" id="L305">        gridBagConstraintsWest.gridx = 1;</span>
+<span class="nc" id="L306">        gridBagConstraintsWest.gridy = 1;</span>
+<span class="nc" id="L307">        panelFilterButtons.add(comboWeight, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L309">        JLabel labelUnitType = new JLabel(Messages.getString(&quot;MechSelectorDialog.m_labelUnitType&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L310">        labelUnitType.setName(&quot;labelUnitType&quot;);</span>
+<span class="nc" id="L311">        gridBagConstraints = new GridBagConstraints();</span>
+<span class="nc" id="L312">        gridBagConstraints.gridx = 0;</span>
+<span class="nc" id="L313">        gridBagConstraints.gridy = 0;</span>
+<span class="nc" id="L314">        gridBagConstraints.fill = GridBagConstraints.HORIZONTAL;</span>
+<span class="nc" id="L315">        gridBagConstraints.anchor = GridBagConstraints.WEST;</span>
+<span class="nc" id="L316">        panelFilterButtons.add(labelUnitType, gridBagConstraints);</span>
+
+<span class="nc" id="L318">        DefaultComboBoxModel&lt;String&gt; unitTypeModel = new DefaultComboBoxModel&lt;&gt;();</span>
+<span class="nc" id="L319">        unitTypeModel.addElement(Messages.getString(&quot;MechSelectorDialog.All&quot;));</span>
+<span class="nc bnc" id="L320" title="All 2 branches missed.">        for (int i = 0; i &lt; UnitType.SIZE; i++) {</span>
+<span class="nc" id="L321">            unitTypeModel.addElement(UnitType.getTypeDisplayableName(i));</span>
+        }
+<span class="nc" id="L323">        unitTypeModel.addElement(Messages.getString(&quot;MechSelectorDialog.SupportVee&quot;));</span>
+<span class="nc" id="L324">        comboUnitType.setModel(unitTypeModel);</span>
+<span class="nc" id="L325">        comboUnitType.setName(&quot;comboUnitType&quot;);</span>
+<span class="nc" id="L326">        comboUnitType.setMinimumSize(new Dimension(300, 27));</span>
+<span class="nc" id="L327">        comboUnitType.setPreferredSize(new Dimension(300, 27));</span>
+<span class="nc" id="L328">        comboUnitType.addActionListener(this);</span>
+<span class="nc" id="L329">        gridBagConstraintsWest.gridx = 1;</span>
+<span class="nc" id="L330">        gridBagConstraintsWest.gridy = 0;</span>
+<span class="nc" id="L331">        panelFilterButtons.add(comboUnitType, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L333">        textFilter = new JTextField(&quot;&quot;);</span>
+<span class="nc" id="L334">        textFilter.setName(&quot;textFilter&quot;);</span>
+<span class="nc" id="L335">        textFilter.setMinimumSize(new Dimension(300, 28));</span>
+<span class="nc" id="L336">        textFilter.setPreferredSize(new Dimension(300, 28));</span>
+<span class="nc" id="L337">        textFilter.getDocument().addDocumentListener(new DocumentListener() {</span>
+            public void changedUpdate(DocumentEvent e) {
+<span class="nc" id="L339">                filterUnits();</span>
+<span class="nc" id="L340">            }</span>
+
+            public void insertUpdate(DocumentEvent e) {
+<span class="nc" id="L343">                filterUnits();</span>
+<span class="nc" id="L344">            }</span>
+
+            public void removeUpdate(DocumentEvent e) {
+<span class="nc" id="L347">                filterUnits();</span>
+<span class="nc" id="L348">            }</span>
+        });
+<span class="nc" id="L350">        gridBagConstraintsWest.gridx = 1;</span>
+<span class="nc" id="L351">        gridBagConstraintsWest.gridy = 3;</span>
+<span class="nc" id="L352">        panelFilterButtons.add(textFilter, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L354">        JLabel labelFilter = new JLabel(Messages.getString(&quot;MechSelectorDialog.m_labelFilter&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L355">        labelFilter.setName(&quot;labelFilter&quot;);</span>
+<span class="nc" id="L356">        gridBagConstraintsWest.gridx = 0;</span>
+<span class="nc" id="L357">        gridBagConstraintsWest.gridy = 3;</span>
+<span class="nc" id="L358">        panelFilterButtons.add(labelFilter, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L360">        labelImage.setHorizontalAlignment(SwingConstants.CENTER);</span>
+<span class="nc" id="L361">        labelImage.setName(&quot;labelImage&quot;);</span>
+<span class="nc" id="L362">        gridBagConstraints = new GridBagConstraints();</span>
+<span class="nc" id="L363">        gridBagConstraints.gridx = 2;</span>
+<span class="nc" id="L364">        gridBagConstraints.gridy = 0;</span>
+<span class="nc" id="L365">        gridBagConstraints.gridheight = 4;</span>
+<span class="nc" id="L366">        gridBagConstraints.fill = GridBagConstraints.BOTH;</span>
+<span class="nc" id="L367">        gridBagConstraints.weightx = 1.0;</span>
+<span class="nc" id="L368">        gridBagConstraints.weighty = 1.0;</span>
+<span class="nc" id="L369">        panelFilterButtons.add(labelImage, gridBagConstraints);</span>
+
+<span class="nc" id="L371">        gridBagConstraints = new GridBagConstraints();</span>
+<span class="nc" id="L372">        gridBagConstraints.gridx = 0;</span>
+<span class="nc" id="L373">        gridBagConstraints.gridy = 0;</span>
+<span class="nc" id="L374">        gridBagConstraints.fill = GridBagConstraints.HORIZONTAL;</span>
+<span class="nc" id="L375">        gridBagConstraints.anchor = GridBagConstraints.NORTHWEST;</span>
+<span class="nc" id="L376">        gridBagConstraints.weightx = 0.0;</span>
+<span class="nc" id="L377">        gridBagConstraints.insets = new Insets(10, 10, 5, 0);</span>
+<span class="nc" id="L378">        selectionPanel.add(panelFilterButtons, gridBagConstraints);</span>
+
+<span class="nc" id="L380">        JPanel panelSearchButtons = new JPanel(new GridBagLayout());</span>
+
+<span class="nc" id="L382">        buttonAdvancedSearch = new JButton(Messages.getString(&quot;MechSelectorDialog.AdvSearch&quot;));</span>
+<span class="nc" id="L383">        buttonAdvancedSearch.setName(&quot;buttonAdvancedSearch&quot;);</span>
+<span class="nc" id="L384">        buttonAdvancedSearch.addActionListener(this);</span>
+<span class="nc" id="L385">        gridBagConstraintsWest.gridx = 0;</span>
+<span class="nc" id="L386">        gridBagConstraintsWest.gridy = 0;</span>
+<span class="nc" id="L387">        panelSearchButtons.add(buttonAdvancedSearch, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L389">        buttonResetSearch = new JButton(Messages.getString(&quot;MechSelectorDialog.Reset&quot;));</span>
+<span class="nc" id="L390">        buttonResetSearch.setName(&quot;buttonResetSearch&quot;);</span>
+<span class="nc" id="L391">        buttonResetSearch.addActionListener(this);</span>
+<span class="nc" id="L392">        buttonResetSearch.setEnabled(false);</span>
+<span class="nc" id="L393">        gridBagConstraintsWest.gridx = 1;</span>
+<span class="nc" id="L394">        gridBagConstraintsWest.gridy = 0;</span>
+<span class="nc" id="L395">        panelSearchButtons.add(buttonResetSearch, gridBagConstraintsWest);</span>
+
+<span class="nc" id="L397">        gridBagConstraints = new GridBagConstraints();</span>
+<span class="nc" id="L398">        gridBagConstraints.gridx = 0;</span>
+<span class="nc" id="L399">        gridBagConstraints.gridy = 1;</span>
+<span class="nc" id="L400">        gridBagConstraints.fill = GridBagConstraints.HORIZONTAL;</span>
+<span class="nc" id="L401">        gridBagConstraints.anchor = GridBagConstraints.NORTHWEST;</span>
+<span class="nc" id="L402">        gridBagConstraints.weightx = 0.0;</span>
+<span class="nc" id="L403">        gridBagConstraints.insets = new Insets(10, 10, 10, 0);</span>
+<span class="nc" id="L404">        selectionPanel.add(panelSearchButtons, gridBagConstraints);</span>
+        //endregion Selection Panel
+
+<span class="nc" id="L407">        JPanel panelButtons = createButtonsPanel();</span>
+
+<span class="nc" id="L409">        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, true,</span>
+                selectionPanel, panePreview);
+<span class="nc" id="L411">        splitPane.setResizeWeight(0);</span>
+<span class="nc" id="L412">        gridBagConstraints = new GridBagConstraints();</span>
+<span class="nc" id="L413">        gridBagConstraints.gridx = gridBagConstraints.gridy = 0;</span>
+<span class="nc" id="L414">        gridBagConstraints.fill = GridBagConstraints.BOTH;</span>
+<span class="nc" id="L415">        gridBagConstraints.weightx = gridBagConstraints.weighty = 1;</span>
+<span class="nc" id="L416">        getContentPane().add(splitPane, gridBagConstraints);</span>
+
+<span class="nc" id="L418">        gridBagConstraints.insets = new Insets(5,0,5,0);</span>
+<span class="nc" id="L419">        gridBagConstraints.weightx = gridBagConstraints.weighty = 0;</span>
+<span class="nc" id="L420">        gridBagConstraints.gridy = 1;</span>
+<span class="nc" id="L421">        getContentPane().add(panelButtons, gridBagConstraints);</span>
+
+<span class="nc" id="L423">        pack();</span>
+
+        // Escape keypress
+<span class="nc" id="L426">        Action closeAction = new AbstractAction() {</span>
+            private static final long serialVersionUID = 2587225044226668664L;
+
+            public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L430">                close();</span>
+<span class="nc" id="L431">            }</span>
+        };
+
+<span class="nc" id="L434">        Action selectAction = new AbstractAction() {</span>
+            private static final long serialVersionUID = 4043951169453748540L;
+
+            public void actionPerformed(ActionEvent e) {
+<span class="nc" id="L438">                select(false);</span>
+<span class="nc" id="L439">            }</span>
+        };
+
+<span class="nc" id="L442">        JRootPane rootPane = getRootPane();</span>
+<span class="nc" id="L443">        KeyStroke escape = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);</span>
+<span class="nc" id="L444">        KeyStroke enter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);</span>
+<span class="nc" id="L445">        rootPane.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(escape, CLOSE_ACTION);</span>
+<span class="nc" id="L446">        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escape, CLOSE_ACTION);</span>
+<span class="nc" id="L447">        rootPane.getInputMap(JComponent.WHEN_FOCUSED).put(escape, CLOSE_ACTION);</span>
+<span class="nc" id="L448">        rootPane.getActionMap().put(CLOSE_ACTION, closeAction);</span>
+
+<span class="nc" id="L450">        rootPane.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(enter, SELECT_ACTION);</span>
+<span class="nc" id="L451">        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(enter, SELECT_ACTION);</span>
+<span class="nc" id="L452">        rootPane.getInputMap(JComponent.WHEN_FOCUSED).put(enter, SELECT_ACTION);</span>
+<span class="nc" id="L453">        rootPane.getActionMap().put(SELECT_ACTION, selectAction);</span>
+<span class="nc" id="L454">    }</span>
+
+    private void updateTypeCombo(GUIPreferences preferences) {
+<span class="nc" id="L457">        listTechLevel.removeListSelectionListener(this);</span>
+<span class="nc" id="L458">        int[] selectedIndices = listTechLevel.getSelectedIndices();</span>
+
+<span class="nc bnc" id="L460" title="All 2 branches missed.">        if (selectedIndices.length == 0) {</span>
+<span class="nc" id="L461">            String option = preferences.getMechSelectorRulesLevels().replaceAll(&quot;[\\[\\]]&quot;, &quot;&quot;);</span>
+<span class="nc bnc" id="L462" title="All 2 branches missed.">            if (option.length() &gt; 0) {</span>
+<span class="nc" id="L463">                String[] strSelections = option.split(&quot;[,]&quot;);</span>
+<span class="nc" id="L464">                selectedIndices = new int[strSelections.length];</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">                for (int i = 0; i &lt; strSelections.length; i++) {</span>
+<span class="nc" id="L466">                    selectedIndices[i] = Integer.parseInt(strSelections[i].trim());</span>
+                }
+            }
+        }
+
+        int maxTech;
+<span class="nc bnc" id="L472" title="All 5 branches missed.">        switch (gameTechLevel) {</span>
+            case TechConstants.T_SIMPLE_INTRO:
+<span class="nc" id="L474">                maxTech = TechConstants.T_INTRO_BOXSET;</span>
+<span class="nc" id="L475">                break;</span>
+            case TechConstants.T_SIMPLE_STANDARD:
+<span class="nc" id="L477">                maxTech = TechConstants.T_TW_ALL;</span>
+<span class="nc" id="L478">                break;</span>
+            case TechConstants.T_SIMPLE_ADVANCED:
+<span class="nc" id="L480">                maxTech = TechConstants.T_CLAN_ADVANCED;</span>
+<span class="nc" id="L481">                break;</span>
+            case TechConstants.T_SIMPLE_EXPERIMENTAL:
+<span class="nc" id="L483">                maxTech = TechConstants.T_CLAN_EXPERIMENTAL;</span>
+<span class="nc" id="L484">                break;</span>
+            case TechConstants.T_SIMPLE_UNOFFICIAL:
+            default:
+<span class="nc" id="L487">                maxTech = TechConstants.T_CLAN_UNOFFICIAL;</span>
+                break;
+        }
+
+<span class="nc" id="L491">        techLevelListToIndex.clear();</span>
+<span class="nc" id="L492">        DefaultComboBoxModel&lt;String&gt; techModel = new DefaultComboBoxModel&lt;&gt;();</span>
+<span class="nc" id="L493">        int selectionIdx = 0;</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">        for (int tl = 0; tl &lt;= maxTech; tl++) {</span>
+<span class="nc bnc" id="L495" title="All 4 branches missed.">            if ((tl != TechConstants.T_IS_TW_ALL) &amp;&amp; (tl != TechConstants.T_TW_ALL)) {</span>
+<span class="nc bnc" id="L496" title="All 3 branches missed.">                switch (techLevelDisplayType) {</span>
+                    case TECH_LEVEL_DISPLAY_IS:
+<span class="nc bnc" id="L498" title="All 2 branches missed.">                        if (TechConstants.getTechName(tl).equals(&quot;Inner Sphere&quot;)</span>
+<span class="nc bnc" id="L499" title="All 2 branches missed.">                                || TechConstants.getTechName(tl).contains(&quot;IS&quot;)) {</span>
+<span class="nc" id="L500">                            techLevelListToIndex.put(selectionIdx, tl);</span>
+<span class="nc" id="L501">                            techModel.addElement(TechConstants.getLevelDisplayableName(tl));</span>
+<span class="nc" id="L502">                            selectionIdx++;</span>
+                        }
+                        break;
+                    case TECH_LEVEL_DISPLAY_CLAN:
+<span class="nc bnc" id="L506" title="All 2 branches missed.">                        if (TechConstants.getTechName(tl).contains(&quot;Clan&quot;)) {</span>
+<span class="nc" id="L507">                            techLevelListToIndex.put(selectionIdx, tl);</span>
+<span class="nc" id="L508">                            techModel.addElement(TechConstants.getLevelDisplayableName(tl));</span>
+<span class="nc" id="L509">                            selectionIdx++;</span>
+                        }
+                        break;
+                    case TECH_LEVEL_DISPLAY_IS_CLAN:
+                    default:
+<span class="nc" id="L514">                        techLevelListToIndex.put(selectionIdx, tl);</span>
+<span class="nc" id="L515">                        techModel.addElement(TechConstants.getLevelDisplayableName(tl));</span>
+<span class="nc" id="L516">                        selectionIdx++;</span>
+                        break;
+                }
+            }
+        }
+<span class="nc" id="L521">        listTechLevel.setModel(techModel);</span>
+
+<span class="nc" id="L523">        listTechLevel.setSelectedIndices(selectedIndices);</span>
+<span class="nc" id="L524">        listTechLevel.addListSelectionListener(this);</span>
+<span class="nc" id="L525">    }</span>
+
+    /**
+     * This is used to create the bottom row of buttons for the interface
+     * @return the panel containing the buttons to place in the interface
+     */
+    protected abstract JPanel createButtonsPanel();
+
+    /**
+     * This is the function to add a unit to the current interface. That could be a purchase (MekHQ),
+     * addition (MekHQ), or unit selection (MegaMek/MegaMekLab)
+     * @param modifier a boolean to modify how the function will work. In MegaMek this is used to
+     *                 close the dialog, in MekHQ to GM add.
+     */
+    protected abstract void select(boolean modifier);
+
+    /**
+     * This filters the units on the display. It is overwritten for MekHQ
+     */
+    protected void filterUnits() {
+        RowFilter&lt;MechTableModel, Integer&gt; unitTypeFilter;
+
+<span class="nc" id="L547">        List&lt;Integer&gt; techLevels = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L548" title="All 2 branches missed.">        for (Integer selectedIdx : listTechLevel.getSelectedIndices()) {</span>
+<span class="nc" id="L549">            techLevels.add(techLevelListToIndex.get(selectedIdx));</span>
+        }
+<span class="nc" id="L551">        final Integer[] nTypes = new Integer[techLevels.size()];</span>
+<span class="nc" id="L552">        techLevels.toArray(nTypes);</span>
+
+<span class="nc" id="L554">        final int nClass = comboWeight.getSelectedIndex();</span>
+<span class="nc" id="L555">        final int nUnit = comboUnitType.getSelectedIndex() - 1;</span>
+<span class="nc" id="L556">        final boolean checkSupportVee = Messages.getString(&quot;MechSelectorDialog.SupportVee&quot;)</span>
+<span class="nc" id="L557">                .equals(comboUnitType.getSelectedItem());</span>
+        //If current expression doesn't parse, don't update.
+        try {
+<span class="nc" id="L560">            unitTypeFilter = new RowFilter&lt;MechTableModel, Integer&gt;() {</span>
+                @Override
+                public boolean include(Entry&lt;? extends MechTableModel, ? extends Integer&gt; entry) {
+<span class="nc" id="L563">                    MechTableModel mechModel = entry.getModel();</span>
+<span class="nc" id="L564">                    MechSummary mech = mechModel.getMechSummary(entry.getIdentifier());</span>
+<span class="nc" id="L565">                    boolean techLevelMatch = false;</span>
+<span class="nc bnc" id="L566" title="All 2 branches missed.">                    int type = enableYearLimits ? mech.getType(allowedYear) : mech.getType();</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">                    for (int tl : nTypes) {</span>
+<span class="nc bnc" id="L568" title="All 2 branches missed.">                        if (type == tl) {</span>
+<span class="nc" id="L569">                            techLevelMatch = true;</span>
+<span class="nc" id="L570">                            break;</span>
+                        }
+                    }
+<span class="nc bnc" id="L573" title="All 2 branches missed.">                    if (</span>
+                            /* Year Limits */
+<span class="nc bnc" id="L575" title="All 4 branches missed.">                            (!enableYearLimits || (mech.getYear() &lt;= allowedYear))</span>
+                            /* Canon */
+<span class="nc bnc" id="L577" title="All 4 branches missed.">                            &amp;&amp; (!canonOnly || mech.isCanon())</span>
+                            /* Invalid units */
+<span class="nc bnc" id="L579" title="All 4 branches missed.">                            &amp;&amp; (allowInvalid || !mech.getLevel().equals(&quot;F&quot;))</span>
+                            /* Weight */
+<span class="nc bnc" id="L581" title="All 8 branches missed.">                            &amp;&amp; ((nClass == EntityWeightClass.SIZE) || (nClass == mech.getWeightClass()))</span>
+                            /* Technology Level */
+                            &amp;&amp; (techLevelMatch)
+                            /* Support Vehicles */
+                            &amp;&amp; ((nUnit == -1)
+<span class="nc bnc" id="L586" title="All 4 branches missed.">                                    || (!checkSupportVee &amp;&amp; mech.getUnitType().equals(UnitType.getTypeName(nUnit)))</span>
+<span class="nc bnc" id="L587" title="All 4 branches missed.">                                    || (checkSupportVee &amp;&amp; mech.isSupport()))</span>
+                            /* Advanced Search */
+<span class="nc bnc" id="L589" title="All 2 branches missed.">                            &amp;&amp; ((searchFilter == null) || MechSearchFilter.isMatch(mech, searchFilter))</span>
+                    ) {
+<span class="nc bnc" id="L591" title="All 2 branches missed.">                        if (textFilter.getText().length() &gt; 0) {</span>
+<span class="nc" id="L592">                            String text = textFilter.getText();</span>
+<span class="nc" id="L593">                            return mech.getName().toLowerCase().contains(text.toLowerCase());</span>
+                        }
+<span class="nc" id="L595">                        return true;</span>
+                    }
+<span class="nc" id="L597">                    return false;</span>
+                }
+            };
+<span class="nc" id="L600">        } catch (PatternSyntaxException ignored) {</span>
+<span class="nc" id="L601">            return;</span>
+<span class="nc" id="L602">        }</span>
+<span class="nc" id="L603">        sorter.setRowFilter(unitTypeFilter);</span>
+<span class="nc" id="L604">    }</span>
+
+    /**
+     * @return the selected entity (required for MekHQ/MegaMek overrides)
+     */
+    protected Entity refreshUnitView() {
+<span class="nc" id="L610">        boolean populateTextFields = true;</span>
+
+<span class="nc" id="L612">        Entity selectedEntity = getSelectedEntity();</span>
+        // null entity, so load a default unit.
+<span class="nc bnc" id="L614" title="All 2 branches missed.">        if (selectedEntity == null) {</span>
+<span class="nc" id="L615">            panelMechView.reset();</span>
+<span class="nc" id="L616">            labelImage.setIcon(null);</span>
+<span class="nc" id="L617">            return null;</span>
+        }
+
+<span class="nc" id="L620">        MechView mechView = null;</span>
+<span class="nc" id="L621">        TROView troView = null;</span>
+        try {
+<span class="nc" id="L623">            mechView = new MechView(selectedEntity, false);</span>
+<span class="nc" id="L624">            troView = TROView.createView(selectedEntity, true);</span>
+<span class="nc" id="L625">        } catch (Exception e) {</span>
+<span class="nc" id="L626">            MegaMek.getLogger().error(e);</span>
+            // error: unit didn't load right. this is bad news.
+<span class="nc" id="L628">            populateTextFields = false;</span>
+<span class="nc" id="L629">        }</span>
+<span class="nc bnc" id="L630" title="All 2 branches missed.">        if (populateTextFields) {</span>
+<span class="nc" id="L631">            panelMechView.setMech(selectedEntity, mechView);</span>
+<span class="nc" id="L632">            panelTROView.setMech(selectedEntity, troView);</span>
+        } else {
+<span class="nc" id="L634">            panelMechView.reset();</span>
+<span class="nc" id="L635">            panelTROView.reset();</span>
+        }
+
+<span class="nc" id="L638">        return selectedEntity;</span>
+    }
+
+    /**
+     * @return the selected entity
+     */
+    public Entity getSelectedEntity() {
+<span class="nc" id="L645">        int view = tableUnits.getSelectedRow();</span>
+<span class="nc bnc" id="L646" title="All 2 branches missed.">        if (view &lt; 0) {</span>
+            // selection got filtered away
+<span class="nc" id="L648">            return null;</span>
+        }
+<span class="nc" id="L650">        int selected = tableUnits.convertRowIndexToModel(view);</span>
+<span class="nc" id="L651">        MechSummary ms = mechs[selected];</span>
+        try {
+            // For some unknown reason the base path gets screwed up after you
+            // print so this sets the source file to the full path.
+<span class="nc" id="L655">            return new MechFileParser(ms.getSourceFile(), ms.getEntryName()).getEntity();</span>
+<span class="nc" id="L656">        } catch (EntityLoadingException e) {</span>
+<span class="nc" id="L657">            MegaMek.getLogger().error(&quot;Unable to load mech: &quot; + ms.getSourceFile() + &quot;: &quot; + ms.getEntryName()</span>
+<span class="nc" id="L658">                            + &quot;: &quot; + e.getMessage(), e);</span>
+<span class="nc" id="L659">            return null;</span>
+        }
+    }
+
+    public void run() {
+        // Loading mechs can take a while, so it will have its own thread for MegaMek
+        // This prevents the UI from freezing, and allows the
+        // &quot;Please wait...&quot; dialog to behave properly on various Java VMs.
+<span class="nc" id="L667">        mechs = mscInstance.getAllMechs();</span>
+<span class="nc" id="L668">        unitLoadingDialog.setVisible(false);</span>
+
+        // break out if there are no units to filter
+<span class="nc bnc" id="L671" title="All 2 branches missed.">        if (mechs == null) {</span>
+<span class="nc" id="L672">            MegaMek.getLogger().error(&quot;No mechs were loaded&quot;);</span>
+        } else {
+<span class="nc" id="L674">            unitModel.setData(mechs);</span>
+        }
+<span class="nc" id="L676">    }</span>
+
+    /**
+     *
+     * @param visible whether or not to make the GUI visible
+     */
+    @Override
+    public void setVisible(boolean visible) {
+<span class="nc bnc" id="L684" title="All 2 branches missed.">        if (visible) {</span>
+<span class="nc" id="L685">            setUserPreferences();</span>
+        }
+<span class="nc" id="L687">        asd.clearValues();</span>
+<span class="nc" id="L688">        searchFilter = null;</span>
+<span class="nc" id="L689">        buttonResetSearch.setEnabled(false);</span>
+<span class="nc" id="L690">        filterUnits();</span>
+
+<span class="nc" id="L692">        super.setVisible(visible);</span>
+<span class="nc" id="L693">    }</span>
+
+    /**
+     * This handles processing windows events
+     * @param e the event to process
+     */
+    @Override
+    protected void processWindowEvent(WindowEvent e) {
+<span class="nc" id="L701">        super.processWindowEvent(e);</span>
+<span class="nc bnc" id="L702" title="All 4 branches missed.">        if ((e.getID() == WindowEvent.WINDOW_DEACTIVATED) || (e.getID() == WindowEvent.WINDOW_CLOSING)) {</span>
+<span class="nc" id="L703">            GUIPreferences guiPreferences = GUIPreferences.getInstance();</span>
+<span class="nc" id="L704">            guiPreferences.setMechSelectorUnitType(comboUnitType.getSelectedIndex());</span>
+<span class="nc" id="L705">            guiPreferences.setMechSelectorWeightClass(comboWeight.getSelectedIndex());</span>
+<span class="nc" id="L706">            guiPreferences.setMechSelectorRulesLevels(Arrays.toString(listTechLevel.getSelectedIndices()));</span>
+<span class="nc" id="L707">            guiPreferences.setMechSelectorSortColumn(tableUnits.getRowSorter().getSortKeys().get(0).getColumn());</span>
+<span class="nc" id="L708">            guiPreferences.setMechSelectorSortOrder(tableUnits.getRowSorter().getSortKeys().get(0).getSortOrder().name());</span>
+<span class="nc" id="L709">            guiPreferences.setMechSelectorSizeHeight(getSize().height);</span>
+<span class="nc" id="L710">            guiPreferences.setMechSelectorSizeWidth(getSize().width);</span>
+        }
+<span class="nc" id="L712">    }</span>
+
+    /**
+     * This handles key released events
+     * @param ke the key that was released
+     */
+    public void keyReleased(KeyEvent ke) {
+<span class="nc" id="L719">    }</span>
+
+    /**
+     * This handles key pressed events
+     * @param ke the pressed key
+     */
+    public void keyPressed(KeyEvent ke) {
+<span class="nc" id="L726">        long curTime = System.currentTimeMillis();</span>
+<span class="nc bnc" id="L727" title="All 2 branches missed.">        if ((curTime - lastSearch) &gt; KEY_TIMEOUT) {</span>
+<span class="nc" id="L728">            searchBuffer = new StringBuffer();</span>
+        }
+<span class="nc" id="L730">        lastSearch = curTime;</span>
+<span class="nc" id="L731">        searchBuffer.append(ke.getKeyChar());</span>
+<span class="nc" id="L732">        searchFor(searchBuffer.toString().toLowerCase());</span>
+<span class="nc" id="L733">    }</span>
+
+    /**
+     * Searches the table for any entity with a name that starts with the search string
+     * @param search the search parameters
+     */
+    private void searchFor(String search) {
+<span class="nc bnc" id="L740" title="All 2 branches missed.">        for (int i = 0; i &lt; mechs.length; i++) {</span>
+<span class="nc bnc" id="L741" title="All 2 branches missed.">            if (mechs[i].getName().toLowerCase().startsWith(search)) {</span>
+<span class="nc" id="L742">                int selected = tableUnits.convertRowIndexToView(i);</span>
+<span class="nc bnc" id="L743" title="All 2 branches missed.">                if (selected &gt; -1) {</span>
+<span class="nc" id="L744">                    tableUnits.changeSelection(selected, 0, false, false);</span>
+<span class="nc" id="L745">                    break;</span>
+                }
+            }
+        }
+<span class="nc" id="L749">    }</span>
+
+    /**
+     * This handles key typed events
+     * @param ke the typed key
+     */
+    public void keyTyped(KeyEvent ke) {
+<span class="nc" id="L756">    }</span>
+
+    /**
+     * This handles the primary action events (any that can come from buttons in this class)
+     * @param ev the event containing the performed action
+     */
+    public void actionPerformed(ActionEvent ev) {
+<span class="nc bnc" id="L763" title="All 4 branches missed.">        if (ev.getSource().equals(comboWeight) || ev.getSource().equals(comboUnitType)) {</span>
+<span class="nc" id="L764">            filterUnits();</span>
+<span class="nc bnc" id="L765" title="All 2 branches missed.">        } else if (ev.getSource().equals(buttonSelect)) {</span>
+<span class="nc" id="L766">            select(false);</span>
+<span class="nc bnc" id="L767" title="All 2 branches missed.">        } else if (ev.getSource().equals(buttonSelectClose)) {</span>
+<span class="nc" id="L768">            select(true);</span>
+<span class="nc bnc" id="L769" title="All 2 branches missed.">        } else if (ev.getSource().equals(buttonClose)) {</span>
+<span class="nc" id="L770">            close();</span>
+<span class="nc bnc" id="L771" title="All 2 branches missed.">        } else if (ev.getSource().equals(buttonShowBV)) {</span>
+<span class="nc" id="L772">            JEditorPane tEditorPane = new JEditorPane();</span>
+<span class="nc" id="L773">            tEditorPane.setContentType(&quot;text/html&quot;);</span>
+<span class="nc" id="L774">            tEditorPane.setEditable(false);</span>
+<span class="nc" id="L775">            Entity e = getSelectedEntity();</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">            if (null == e) {</span>
+<span class="nc" id="L777">                return;</span>
+            }
+<span class="nc" id="L779">            e.calculateBattleValue();</span>
+<span class="nc" id="L780">            tEditorPane.setText(e.getBVText());</span>
+<span class="nc" id="L781">            tEditorPane.setCaretPosition(0);</span>
+<span class="nc" id="L782">            JScrollPane tScroll = new JScrollPane(tEditorPane,</span>
+                    ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                    ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+<span class="nc" id="L785">            Dimension size = new Dimension(550, 300);</span>
+<span class="nc" id="L786">            tScroll.setPreferredSize(size);</span>
+<span class="nc" id="L787">            JOptionPane.showMessageDialog(null, tScroll, &quot;BV&quot;,</span>
+                    JOptionPane.INFORMATION_MESSAGE, null);
+<span class="nc bnc" id="L789" title="All 2 branches missed.">        } else if (ev.getSource().equals(buttonAdvancedSearch)) {</span>
+<span class="nc" id="L790">            searchFilter = asd.showDialog();</span>
+<span class="nc bnc" id="L791" title="All 4 branches missed.">            buttonResetSearch.setEnabled((searchFilter != null) &amp;&amp; !searchFilter.isDisabled);</span>
+<span class="nc" id="L792">            filterUnits();</span>
+<span class="nc bnc" id="L793" title="All 2 branches missed.">        } else if (ev.getSource().equals(buttonResetSearch)) {</span>
+<span class="nc" id="L794">            asd.clearValues();</span>
+<span class="nc" id="L795">            searchFilter = null;</span>
+<span class="nc" id="L796">            buttonResetSearch.setEnabled(false);</span>
+<span class="nc" id="L797">            filterUnits();</span>
+        }
+<span class="nc" id="L799">    }</span>
+
+    private void close() {
+<span class="nc" id="L802">        setVisible(false);</span>
+<span class="nc" id="L803">    }</span>
+
+    /**
+     * This handles list selection events, which are only thrown by MegaMek/MegaMekLab
+     * @param evt the event to process
+     */
+    @Override
+    public void valueChanged(ListSelectionEvent evt) {
+<span class="nc bnc" id="L811" title="All 4 branches missed.">        if (!evt.getValueIsAdjusting() &amp;&amp; evt.getSource().equals(listTechLevel)) {</span>
+<span class="nc" id="L812">            filterUnits();</span>
+        }
+<span class="nc" id="L814">    }</span>
+
+    /**
+     * A table model for displaying work items
+     */
+<span class="nc" id="L819">    protected class MechTableModel extends AbstractTableModel {</span>
+        //region Variable Declarations
+        private static final long serialVersionUID = -5457068129532709857L;
+        private static final int COL_CHASSIS = 0;
+        private static final int COL_MODEL = 1;
+        private static final int COL_WEIGHT = 2;
+        private static final int COL_BV = 3;
+        private static final int COL_YEAR = 4;
+        private static final int COL_COST = 5;
+        private static final int COL_LEVEL = 6;
+        private static final int N_COL = 7;
+
+<span class="nc" id="L831">        private MechSummary[] data = new MechSummary[0];</span>
+        //endregion Variable Declarations
+
+        public int getRowCount() {
+<span class="nc" id="L835">            return data.length;</span>
+        }
+
+        public int getColumnCount() {
+<span class="nc" id="L839">            return N_COL;</span>
+        }
+
+        @Override
+        public String getColumnName(int column) {
+<span class="nc bnc" id="L844" title="All 8 branches missed.">            switch (column) {</span>
+                case COL_MODEL:
+<span class="nc" id="L846">                    return &quot;Model&quot;;</span>
+                case COL_CHASSIS:
+<span class="nc" id="L848">                    return &quot;Chassis&quot;;</span>
+                case COL_WEIGHT:
+<span class="nc" id="L850">                    return &quot;Weight&quot;;</span>
+                case COL_BV:
+<span class="nc" id="L852">                    return &quot;BV&quot;;</span>
+                case COL_YEAR:
+<span class="nc" id="L854">                    return &quot;Year&quot;;</span>
+                case COL_COST:
+<span class="nc" id="L856">                    return &quot;Price&quot;;</span>
+                case COL_LEVEL:
+<span class="nc" id="L858">                    return &quot;Level&quot;;</span>
+                default:
+<span class="nc" id="L860">                    return &quot;?&quot;;</span>
+            }
+        }
+
+        @Override
+        public Class&lt;?&gt; getColumnClass(int col) {
+<span class="nc" id="L866">            return getValueAt(0, col).getClass();</span>
+        }
+
+        @Override
+        public boolean isCellEditable(int row, int col) {
+<span class="nc" id="L871">            return false;</span>
+        }
+
+        public MechSummary getMechSummary(int i) {
+<span class="nc" id="L875">            return data[i];</span>
+        }
+
+        // fill table with values
+        public void setData(MechSummary[] ms) {
+<span class="nc" id="L880">            data = ms;</span>
+<span class="nc" id="L881">            fireTableDataChanged();</span>
+<span class="nc" id="L882">        }</span>
+
+        public Object getValueAt(int row, int col) {
+<span class="nc bnc" id="L885" title="All 2 branches missed.">            if (data.length &lt;= row) {</span>
+<span class="nc" id="L886">                return &quot;?&quot;;</span>
+            }
+<span class="nc" id="L888">            MechSummary ms = data[row];</span>
+<span class="nc bnc" id="L889" title="All 2 branches missed.">            if (col == COL_MODEL) {</span>
+<span class="nc" id="L890">                return ms.getModel();</span>
+<span class="nc bnc" id="L891" title="All 2 branches missed.">            } else if (col == COL_CHASSIS) {</span>
+<span class="nc" id="L892">                return ms.getChassis();</span>
+<span class="nc bnc" id="L893" title="All 2 branches missed.">            } else if (col == COL_WEIGHT) {</span>
+<span class="nc bnc" id="L894" title="All 4 branches missed.">                if ((gameOptions != null) &amp;&amp; ms.getUnitType().equals(&quot;BattleArmor&quot;)) {</span>
+<span class="nc bnc" id="L895" title="All 2 branches missed.">                    if (gameOptions.booleanOption(OptionsConstants.ADVANCED_TACOPS_BA_WEIGHT)) {</span>
+<span class="nc" id="L896">                        return ms.getTOweight();</span>
+                    } else {
+<span class="nc" id="L898">                        return ms.getTWweight();</span>
+                    }
+                }
+<span class="nc" id="L901">                return ms.getTons();</span>
+<span class="nc bnc" id="L902" title="All 2 branches missed.">            } else if (col == COL_BV) {</span>
+<span class="nc bnc" id="L903" title="All 2 branches missed.">                if ((gameOptions != null)</span>
+<span class="nc bnc" id="L904" title="All 2 branches missed.">                        &amp;&amp; gameOptions.booleanOption(OptionsConstants.ADVANCED_GEOMETRIC_MEAN_BV)) {</span>
+<span class="nc bnc" id="L905" title="All 2 branches missed.">                    if (gameOptions.booleanOption(OptionsConstants.ADVANCED_REDUCED_OVERHEAT_MODIFIER_BV)) {</span>
+<span class="nc" id="L906">                        return ms.getRHGMBV();</span>
+                    } else {
+<span class="nc" id="L908">                        return ms.getGMBV();</span>
+                    }
+<span class="nc bnc" id="L910" title="All 2 branches missed.">                } else if ((gameOptions != null)</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">                        &amp;&amp; gameOptions.booleanOption(OptionsConstants.ADVANCED_REDUCED_OVERHEAT_MODIFIER_BV)) {</span>
+<span class="nc" id="L912">                    return ms.getRHBV();</span>
+                } else {
+<span class="nc" id="L914">                    return ms.getBV();</span>
+                }
+<span class="nc bnc" id="L916" title="All 2 branches missed.">            } else if (col == COL_YEAR) {</span>
+<span class="nc" id="L917">                return ms.getYear();</span>
+<span class="nc bnc" id="L918" title="All 2 branches missed.">            } else if (col == COL_COST) {</span>
+<span class="nc" id="L919">                return ms.getCost();</span>
+<span class="nc bnc" id="L920" title="All 2 branches missed.">            } else if (col == COL_LEVEL) {</span>
+<span class="nc bnc" id="L921" title="All 2 branches missed.">                if ((gameOptions != null)</span>
+<span class="nc bnc" id="L922" title="All 2 branches missed.">                        &amp;&amp; gameOptions.booleanOption(OptionsConstants.ALLOWED_ERA_BASED)) {</span>
+<span class="nc" id="L923">                    return ms.getLevel(gameOptions.intOption(OptionsConstants.ALLOWED_YEAR));</span>
+                } else {
+<span class="nc" id="L925">                    return ms.getLevel();</span>
+                }
+            } else {
+<span class="nc" id="L928">                return &quot;?&quot;;</span>
+            }
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

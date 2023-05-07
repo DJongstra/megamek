@@ -1,0 +1,815 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AreaEffectHelper.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.weapons</a> &gt; <span class="el_source">AreaEffectHelper.java</span></div><h1>AreaEffectHelper.java</h1><pre class="source lang-java linenums">/*  
+* MegaMek - Copyright (C) 2020 - The MegaMek Team  
+*  
+* This program is free software; you can redistribute it and/or modify it under  
+* the terms of the GNU General Public License as published by the Free Software  
+* Foundation; either version 2 of the License, or (at your option) any later  
+* version.  
+*  
+* This program is distributed in the hope that it will be useful, but WITHOUT  
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS  
+* FOR A PARTICULAR PURPOSE. See the GNU General Public License for more  
+* details.  
+*/  
+
+package megamek.common.weapons;
+
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Vector;
+
+import megamek.common.AmmoType;
+import megamek.common.BattleArmor;
+import megamek.common.BombType;
+import megamek.common.Building;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.EntityMovementMode;
+import megamek.common.EquipmentType;
+import megamek.common.HitData;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.Infantry;
+import megamek.common.Mech;
+import megamek.common.Minefield;
+import megamek.common.PlanetaryConditions;
+import megamek.common.Protomech;
+import megamek.common.Report;
+import megamek.common.SupportTank;
+import megamek.common.Tank;
+import megamek.common.TargetRoll;
+import megamek.common.Terrains;
+import megamek.common.ToHitData;
+import megamek.common.VTOL;
+import megamek.server.Server;
+import megamek.server.Server.DamageType;
+
+/**
+ * Class containing functionality that helps out with area effect weapons. 
+ * @author NickAragua
+ *
+ */
+<span class="nc" id="L56">public class AreaEffectHelper {</span>
+    // maps equipment name to blast radius index for fuel-air ordnance
+    private static Map&lt;String, Integer&gt; fuelAirBlastRadiusIndex;
+<span class="nc" id="L59">    private static final int[] fuelAirDamage = { 5, 10, 20, 30 };</span>
+    
+    private static Map&lt;Integer, NukeStats&gt; nukeStats;
+    
+    /**
+     * Worker function that initializes blast radius data for fuel-air explosives of various types.
+     */
+    private static void initializeFuelAirBlastRadiusIndexData() {
+<span class="nc" id="L67">        fuelAirBlastRadiusIndex = new HashMap&lt;&gt;();</span>
+        
+<span class="nc" id="L69">        fuelAirBlastRadiusIndex.put(BombType.getBombInternalName(BombType.B_FAE_SMALL), 2);</span>
+<span class="nc" id="L70">        fuelAirBlastRadiusIndex.put(BombType.getBombInternalName(BombType.B_FAE_LARGE), 3);</span>
+        
+        // the following ammo types have the capability to load FAE munitions:
+        // Arrow IV, Thumper, Sniper, Long Tom        
+<span class="nc" id="L74">        addFuelAirBlastRadiusIndex(AmmoType.T_ARROW_IV, 2);</span>
+<span class="nc" id="L75">        addFuelAirBlastRadiusIndex(AmmoType.T_THUMPER, 1);</span>
+<span class="nc" id="L76">        addFuelAirBlastRadiusIndex(AmmoType.T_THUMPER_CANNON, 1);</span>
+<span class="nc" id="L77">        addFuelAirBlastRadiusIndex(AmmoType.T_SNIPER, 2);</span>
+<span class="nc" id="L78">        addFuelAirBlastRadiusIndex(AmmoType.T_SNIPER_CANNON, 2);</span>
+<span class="nc" id="L79">        addFuelAirBlastRadiusIndex(AmmoType.T_LONG_TOM_CANNON, 3);</span>
+<span class="nc" id="L80">        addFuelAirBlastRadiusIndex(AmmoType.T_LONG_TOM, 3);</span>
+<span class="nc" id="L81">    }</span>
+    
+    /**
+     * Worker function that initializes data for NUCLEAR WEAPONS
+     */
+    private static void initializeNukeStats() {
+<span class="nc" id="L87">        nukeStats = new HashMap&lt;&gt;();</span>
+        
+<span class="nc" id="L89">        NukeStats nukeEntry = new NukeStats();</span>
+<span class="nc" id="L90">        nukeEntry.baseDamage = 100;</span>
+<span class="nc" id="L91">        nukeEntry.degradation = 5;</span>
+<span class="nc" id="L92">        nukeEntry.secondaryRadius = 40;</span>
+<span class="nc" id="L93">        nukeEntry.craterDepth = 0;</span>
+        
+<span class="nc" id="L95">        nukeStats.put(0, nukeEntry);</span>
+<span class="nc" id="L96">        nukeStats.put(1, nukeEntry);</span>
+        
+<span class="nc" id="L98">        nukeEntry = new NukeStats();</span>
+<span class="nc" id="L99">        nukeEntry.baseDamage = 1000;</span>
+<span class="nc" id="L100">        nukeEntry.degradation = 23;</span>
+<span class="nc" id="L101">        nukeEntry.secondaryRadius = 86;</span>
+<span class="nc" id="L102">        nukeEntry.craterDepth = 1;</span>
+        
+<span class="nc" id="L104">        nukeStats.put(2, nukeEntry);</span>
+        
+<span class="nc" id="L106">        nukeEntry = new NukeStats();</span>
+<span class="nc" id="L107">        nukeEntry.baseDamage = 10000;</span>
+<span class="nc" id="L108">        nukeEntry.degradation = 109;</span>
+<span class="nc" id="L109">        nukeEntry.secondaryRadius = 184;</span>
+<span class="nc" id="L110">        nukeEntry.craterDepth = 3;</span>
+        
+<span class="nc" id="L112">        nukeStats.put(3, nukeEntry);</span>
+        
+<span class="nc" id="L114">        nukeEntry = new NukeStats();</span>
+<span class="nc" id="L115">        nukeEntry.baseDamage = 100000;</span>
+<span class="nc" id="L116">        nukeEntry.degradation = 505;</span>
+<span class="nc" id="L117">        nukeEntry.secondaryRadius = 396;</span>
+<span class="nc" id="L118">        nukeEntry.craterDepth = 5;</span>
+        
+<span class="nc" id="L120">        nukeStats.put(4, nukeEntry);</span>
+<span class="nc" id="L121">    }</span>
+    
+    /**
+     * Helper function that adds elements to the fuel blast radius index
+     */
+    private static void addFuelAirBlastRadiusIndex(int ammoType, int blastRadius) {
+        // this is relatively inefficient, but probably the least inefficient of the options
+        // to acquire a list of the ammo types
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        for(AmmoType at : AmmoType.getMunitionsFor(ammoType)) {</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">            if(at.getMunitionType() == AmmoType.M_FAE) {</span>
+<span class="nc" id="L131">                fuelAirBlastRadiusIndex.put(at.getInternalName(), blastRadius);</span>
+            }
+<span class="nc" id="L133">        }</span>
+<span class="nc" id="L134">    }</span>
+    
+    /**
+     * Get the blast radius of a particular equipment type, given the internal name.
+     */
+    public static int getFuelAirBlastRadiusIndex(String name) {
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        if(fuelAirBlastRadiusIndex == null) {</span>
+<span class="nc" id="L141">            initializeFuelAirBlastRadiusIndexData();</span>
+        }
+        
+<span class="nc" id="L144">        return fuelAirBlastRadiusIndex.getOrDefault(name, 0);</span>
+    }
+    
+    /**
+     * Helper function that processes damage for fuel-air explosives.
+     * Single-entity version.
+     */
+    public static void processFuelAirDamage(Entity target, Coords center, EquipmentType ordnanceType, Entity attacker, Vector&lt;Report&gt; vPhaseReport, Server server) {
+<span class="nc" id="L152">        IGame game = attacker.getGame();</span>
+        // sanity check: if this attack is happening in vacuum through very thin atmo, add that to the phase report and terminate early 
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        boolean notEnoughAtmo = game.getBoard().inSpace() ||</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">                game.getPlanetaryConditions().getAtmosphere() &lt;= PlanetaryConditions.ATMO_TRACE;</span>
+        
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        if(notEnoughAtmo) {</span>
+<span class="nc" id="L158">            Report r = new Report(9986);</span>
+<span class="nc" id="L159">            r.indent(1);</span>
+<span class="nc" id="L160">            r.subject = attacker.getId();</span>
+<span class="nc" id="L161">            r.newlines = 1;</span>
+<span class="nc" id="L162">            vPhaseReport.addElement(r);</span>
+<span class="nc" id="L163">            return;</span>
+        }
+        
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        boolean thinAtmo = game.getPlanetaryConditions().getAtmosphere() == PlanetaryConditions.ATMO_THIN;</span>
+<span class="nc" id="L167">        int blastRadius = getFuelAirBlastRadiusIndex(ordnanceType.getInternalName());</span>
+        
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        if(thinAtmo) {</span>
+<span class="nc" id="L170">            Report r = new Report(9990);</span>
+<span class="nc" id="L171">            r.indent(1);</span>
+<span class="nc" id="L172">            r.subject = attacker.getId();</span>
+<span class="nc" id="L173">            r.newlines = 1;</span>
+<span class="nc" id="L174">            vPhaseReport.addElement(r);</span>
+        }
+        
+<span class="nc" id="L177">        Vector&lt;Integer&gt; entitiesToExclude = new Vector&lt;&gt;();</span>
+        
+        // determine distance to entity
+        // look up damage on radius chart
+        //      (divided by half, round up for thin atmo)
+        //      not here, but in artilleryDamageEntity, make sure to 2x damage for infantry outside of building
+        //      not here, but in artilleryDamageEntity, make sure to 1.5x damage for light building or unit with armor BAR &lt; 10
+        //      not here, but in artilleryDamageEntity, make sure to .5x damage for &quot;castle brian&quot; or &quot;armored&quot; building
+        // if any attacked unit is infantry or BA, roll 2d6 + current distance. Inf dies on 9-, BA dies on 7-
+<span class="nc" id="L186">        int distFromCenter = center.distance(target.getPosition());</span>
+<span class="nc" id="L187">        int damageBracket = blastRadius - distFromCenter;</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        if(damageBracket &lt; 0) {</span>
+<span class="nc" id="L189">            return;</span>
+        }
+        
+<span class="nc" id="L192">        int damage = AreaEffectHelper.fuelAirDamage[damageBracket];</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        if(thinAtmo) {</span>
+<span class="nc" id="L194">            damage = (int) Math.ceil(damage / 2.0);</span>
+        }
+                
+<span class="nc" id="L197">        checkInfantryDestruction(target, distFromCenter, attacker, entitiesToExclude, vPhaseReport, game, server);</span>
+                
+<span class="nc" id="L199">        artilleryDamageEntity(target, damage, null, 0, false, false, false, 0, center, (AmmoType) ordnanceType, target.getPosition(), true,</span>
+<span class="nc" id="L200">                attacker, null, attacker.getId(), vPhaseReport, server);</span>
+<span class="nc" id="L201">    }</span>
+    
+    /**
+     * Helper function that processes damage for fuel-air explosives.
+     */
+    public static void processFuelAirDamage(Coords center, EquipmentType ordnanceType, Entity attacker, Vector&lt;Report&gt; vPhaseReport, Server server) {
+<span class="nc" id="L207">        IGame game = attacker.getGame();</span>
+        // sanity check: if this attack is happening in vacuum through very thin atmo, add that to the phase report and terminate early 
+<span class="nc bnc" id="L209" title="All 2 branches missed.">        boolean notEnoughAtmo = game.getBoard().inSpace() ||</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">                game.getPlanetaryConditions().getAtmosphere() &lt;= PlanetaryConditions.ATMO_TRACE;</span>
+        
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        if(notEnoughAtmo) {</span>
+<span class="nc" id="L213">            Report r = new Report(9986);</span>
+<span class="nc" id="L214">            r.indent(1);</span>
+<span class="nc" id="L215">            r.subject = attacker.getId();</span>
+<span class="nc" id="L216">            r.newlines = 1;</span>
+<span class="nc" id="L217">            vPhaseReport.addElement(r);</span>
+<span class="nc" id="L218">            return;</span>
+        }
+        
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        boolean thinAtmo = game.getPlanetaryConditions().getAtmosphere() == PlanetaryConditions.ATMO_THIN;</span>
+<span class="nc" id="L222">        int blastRadius = getFuelAirBlastRadiusIndex(ordnanceType.getInternalName());</span>
+        
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        if(thinAtmo) {</span>
+<span class="nc" id="L225">            Report r = new Report(9990);</span>
+<span class="nc" id="L226">            r.indent(1);</span>
+<span class="nc" id="L227">            r.subject = attacker.getId();</span>
+<span class="nc" id="L228">            r.newlines = 1;</span>
+<span class="nc" id="L229">            vPhaseReport.addElement(r);</span>
+        }
+        
+<span class="nc" id="L232">        Vector&lt;Integer&gt; entitiesToExclude = new Vector&lt;&gt;();</span>
+        
+        // assemble collection of hexes at ranges 0 to radius
+        // for each hex, invoke artilleryDamageHex, with the damage set according to this:
+        //      radius chart 
+        //      (divided by half, round up for thin atmo)
+        //      not here, but in artilleryDamageHex, make sure to 2x damage for infantry outside of building
+        //      not here, but in artilleryDamageHex, make sure to 1.5x damage for light building or unit with armor BAR &lt; 10
+        //      not here, but in artilleryDamageHex, make sure to .5x damage for &quot;castle brian&quot; or &quot;armored&quot; building
+        // if any attacked unit is infantry or BA, roll 2d6 + current distance. Inf dies on 9-, BA dies on 7-
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        for(int damageBracket = blastRadius, distFromCenter = 0; damageBracket &gt;= 0; damageBracket--, distFromCenter++) {</span>
+<span class="nc" id="L243">            List&lt;Coords&gt; donut = center.allAtDistance(distFromCenter);</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">            for(Coords coords : donut) {</span>
+<span class="nc" id="L245">                int damage = AreaEffectHelper.fuelAirDamage[damageBracket];</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                if(thinAtmo) {</span>
+<span class="nc" id="L247">                    damage = (int) Math.ceil(damage / 2.0);</span>
+                }
+                
+<span class="nc" id="L250">                checkInfantryDestruction(coords, distFromCenter, attacker, entitiesToExclude, vPhaseReport, game, server);</span>
+                
+<span class="nc" id="L252">                server.artilleryDamageHex(coords, center, damage, (AmmoType) ordnanceType, attacker.getId(), attacker, null, false, 0, vPhaseReport, false,</span>
+                        entitiesToExclude, false);
+                
+<span class="nc" id="L255">                TargetRoll fireRoll = new TargetRoll(7, &quot;fuel-air ordnance&quot;);</span>
+<span class="nc" id="L256">                server.tryIgniteHex(coords, attacker.getId(), false, false, fireRoll, true, -1, vPhaseReport);</span>
+                
+<span class="nc" id="L258">                clearMineFields(coords, Minefield.CLEAR_NUMBER_WEAPON_ACCIDENT, attacker, vPhaseReport, game, server);</span>
+<span class="nc" id="L259">            }</span>
+        }
+<span class="nc" id="L261">    }</span>
+    
+    /**
+     * Worker function that checks for and implements instant infantry destruction due to fuel air ordnance, if necessary.
+     * Checks all units at given coords.
+     */
+    public static void checkInfantryDestruction(Coords coords, int distFromCenter, Entity attacker, Vector&lt;Integer&gt; alreadyHit,
+            Vector&lt;Report&gt; vPhaseReport, IGame game, Server server) {
+<span class="nc bnc" id="L269" title="All 2 branches missed.">        for(Entity entity : game.getEntitiesVector(coords)) {</span>
+<span class="nc" id="L270">            checkInfantryDestruction(entity, distFromCenter, attacker, alreadyHit, vPhaseReport, game, server);</span>
+<span class="nc" id="L271">        }</span>
+<span class="nc" id="L272">    }</span>
+    
+    /**
+     * Worker function that checks for and implements instant infantry destruction due to fuel air ordnance, if necessary.
+     * Single-entity version.
+     */
+    public static void checkInfantryDestruction(Entity entity, int distFromCenter, Entity attacker, Vector&lt;Integer&gt; alreadyHit,
+            Vector&lt;Report&gt; vPhaseReport, IGame game, Server server) {
+<span class="nc" id="L280">        int rollTarget = -1;</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        if(entity instanceof BattleArmor) {</span>
+<span class="nc" id="L282">            rollTarget = 7;</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        } else if(entity instanceof Infantry) {</span>
+<span class="nc" id="L284">            rollTarget = 9;</span>
+        } else {
+<span class="nc" id="L286">            return;</span>
+        }
+        
+<span class="nc" id="L289">        int roll = Compute.d6(2);</span>
+<span class="nc" id="L290">        int result = roll + distFromCenter;</span>
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        boolean destroyed = result &lt;= rollTarget;</span>
+        
+<span class="nc" id="L293">        Report r = new Report(9987);</span>
+<span class="nc" id="L294">        r.indent(1);</span>
+<span class="nc" id="L295">        r.subject = attacker.getId();</span>
+<span class="nc" id="L296">        r.newlines = 1;</span>
+<span class="nc" id="L297">        r.add(rollTarget);</span>
+<span class="nc" id="L298">        r.add(roll);</span>
+<span class="nc" id="L299">        r.add(distFromCenter);</span>
+<span class="nc" id="L300">        r.choose(destroyed);</span>
+<span class="nc" id="L301">        vPhaseReport.addElement(r);</span>
+        
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        if(destroyed) {</span>
+<span class="nc" id="L304">            vPhaseReport.addAll(server.destroyEntity(entity, &quot;fuel-air ordnance detonation&quot;, false, false));</span>
+<span class="nc" id="L305">            alreadyHit.add(entity.getId());</span>
+        }
+<span class="nc" id="L307">        return;</span>
+    }
+    
+    /**
+     * Worker function that clears minefields.
+     */
+    public static void clearMineFields(Coords targetPos, int targetNum, Entity ae, Vector&lt;Report&gt; vPhaseReport, IGame game, Server server) {
+<span class="nc" id="L314">        Enumeration&lt;Minefield&gt; minefields = game.getMinefields(targetPos).elements();</span>
+<span class="nc" id="L315">        ArrayList&lt;Minefield&gt; mfRemoved = new ArrayList&lt;Minefield&gt;();</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">        while (minefields.hasMoreElements()) {</span>
+<span class="nc" id="L317">            Minefield mf = minefields.nextElement();</span>
+<span class="nc bnc" id="L318" title="All 2 branches missed.">            if (server.clearMinefield(mf, ae, targetNum, vPhaseReport)) {</span>
+<span class="nc" id="L319">                mfRemoved.add(mf);</span>
+            }
+<span class="nc" id="L321">        }</span>
+        // we have to do it this way to avoid a concurrent error problem
+<span class="nc bnc" id="L323" title="All 2 branches missed.">        for (Minefield mf : mfRemoved) {</span>
+<span class="nc" id="L324">            server.removeMinefield(mf);</span>
+<span class="nc" id="L325">        }</span>
+<span class="nc" id="L326">    }</span>
+
+    /**
+     * Worker function that does artillery damage to an entity.
+     * Extracted from Server.artilleryDamageHex()
+     * @param entity The entity to damage
+     * @param damage The amount of damage to do
+     * @param bldg The building, if any, in that hex
+     * @param bldgAbsorbs How much damage, if any, the building will absorb
+     * @param variableDamage Whether to roll a d6 for the number of hits
+     * @param asfFlak Whether we are making a flak attack against an aerospace unit
+     * @param flak Whether we are making a flak attack
+     * @param altitude Altitude of the attack
+     * @param attackSource The coordinates at which the shell was targeted, for hit table resolution
+     * @param ammo The ammo type used
+     * @param coords The coordinates where the shell actually landed
+     * @param isFuelAirBomb Whether we are making a fuel-air attack
+     * @param alreadyHit Whether the entity was already hit
+     * @param killer The entity that initiated the attack
+     * @param hex The hex, if any, where the shell landed
+     * @param subjectId The ID of the entity carrying out the attack, for reporting in double blind games
+     * @param vPhaseReport Vector of reports to which we append reports
+     * @param server Server object for invocation of various methods
+     */
+    public static void artilleryDamageEntity(Entity entity, int damage, Building bldg, int bldgAbsorbs, 
+            boolean variableDamage, boolean asfFlak, boolean flak, int altitude,
+            Coords attackSource, AmmoType ammo, Coords coords, boolean isFuelAirBomb,
+            Entity killer, IHex hex, int subjectId, Vector&lt;Report&gt; vPhaseReport, Server server) {
+        Report r;
+        
+<span class="nc" id="L356">        int hits = damage;</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">        if (variableDamage) {</span>
+<span class="nc" id="L358">            hits = Compute.d6(damage);</span>
+        }
+<span class="nc" id="L360">        ToHitData toHit = new ToHitData();</span>
+<span class="nc bnc" id="L361" title="All 2 branches missed.">        if (entity instanceof Protomech) {</span>
+<span class="nc" id="L362">            toHit.setHitTable(ToHitData.HIT_SPECIAL_PROTO);</span>
+        }
+<span class="nc" id="L364">        int cluster = 5;</span>
+
+        // Check: is entity inside building?
+<span class="nc bnc" id="L367" title="All 4 branches missed.">        if ((bldg != null) &amp;&amp; (bldgAbsorbs &gt; 0)</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">            &amp;&amp; (entity.getElevation() &lt; hex.terrainLevel(Terrains.BLDG_ELEV))) {</span>
+<span class="nc" id="L369">            cluster -= bldgAbsorbs;</span>
+            // some buildings scale remaining damage that is not absorbed
+            // TODO : this isn't quite right for castles brian
+<span class="nc" id="L372">            cluster = (int) Math.floor(bldg.getDamageToScale() * cluster);</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">            if (entity instanceof Infantry) {</span>
+<span class="nc" id="L374">                return; // took its damage already from building damage</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">            } else if (cluster &lt;= 0) {</span>
+                // entity takes no damage
+<span class="nc" id="L377">                r = new Report(6426);</span>
+<span class="nc" id="L378">                r.subject = subjectId;</span>
+<span class="nc" id="L379">                r.addDesc(entity);</span>
+<span class="nc" id="L380">                vPhaseReport.add(r);</span>
+<span class="nc" id="L381">                return;</span>
+            } else {
+<span class="nc" id="L383">                r = new Report(6425);</span>
+<span class="nc" id="L384">                r.subject = subjectId;</span>
+<span class="nc" id="L385">                r.add(bldgAbsorbs);</span>
+<span class="nc" id="L386">                vPhaseReport.add(r);</span>
+            }
+        }
+
+        // flak against ASF should only hit Aeros, because their elevation
+        // is actually altitude, so shouldn't hit VTOLs
+<span class="nc bnc" id="L392" title="All 4 branches missed.">        if (asfFlak &amp;&amp; !entity.isAero()) {</span>
+<span class="nc" id="L393">            return;</span>
+        }
+
+<span class="nc bnc" id="L396" title="All 2 branches missed.">        if (flak) {</span>
+            // Check: is entity not a VTOL in flight or an ASF
+<span class="nc bnc" id="L398" title="All 2 branches missed.">            if (!((entity instanceof VTOL)</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">                    || (entity.getMovementMode() == EntityMovementMode.VTOL)</span>
+<span class="nc bnc" id="L400" title="All 2 branches missed.">                    || entity.isAero())) {</span>
+<span class="nc" id="L401">                return;</span>
+            }
+            // Check: is entity at correct elevation?
+<span class="nc bnc" id="L404" title="All 2 branches missed.">            if (entity.getElevation() != altitude) {</span>
+<span class="nc" id="L405">                return;</span>
+            }
+        } else {
+            // Check: is entity a VTOL or Aero in flight?
+<span class="nc bnc" id="L409" title="All 2 branches missed.">            if ((entity instanceof VTOL)</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                || (entity.getMovementMode() == EntityMovementMode.VTOL)</span>
+<span class="nc bnc" id="L411" title="All 2 branches missed.">                || entity.isAero()) {</span>
+                // VTOLs take no damage from normal artillery unless landed
+<span class="nc bnc" id="L413" title="All 2 branches missed.">                if ((entity.getElevation() != 0)</span>
+<span class="nc bnc" id="L414" title="All 2 branches missed.">                    &amp;&amp; (entity.getElevation() != hex.terrainLevel(Terrains.BLDG_ELEV))</span>
+<span class="nc bnc" id="L415" title="All 2 branches missed.">                    &amp;&amp; (entity.getElevation() != hex.terrainLevel(Terrains.BRIDGE_ELEV))) {</span>
+<span class="nc" id="L416">                    return;</span>
+                }
+            }
+        }
+
+        // Work out hit table to use
+<span class="nc bnc" id="L422" title="All 2 branches missed.">        if (attackSource != null) {</span>
+<span class="nc" id="L423">            toHit.setSideTable(entity.sideTable(attackSource));</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">            if ((ammo != null)</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">                &amp;&amp; (ammo.getMunitionType() == AmmoType.M_CLUSTER)</span>
+<span class="nc bnc" id="L426" title="All 2 branches missed.">                &amp;&amp; attackSource.equals(coords)) {</span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">                if (entity instanceof Mech) {</span>
+<span class="nc" id="L428">                    toHit.setHitTable(ToHitData.HIT_ABOVE);</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">                } else if (entity instanceof Tank) {</span>
+<span class="nc" id="L430">                    toHit.setSideTable(ToHitData.SIDE_FRONT);</span>
+<span class="nc" id="L431">                    toHit.addModifier(2, &quot;cluster artillery hitting a Tank&quot;);</span>
+                }
+            }
+        }
+
+        // convention infantry take x2 damage from AE weapons
+<span class="nc bnc" id="L437" title="All 2 branches missed.">        if (entity.isConventionalInfantry()) {</span>
+<span class="nc" id="L438">            hits *= 2;</span>
+            
+            // if it's fuel-air, we take even more damage!
+<span class="nc bnc" id="L441" title="All 2 branches missed.">            if(isFuelAirBomb) {</span>
+<span class="nc" id="L442">                hits *= 2;</span>
+            }
+        }
+<span class="nc" id="L445">        boolean specialCaseFlechette = false;</span>
+
+        // Entity/ammo specific damage modifiers
+<span class="nc bnc" id="L448" title="All 2 branches missed.">        if (ammo != null) {</span>
+<span class="nc bnc" id="L449" title="All 2 branches missed.">            if (ammo.getMunitionType() == AmmoType.M_CLUSTER) {</span>
+<span class="nc bnc" id="L450" title="All 4 branches missed.">                if (hex.containsTerrain(Terrains.FORTIFIED) &amp;&amp; entity.isConventionalInfantry()) {</span>
+<span class="nc" id="L451">                    hits *= 2;</span>
+                }
+            }
+            // fuel-air bombs do an additional 2x damage to infantry
+<span class="nc bnc" id="L455" title="All 2 branches missed.">            else if (ammo.getMunitionType() == AmmoType.M_FLECHETTE) {</span>
+
+                // wheeled and hover tanks take movement critical
+<span class="nc bnc" id="L458" title="All 2 branches missed.">                if ((entity instanceof Tank)</span>
+<span class="nc bnc" id="L459" title="All 2 branches missed.">                        &amp;&amp; ((entity.getMovementMode() == EntityMovementMode.WHEELED)</span>
+<span class="nc bnc" id="L460" title="All 2 branches missed.">                        || (entity.getMovementMode() == EntityMovementMode.HOVER))) {</span>
+<span class="nc" id="L461">                    r = new Report(6480);</span>
+<span class="nc" id="L462">                    r.subject = entity.getId();</span>
+<span class="nc" id="L463">                    r.addDesc(entity);</span>
+<span class="nc" id="L464">                    r.add(toHit.getTableDesc());</span>
+<span class="nc" id="L465">                    r.add(0);</span>
+<span class="nc" id="L466">                    vPhaseReport.add(r);</span>
+<span class="nc" id="L467">                    vPhaseReport.addAll(server.vehicleMotiveDamage((Tank)entity, 0));</span>
+<span class="nc" id="L468">                    return;</span>
+                }
+                
+                // only infantry and support vees with bar &lt; 5 are affected
+<span class="nc bnc" id="L472" title="All 4 branches missed.">                if ((entity instanceof BattleArmor) || ((entity instanceof SupportTank)</span>
+<span class="nc bnc" id="L473" title="All 4 branches missed.">                        &amp;&amp; !entity.hasPatchworkArmor() &amp;&amp; (entity.getBARRating(1) &gt; 4))) {</span>
+<span class="nc" id="L474">                    return;</span>
+                }
+<span class="nc bnc" id="L476" title="All 2 branches missed.">                if (entity instanceof Infantry) {</span>
+<span class="nc" id="L477">                    hits = Compute.d6(damage);</span>
+<span class="nc" id="L478">                    hits *= 2;</span>
+                } else {
+<span class="nc bnc" id="L480" title="All 4 branches missed.">                    if ((entity.getBARRating(1) &lt; 5) &amp;&amp; !entity.hasPatchworkArmor()) {</span>
+<span class="nc bnc" id="L481" title="All 4 branches missed.">                        switch (ammo.getAmmoType()) {</span>
+                            case AmmoType.T_LONG_TOM:
+                                // hack: check if damage is still at 4, so
+                                // we're in
+                                // the
+                                // center hex. otherwise, do no damage
+<span class="nc bnc" id="L487" title="All 2 branches missed.">                                if (damage == 4) {</span>
+<span class="nc" id="L488">                                    damage = (5 - entity.getBARRating(1)) * 5;</span>
+                                } else {
+<span class="nc" id="L490">                                    return;</span>
+                                }
+                                break;
+                            case AmmoType.T_SNIPER:
+                                // hack: check if damage is still at 2, so
+                                // we're in
+                                // the
+                                // center hex. otherwise, do no damage
+<span class="nc bnc" id="L498" title="All 2 branches missed.">                                if (damage == 2) {</span>
+<span class="nc" id="L499">                                    damage = (5 - entity.getBARRating(1)) * 3;</span>
+                                } else {
+<span class="nc" id="L501">                                    return;</span>
+                                }
+                                break;
+                            case AmmoType.T_THUMPER:
+                                // no need to check for damage, because
+                                // falloff =
+                                // damage for the thumper
+<span class="nc" id="L508">                                damage = 5 - entity.getBARRating(1);</span>
+<span class="nc" id="L509">                                break;</span>
+                        }
+                    } else {
+                        // ugh, patchwork armor
+                        // rules as written don't deal with this reset the damage to standard arty damage
+                        // when we have each cluster's hit location,  we'll multiply by the
+                        // BAR-difference to BAR 5, per a rules question email
+<span class="nc" id="L516">                        specialCaseFlechette = true;</span>
+<span class="nc bnc" id="L517" title="All 4 branches missed.">                        switch (ammo.getAmmoType()) {</span>
+                            case AmmoType.T_LONG_TOM:
+                                // hack: check if damage is still at 4, so
+                                // we're in the center hex. otherwise, do no damage
+<span class="nc bnc" id="L521" title="All 2 branches missed.">                                if (damage == 4) {</span>
+<span class="nc" id="L522">                                    damage = 25;</span>
+                                } else {
+<span class="nc" id="L524">                                    return;</span>
+                                }
+                                break;
+                            case AmmoType.T_SNIPER:
+                                // hack: check if damage is still at 2, so we're in
+                                // the center hex. otherwise, do no damage
+<span class="nc bnc" id="L530" title="All 2 branches missed.">                                if (damage == 2) {</span>
+<span class="nc" id="L531">                                    damage = 15;</span>
+                                } else {
+<span class="nc" id="L533">                                    return;</span>
+                                }
+                                break;
+                            case AmmoType.T_THUMPER:
+                                // no need to check for damage, because
+                                // falloff = damage for the thumper
+<span class="nc" id="L539">                                damage = 10;</span>
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Do the damage
+<span class="nc" id="L548">        r = new Report(6480);</span>
+<span class="nc" id="L549">        r.subject = entity.getId();</span>
+<span class="nc" id="L550">        r.addDesc(entity);</span>
+<span class="nc" id="L551">        r.add(toHit.getTableDesc());</span>
+<span class="nc" id="L552">        r.add(hits);</span>
+<span class="nc" id="L553">        vPhaseReport.add(r);</span>
+<span class="nc bnc" id="L554" title="All 2 branches missed.">        if (entity instanceof BattleArmor) {</span>
+            // BA take full damage to each trooper, ouch!
+<span class="nc bnc" id="L556" title="All 2 branches missed.">            for (int loc = 0; loc &lt; entity.locations(); loc++) {</span>
+<span class="nc bnc" id="L557" title="All 2 branches missed.">                if (entity.getInternal(loc) &gt; 0) {</span>
+<span class="nc" id="L558">                    HitData hit = new HitData(loc);</span>
+<span class="nc" id="L559">                    vPhaseReport.addAll(server.damageEntity(entity, hit, hits,</span>
+                            false, DamageType.NONE, false, false, false));
+                }
+            }
+        } else {
+<span class="nc bnc" id="L564" title="All 2 branches missed.">            while (hits &gt; 0) {</span>
+<span class="nc" id="L565">                int damageToDeal = Math.min(cluster, hits);</span>
+<span class="nc" id="L566">                HitData hit = entity.rollHitLocation(toHit.getHitTable(), toHit.getSideTable());</span>
+                // per a rules question, for patchwork armor being attacked by flechette ammo, we multiply the damage done
+                // by 5 - the BAR rating of the hit location
+<span class="nc bnc" id="L569" title="All 4 branches missed.">                if (specialCaseFlechette &amp;&amp; !(entity instanceof Infantry)) {</span>
+<span class="nc" id="L570">                    damageToDeal *= (5 - entity.getBARRating(hit.getLocation()));</span>
+                // fuel-air bombs do 1.5x damage to locations hit that have a BAR rating of less than 10.
+<span class="nc bnc" id="L572" title="All 6 branches missed.">                } else if(isFuelAirBomb &amp;&amp; !(entity instanceof Infantry) &amp;&amp; (entity.getBARRating(hit.getLocation()) &lt; 10)) {</span>
+<span class="nc" id="L573">                    damageToDeal = (int) Math.ceil(damageToDeal * 1.5);</span>
+                    
+<span class="nc" id="L575">                    r = new Report(9991);</span>
+<span class="nc" id="L576">                    r.indent(1);</span>
+<span class="nc" id="L577">                    r.subject = killer.getId();</span>
+<span class="nc" id="L578">                    r.newlines = 1;</span>
+<span class="nc" id="L579">                    vPhaseReport.addElement(r);</span>
+                }
+<span class="nc" id="L581">                vPhaseReport.addAll(server.damageEntity(entity, hit, damageToDeal,</span>
+                        false, DamageType.NONE, false, true, false));
+<span class="nc" id="L583">                hits -= Math.min(cluster, hits);</span>
+<span class="nc" id="L584">            }</span>
+        }
+<span class="nc bnc" id="L586" title="All 2 branches missed.">        if (killer != null) {</span>
+<span class="nc" id="L587">            server.creditKill(entity, killer);</span>
+        }
+<span class="nc" id="L589">    }</span>
+    
+    /**
+     * Calculate the damage and falloff for a particular ammo type, taking into account
+     * whether the attack is being carried out by a battle armor squad or a mine clearance attack.
+     * Also sets a &quot;cluster munitions&quot; flag as appropriate.
+     * @param ammo AmmoType being used for the attack
+     * @param attackingBA  How many BA suits are in the squad if this is a BA Tube arty
+     *                     attack, -1 otherwise
+     * @param mineClear Whether or not we're clearing a minefield
+     * @return
+     */
+    public static DamageFalloff calculateDamageFallOff(AmmoType ammo, int attackingBA, boolean mineClear) {
+<span class="nc" id="L602">        int damage = ammo.getRackSize();</span>
+<span class="nc" id="L603">        int falloff = 10;</span>
+<span class="nc" id="L604">        boolean clusterMunitionsFlag = false;</span>
+        
+        // Capital and Sub-capital missiles
+<span class="nc bnc" id="L607" title="All 2 branches missed.">        if (ammo.getAmmoType() == AmmoType.T_KRAKEN_T</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">                || ammo.getAmmoType() == AmmoType.T_KRAKENM</span>
+<span class="nc bnc" id="L609" title="All 2 branches missed.">                || ammo.getAmmoType() == AmmoType.T_MANTA_RAY) {</span>
+<span class="nc" id="L610">            damage = 50;</span>
+<span class="nc" id="L611">            falloff = 25;</span>
+        }
+<span class="nc bnc" id="L613" title="All 2 branches missed.">        if (ammo.getAmmoType() == AmmoType.T_KILLER_WHALE</span>
+<span class="nc bnc" id="L614" title="All 2 branches missed.">                || ammo.getAmmoType() == AmmoType.T_KILLER_WHALE_T</span>
+<span class="nc bnc" id="L615" title="All 2 branches missed.">                || ammo.getAmmoType() == AmmoType.T_SWORDFISH</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">                || ammo.hasFlag(AmmoType.F_AR10_KILLER_WHALE)) {</span>
+<span class="nc" id="L617">            damage = 40;</span>
+<span class="nc" id="L618">            falloff = 20;</span>
+        }
+<span class="nc bnc" id="L620" title="All 2 branches missed.">        if (ammo.getAmmoType() == AmmoType.T_STINGRAY) {</span>
+<span class="nc" id="L621">            damage = 35;</span>
+<span class="nc" id="L622">            falloff = 17;</span>
+        }
+<span class="nc bnc" id="L624" title="All 2 branches missed.">        if (ammo.getAmmoType() == AmmoType.T_WHITE_SHARK</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">                || ammo.getAmmoType() == AmmoType.T_WHITE_SHARK_T</span>
+<span class="nc bnc" id="L626" title="All 2 branches missed.">                || ammo.getAmmoType() == AmmoType.T_PIRANHA</span>
+<span class="nc bnc" id="L627" title="All 2 branches missed.">                || ammo.hasFlag(AmmoType.F_AR10_WHITE_SHARK)) {</span>
+<span class="nc" id="L628">            damage = 30;</span>
+<span class="nc" id="L629">            falloff = 15;</span>
+        }
+<span class="nc bnc" id="L631" title="All 2 branches missed.">        if (ammo.getAmmoType() == AmmoType.T_BARRACUDA</span>
+<span class="nc bnc" id="L632" title="All 2 branches missed.">                || ammo.getAmmoType() == AmmoType.T_BARRACUDA_T</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">                || ammo.hasFlag(AmmoType.F_AR10_BARRACUDA)) {</span>
+<span class="nc" id="L634">            damage = 20;</span>
+<span class="nc" id="L635">            falloff = 10;</span>
+        }
+<span class="nc bnc" id="L637" title="All 2 branches missed.">        if (ammo.getAmmoType() == AmmoType.T_CRUISE_MISSILE) {</span>
+<span class="nc" id="L638">            falloff = 25;</span>
+        }
+<span class="nc bnc" id="L640" title="All 2 branches missed.">        if (ammo.getAmmoType() == AmmoType.T_BA_TUBE) {</span>
+<span class="nc" id="L641">            damage *= attackingBA;</span>
+<span class="nc" id="L642">            falloff = 2 * attackingBA;</span>
+        }
+<span class="nc bnc" id="L644" title="All 2 branches missed.">        if (ammo.getMunitionType() == AmmoType.M_CLUSTER) {</span>
+            // non-arrow-iv cluster does 5 less than standard
+<span class="nc bnc" id="L646" title="All 2 branches missed.">            if (ammo.getAmmoType() != AmmoType.T_ARROW_IV) {</span>
+<span class="nc" id="L647">                damage -= 5;</span>
+            }
+            // thumper gets falloff 9 for 1 damage at 1 hex range
+<span class="nc bnc" id="L650" title="All 2 branches missed.">            if (ammo.getAmmoType() == AmmoType.T_THUMPER) {</span>
+<span class="nc" id="L651">                falloff = 9;</span>
+            }
+            
+<span class="nc" id="L654">            clusterMunitionsFlag = true;</span>
+<span class="nc bnc" id="L655" title="All 2 branches missed.">        } else if (ammo.getMunitionType() == AmmoType.M_FLECHETTE) {</span>
+<span class="nc bnc" id="L656" title="All 4 branches missed.">            switch (ammo.getAmmoType()) {</span>
+                // for flechette, damage and falloff is number of d6, not absolute
+                // damage
+                case AmmoType.T_LONG_TOM:
+<span class="nc" id="L660">                    damage = 4;</span>
+<span class="nc" id="L661">                    falloff = 2;</span>
+<span class="nc" id="L662">                    break;</span>
+                case AmmoType.T_SNIPER:
+<span class="nc" id="L664">                    damage = 2;</span>
+<span class="nc" id="L665">                    falloff = 1;</span>
+<span class="nc" id="L666">                    break;</span>
+                case AmmoType.T_THUMPER:
+<span class="nc" id="L668">                    damage = 1;</span>
+<span class="nc" id="L669">                    falloff = 1;</span>
+            }
+        // if this was a mine clearance, then it only affects the hex hit
+<span class="nc bnc" id="L672" title="All 2 branches missed.">        } else if (mineClear) {</span>
+<span class="nc" id="L673">            falloff = damage;</span>
+        }
+        
+<span class="nc" id="L676">        DamageFalloff retVal = new DamageFalloff();</span>
+<span class="nc" id="L677">        retVal.damage = damage;</span>
+<span class="nc" id="L678">        retVal.falloff = falloff;</span>
+<span class="nc" id="L679">        retVal.clusterMunitionsFlag = clusterMunitionsFlag;</span>
+        
+<span class="nc" id="L681">        return retVal;</span>
+    }
+    
+    /**
+     * Abbreviated nuclear explosion logic when the weapon is targeted at a single off-board entity.
+     */
+    public static void doNuclearExplosion(Entity entity, Coords coords, int nukeType, Vector&lt;Report&gt; vPhaseReport, Server server) {
+<span class="nc" id="L688">        NukeStats nukeStats = getNukeStats(nukeType);</span>
+                
+<span class="nc bnc" id="L690" title="All 2 branches missed.">        if(nukeStats == null) {</span>
+<span class="nc" id="L691">            Report r = new Report(9998);</span>
+<span class="nc" id="L692">            r.add(nukeType);</span>
+<span class="nc" id="L693">            vPhaseReport.add(r);</span>
+<span class="nc" id="L694">            return;</span>
+        }
+        
+<span class="nc" id="L697">        Report r = new Report(1215, Report.PUBLIC);</span>
+
+<span class="nc" id="L699">        r.indent();</span>
+<span class="nc" id="L700">        r.add(&quot;offboard&quot;);</span>
+<span class="nc" id="L701">        vPhaseReport.add(r);</span>
+        
+        // crater radius is crater depth x2 as per Server.doNuclearExplosion
+<span class="nc" id="L704">        int craterRadius = nukeStats.craterDepth * 2;</span>
+<span class="nc" id="L705">        int blastDistance = entity.getPosition().distance(coords);</span>
+        
+        // if the entity is in the crater radius, bye
+<span class="nc bnc" id="L708" title="All 2 branches missed.">        if(blastDistance &lt; craterRadius) {</span>
+<span class="nc" id="L709">            vPhaseReport.addAll(server.destroyEntity(entity, &quot;nuclear explosion proximity&quot;, false, false));</span>
+            // Kill the crew
+<span class="nc" id="L711">            entity.getCrew().setDoomed(true);</span>
+            // no need to do any more damage, it's already destroyed.
+<span class="nc" id="L713">            return;</span>
+        }
+        
+        // calculate the damage to the entity based on the range to the nuke
+<span class="nc" id="L717">        int damageToEntity = nukeStats.baseDamage - (blastDistance * nukeStats.degradation);</span>
+<span class="nc bnc" id="L718" title="All 2 branches missed.">        if(damageToEntity &lt; 0) {</span>
+<span class="nc" id="L719">            return;</span>
+        } else {
+<span class="nc" id="L721">            applyExplosionClusterDamageToEntity(entity, damageToEntity, 5, coords, vPhaseReport, server);</span>
+        }
+        
+        // if the entity hasn't been blown up yet, 
+        // Apply secondary effects against the entity if it's within the secondary blast radius
+        // Since the effects are unit-dependent, we'll just define it in the
+        // entity. 
+<span class="nc bnc" id="L728" title="All 4 branches missed.">        if(!entity.isDestroyed() &amp;&amp; (blastDistance &lt;= nukeStats.secondaryRadius)) {</span>
+<span class="nc" id="L729">            server.applySecondaryNuclearEffects(entity, coords, vPhaseReport);</span>
+        }
+        
+<span class="nc" id="L732">    }</span>
+    
+    /**
+     * Apply a series of cluster hits to the given entity, as from an explosion at a particular position.
+     * Generate reports for each cluster.
+     */
+    public static void applyExplosionClusterDamageToEntity(Entity entity, int damage, int clusterAmt, Coords position, Vector&lt;Report&gt; vDesc, Server server) {
+<span class="nc" id="L739">        Report r = new Report(6175);</span>
+<span class="nc" id="L740">        r.subject = entity.getId();</span>
+<span class="nc" id="L741">        r.indent(2);</span>
+<span class="nc" id="L742">        r.addDesc(entity);</span>
+<span class="nc" id="L743">        r.add(damage);</span>
+<span class="nc" id="L744">        vDesc.addElement(r);</span>
+
+<span class="nc bnc" id="L746" title="All 2 branches missed.">        while (damage &gt; 0) {</span>
+<span class="nc" id="L747">            int cluster = Math.min(clusterAmt, damage);</span>
+<span class="nc bnc" id="L748" title="All 2 branches missed.">            if (entity instanceof Infantry) {</span>
+<span class="nc" id="L749">                cluster = damage;</span>
+            }
+<span class="nc" id="L751">            int table = ToHitData.HIT_NORMAL;</span>
+<span class="nc bnc" id="L752" title="All 2 branches missed.">            if (entity instanceof Protomech) {</span>
+<span class="nc" id="L753">                table = ToHitData.HIT_SPECIAL_PROTO;</span>
+            }
+<span class="nc" id="L755">            HitData hit = entity.rollHitLocation(table, Compute.targetSideTable(position, entity));</span>
+<span class="nc" id="L756">            vDesc.addAll(server.damageEntity(entity, hit, cluster, false,</span>
+                    DamageType.IGNORE_PASSENGER, false, true));
+<span class="nc" id="L758">            damage -= cluster;</span>
+<span class="nc" id="L759">        }</span>
+<span class="nc" id="L760">    }</span>
+    
+    /**
+     * Helper function that retrieves the stat block for a particular type of nuke, or null
+     * if such a type is not defined.
+     */
+    public static NukeStats getNukeStats(int nukeType) {
+<span class="nc bnc" id="L767" title="All 2 branches missed.">        if(nukeStats == null) {</span>
+<span class="nc" id="L768">            initializeNukeStats();</span>
+        }
+        
+<span class="nc bnc" id="L771" title="All 2 branches missed.">        if(nukeStats.containsKey(nukeType)) {</span>
+<span class="nc" id="L772">            return nukeStats.get(nukeType);</span>
+        }
+        
+<span class="nc" id="L775">        return null;</span>
+    }
+    
+    /**
+     * Dumb data structure intended to hold results from the calculateDamageFalloff method.
+     */
+<span class="nc" id="L781">    public static class DamageFalloff {</span>
+        public int damage;
+        public int falloff;
+        public boolean clusterMunitionsFlag;
+    }
+    
+    /**
+     * Dumb data structure intended to hold characteristics associated with various types of 
+     * NUCLEAR WEAPONS (thanks Ghandi).
+     */
+<span class="nc" id="L791">    public static class NukeStats {</span>
+        /**
+         * This is the base damage of the weapon. 
+         * Note that a unit will never actually take this much damage unless the craterDepth is specified as 0.
+         */
+        public int baseDamage;
+        
+        /**
+         * How much to subtract, per hex distance from impact point, from the base damage
+         */
+        public int degradation;
+        
+        /**
+         * The maximum distance, in hexes, from the impact point, at which &quot;secondary&quot; effects are applied to units 
+         */
+        public int secondaryRadius;
+        
+        /**
+         * The depth, in hex levels, of the crater generated by this nuke at the impact hex
+         * Note that the crater radius is this number multiplied by 2
+         */
+        public int craterDepth;
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

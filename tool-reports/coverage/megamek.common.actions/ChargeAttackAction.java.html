@@ -1,0 +1,556 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ChargeAttackAction.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.actions</a> &gt; <span class="el_source">ChargeAttackAction.java</span></div><h1>ChargeAttackAction.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000,2001,2002,2003,2004 Ben Mazur (bmazur@sev.org)
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ */
+
+/*
+ * ChargeAttackAction.java
+ *
+ * Created on March 12, 2002, 3:23 PM
+ */
+
+package megamek.common.actions;
+
+import java.util.Enumeration;
+
+import megamek.common.Building;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.CriticalSlot;
+import megamek.common.Dropship;
+import megamek.common.Entity;
+import megamek.common.EntityMovementType;
+import megamek.common.EntityWeightClass;
+import megamek.common.GunEmplacement;
+import megamek.common.IGame;
+import megamek.common.IHex;
+import megamek.common.ILocationExposureStatus;
+import megamek.common.IPlayer;
+import megamek.common.Infantry;
+import megamek.common.Mech;
+import megamek.common.MovePath;
+import megamek.common.MovePath.MoveStepType;
+import megamek.common.MoveStep;
+import megamek.common.Protomech;
+import megamek.common.TargetRoll;
+import megamek.common.Targetable;
+import megamek.common.Terrains;
+import megamek.common.ToHitData;
+import megamek.common.options.OptionsConstants;
+
+/**
+ * Represents one unit charging another. Stores information about where the
+ * target is supposed to be for the charge to be successful, as well as normal
+ * attack info.
+ *
+ * @author Ben Mazur
+ */
+public class ChargeAttackAction extends DisplacementAttackAction {
+
+    /**
+     *
+     */
+    private static final long serialVersionUID = -3549351664290057785L;
+
+    public ChargeAttackAction(Entity attacker, Targetable target) {
+<span class="nc" id="L65">        this(attacker.getId(), target.getTargetType(), target.getTargetId(),</span>
+<span class="nc" id="L66">             target.getPosition());</span>
+<span class="nc" id="L67">    }</span>
+
+    public ChargeAttackAction(int entityId, int targetType, int targetId,
+                              Coords targetPos) {
+<span class="nc" id="L71">        super(entityId, targetType, targetId, targetPos);</span>
+<span class="nc" id="L72">    }</span>
+
+    /**
+     * To-hit number for a charge, assuming that movement has been handled
+     */
+    public ToHitData toHit(IGame game) {
+<span class="nc" id="L78">        return toHit(game, false);</span>
+    }
+
+    public ToHitData toHit(IGame game, boolean skid) {
+<span class="nc" id="L82">        final Entity entity = game.getEntity(getEntityId());</span>
+<span class="nc" id="L83">        return toHit(game, game.getTarget(getTargetType(), getTargetId()),</span>
+<span class="nc" id="L84">                     entity.getPosition(), entity.getElevation(), entity.moved,</span>
+                     skid, false);
+    }
+
+    /**
+     * To-hit number for a charge, assuming that movement has been handled
+     */
+    public ToHitData toHit(IGame game, Targetable target, Coords src,
+                           int elevation, EntityMovementType movement, boolean skid,
+                           boolean gotUp) {
+<span class="nc" id="L94">        final Entity ae = getEntity(game);</span>
+
+        // arguments legal?
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (ae == null) {</span>
+<span class="nc" id="L98">            throw new IllegalStateException(&quot;Attacker is null&quot;);</span>
+        }
+
+        // Due to pretreatment of physical attacks, the target may be null.
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        if (target == null) {</span>
+<span class="nc" id="L103">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Target is null&quot;);</span>
+        }
+
+<span class="nc" id="L106">        int targetId = Entity.NONE;</span>
+<span class="nc" id="L107">        Entity te = null;</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (target.getTargetType() == Targetable.TYPE_ENTITY) {</span>
+<span class="nc" id="L109">            te = (Entity) target;</span>
+<span class="nc" id="L110">            targetId = target.getTargetId();</span>
+        } else {
+<span class="nc" id="L112">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Invalid Target&quot;);</span>
+        }
+
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        if (!game.getOptions().booleanOption(OptionsConstants.BASE_FRIENDLY_FIRE)) {</span>
+            // a friendly unit can never be the target of a direct attack.
+<span class="nc bnc" id="L117" title="All 2 branches missed.">            if (!skid</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">                &amp;&amp; (target.getTargetType() == Targetable.TYPE_ENTITY)</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">                &amp;&amp; ((((Entity) target).getOwnerId() == ae.getOwnerId()) || ((((Entity) target)</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">                                                                                     .getOwner().getTeam() != IPlayer</span>
+                                                                                     .TEAM_NONE)
+<span class="nc bnc" id="L122" title="All 2 branches missed.">                                                                            &amp;&amp; (ae.getOwner().getTeam() != IPlayer</span>
+                    .TEAM_NONE) &amp;&amp; (ae
+<span class="nc" id="L124">                                                                                                                                          .getOwner().getTeam() == ((Entity) target)</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">                                                                                                                                          .getOwner().getTeam())))) {</span>
+<span class="nc" id="L126">                return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                     &quot;A friendly unit can never be the target of a direct attack.&quot;);
+            }
+        }
+
+<span class="nc" id="L131">        IHex srcHex = game.getBoard().getHex(src);</span>
+<span class="nc" id="L132">        IHex targHex = game.getBoard().getHex(target.getPosition());</span>
+        // we should not be using the attacker's hex here since the attacker
+        // will end up in
+        // the target's hex
+
+        // If the charge is coming across a bridge, we want the elevation above the bridge rather
+        // than the underlying terrain.
+        final int attackerElevation;
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        if (srcHex.containsTerrain(Terrains.BRIDGE)</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">                &amp;&amp; (elevation &gt;= srcHex.getTerrain(Terrains.BRIDGE_ELEV).getLevel())) {</span>
+<span class="nc" id="L142">            attackerElevation = elevation + targHex.getLevel() - srcHex.getTerrain(Terrains.BRIDGE_ELEV).getLevel();</span>
+        } else {
+<span class="nc" id="L144">            attackerElevation = elevation + targHex.getLevel();</span>
+        }
+<span class="nc" id="L146">        final int attackerHeight = attackerElevation + ae.height();</span>
+        final int targetElevation;
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (targHex.containsTerrain(Terrains.BRIDGE)</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">                &amp;&amp; (target.getElevation() &gt;= targHex.getTerrain(Terrains.BRIDGE_ELEV).getLevel())) {</span>
+<span class="nc" id="L150">            targetElevation = target.getElevation() + targHex.getLevel()</span>
+<span class="nc" id="L151">                    - targHex.getTerrain(Terrains.BRIDGE_ELEV).getLevel();</span>
+        } else {
+<span class="nc" id="L153">            targetElevation = target.getElevation() + targHex.getLevel();</span>
+        }
+<span class="nc" id="L155">        final int targetHeight = targetElevation + target.getHeight();</span>
+<span class="nc" id="L156">        Building bldg = game.getBoard().getBuildingAt(getTargetPos());</span>
+<span class="nc" id="L157">        ToHitData toHit = null;</span>
+<span class="nc bnc" id="L158" title="All 4 branches missed.">        boolean targIsBuilding = ((getTargetType() == Targetable.TYPE_FUEL_TANK) || (getTargetType() == Targetable</span>
+                .TYPE_BUILDING));
+
+<span class="nc" id="L161">        boolean inSameBuilding = Compute.isInSameBuilding(game, ae, te);</span>
+
+        // can't target yourself
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (ae.equals(te)) {</span>
+<span class="nc" id="L165">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;You can't target yourself&quot;);
+        }
+
+        // Can't target a transported entity.
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        if (Entity.NONE != te.getTransportId()) {</span>
+<span class="nc" id="L171">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Target is a passenger.&quot;);
+        }
+
+        // Can't target a entity conducting a swarm attack.
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (Entity.NONE != te.getSwarmTargetId()) {</span>
+<span class="nc" id="L177">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Target is swarming a Mek.&quot;);
+        }
+
+        // check range
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (src.distance(target.getPosition()) &gt; 1) {</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">            if (null != te.getSecondaryPositions()) {</span>
+<span class="nc" id="L184">                boolean inSecondaryRange = false;</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                for (int i : te.getSecondaryPositions().keySet()) {</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">                    if (null != te.getSecondaryPositions().get(i)) {</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">                        if (src.distance(te.getSecondaryPositions().get(i)) &lt; 2) {</span>
+<span class="nc" id="L188">                            inSecondaryRange = true;</span>
+<span class="nc" id="L189">                            break;</span>
+                        }
+                    }
+<span class="nc" id="L192">                }</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                if (!inSecondaryRange) {</span>
+<span class="nc" id="L194">                    return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                         &quot;Target not in range&quot;);
+                }
+<span class="nc" id="L197">            } else {</span>
+<span class="nc" id="L198">                return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                     &quot;Target not in range&quot;);
+            }
+        }
+
+        // mechs can only charge standing mechs
+<span class="nc bnc" id="L204" title="All 4 branches missed.">        if ((ae instanceof Mech) &amp;&amp; !skid) {</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">            if (!(te instanceof Mech)) {</span>
+<span class="nc" id="L206">                return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                     &quot;Target is not a mech&quot;);
+            }
+<span class="nc bnc" id="L209" title="All 2 branches missed.">            if (te.isProne()) {</span>
+<span class="nc" id="L210">                return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Target is prone&quot;);</span>
+            }
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        } else if (te instanceof Infantry) {</span>
+            // Can't charge infantry.
+<span class="nc" id="L214">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Target is infantry&quot;);</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        } else if (te instanceof Protomech) {</span>
+            // Can't charge protomechs.
+<span class="nc" id="L217">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Target is protomech&quot;);</span>
+        }
+
+        // target must be within 1 elevation level
+<span class="nc bnc" id="L221" title="All 4 branches missed.">        if ((attackerElevation &gt; targetHeight)</span>
+            || (attackerHeight &lt; targetElevation)) {
+<span class="nc" id="L223">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Target must be within 1 elevation level&quot;);
+        }
+
+        // can't attack mech making a different displacement attack
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (te.hasDisplacementAttack()) {</span>
+<span class="nc" id="L229">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Target is already making a charge/DFA attack&quot;);
+        }
+
+        // target must have moved already, unless it's a skid charge
+        // errata: immobile units can be targeted, even when they haven't moved
+        // yet
+<span class="nc bnc" id="L236" title="All 6 branches missed.">        if (!te.isDone() &amp;&amp; !skid &amp;&amp; !te.isImmobile()) {</span>
+<span class="nc" id="L237">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Target must be done with movement&quot;);
+        }
+
+        // can't attack the target of another displacement attack
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        if (te.isTargetOfDisplacementAttack()</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">            &amp;&amp; (te.findTargetedDisplacement().getEntityId() != ae.getId())) {</span>
+<span class="nc" id="L244">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Target is the target of another charge/DFA&quot;);
+        }
+
+        // Can't target units in buildings (from the outside).
+<span class="nc bnc" id="L249" title="All 4 branches missed.">        if ((null != bldg) &amp;&amp; (!targIsBuilding)</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">            &amp;&amp; Compute.isInBuilding(game, te)) {</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">            if (!Compute.isInBuilding(game, ae)) {</span>
+<span class="nc" id="L252">                return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                     &quot;Target is inside building&quot;);
+<span class="nc" id="L254">            } else if (!game.getBoard().getBuildingAt(ae.getPosition())</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">                            .equals(bldg)) {</span>
+<span class="nc" id="L256">                return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                     &quot;Target is inside differnt building&quot;);
+            }
+        }
+
+        // Attacks against adjacent buildings automatically hit.
+<span class="nc bnc" id="L262" title="All 2 branches missed.">        if ((target.getTargetType() == Targetable.TYPE_BUILDING)</span>
+<span class="nc bnc" id="L263" title="All 4 branches missed.">            || (target.getTargetType() == Targetable.TYPE_FUEL_TANK)</span>
+            || (target instanceof GunEmplacement)) {
+<span class="nc" id="L265">            return new ToHitData(TargetRoll.AUTOMATIC_SUCCESS,</span>
+                                 &quot;Targeting adjacent building.&quot;);
+        }
+
+        // Can't target woods or ignite a building with a physical.
+<span class="nc bnc" id="L270" title="All 2 branches missed.">        if ((target.getTargetType() == Targetable.TYPE_BLDG_IGNITE)</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            || (target.getTargetType() == Targetable.TYPE_HEX_CLEAR)</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">            || (target.getTargetType() == Targetable.TYPE_HEX_IGNITE)) {</span>
+<span class="nc" id="L273">            return new ToHitData(TargetRoll.IMPOSSIBLE, &quot;Invalid attack&quot;);</span>
+        }
+
+        // Set the base BTH
+<span class="nc" id="L277">        int base = ae.getCrew().getPiloting();</span>
+
+<span class="nc" id="L279">        toHit = new ToHitData(base, &quot;base&quot;);</span>
+
+        // attacker movement
+<span class="nc" id="L282">        toHit.append(Compute.getAttackerMovementModifier(game, ae.getId(),</span>
+                                                         movement));
+
+        // target movement
+<span class="nc" id="L286">        toHit.append(Compute.getTargetMovementModifier(game, targetId));</span>
+
+        // attacker terrain
+<span class="nc" id="L289">        toHit.append(Compute.getAttackerTerrainModifier(game, ae.getId()));</span>
+
+        // target terrain
+<span class="nc" id="L292">        toHit.append(Compute.getTargetTerrainModifier(game, te, 0,</span>
+                                                      inSameBuilding));
+
+<span class="nc bnc" id="L295" title="All 4 branches missed.">        if ((ae instanceof Mech) &amp;&amp; ((Mech) ae).isSuperHeavy()) {</span>
+<span class="nc" id="L296">            toHit.addModifier(+1, &quot;attacker is superheavy mech&quot;);</span>
+        }
+
+        // attacker is spotting
+<span class="nc bnc" id="L300" title="All 4 branches missed.">        if (ae.isSpotting() &amp;&amp; !ae.getCrew().hasActiveCommandConsole()) {</span>
+<span class="nc" id="L301">            toHit.addModifier(+1, &quot;attacker is spotting&quot;);</span>
+        }
+        // piloting skill differential
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        if (ae.getCrew().getPiloting() != te.getCrew().getPiloting()) {</span>
+<span class="nc" id="L305">            toHit.addModifier(ae.getCrew().getPiloting()</span>
+<span class="nc" id="L306">                              - te.getCrew().getPiloting(), &quot;piloting skill differential&quot;);</span>
+        }
+
+        // target prone
+<span class="nc bnc" id="L310" title="All 2 branches missed.">        if (te.isProne()) {</span>
+<span class="nc" id="L311">            toHit.addModifier(-2, &quot;target prone and adjacent&quot;);</span>
+        }
+
+        // water partial cover?
+<span class="nc bnc" id="L315" title="All 4 branches missed.">        if ((te.height() &gt; 0) &amp;&amp; (te.getElevation() == -1)</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">            &amp;&amp; (targHex.terrainLevel(Terrains.WATER) == te.height())) {</span>
+<span class="nc" id="L317">            toHit.addModifier(1, &quot;target has partial cover&quot;);</span>
+        }
+
+        // If it has a torso-mounted cockpit and two head sensor hits or three
+        // sensor hits...
+        // It gets a =4 penalty for being blind!
+<span class="nc bnc" id="L323" title="All 2 branches missed.">        if ((ae instanceof Mech)</span>
+<span class="nc bnc" id="L324" title="All 2 branches missed.">            &amp;&amp; (((Mech) ae).getCockpitType() == Mech.COCKPIT_TORSO_MOUNTED)) {</span>
+<span class="nc" id="L325">            int sensorHits = ae.getBadCriticals(CriticalSlot.TYPE_SYSTEM,</span>
+                                                Mech.SYSTEM_SENSORS, Mech.LOC_HEAD);
+<span class="nc" id="L327">            int sensorHits2 = ae.getBadCriticals(CriticalSlot.TYPE_SYSTEM,</span>
+                                                 Mech.SYSTEM_SENSORS, Mech.LOC_CT);
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            if ((sensorHits + sensorHits2) == 3) {</span>
+<span class="nc" id="L330">                return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                     &quot;Sensors Completely Destroyed for Torso-Mounted Cockpit&quot;);
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            } else if (sensorHits == 2) {</span>
+<span class="nc" id="L333">                toHit.addModifier(4,</span>
+                                  &quot;Head Sensors Destroyed for Torso-Mounted Cockpit&quot;);
+            }
+        }
+
+        // target immobile
+<span class="nc" id="L339">        toHit.append(Compute.getImmobileMod(te));</span>
+
+        // skids have a penalty for unintentional charge
+<span class="nc bnc" id="L342" title="All 2 branches missed.">        if (skid) {</span>
+<span class="nc" id="L343">            toHit.addModifier(3, &quot;unintentional charge&quot;);</span>
+        }
+
+<span class="nc" id="L346">        Compute.modifyPhysicalBTHForAdvantages(ae, te, toHit, game);</span>
+
+        // evading bonuses (
+<span class="nc bnc" id="L349" title="All 2 branches missed.">        if (te.isEvading()) {</span>
+<span class="nc" id="L350">            toHit.addModifier(te.getEvasionBonus(), &quot;target is evading&quot;);</span>
+        }
+
+        // determine hit direction
+<span class="nc" id="L354">        toHit.setSideTable(te.sideTable(src));</span>
+
+        // all charges resolved against full-body table, except vehicles
+        // and charges against mechs in water partial cover
+<span class="nc bnc" id="L358" title="All 2 branches missed.">        if ((targHex.terrainLevel(Terrains.WATER) == te.height())</span>
+<span class="nc bnc" id="L359" title="All 4 branches missed.">            &amp;&amp; (te.getElevation() == -1) &amp;&amp; (te.height() &gt; 0)) {</span>
+<span class="nc" id="L360">            toHit.setHitTable(ToHitData.HIT_PUNCH);</span>
+<span class="nc bnc" id="L361" title="All 2 branches missed.">        } else if (ae.getHeight() &lt; target.getHeight()) {</span>
+<span class="nc" id="L362">            toHit.setHitTable(ToHitData.HIT_KICK);</span>
+        } else {
+<span class="nc" id="L364">            toHit.setHitTable(ToHitData.HIT_NORMAL);</span>
+        }
+
+        // What to do with grounded dropships? Awaiting rules clarification, but
+        // until then, we will assume that if the attacker height is less than
+        // half
+        // the target elevation, then use HIT_PUNCH, otherwise HIT_NORMAL
+        // See Dropship.rollHitLocation to see how HIT_PUNCH is handled
+<span class="nc bnc" id="L372" title="All 2 branches missed.">        if (target instanceof Dropship) {</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">            if ((attackerHeight - targetElevation) &gt; (target.getHeight() / 2)) {</span>
+<span class="nc" id="L374">                toHit.setHitTable(ToHitData.HIT_NORMAL);</span>
+            } else {
+<span class="nc" id="L376">                toHit.setHitTable(ToHitData.HIT_PUNCH);</span>
+            }
+        }
+
+        // Attacking Weight Class Modifier.
+<span class="nc bnc" id="L381" title="All 2 branches missed.">        if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_PHYSICAL_ATTACK_PSR)) {</span>
+<span class="nc bnc" id="L382" title="All 2 branches missed.">            if (ae.getWeightClass() == EntityWeightClass.WEIGHT_LIGHT) {</span>
+<span class="nc" id="L383">                toHit.addModifier(-2, &quot;Weight Class Attack Modifier&quot;);</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">            } else if (ae.getWeightClass() == EntityWeightClass.WEIGHT_MEDIUM) {</span>
+<span class="nc" id="L385">                toHit.addModifier(-1, &quot;Weight Class Attack Modifier&quot;);</span>
+            }
+        }
+
+<span class="nc bnc" id="L389" title="All 4 branches missed.">        if ((ae instanceof Mech) &amp;&amp; ((Mech) ae).hasIndustrialTSM()) {</span>
+<span class="nc" id="L390">            toHit.addModifier(2, &quot;industrial TSM&quot;);</span>
+        }
+
+        // done!
+<span class="nc" id="L394">        return toHit;</span>
+    }
+
+    /**
+     * Checks if a charge can hit the target, taking account of movement
+     */
+    public ToHitData toHit(IGame game, MovePath md) {
+<span class="nc" id="L401">        final Entity ae = game.getEntity(getEntityId());</span>
+<span class="nc" id="L402">        final Targetable target = getTarget(game);</span>
+<span class="nc" id="L403">        Coords chargeSrc = ae.getPosition();</span>
+<span class="nc" id="L404">        int chargeEl = ae.getElevation();</span>
+<span class="nc" id="L405">        MoveStep chargeStep = null;</span>
+
+        // let's just check this
+<span class="nc bnc" id="L408" title="All 2 branches missed.">        if (!md.contains(MoveStepType.CHARGE)) {</span>
+<span class="nc" id="L409">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Charge action not found in movement path&quot;);
+        }
+
+        // no jumping
+<span class="nc bnc" id="L414" title="All 2 branches missed.">        if (md.contains(MoveStepType.START_JUMP)) {</span>
+<span class="nc" id="L415">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;No jumping allowed while charging&quot;);
+        }
+
+        // no backwards
+<span class="nc bnc" id="L420" title="All 2 branches missed.">        if (md.contains(MoveStepType.BACKWARDS)</span>
+<span class="nc bnc" id="L421" title="All 2 branches missed.">            || md.contains(MoveStepType.LATERAL_LEFT_BACKWARDS)</span>
+<span class="nc bnc" id="L422" title="All 2 branches missed.">            || md.contains(MoveStepType.LATERAL_RIGHT_BACKWARDS)) {</span>
+<span class="nc" id="L423">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;No backwards movement allowed while charging&quot;);
+        }
+
+        // no evading
+<span class="nc bnc" id="L428" title="All 2 branches missed.">        if (md.contains(MoveStepType.EVADE)) {</span>
+<span class="nc" id="L429">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;No evading while charging&quot;);
+        }
+
+        // determine last valid step
+<span class="nc" id="L434">        md.compile(game, ae);</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">        for (final Enumeration&lt;MoveStep&gt; i = md.getSteps(); i.hasMoreElements(); ) {</span>
+<span class="nc" id="L436">            final MoveStep step = i.nextElement();</span>
+<span class="nc bnc" id="L437" title="All 2 branches missed.">            if (step.getMovementType(md.isEndStep(step)) == EntityMovementType.MOVE_ILLEGAL) {</span>
+<span class="nc" id="L438">                break;</span>
+            }
+<span class="nc bnc" id="L440" title="All 2 branches missed.">            if (step.getType() == MoveStepType.CHARGE) {</span>
+<span class="nc" id="L441">                chargeStep = step;</span>
+            } else {
+<span class="nc" id="L443">                chargeSrc = step.getPosition();</span>
+<span class="nc" id="L444">                chargeEl = step.getElevation();</span>
+            }
+<span class="nc" id="L446">        }</span>
+
+        // need to reach target
+<span class="nc" id="L449">        boolean isReachable = false;</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">        if ((chargeStep != null)) {</span>
+<span class="nc" id="L451">            isReachable = target.getPosition().equals(chargeStep.getPosition());</span>
+<span class="nc bnc" id="L452" title="All 4 branches missed.">            if (!isReachable &amp;&amp; (target instanceof Entity)</span>
+<span class="nc bnc" id="L453" title="All 2 branches missed.">                &amp;&amp; (null != ((Entity) target).getSecondaryPositions())) {</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">                for (int i : ((Entity) target).getSecondaryPositions().keySet()) {</span>
+<span class="nc" id="L455">                    if (null != ((Entity) target).getSecondaryPositions()</span>
+<span class="nc bnc" id="L456" title="All 2 branches missed.">                                                 .get(i)) {</span>
+<span class="nc" id="L457">                        isReachable = ((Entity) target).getSecondaryPositions()</span>
+<span class="nc" id="L458">                                                       .get(i).equals(chargeStep.getPosition());</span>
+<span class="nc bnc" id="L459" title="All 2 branches missed.">                        if (isReachable) {</span>
+<span class="nc" id="L460">                            break;</span>
+                        }
+                    }
+<span class="nc" id="L463">                }</span>
+            }
+        }
+<span class="nc bnc" id="L466" title="All 2 branches missed.">        if (!isReachable) {</span>
+<span class="nc" id="L467">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Could not reach target with movement&quot;);
+        }
+
+<span class="nc bnc" id="L471" title="All 2 branches missed.">        if (!md.getSecondLastStep().isLegalEndPos()) {</span>
+<span class="nc" id="L472">            return new ToHitData(TargetRoll.IMPOSSIBLE,</span>
+                                 &quot;Violation of stacking limit in second last step&quot;);
+        }
+
+<span class="nc" id="L476">        return toHit(</span>
+                game,
+                target,
+                chargeSrc,
+                chargeEl,
+<span class="nc" id="L481">                chargeStep.getMovementType(true),</span>
+                false,
+<span class="nc bnc" id="L483" title="All 2 branches missed.">                md.contains(MoveStepType.GET_UP)</span>
+<span class="nc bnc" id="L484" title="All 2 branches missed.">                || md.contains(MoveStepType.CAREFUL_STAND));</span>
+    }
+
+    /**
+     * Damage that a mech does with a successful charge. Assumes that
+     * delta_distance is correct.
+     */
+    public static int getDamageFor(Entity entity) {
+<span class="nc" id="L492">        return ChargeAttackAction.getDamageFor(entity, entity, false, 0, entity.delta_distance);</span>
+    }
+
+    public static int getDamageFor(Entity entity, boolean tacops, int hexesMoved) {
+<span class="nc" id="L496">        return ChargeAttackAction.getDamageFor(entity, entity, tacops, 0, hexesMoved);</span>
+    }
+
+    public static int getDamageFor(Entity entity, Entity target,
+                                   boolean tacops, int mos) {
+<span class="nc" id="L501">        return ChargeAttackAction.getDamageFor(entity, target, tacops, mos, entity.delta_distance);</span>
+    }
+
+    public static int getDamageFor(Entity entity, Entity target,
+                                   boolean tacops, int mos, int hexesMoved) {
+<span class="nc bnc" id="L506" title="All 2 branches missed.">        if (!tacops) {</span>
+<span class="nc bnc" id="L507" title="All 2 branches missed.">            if (hexesMoved == 0) {</span>
+<span class="nc" id="L508">                hexesMoved = 1;</span>
+            }
+<span class="nc" id="L510">            return (int) Math</span>
+<span class="nc" id="L511">                    .ceil((entity.getWeight() / 10.0)</span>
+                          * (hexesMoved - 1)
+<span class="nc bnc" id="L513" title="All 2 branches missed.">                          * (entity.getLocationStatus(1) == ILocationExposureStatus.WET ? 0.5</span>
+<span class="nc" id="L514">                                                                                        : 1));</span>
+        }
+<span class="nc" id="L516">        return (int) Math</span>
+<span class="nc" id="L517">                .floor(((((target.getWeight() * entity.getWeight()) * hexesMoved) / (target</span>
+<span class="nc" id="L518">                                                                                             .getWeight() + entity</span>
+<span class="nc" id="L519">                                                                                             .getWeight())) / 10) +</span>
+                       mos);
+    }
+
+    /**
+     * Damage that a mech suffers after a successful charge.
+     */
+    public static int getDamageTakenBy(Entity entity, Building bldg,
+                                       Coords coords) {
+        // Charges against targets that have no tonnage use the attacker's tonnage to compute damage.
+<span class="nc" id="L529">        return getDamageTakenBy(entity, entity, false, entity.delta_distance);</span>
+    }
+
+    public static int getDamageTakenBy(Entity entity, Entity target) {
+<span class="nc" id="L533">        return ChargeAttackAction.getDamageTakenBy(entity, target, false, 0);</span>
+    }
+
+    public static int getDamageTakenBy(Entity entity, Entity target,
+                                       boolean tacops) {
+<span class="nc" id="L538">        return ChargeAttackAction.getDamageTakenBy(entity, target, tacops, entity.delta_distance);</span>
+    }
+
+    public static int getDamageTakenBy(Entity entity, Entity target,
+                                       boolean tacops, int distance) {
+<span class="nc bnc" id="L543" title="All 2 branches missed.">        if (!tacops) {</span>
+<span class="nc" id="L544">            return (int) Math</span>
+<span class="nc" id="L545">                    .ceil((target.getWeight()</span>
+                           / 10.0)
+<span class="nc bnc" id="L547" title="All 2 branches missed.">                          * (entity.getLocationStatus(1) == ILocationExposureStatus.WET ? 0.5</span>
+<span class="nc" id="L548">                                                                                        : 1));</span>
+        }
+<span class="nc" id="L550">        return (int) Math</span>
+<span class="nc" id="L551">                .floor((((target.getWeight() * entity.getWeight()) * distance) / (target</span>
+<span class="nc" id="L552">                                                                                          .getWeight() + entity.getWeight())) / 10);</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

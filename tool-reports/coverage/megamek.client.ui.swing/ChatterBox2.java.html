@@ -1,0 +1,907 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ChatterBox2.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.client.ui.swing</a> &gt; <span class="el_source">ChatterBox2.java</span></div><h1>ChatterBox2.java</h1><pre class="source lang-java linenums">/*
+ * MegaMek - Copyright (C) 2000-2002 Ben Mazur (bmazur@sev.org)
+ * Copyright © 2013 Edward Cullen (eddy@obsessedcomputers.co.uk)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+
+package megamek.client.ui.swing;
+
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Toolkit;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.io.IOException;
+import java.util.Enumeration;
+import java.util.Vector;
+
+import megamek.client.Client;
+import megamek.client.ui.IBoardView;
+import megamek.client.ui.IDisplayable;
+import megamek.client.ui.swing.boardview.BoardView1;
+import megamek.client.ui.swing.util.CommandAction;
+import megamek.client.ui.swing.util.KeyCommandBind;
+import megamek.client.ui.swing.util.MegaMekController;
+import megamek.client.ui.swing.widget.PMUtil;
+import megamek.common.Configuration;
+import megamek.common.event.GameEntityChangeEvent;
+import megamek.common.event.GameEntityNewEvent;
+import megamek.common.event.GameListenerAdapter;
+import megamek.common.event.GamePlayerChatEvent;
+import megamek.common.preference.PreferenceManager;
+import megamek.common.util.fileUtils.MegaMekFile;
+import megamek.common.util.StringUtil;
+
+/**
+ *  A graphical chatterbox within the boardview.
+ * @author beerockxs2
+ *
+ */
+public class ChatterBox2 implements KeyListener, IDisplayable {
+
+    private static final String FILENAME_BUTTON_UP = &quot;upbutton.gif&quot;; //$NON-NLS-1$
+    private static final String FILENAME_BUTTON_DOWN = &quot;downbutton.gif&quot;; //$NON-NLS-1$
+    private static final String FILENAME_BUTTON_MINIMISE = &quot;minbutton.gif&quot;; //$NON-NLS-1$
+    private static final String FILENAME_BUTTON_MAXIMISE = &quot;maxbutton.gif&quot;; //$NON-NLS-1$
+    private static final String FILENAME_BUTTON_RESIZE = &quot;resizebutton.gif&quot;; //$NON-NLS-1$
+<span class="nc" id="L65">    private static final Font FONT_CHAT = new Font(&quot;SansSerif&quot;, Font.BOLD, GUIPreferences.getInstance().getInt(&quot;AdvancedChatbox2Fontsize&quot;));  //$NON-NLS-2$</span>
+<span class="nc" id="L66">    private static final Color COLOR_TEXT_BACK = Color.black;</span>
+<span class="nc" id="L67">    private static final Color COLOR_TEXT_FRONT = Color.white;</span>
+    private static final Color COLOR_BACKGROUND;
+    private ChatterBox cb;
+
+    static {
+        Color temp;
+        try {
+<span class="nc" id="L74">            temp = GUIPreferences.getInstance().getColor(&quot;AdvancedChatbox2BackColor&quot;); //$NON-NLS-1$</span>
+<span class="nc" id="L75">            temp = new Color(temp.getRed(), temp.getGreen(), temp.getBlue(), GUIPreferences.getInstance().getInt(&quot;AdvancedChatbox2Transparancy&quot;)); //$NON-NLS-1$</span>
+<span class="nc" id="L76">        } catch (Throwable err) {</span>
+<span class="nc" id="L77">            temp = Color.gray;</span>
+<span class="nc" id="L78">        }</span>
+<span class="nc" id="L79">        COLOR_BACKGROUND = temp;</span>
+<span class="nc" id="L80">    }</span>
+
+    private static final int SLIDING_SPEED = 5;
+    private static final int MIN_SLIDE_OFFSET = 0;
+
+    private static final int DIST_BOTTOM = 0;
+    private static final int DIST_SIDE = 5;
+
+    private static final long MAX_IDLE_TIME = 10000;
+
+<span class="nc" id="L90">    private int height = 150;</span>
+<span class="nc" id="L91">    private int width = 400;</span>
+<span class="nc" id="L92">    private int max_nbr_rows = 7;</span>
+
+<span class="nc" id="L94">    private boolean isHit = false;</span>
+<span class="nc" id="L95">    private boolean resizing = false;</span>
+<span class="nc" id="L96">    private boolean scrolling = false;</span>
+<span class="nc" id="L97">    private boolean increasedChatScroll = false;</span>
+<span class="nc" id="L98">    private boolean decreasedChatScroll = false;</span>
+<span class="nc" id="L99">    private boolean overTheTop = false;</span>
+<span class="nc" id="L100">    private boolean underTheBottom = false;</span>
+<span class="nc" id="L101">    private boolean slidingDown = false;</span>
+<span class="nc" id="L102">    private boolean slidingUp = false;</span>
+<span class="nc" id="L103">    private boolean lockOpen = false;</span>
+<span class="nc" id="L104">    private int chatScroll = 0;</span>
+    private int scrollBarHeight;
+    private int scrollBarOffset;
+<span class="nc" id="L107">    private int slideOffset = 0;</span>
+<span class="nc" id="L108">    private long idleTime = 0;</span>
+    private float scrollBarStep;
+    private float scrollBarDragPos;
+<span class="nc" id="L111">    private String message = &quot;&quot;;</span>
+<span class="nc" id="L112">    private String visibleMessage = &quot;&quot;;</span>
+
+    private Point lastScrollPoint;
+
+<span class="nc" id="L116">    private Vector&lt;String&gt; messages = new Vector&lt;String&gt;();</span>
+
+    private Client client;
+    private BoardView1 bv;
+
+    private Image upbutton;
+    private Image downbutton;
+    private Image maxbutton;
+    private Image minbutton;
+    private Image resizebutton;
+
+    private FontMetrics fm;
+
+    public ChatterBox2(ClientGUI client, IBoardView boardview,
+<span class="nc" id="L130">            MegaMekController controller) {</span>
+<span class="nc" id="L131">        this.client = client.getClient();</span>
+<span class="nc" id="L132">        client.getClient().getGame().addGameListener(new GameListenerAdapter() {</span>
+            @Override
+            public void gamePlayerChat(GamePlayerChatEvent e) {
+<span class="nc" id="L135">                addChatMessage(e.getMessage());</span>
+<span class="nc" id="L136">            }</span>
+            @Override
+            public void gameEntityNew(GameEntityNewEvent e) {
+<span class="nc" id="L139">                if (PreferenceManager.getClientPreferences()</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">                        .getPrintEntityChange()) {</span>
+<span class="nc" id="L141">                    addChatMessage(&quot;MegaMek: &quot; + e.getNumberOfEntities() + </span>
+                            &quot; Entities added.&quot;);
+                }
+<span class="nc" id="L144">            }</span>
+
+            @Override
+            public void gameEntityChange(GameEntityChangeEvent e) {
+<span class="nc" id="L148">                if (PreferenceManager.getClientPreferences()</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">                        .getPrintEntityChange()) {</span>
+<span class="nc" id="L150">                    addChatMessage(&quot;Megamek: &quot; + e.toString());</span>
+                }
+<span class="nc" id="L152">            }</span>
+        });
+
+<span class="nc" id="L155">        bv = (BoardView1)boardview;</span>
+<span class="nc" id="L156">        fm = bv.getFontMetrics(FONT_CHAT);</span>
+
+<span class="nc" id="L158">        Toolkit toolkit = bv.getToolkit();</span>
+<span class="nc" id="L159">        upbutton = toolkit.getImage(new MegaMekFile(Configuration.widgetsDir(), </span>
+<span class="nc" id="L160">                FILENAME_BUTTON_UP).toString());</span>
+<span class="nc" id="L161">        PMUtil.setImage(upbutton, client);</span>
+<span class="nc" id="L162">        downbutton = toolkit.getImage(new MegaMekFile(Configuration.widgetsDir(), </span>
+<span class="nc" id="L163">                FILENAME_BUTTON_DOWN).toString());</span>
+<span class="nc" id="L164">        PMUtil.setImage(downbutton, client);</span>
+<span class="nc" id="L165">        minbutton = toolkit.getImage(new MegaMekFile(Configuration.widgetsDir(), </span>
+<span class="nc" id="L166">                FILENAME_BUTTON_MINIMISE).toString());</span>
+<span class="nc" id="L167">        PMUtil.setImage(minbutton, client);</span>
+<span class="nc" id="L168">        maxbutton = toolkit.getImage(new MegaMekFile(Configuration.widgetsDir(), </span>
+<span class="nc" id="L169">                FILENAME_BUTTON_MAXIMISE).toString());</span>
+<span class="nc" id="L170">        PMUtil.setImage(maxbutton, client);</span>
+<span class="nc" id="L171">        resizebutton = toolkit.getImage(new MegaMekFile(Configuration.widgetsDir(), </span>
+<span class="nc" id="L172">                FILENAME_BUTTON_RESIZE).toString());</span>
+<span class="nc" id="L173">        PMUtil.setImage(resizebutton, client);</span>
+
+<span class="nc" id="L175">        registerKeyboardCommands(controller);</span>
+<span class="nc" id="L176">    }</span>
+
+    private void registerKeyboardCommands(MegaMekController controller) {
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        if (controller == null) {</span>
+<span class="nc" id="L180">            return;</span>
+        }
+
+        // Register the action for CLEAR
+<span class="nc" id="L184">        controller.registerCommandAction(KeyCommandBind.CANCEL.cmd,</span>
+<span class="nc" id="L185">                new CommandAction() {</span>
+
+                    @Override
+                    public boolean shouldPerformAction() {
+<span class="nc bnc" id="L189" title="All 2 branches missed.">                        if (!bv.getChatterBoxActive()) {</span>
+<span class="nc" id="L190">                            return false;</span>
+                        } else {
+<span class="nc" id="L192">                            return true;</span>
+                        }
+                    }
+
+                    @Override
+                    public void performAction() {
+<span class="nc" id="L198">                        clearMessage();</span>
+<span class="nc" id="L199">                        slideDown();</span>
+<span class="nc" id="L200">                    }</span>
+                });
+<span class="nc" id="L202">    }</span>
+
+    public boolean isReleased() {
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        if (scrolling) {</span>
+<span class="nc" id="L206">            stopScrolling();</span>
+<span class="nc" id="L207">            return true;</span>
+        }
+<span class="nc bnc" id="L209" title="All 2 branches missed.">        if (resizing) {</span>
+<span class="nc" id="L210">            stopScrolling();</span>
+<span class="nc" id="L211">            resizing = false;</span>
+<span class="nc" id="L212">            lockOpen = false;</span>
+<span class="nc" id="L213">            return true;</span>
+        }
+        
+<span class="nc bnc" id="L216" title="All 2 branches missed.">        if (isHit){</span>
+<span class="nc" id="L217">            isHit = false;</span>
+<span class="nc" id="L218">            return true;</span>
+        }            
+<span class="nc" id="L220">        return false;</span>
+    }
+
+    public boolean isSliding() {
+<span class="nc bnc" id="L224" title="All 4 branches missed.">        return slidingDown || slidingUp;</span>
+    }
+
+    public void slideUp() {
+<span class="nc" id="L228">        setIdleTime(0, false);</span>
+<span class="nc" id="L229">        slidingUp = true;</span>
+<span class="nc" id="L230">        slidingDown = false;</span>
+<span class="nc" id="L231">    }</span>
+
+    public void slideDown() {
+<span class="nc" id="L234">        setIdleTime(0, false);</span>
+<span class="nc" id="L235">        slidingUp = false;</span>
+<span class="nc" id="L236">        slidingDown = true;</span>
+<span class="nc" id="L237">        bv.setChatterBoxActive(false);</span>
+<span class="nc" id="L238">    }</span>
+
+    private void stopSliding() {
+<span class="nc" id="L241">        setIdleTime(0, false);</span>
+<span class="nc" id="L242">        slidingUp = false;</span>
+<span class="nc" id="L243">        slidingDown = false;</span>
+<span class="nc" id="L244">    }</span>
+
+    private boolean isDown() {
+<span class="nc bnc" id="L247" title="All 4 branches missed.">        return !isSliding() &amp;&amp; (slideOffset == getMaxSlideOffset());</span>
+    }
+
+    private boolean isUp() {
+<span class="nc bnc" id="L251" title="All 4 branches missed.">        return !isSliding() &amp;&amp; (slideOffset == MIN_SLIDE_OFFSET);</span>
+    }
+
+    public synchronized void setIdleTime(long timeIdle, boolean add) {
+<span class="nc bnc" id="L255" title="All 2 branches missed.">        if (!lockOpen) {</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">            if (add) {</span>
+<span class="nc" id="L257">                idleTime += timeIdle;</span>
+            } else {
+<span class="nc" id="L259">                idleTime = timeIdle;</span>
+            }
+
+<span class="nc bnc" id="L262" title="All 4 branches missed.">            if ((idleTime &gt; MAX_IDLE_TIME) &amp;&amp; !isSliding() &amp;&amp; </span>
+<span class="nc bnc" id="L263" title="All 2 branches missed.">                    GUIPreferences.getInstance().getBoolean(</span>
+                            &quot;AdvancedChatbox2AutoSlidedown&quot;)) {
+<span class="nc" id="L265">                slideDown();</span>
+            }
+        }
+<span class="nc" id="L268">    }</span>
+
+    private void pageUp() {
+<span class="nc" id="L271">        setIdleTime(0, false);</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (!(chatScroll &gt;= (messages.size() - max_nbr_rows - (max_nbr_rows - 1)))) {</span>
+<span class="nc" id="L273">            chatScroll += max_nbr_rows - 1;</span>
+        } else {
+<span class="nc" id="L275">            chatScroll = messages.size() - max_nbr_rows;</span>
+        }
+<span class="nc" id="L277">        computeScrollBarOffset();</span>
+<span class="nc" id="L278">    }</span>
+
+    private void pageDown() {
+<span class="nc" id="L281">        setIdleTime(0, false);</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">        if (chatScroll &gt; (max_nbr_rows - 1)) {</span>
+<span class="nc" id="L283">            chatScroll -= max_nbr_rows - 1;</span>
+        } else {
+<span class="nc" id="L285">            chatScroll = 0;</span>
+        }
+<span class="nc" id="L287">        computeScrollBarOffset();</span>
+<span class="nc" id="L288">    }</span>
+
+    public boolean slide() {
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (slidingDown) {</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">            if (slideOffset &lt; getMaxSlideOffset()) {</span>
+<span class="nc" id="L293">                slideOffset += SLIDING_SPEED;</span>
+            } else {
+<span class="nc" id="L295">                stopSliding();</span>
+            }
+<span class="nc" id="L297">            slideOffset = Math.min(slideOffset, getMaxSlideOffset());</span>
+<span class="nc" id="L298">            return true;</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">        } else if (slidingUp) {</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">            if (slideOffset &gt; MIN_SLIDE_OFFSET) {</span>
+<span class="nc" id="L301">                slideOffset -= SLIDING_SPEED;</span>
+            } else {
+<span class="nc" id="L303">                stopSliding();</span>
+            }
+<span class="nc" id="L305">            slideOffset = Math.max(slideOffset, MIN_SLIDE_OFFSET);</span>
+<span class="nc" id="L306">            return true;</span>
+        }
+<span class="nc" id="L308">        return false;</span>
+    }
+
+    private void stopScrolling() {
+<span class="nc" id="L312">        scrollBarDragPos = 0;</span>
+<span class="nc" id="L313">        lastScrollPoint = null;</span>
+<span class="nc" id="L314">        scrolling = false;</span>
+<span class="nc" id="L315">        computeScrollBarOffset();</span>
+<span class="nc" id="L316">        bv.refreshDisplayables();</span>
+<span class="nc" id="L317">        increasedChatScroll = false;</span>
+<span class="nc" id="L318">        decreasedChatScroll = false;</span>
+<span class="nc" id="L319">    }</span>
+
+    public boolean isDragged(Point p, Dimension size) {
+<span class="nc bnc" id="L322" title="All 2 branches missed.">        if (scrolling) {</span>
+<span class="nc" id="L323">            scroll(p, size);</span>
+<span class="nc" id="L324">            return true;</span>
+        }
+<span class="nc bnc" id="L326" title="All 2 branches missed.">        if (resizing) {</span>
+<span class="nc" id="L327">            resize(p, size);</span>
+<span class="nc" id="L328">            return true;</span>
+        }
+        
+<span class="nc" id="L331">        int xMin = DIST_SIDE;</span>
+<span class="nc" id="L332">        int xMax = xMin + width;</span>
+<span class="nc" id="L333">        int yMin = ((size.height) - height - DIST_BOTTOM) + slideOffset;</span>
+<span class="nc" id="L334">        int yMax = yMin + height;</span>
+
+<span class="nc bnc" id="L336" title="All 8 branches missed.">        boolean mouseOver = (p.x &gt; xMin) &amp;&amp; (p.x &lt; xMax) &amp;&amp; (p.y &gt; yMin)</span>
+                &amp;&amp; (p.y &lt; yMax);
+<span class="nc" id="L338">        return mouseOver;</span>
+    }
+
+    public boolean isBeingDragged() {
+<span class="nc bnc" id="L342" title="All 4 branches missed.">        return scrolling || resizing ;</span>
+    }
+
+    public boolean isMouseOver(Point p, Dimension size) {
+<span class="nc" id="L346">        int xMin = DIST_SIDE;</span>
+<span class="nc" id="L347">        int xMax = xMin + width;</span>
+<span class="nc" id="L348">        int yMin = ((size.height) - height - DIST_BOTTOM) + slideOffset;</span>
+<span class="nc" id="L349">        int yMax = yMin + height;</span>
+
+<span class="nc bnc" id="L351" title="All 8 branches missed.">        boolean mouseOver = (p.x &gt; xMin) &amp;&amp; (p.x &lt; xMax) &amp;&amp; (p.y &gt; yMin)</span>
+                &amp;&amp; (p.y &lt; yMax);
+
+
+        // Don't open on mouse over, it is annoying.
+        /*if (mouseOver &amp;&amp; isDown()) {
+            slideUp();
+        }*/
+
+<span class="nc bnc" id="L360" title="All 4 branches missed.">        if (mouseOver &amp;&amp; isUp()) {</span>
+<span class="nc" id="L361">            lockOpen = true;</span>
+        }
+
+<span class="nc bnc" id="L364" title="All 4 branches missed.">        if (!mouseOver &amp;&amp; isUp()) {</span>
+<span class="nc" id="L365">            lockOpen = false;</span>
+        }
+
+<span class="nc" id="L368">        return mouseOver;</span>
+    }
+
+    public boolean isHit(Point p, Dimension size) {
+<span class="nc bnc" id="L372" title="All 2 branches missed.">        if (isSliding()) {</span>
+<span class="nc" id="L373">            return false;</span>
+        }
+
+<span class="nc bnc" id="L376" title="All 2 branches missed.">        if (message != null) {</span>
+<span class="nc" id="L377">            bv.refreshDisplayables();</span>
+        }
+
+<span class="nc" id="L380">        int x = p.x;</span>
+<span class="nc" id="L381">        int y = p.y;</span>
+<span class="nc" id="L382">        int yOffset = ((size.height) - height - DIST_BOTTOM) + slideOffset;</span>
+
+<span class="nc bnc" id="L384" title="All 8 branches missed.">        if ((x &lt; DIST_SIDE) || (x &gt; (DIST_SIDE + width)) || (y &lt; yOffset)</span>
+                || (y &gt; (yOffset + height))) {
+<span class="nc" id="L386">            bv.setChatterBoxActive(false);</span>
+<span class="nc" id="L387">            return false;</span>
+        }
+<span class="nc" id="L389">        isHit = true;</span>
+        // Hide button
+<span class="nc bnc" id="L391" title="All 8 branches missed.">        if ((x &gt; 9) &amp;&amp; (x &lt; 25) &amp;&amp; (y &gt; (yOffset + 2)) &amp;&amp; (y &lt; (yOffset + 18)) </span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">                &amp;&amp; !isDown()) {</span>
+<span class="nc" id="L393">            slideDown();</span>
+<span class="nc" id="L394">            return true;</span>
+        }
+        
+<span class="nc" id="L397">        bv.setChatterBoxActive(true);</span>
+<span class="nc bnc" id="L398" title="All 2 branches missed.">        if (isDown()){</span>
+<span class="nc" id="L399">            slideUp();</span>
+        }
+
+        // Scroll up
+<span class="nc bnc" id="L403" title="All 8 branches missed.">        if ((x &gt; (width - 17)) &amp;&amp; (x &lt; (width - 1)) &amp;&amp; (y &gt; (yOffset + 2 + 14))</span>
+                &amp;&amp; (y &lt; (yOffset + 32))) {
+<span class="nc" id="L405">            scrollUp();</span>
+<span class="nc" id="L406">            bv.refreshDisplayables();</span>
+<span class="nc" id="L407">            return true;</span>
+        }
+        // resize
+<span class="nc bnc" id="L410" title="All 8 branches missed.">        if ((x &gt; (width - 17)) &amp;&amp; (x &lt; (width - 1)) &amp;&amp; (y &gt; (yOffset + 2))</span>
+                &amp;&amp; (y &lt; (yOffset + 18))) {
+<span class="nc bnc" id="L412" title="All 2 branches missed.">            if (isUp()) {</span>
+<span class="nc" id="L413">                resizing = true;</span>
+<span class="nc" id="L414">                lockOpen = true;</span>
+<span class="nc" id="L415">                return true;</span>
+            }
+        }
+        // Above scrollbar
+<span class="nc bnc" id="L419" title="All 8 branches missed.">        if ((x &gt; (width - 17)) &amp;&amp; (x &lt; (width - 1)) &amp;&amp; (y &gt; (yOffset + 31))</span>
+                &amp;&amp; (y &lt; ((yOffset + 18 + scrollBarOffset) - 1))) {
+<span class="nc" id="L421">            pageUp();</span>
+<span class="nc" id="L422">            bv.refreshDisplayables();</span>
+<span class="nc" id="L423">            return true;</span>
+        }
+        // Scroll bar
+<span class="nc bnc" id="L426" title="All 8 branches missed.">        if ((x &gt; (width - 15)) &amp;&amp; (x &lt; (width - 5))</span>
+                &amp;&amp; (y &gt; ((yOffset + 18 + scrollBarOffset) - 1))
+                &amp;&amp; (y &lt; (yOffset + 18 + scrollBarOffset + scrollBarHeight))) {
+<span class="nc" id="L429">            lastScrollPoint = p;</span>
+<span class="nc" id="L430">            scrolling = true;</span>
+<span class="nc" id="L431">            return true;</span>
+        }
+        // Below scrollbar
+<span class="nc bnc" id="L434" title="All 6 branches missed.">        if ((x &gt; (width - 17)) &amp;&amp; (x &lt; (width - 2))</span>
+                &amp;&amp; (y &gt; (yOffset + 18 + scrollBarOffset + scrollBarHeight))
+<span class="nc bnc" id="L436" title="All 2 branches missed.">                &amp;&amp; (y &lt; (yOffset + 18 + getScrollbarOuterHeight()))) {</span>
+<span class="nc" id="L437">            pageDown();</span>
+<span class="nc" id="L438">            bv.refreshDisplayables();</span>
+<span class="nc" id="L439">            return true;</span>
+        }
+        // Scroll down
+<span class="nc bnc" id="L442" title="All 8 branches missed.">        if ((x &gt; (width - 17)) &amp;&amp; (x &lt; (width - 1)) &amp;&amp; (y &gt; ((size.height) - 25))</span>
+                &amp;&amp; (y &lt; ((size.height) - 11))) {
+<span class="nc" id="L444">            scrollDown();</span>
+<span class="nc" id="L445">            bv.refreshDisplayables();</span>
+<span class="nc" id="L446">            return true;</span>
+        }
+        // Message box
+<span class="nc bnc" id="L449" title="All 8 branches missed.">        if ((x &gt; 10) &amp;&amp; (x &lt; (width - 40)) &amp;&amp; (y &gt; ((size.height) - 25))</span>
+                &amp;&amp; (y &lt; ((size.height) - 11))) {
+<span class="nc" id="L451">            bv.refreshDisplayables();</span>
+<span class="nc" id="L452">            return true;</span>
+        }
+<span class="nc" id="L454">        return true;</span>
+    }
+
+    /**
+     * Draws the chatter box.
+     */
+    public void draw(Graphics graph, Rectangle clipBounds) {
+<span class="nc" id="L461">        graph.setColor(COLOR_BACKGROUND);</span>
+<span class="nc" id="L462">        graph.setFont(FONT_CHAT);</span>
+
+        // Draw box.
+<span class="nc" id="L465">        int yOffset = ((clipBounds.height) - height - DIST_BOTTOM) + slideOffset + clipBounds.y;</span>
+        //graph.fillRoundRect(DIST_SIDE + clipBounds.x, yOffset, width, height, 20, 20);
+<span class="nc" id="L467">        graph.fillRect(DIST_SIDE + clipBounds.x, yOffset, width, height);</span>
+<span class="nc" id="L468">        graph.setColor(COLOR_TEXT_BACK);</span>
+
+        // Min/max button
+<span class="nc bnc" id="L471" title="All 2 branches missed.">        if (slideOffset == getMaxSlideOffset()) {</span>
+<span class="nc" id="L472">            graph.drawImage(maxbutton, 10 + clipBounds.x, yOffset + 3, bv);</span>
+        } else {
+<span class="nc" id="L474">            graph.drawImage(minbutton, 10 + clipBounds.x , yOffset + 3, bv);</span>
+        }
+
+        // Title
+<span class="nc" id="L478">        printLine(graph, &quot;Incoming messages...&quot;, 29 + clipBounds.x, yOffset + 15);</span>
+
+        // resize button
+<span class="nc" id="L481">        graph.drawImage(resizebutton, (width - 16) + clipBounds.x, yOffset + 3, bv);</span>
+
+        // Scroll up button
+<span class="nc" id="L484">        graph.drawImage(upbutton, (width - 16) + clipBounds.x, yOffset + 16, bv);</span>
+
+        // Scroll bar outer
+<span class="nc" id="L487">        graph.drawRect((width - 16) + clipBounds.x, yOffset + 30, 13, getScrollbarOuterHeight());</span>
+
+        // Scroll bar inner
+<span class="nc" id="L490">        graph.drawRect((width - 14) + clipBounds.x, yOffset + 31 + scrollBarOffset, 9, scrollBarHeight);</span>
+
+        // Scroll down button
+<span class="nc" id="L493">        graph.drawImage(downbutton, (width - 16) + clipBounds.x, (yOffset + height) - 20, bv);</span>
+
+        // Message box
+<span class="nc" id="L496">        graph.drawRect(10 + clipBounds.x, (yOffset + height) - 21, width - 50, 17);</span>
+<span class="nc bnc" id="L497" title="All 4 branches missed.">        if (message != null &amp;&amp; bv.getChatterBoxActive()) {</span>
+<span class="nc" id="L498">            printLine(graph, visibleMessage + &quot;_&quot;, 13 + clipBounds.x, (yOffset + height) - 7);</span>
+        }
+
+        // Text rows
+<span class="nc" id="L502">        int rows = messages.size();</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">        if (rows &lt;= max_nbr_rows) {</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">            for (int i = 0; i &lt; messages.size(); i++) {</span>
+<span class="nc" id="L505">                printLine(graph, messages.elementAt(i), 10 + clipBounds.x, yOffset</span>
+                        + 15 + ((i + 1) * 15));
+            }
+        } else {
+<span class="nc" id="L509">            int row = 1;</span>
+<span class="nc" id="L510">            for (int i = rows - max_nbr_rows - chatScroll; i &lt; (messages</span>
+<span class="nc bnc" id="L511" title="All 2 branches missed.">                    .size()</span>
+<span class="nc" id="L512">                    - chatScroll); i++) {</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">                if (i &gt; -1) {</span>
+<span class="nc" id="L514">                    printLine(graph, messages.elementAt(i), 10 + clipBounds.x, yOffset</span>
+                            + 15 + (row * 15));
+<span class="nc" id="L516">                    row++;</span>
+                }
+            }
+        }
+<span class="nc" id="L520">    }</span>
+
+    private void printLine(Graphics graph, String text, int x, int y) {
+<span class="nc" id="L523">        graph.drawString(text, x, y + 1);</span>
+<span class="nc" id="L524">        graph.drawString(text, x, y - 1);</span>
+<span class="nc" id="L525">        graph.drawString(text, x + 1, y);</span>
+<span class="nc" id="L526">        graph.drawString(text, x - 1, y);</span>
+<span class="nc" id="L527">        graph.setColor(COLOR_TEXT_FRONT);</span>
+<span class="nc" id="L528">        graph.drawString(text, x, y);</span>
+<span class="nc" id="L529">        graph.setColor(COLOR_TEXT_BACK);</span>
+<span class="nc" id="L530">    }</span>
+
+    /**
+     *  Adds a line to the chat, and performs line breaking if
+     *  necessary
+     * @param line
+     */
+    public void addChatMessage(String line) {
+<span class="nc" id="L538">        setIdleTime(0, false);</span>
+<span class="nc bnc" id="L539" title="All 2 branches missed.">        if (!isUp()) {</span>
+<span class="nc" id="L540">            slideUp();</span>
+        }
+<span class="nc" id="L542">        int stringWidth = fm.stringWidth(line);</span>
+<span class="nc" id="L543">        int lineWidth = width - 5 - 20;</span>
+
+<span class="nc" id="L545">        chatScroll = 0;</span>
+
+<span class="nc bnc" id="L547" title="All 2 branches missed.">        if (stringWidth &lt;= lineWidth) {</span>
+<span class="nc" id="L548">            messages.addElement(line);</span>
+<span class="nc" id="L549">            computeScrollBarHeight();</span>
+<span class="nc" id="L550">            bv.refreshDisplayables();</span>
+<span class="nc" id="L551">            return;</span>
+        }
+
+<span class="nc" id="L554">        Enumeration&lt;String&gt; words = StringUtil.splitString(line, &quot; &quot;).elements();</span>
+
+<span class="nc" id="L556">        String nextLine = &quot;&quot;;</span>
+<span class="nc bnc" id="L557" title="All 2 branches missed.">        while (words.hasMoreElements()) {</span>
+<span class="nc" id="L558">            String nextWord = words.nextElement();</span>
+<span class="nc bnc" id="L559" title="All 2 branches missed.">            if (fm.stringWidth(nextLine + &quot; &quot; + nextWord) &lt; lineWidth) {</span>
+<span class="nc bnc" id="L560" title="All 2 branches missed.">                nextLine = (nextLine.equals(&quot;&quot;)) ? nextWord : nextLine + &quot; &quot;</span>
+<span class="nc" id="L561">                        + nextWord;</span>
+            } else {
+<span class="nc" id="L563">                messages.addElement(nextLine);</span>
+<span class="nc" id="L564">                nextLine = nextWord;</span>
+            }
+<span class="nc" id="L566">        }</span>
+<span class="nc" id="L567">        messages.addElement(nextLine);</span>
+<span class="nc" id="L568">        computeScrollBarHeight();</span>
+<span class="nc" id="L569">        bv.refreshDisplayables();</span>
+<span class="nc" id="L570">    }</span>
+
+    /**
+     *  Scrolls up one line.
+     */
+    public void scrollUp() {
+<span class="nc" id="L576">        setIdleTime(0, false);</span>
+<span class="nc bnc" id="L577" title="All 2 branches missed.">        if (!(chatScroll &gt;= (messages.size() - max_nbr_rows))) {</span>
+<span class="nc" id="L578">            chatScroll++;</span>
+<span class="nc" id="L579">            computeScrollBarOffset();</span>
+        }
+<span class="nc" id="L581">    }</span>
+
+    /**
+     *  Scrolls down one line.
+     */
+    public void scrollDown() {
+<span class="nc" id="L587">        setIdleTime(0, false);</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">        if (chatScroll &gt; 0) {</span>
+<span class="nc" id="L589">            chatScroll--;</span>
+<span class="nc" id="L590">            computeScrollBarOffset();</span>
+        }
+<span class="nc" id="L592">    }</span>
+
+    /**
+     * resizing
+     * @param p
+     * @param size
+     */
+    private void resize(Point p, Dimension size) {
+<span class="nc" id="L600">        width = p.x;</span>
+<span class="nc" id="L601">        height = Math.max(size.height - p.y, 10);</span>
+<span class="nc" id="L602">        max_nbr_rows = (height / fm.getHeight()) - 2;</span>
+<span class="nc" id="L603">        computeScrollBarHeight();</span>
+<span class="nc" id="L604">    }</span>
+
+    /**
+     * Scrolling...
+     * @param p
+     * @param size
+     */
+    private void scroll(Point p, Dimension size) {
+<span class="nc" id="L612">        setIdleTime(0, false);</span>
+<span class="nc" id="L613">        int yOffset = (size.height) - height - DIST_BOTTOM;</span>
+        int dY;
+<span class="nc bnc" id="L615" title="All 2 branches missed.">        if (p.y &lt; (yOffset + 3 + 14 + 14)) {</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">            if (overTheTop) {</span>
+<span class="nc" id="L617">                return;</span>
+            } else {
+<span class="nc" id="L619">                p = new Point(0, yOffset + 3 + 14 + 14);</span>
+<span class="nc" id="L620">                overTheTop = true;</span>
+            }
+<span class="nc bnc" id="L622" title="All 2 branches missed.">        } else if (p.y &gt; ((yOffset + 150) - 20)) {</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">            if (underTheBottom) {</span>
+<span class="nc" id="L624">                return;</span>
+            } else {
+<span class="nc" id="L626">                p = new Point(0, (yOffset + 150) - 20);</span>
+<span class="nc" id="L627">                underTheBottom = true;</span>
+            }
+        } else {
+<span class="nc" id="L630">            underTheBottom = false;</span>
+<span class="nc" id="L631">            overTheTop = false;</span>
+        }
+
+<span class="nc" id="L634">        dY = (int) (p.y - lastScrollPoint.getY());</span>
+<span class="nc" id="L635">        lastScrollPoint = p;</span>
+
+<span class="nc" id="L637">        scrollBarDragPos += dY;</span>
+<span class="nc" id="L638">        scrollBarOffset += dY;</span>
+
+<span class="nc bnc" id="L640" title="All 2 branches missed.">        if (scrollBarOffset &lt; 0) {</span>
+<span class="nc" id="L641">            scrollBarOffset = 0;</span>
+<span class="nc bnc" id="L642" title="All 2 branches missed.">        } else if (scrollBarOffset &gt; (getMaxScrollbarHeight() - scrollBarHeight)) {</span>
+<span class="nc" id="L643">            scrollBarOffset = getMaxScrollbarHeight() - scrollBarHeight;</span>
+        }
+
+<span class="nc bnc" id="L646" title="All 2 branches missed.">        while (Math.abs(scrollBarDragPos) &gt;= scrollBarStep) {</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">            if (Math.abs(scrollBarDragPos) &gt;= ((scrollBarStep) / 2.0f)) {</span>
+<span class="nc bnc" id="L648" title="All 2 branches missed.">                if (scrollBarDragPos &lt; 0) {</span>
+<span class="nc bnc" id="L649" title="All 2 branches missed.">                    if (!increasedChatScroll</span>
+<span class="nc bnc" id="L650" title="All 2 branches missed.">                            &amp;&amp; !(chatScroll &gt;= (messages.size() - 6))) {</span>
+<span class="nc" id="L651">                        chatScroll++;</span>
+<span class="nc" id="L652">                        decreasedChatScroll = false;</span>
+<span class="nc" id="L653">                        increasedChatScroll = true;</span>
+                    }
+                } else {
+<span class="nc bnc" id="L656" title="All 4 branches missed.">                    if (!decreasedChatScroll &amp;&amp; (chatScroll &gt; 0)) {</span>
+<span class="nc" id="L657">                        chatScroll--;</span>
+<span class="nc" id="L658">                        decreasedChatScroll = true;</span>
+<span class="nc" id="L659">                        increasedChatScroll = false;</span>
+                    }
+                }
+            }
+<span class="nc bnc" id="L663" title="All 2 branches missed.">            if (Math.abs(scrollBarDragPos) &gt;= scrollBarStep) {</span>
+<span class="nc bnc" id="L664" title="All 2 branches missed.">                if (scrollBarDragPos &lt; 0) {</span>
+<span class="nc" id="L665">                    scrollBarDragPos += scrollBarStep;</span>
+                } else {
+<span class="nc" id="L667">                    scrollBarDragPos -= scrollBarStep;</span>
+                }
+<span class="nc" id="L669">                decreasedChatScroll = false;</span>
+<span class="nc" id="L670">                increasedChatScroll = false;</span>
+            }
+        }
+<span class="nc bnc" id="L673" title="All 2 branches missed.">        if (Math.abs(scrollBarDragPos) &gt;= ((scrollBarStep) / 2.0f)) {</span>
+<span class="nc bnc" id="L674" title="All 2 branches missed.">            if (scrollBarDragPos &lt; 0) {</span>
+<span class="nc bnc" id="L675" title="All 2 branches missed.">                if (!increasedChatScroll</span>
+<span class="nc bnc" id="L676" title="All 2 branches missed.">                        &amp;&amp; !(chatScroll &gt;= (messages.size() - 6))) {</span>
+<span class="nc" id="L677">                    chatScroll++;</span>
+<span class="nc" id="L678">                    decreasedChatScroll = false;</span>
+<span class="nc" id="L679">                    increasedChatScroll = true;</span>
+                }
+            } else {
+<span class="nc bnc" id="L682" title="All 4 branches missed.">                if (!decreasedChatScroll &amp;&amp; (chatScroll &gt; 0)) {</span>
+<span class="nc" id="L683">                    chatScroll--;</span>
+<span class="nc" id="L684">                    decreasedChatScroll = true;</span>
+<span class="nc" id="L685">                    increasedChatScroll = false;</span>
+                }
+            }
+        }
+<span class="nc" id="L689">    }</span>
+
+    private void computeScrollBarOffset() {
+<span class="nc bnc" id="L692" title="All 2 branches missed.">        if (messages.size() &lt;= max_nbr_rows) {</span>
+<span class="nc" id="L693">            scrollBarOffset = 0;</span>
+        } else {
+<span class="nc" id="L695">            scrollBarOffset = (int) (((getMaxScrollbarHeight() - scrollBarHeight)) * (1.0f - (chatScroll / ((float) (messages</span>
+<span class="nc" id="L696">                    .size() - max_nbr_rows)))));</span>
+        }
+<span class="nc" id="L698">    }</span>
+
+    private void computeScrollBarHeight() {
+<span class="nc bnc" id="L701" title="All 2 branches missed.">        if (messages.size() &lt;= max_nbr_rows) {</span>
+<span class="nc" id="L702">            scrollBarHeight = getMaxScrollbarHeight();</span>
+<span class="nc" id="L703">            scrollBarStep = 1;</span>
+        } else {
+<span class="nc" id="L705">            scrollBarHeight = Math</span>
+<span class="nc" id="L706">                    .max(3, (int) (((float) max_nbr_rows / messages</span>
+<span class="nc" id="L707">                            .size()) * getMaxScrollbarHeight()));</span>
+<span class="nc" id="L708">            scrollBarStep = ((getMaxScrollbarHeight() - scrollBarHeight) / (float) (messages</span>
+<span class="nc" id="L709">                    .size() - max_nbr_rows));</span>
+        }
+<span class="nc" id="L711">        computeScrollBarOffset();</span>
+<span class="nc" id="L712">    }</span>
+
+    //
+    // KeyListener
+    //
+    public void keyPressed(KeyEvent ke) {
+
+<span class="nc bnc" id="L719" title="All 2 branches missed.">        if (!bv.getChatterBoxActive()){</span>
+<span class="nc" id="L720">            return;</span>
+        }
+        
+<span class="nc bnc" id="L723" title="All 4 branches missed.">        if (ke.isControlDown() &amp;&amp; (ke.getKeyCode() == KeyEvent.VK_V)) {</span>
+<span class="nc" id="L724">            Transferable content = Toolkit.getDefaultToolkit().</span>
+<span class="nc" id="L725">                    getSystemClipboard().getContents(null);</span>
+<span class="nc bnc" id="L726" title="All 2 branches missed.">            boolean hasTransferableText = (content != null) &amp;&amp; </span>
+<span class="nc bnc" id="L727" title="All 2 branches missed.">                    content.isDataFlavorSupported(DataFlavor.stringFlavor);</span>
+<span class="nc bnc" id="L728" title="All 2 branches missed.">            if (hasTransferableText) {</span>
+                try {
+<span class="nc" id="L730">                    addChatMessage((String)content.getTransferData(</span>
+                            DataFlavor.stringFlavor));
+                  }
+<span class="nc" id="L733">                  catch (UnsupportedFlavorException ex){</span>
+                    //highly unlikely since we are using a standard DataFlavor
+<span class="nc" id="L735">                    System.out.println(ex);</span>
+<span class="nc" id="L736">                    ex.printStackTrace();</span>
+                  }
+<span class="nc" id="L738">                  catch (IOException ex) {</span>
+<span class="nc" id="L739">                      System.out.println(ex);</span>
+<span class="nc" id="L740">                      ex.printStackTrace();</span>
+<span class="nc" id="L741">                  }</span>
+            }            
+<span class="nc" id="L743">            return;</span>
+        }
+        
+<span class="nc bnc" id="L746" title="All 4 branches missed.">        if (ke.isAltDown() || ke.isControlDown()) {</span>
+<span class="nc" id="L747">            return;</span>
+        }
+
+<span class="nc" id="L750">        ke.consume();</span>
+<span class="nc bnc" id="L751" title="All 4 branches missed.">        switch (ke.getKeyCode()) {</span>
+            case KeyEvent.VK_UP:
+<span class="nc" id="L753">                cb.historyBookmark++;</span>
+<span class="nc" id="L754">                cb.fetchHistory();</span>
+<span class="nc" id="L755">                bv.repaint();</span>
+<span class="nc" id="L756">                return;</span>
+            case KeyEvent.VK_DOWN:
+<span class="nc" id="L758">                cb.historyBookmark--;</span>
+<span class="nc" id="L759">                cb.fetchHistory();</span>
+<span class="nc" id="L760">                bv.repaint();</span>
+<span class="nc" id="L761">                return;</span>
+            case KeyEvent.VK_ALT:
+            case KeyEvent.VK_SHIFT:
+            case KeyEvent.VK_TAB:
+            case KeyEvent.VK_CAPS_LOCK:
+            case KeyEvent.VK_CONTROL:
+            case KeyEvent.VK_RIGHT:
+            case KeyEvent.VK_LEFT:
+            case KeyEvent.VK_PAGE_UP:
+            case KeyEvent.VK_PAGE_DOWN:
+            case KeyEvent.VK_END:
+            case KeyEvent.VK_HOME:
+            case KeyEvent.VK_NUM_LOCK:
+            case KeyEvent.VK_SCROLL_LOCK:
+            case KeyEvent.VK_F1:
+            case KeyEvent.VK_F2:
+            case KeyEvent.VK_F3:
+            case KeyEvent.VK_F4:
+            case KeyEvent.VK_F5:
+            case KeyEvent.VK_F6:
+            case KeyEvent.VK_F7:
+            case KeyEvent.VK_F8:
+            case KeyEvent.VK_F9:
+            case KeyEvent.VK_F10:
+            case KeyEvent.VK_F11:
+            case KeyEvent.VK_F12:
+            case KeyEvent.VK_PRINTSCREEN:
+            case KeyEvent.VK_INSERT:
+            case KeyEvent.VK_DELETE:
+<span class="nc" id="L790">                return;</span>
+        }      
+        
+<span class="nc bnc" id="L793" title="All 6 branches missed.">        if ((isDown() || isSliding()) &amp;&amp; (ke.getKeyCode() != KeyEvent.VK_ENTER)</span>
+<span class="nc bnc" id="L794" title="All 2 branches missed.">                &amp;&amp; (ke.getKeyCode() != KeyEvent.VK_BACK_SPACE)</span>
+<span class="nc bnc" id="L795" title="All 2 branches missed.">                &amp;&amp; (ke.getKeyCode() != KeyEvent.VK_ESCAPE)) {</span>
+<span class="nc bnc" id="L796" title="All 2 branches missed.">            if (!slidingUp) {</span>
+<span class="nc" id="L797">                slideUp();</span>
+            }
+        }
+
+<span class="nc" id="L801">        setIdleTime(0, false);</span>
+<span class="nc bnc" id="L802" title="All 4 branches missed.">        switch (ke.getKeyCode()) {</span>
+            case KeyEvent.VK_ENTER:
+<span class="nc bnc" id="L804" title="All 4 branches missed.">                if ((message != null) &amp;&amp; (message.length() &gt; 0)) {</span>
+<span class="nc" id="L805">                    cb.history.addFirst(message);</span>
+<span class="nc" id="L806">                    cb.historyBookmark = -1;</span>
+
+<span class="nc bnc" id="L808" title="All 2 branches missed.">                    if (cb.history.size() &gt; ChatterBox.MAX_HISTORY) {</span>
+<span class="nc" id="L809">                        cb.history.removeLast();</span>
+                    }
+<span class="nc" id="L811">                    client.sendChat(message);</span>
+<span class="nc" id="L812">                    clearMessage();</span>
+<span class="nc" id="L813">                    cb.setMessage(&quot;&quot;);</span>
+                }
+<span class="nc" id="L815">                bv.setChatterBoxActive(false);</span>
+<span class="nc" id="L816">                break;</span>
+            case KeyEvent.VK_ESCAPE:
+<span class="nc" id="L818">                clearMessage();</span>
+<span class="nc" id="L819">                bv.setChatterBoxActive(false);</span>
+<span class="nc" id="L820">                slideDown();</span>
+<span class="nc" id="L821">                break;</span>
+            case KeyEvent.VK_BACK_SPACE:
+<span class="nc bnc" id="L823" title="All 4 branches missed.">                if ((message == null) || message.equals(&quot;&quot;)) {</span>
+<span class="nc" id="L824">                    return;</span>
+                }
+
+<span class="nc" id="L827">                message = message.substring(0, message.length() - 1);</span>
+<span class="nc" id="L828">                int i = 0;</span>
+<span class="nc bnc" id="L829" title="All 2 branches missed.">                if (fm.stringWidth(message) &gt; (width - 60)) {</span>
+<span class="nc" id="L830">                    boolean noFit = true;</span>
+<span class="nc bnc" id="L831" title="All 2 branches missed.">                    while (noFit) {</span>
+<span class="nc" id="L832">                        i++;</span>
+<span class="nc" id="L833">                        String s = message.substring(i);</span>
+<span class="nc bnc" id="L834" title="All 2 branches missed.">                        noFit = fm.stringWidth(s) &gt; (width - 60);</span>
+<span class="nc" id="L835">                    }</span>
+                }
+<span class="nc" id="L837">                visibleMessage = message.substring(i);</span>
+<span class="nc" id="L838">                cb.setMessage(message);</span>
+<span class="nc" id="L839">                break;</span>
+            default:
+<span class="nc bnc" id="L841" title="All 2 branches missed.">                if (message == null) {</span>
+<span class="nc" id="L842">                    message = &quot;&quot; + ke.getKeyChar();</span>
+                } else {
+<span class="nc" id="L844">                    message += ke.getKeyChar();</span>
+                }
+<span class="nc" id="L846">                cb.setMessage(message);</span>
+<span class="nc" id="L847">                i = 0;</span>
+<span class="nc bnc" id="L848" title="All 2 branches missed.">                if (fm.stringWidth(message) &gt; (width - 60)) {</span>
+<span class="nc" id="L849">                    boolean noFit = true;</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">                    while (noFit) {</span>
+<span class="nc" id="L851">                        i++;</span>
+<span class="nc" id="L852">                        String s = message.substring(i);</span>
+<span class="nc bnc" id="L853" title="All 2 branches missed.">                        noFit = fm.stringWidth(s) &gt; (width - 60);</span>
+<span class="nc" id="L854">                    }</span>
+                }
+<span class="nc" id="L856">                visibleMessage = message.substring(i);</span>
+        }
+<span class="nc" id="L858">        bv.refreshDisplayables();</span>
+<span class="nc" id="L859">    }</span>
+
+    public void keyReleased(KeyEvent ke) {
+<span class="nc" id="L862">    }</span>
+
+    public void keyTyped(KeyEvent ke) {
+<span class="nc" id="L865">    }</span>
+
+    public String getMessage() {
+<span class="nc" id="L868">        return message;</span>
+    }
+
+    public void setMessage(String message) {
+<span class="nc" id="L872">        this.message = message;</span>
+<span class="nc" id="L873">        int i = 0;</span>
+<span class="nc bnc" id="L874" title="All 2 branches missed.">        if (fm.stringWidth(message) &gt; 240) {</span>
+<span class="nc" id="L875">            boolean noFit = true;</span>
+<span class="nc bnc" id="L876" title="All 2 branches missed.">            while (noFit) {</span>
+<span class="nc" id="L877">                i++;</span>
+<span class="nc" id="L878">                String s = message.substring(i);</span>
+<span class="nc bnc" id="L879" title="All 2 branches missed.">                noFit = fm.stringWidth(s) &gt; 240;</span>
+<span class="nc" id="L880">            }</span>
+        }
+<span class="nc" id="L882">        visibleMessage = message.substring(i);</span>
+<span class="nc" id="L883">    }</span>
+
+    public void setChatterBox(ChatterBox cb) {
+<span class="nc" id="L886">        this.cb = cb;</span>
+<span class="nc" id="L887">    }</span>
+
+    private int getScrollbarOuterHeight() {
+<span class="nc" id="L890">        return height - 49;</span>
+    }
+
+    private int getMaxScrollbarHeight() {
+<span class="nc" id="L894">        return height - 54;</span>
+    }
+
+    private int getMaxSlideOffset() {
+<span class="nc" id="L898">        return height - 20;</span>
+    }
+    
+    public void clearMessage(){
+<span class="nc" id="L902">        message = &quot;&quot;;</span>
+<span class="nc" id="L903">        visibleMessage =&quot;&quot;;</span>
+<span class="nc" id="L904">    }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>

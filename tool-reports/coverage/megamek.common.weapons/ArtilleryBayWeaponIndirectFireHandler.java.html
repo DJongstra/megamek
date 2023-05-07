@@ -1,0 +1,635 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="nl"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ArtilleryBayWeaponIndirectFireHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">PlayerTest Coverage Results</a> &gt; <a href="index.source.html" class="el_package">megamek.common.weapons</a> &gt; <span class="el_source">ArtilleryBayWeaponIndirectFireHandler.java</span></div><h1>ArtilleryBayWeaponIndirectFireHandler.java</h1><pre class="source lang-java linenums">/**
+ * MegaMek - Copyright (C) 2005 Ben Mazur (bmazur@sev.org)
+ *
+ *  This program is free software; you can redistribute it and/or modify it
+ *  under the terms of the GNU General Public License as published by the Free
+ *  Software Foundation; either version 2 of the License, or (at your option)
+ *  any later version.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ *  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+ *  for more details.
+ */
+/*
+ * Created on Sep 24, 2004
+ *
+ */
+package megamek.common.weapons;
+
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Vector;
+
+import megamek.MegaMek;
+import megamek.common.AmmoType;
+import megamek.common.BattleArmor;
+import megamek.common.Compute;
+import megamek.common.Coords;
+import megamek.common.Entity;
+import megamek.common.EntitySelector;
+import megamek.common.IGame;
+import megamek.common.INarcPod;
+import megamek.common.Infantry;
+import megamek.common.LosEffects;
+import megamek.common.Minefield;
+import megamek.common.Mounted;
+import megamek.common.Report;
+import megamek.common.SpecialHexDisplay;
+import megamek.common.TargetRoll;
+import megamek.common.Targetable;
+import megamek.common.ToHitData;
+import megamek.common.VTOL;
+import megamek.common.actions.ArtilleryAttackAction;
+import megamek.common.actions.WeaponAttackAction;
+import megamek.common.options.OptionsConstants;
+import megamek.server.Server;
+
+/**
+ * @author Sebastian Brocks
+ */
+public class ArtilleryBayWeaponIndirectFireHandler extends AmmoBayWeaponHandler {
+
+    /**
+     *
+     */
+    private static final long serialVersionUID = -1277649123562229298L;
+<span class="nc" id="L59">    boolean handledAmmoAndReport = false;</span>
+
+
+    /**
+     * This consructor may only be used for deserialization.
+     */
+    protected ArtilleryBayWeaponIndirectFireHandler() {
+<span class="nc" id="L66">        super();</span>
+<span class="nc" id="L67">    }</span>
+    
+
+    /**
+     * @param t
+     * @param w
+     * @param g
+     */
+    public ArtilleryBayWeaponIndirectFireHandler(ToHitData t,
+            WeaponAttackAction w, IGame g, Server s) {
+<span class="nc" id="L77">        super(t, w, g, s);</span>
+<span class="nc" id="L78">    }</span>
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see megamek.common.weapons.AttackHandler#cares(int)
+     */
+    @Override
+    public boolean cares(IGame.Phase phase) {
+<span class="nc bnc" id="L87" title="All 4 branches missed.">        if ((phase == IGame.Phase.PHASE_OFFBOARD)</span>
+                || (phase == IGame.Phase.PHASE_TARGETING)) {
+<span class="nc" id="L89">            return true;</span>
+        }
+<span class="nc" id="L91">        return false;</span>
+    }
+        
+    @Override
+    protected void useAmmo() {
+<span class="nc" id="L96">        nweaponsHit = weapon.getBayWeapons().size();</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        for (int wId : weapon.getBayWeapons()) {</span>
+<span class="nc" id="L98">            Mounted bayW = ae.getEquipment(wId);</span>
+            // check the currently loaded ammo
+<span class="nc" id="L100">            Mounted bayWAmmo = bayW.getLinked();</span>
+
+<span class="nc bnc" id="L102" title="All 2 branches missed.">            if (bayWAmmo == null) {// Can't happen. w/o legal ammo, the weapon</span>
+                // *shouldn't* fire.
+<span class="nc" id="L104">                MegaMek.getLogger().debug(&quot;Handler can't find any ammo! Oh no!&quot;);</span>
+            }
+
+<span class="nc" id="L107">            int shots = bayW.getCurrentShots();</span>
+            //if this option is on, we may have odd amounts of ammo in multiple bins. Only fire rounds that we have.
+<span class="nc bnc" id="L109" title="All 2 branches missed.">            if (game.getOptions().booleanOption(OptionsConstants.ADVAERORULES_AERO_ARTILLERY_MUNITIONS)) {</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">                if (bayWAmmo.getUsableShotsLeft() &lt; 1) {</span>
+<span class="nc" id="L111">                    nweaponsHit--;                    </span>
+                } else {
+<span class="nc" id="L113">                    bayWAmmo.setShotsLeft(bayWAmmo.getBaseShotsLeft() - 1);</span>
+                }
+            } else {
+                //By default rules, we have just one ammo bin with at least 10 shots for each weapon in the bay,
+                //so we'll track ammo normally and need to resolve attacks for all bay weapons.
+<span class="nc bnc" id="L118" title="All 2 branches missed.">                for (int i = 0; i &lt; shots; i++) {</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">                    if (null == bayWAmmo</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">                            || bayWAmmo.getUsableShotsLeft() &lt; 1) {</span>
+                        // try loading something else
+<span class="nc" id="L122">                        ae.loadWeaponWithSameAmmo(bayW);</span>
+<span class="nc" id="L123">                        bayWAmmo = bayW.getLinked();</span>
+                    }
+<span class="nc bnc" id="L125" title="All 2 branches missed.">                    if (null != bayWAmmo) {</span>
+<span class="nc" id="L126">                        bayWAmmo.setShotsLeft(bayWAmmo.getBaseShotsLeft() - 1);</span>
+                    }
+                }
+            }
+<span class="nc" id="L130">        }</span>
+<span class="nc" id="L131">    }</span>
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see megamek.common.weapons.AttackHandler#handle(int, java.util.Vector)
+     */
+    @Override
+    public boolean handle(IGame.Phase phase, Vector&lt;Report&gt; vPhaseReport) {
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        if (!cares(phase)) {</span>
+<span class="nc" id="L141">            return true;</span>
+        }
+        String artyMsg;
+<span class="nc" id="L144">        ArtilleryAttackAction aaa = (ArtilleryAttackAction) waa;</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        if (phase == IGame.Phase.PHASE_TARGETING) {</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">            if (!handledAmmoAndReport) {</span>
+<span class="nc" id="L147">                addHeat();</span>
+                // Report the firing itself
+<span class="nc" id="L149">                Report r = new Report(3121);</span>
+<span class="nc" id="L150">                r.indent();</span>
+<span class="nc" id="L151">                r.newlines = 0;</span>
+<span class="nc" id="L152">                r.subject = subjectId;</span>
+<span class="nc" id="L153">                r.add(wtype.getName());</span>
+<span class="nc" id="L154">                r.add(aaa.getTurnsTilHit());</span>
+<span class="nc" id="L155">                vPhaseReport.addElement(r);</span>
+<span class="nc" id="L156">                Report.addNewline(vPhaseReport);</span>
+<span class="nc" id="L157">                handledAmmoAndReport = true;</span>
+
+<span class="nc" id="L159">                artyMsg = &quot;Artillery bay fire Incoming, landing on round &quot;</span>
+<span class="nc" id="L160">                        + (game.getRoundCount() + aaa.getTurnsTilHit())</span>
+                        + &quot;, fired by &quot;
+<span class="nc" id="L162">                        + game.getPlayer(aaa.getPlayerId()).getName();</span>
+<span class="nc" id="L163">                game.getBoard().addSpecialHexDisplay(</span>
+<span class="nc" id="L164">                        aaa.getTarget(game).getPosition(),</span>
+                        new SpecialHexDisplay(
+                                SpecialHexDisplay.Type.ARTILLERY_INCOMING, game
+<span class="nc" id="L167">                                        .getRoundCount() + aaa.getTurnsTilHit(),</span>
+<span class="nc" id="L168">                                game.getPlayer(aaa.getPlayerId()), artyMsg,</span>
+                                SpecialHexDisplay.SHD_OBSCURED_TEAM));
+            }
+            // if this is the last targeting phase before we hit,
+            // make it so the firing entity is announced in the
+            // off-board attack phase that follows.
+<span class="nc bnc" id="L174" title="All 2 branches missed.">            if (aaa.getTurnsTilHit() == 0) {</span>
+<span class="nc" id="L175">                setAnnouncedEntityFiring(false);</span>
+            }
+<span class="nc" id="L177">            return true;</span>
+        }
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        if (aaa.getTurnsTilHit() &gt; 0) {</span>
+<span class="nc" id="L180">            aaa.decrementTurnsTilHit();</span>
+<span class="nc" id="L181">            return true;</span>
+        }
+<span class="nc" id="L183">        final Vector&lt;Integer&gt; spottersBefore = aaa.getSpotterIds();</span>
+<span class="nc" id="L184">        Coords targetPos = target.getPosition();</span>
+<span class="nc" id="L185">        final int playerId = aaa.getPlayerId();</span>
+<span class="nc bnc" id="L186" title="All 4 branches missed.">        boolean isFlak = (target instanceof VTOL) || (target.isAero());</span>
+<span class="nc" id="L187">        boolean asfFlak = target.isAero();</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        boolean mineClear = target.getTargetType() == Targetable.TYPE_MINEFIELD_CLEAR;</span>
+<span class="nc" id="L189">        Entity bestSpotter = null;</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        if (ae == null) {</span>
+<span class="nc" id="L191">            System.err.println(&quot;Artillery Entity is null!&quot;);</span>
+<span class="nc" id="L192">            return true;</span>
+        }
+        
+<span class="nc" id="L195">        Mounted ammoUsed = ae.getEquipment(aaa.getAmmoId());</span>
+<span class="nc" id="L196">        final AmmoType atype = (AmmoType) ammoUsed.getType();</span>
+        
+        // Are there any valid spotters?
+<span class="nc bnc" id="L199" title="All 4 branches missed.">        if ((null != spottersBefore) &amp;&amp; !isFlak) {</span>
+            // fetch possible spotters now
+<span class="nc" id="L201">            Iterator&lt;Entity&gt; spottersAfter = game</span>
+<span class="nc" id="L202">                    .getSelectedEntities(new EntitySelector() {</span>
+<span class="nc" id="L203">                        public int player = playerId;</span>
+
+<span class="nc" id="L205">                        public Targetable targ = target;</span>
+
+                        public boolean accept(Entity entity) {
+<span class="nc" id="L208">                            Integer id = Integer.valueOf(entity.getId());</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">                            if ((player == entity.getOwnerId())</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">                                    &amp;&amp; spottersBefore.contains(id)</span>
+<span class="nc" id="L211">                                    &amp;&amp; !(LosEffects.calculateLos(game,</span>
+<span class="nc" id="L212">                                            entity.getId(), targ, true))</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">                                            .isBlocked()</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">                                    &amp;&amp; entity.isActive()</span>
+                                    // airborne aeros can't spot for arty
+<span class="nc bnc" id="L216" title="All 2 branches missed.">                                    &amp;&amp; !(entity.isAero() &amp;&amp; entity</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">                                            .isAirborne())</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">                                    &amp;&amp; !entity.isINarcedWith(INarcPod.HAYWIRE)) {</span>
+<span class="nc" id="L219">                                return true;</span>
+                            }
+<span class="nc" id="L221">                            return false;</span>
+                        }
+                    });
+
+            // Out of any valid spotters, pick the best.
+<span class="nc bnc" id="L226" title="All 2 branches missed.">            while (spottersAfter.hasNext()) {</span>
+<span class="nc" id="L227">                Entity ent = spottersAfter.next();</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">                if (bestSpotter == null) {</span>
+<span class="nc" id="L229">                    bestSpotter = ent;</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">                } else if (ent.hasAbility(OptionsConstants.MISC_FORWARD_OBSERVER)</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">                        &amp;&amp; !bestSpotter.hasAbility(OptionsConstants.MISC_FORWARD_OBSERVER)) {</span>
+<span class="nc" id="L232">                    bestSpotter = ent;</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">                } else if (ent.getCrew().getGunnery() &lt; bestSpotter.getCrew().getGunnery()</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">                        &amp;&amp; !bestSpotter.hasAbility(OptionsConstants.MISC_FORWARD_OBSERVER)) {</span>
+<span class="nc" id="L235">                    bestSpotter = ent;</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">                } else if (bestSpotter.hasAbility(OptionsConstants.MISC_FORWARD_OBSERVER)</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">                        &amp;&amp; ent.hasAbility(OptionsConstants.MISC_FORWARD_OBSERVER)) {</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">                    if (ent.getCrew().getGunnery() &lt; bestSpotter.getCrew().getGunnery()) {</span>
+<span class="nc" id="L239">                        bestSpotter = ent;</span>
+                    }
+                }
+<span class="nc" id="L242">            }</span>
+
+        } // End have-valid-spotters
+
+        // If at least one valid spotter, then get the benefits thereof.
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        if (null != bestSpotter) {</span>
+<span class="nc" id="L248">            int foMod = 0;</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">            if (bestSpotter.hasAbility(OptionsConstants.MISC_FORWARD_OBSERVER)) {</span>
+<span class="nc" id="L250">                foMod = -1;</span>
+            }
+<span class="nc" id="L252">            int mod = (bestSpotter.getCrew().getGunnery() - 4) / 2;</span>
+<span class="nc" id="L253">            mod += foMod;</span>
+<span class="nc" id="L254">            toHit.addModifier(mod, &quot;Spotting modifier&quot;);</span>
+        }
+
+        // Is the attacker still alive and we're not shooting FLAK?
+        // then adjust the target
+<span class="nc bnc" id="L259" title="All 4 branches missed.">        if ((null != ae) &amp;&amp; !isFlak) {</span>
+
+            // If the shot hit the target hex, then all subsequent
+            // fire will hit the hex automatically.
+<span class="nc bnc" id="L263" title="All 2 branches missed.">            if (roll &gt;= toHit.getValue()) {</span>
+<span class="nc" id="L264">                ae.aTracker</span>
+<span class="nc" id="L265">                        .setModifier(TargetRoll.AUTOMATIC_SUCCESS, targetPos);</span>
+            }
+            // If the shot missed, but was adjusted by a
+            // spotter, future shots are more likely to hit.
+
+            // Note: Because artillery fire is adjusted on a per-unit basis,
+            // this
+            // can result in a unit firing multiple artillery weapons at the
+            // same
+            // hex getting this bonus more than once per turn. Since the
+            // Artillery
+            // Modifiers Table on TacOps p. 180 lists a -1 per shot (not salvo!)
+            // previously fired at the target hex, this would in fact appear to
+            // be
+            // correct.
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            else if (null != bestSpotter) {</span>
+                // only add mods if it's not an automatic success
+<span class="nc bnc" id="L282" title="All 2 branches missed.">                if (ae.aTracker.getModifier(weapon, targetPos) != TargetRoll.AUTOMATIC_SUCCESS) {</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">                    if (bestSpotter.hasAbility(OptionsConstants.MISC_FORWARD_OBSERVER)) {</span>
+<span class="nc" id="L284">                        ae.aTracker.setSpotterHasForwardObs(true);</span>
+                    }
+<span class="nc" id="L286">                    ae.aTracker.setModifier(ae.aTracker.getModifier(weapon, targetPos) - 1, targetPos);</span>
+                }
+
+            }
+
+        } // End artyAttacker-alive
+
+        // Report weapon attack and its to-hit value.
+<span class="nc" id="L294">        Report r = new Report(3120);</span>
+<span class="nc" id="L295">        r.indent();</span>
+<span class="nc" id="L296">        r.newlines = 0;</span>
+<span class="nc" id="L297">        r.subject = subjectId;</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">        if (wtype != null) {</span>
+<span class="nc" id="L299">            r.add(wtype.getName());</span>
+        } else {
+<span class="nc" id="L301">            r.add(&quot;Error: From Nowhwere&quot;);</span>
+        }
+
+<span class="nc" id="L304">        r.add(target.getDisplayName(), true);</span>
+<span class="nc" id="L305">        vPhaseReport.addElement(r);</span>
+<span class="nc bnc" id="L306" title="All 2 branches missed.">        if (toHit.getValue() == TargetRoll.IMPOSSIBLE) {</span>
+<span class="nc" id="L307">            r = new Report(3135);</span>
+<span class="nc" id="L308">            r.subject = subjectId;</span>
+<span class="nc" id="L309">            r.add(toHit.getDesc());</span>
+<span class="nc" id="L310">            vPhaseReport.addElement(r);</span>
+<span class="nc" id="L311">            return false;</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">        } else if (toHit.getValue() == TargetRoll.AUTOMATIC_FAIL) {</span>
+<span class="nc" id="L313">            r = new Report(3140);</span>
+<span class="nc" id="L314">            r.newlines = 0;</span>
+<span class="nc" id="L315">            r.subject = subjectId;</span>
+<span class="nc" id="L316">            r.add(toHit.getDesc());</span>
+<span class="nc" id="L317">            vPhaseReport.addElement(r);</span>
+<span class="nc bnc" id="L318" title="All 2 branches missed.">        } else if (toHit.getValue() == TargetRoll.AUTOMATIC_SUCCESS) {</span>
+<span class="nc" id="L319">            r = new Report(3145);</span>
+<span class="nc" id="L320">            r.newlines = 0;</span>
+<span class="nc" id="L321">            r.subject = subjectId;</span>
+<span class="nc" id="L322">            r.add(toHit.getDesc());</span>
+<span class="nc" id="L323">            vPhaseReport.addElement(r);</span>
+        } else {
+            // roll to hit
+<span class="nc" id="L326">            r = new Report(3150);</span>
+<span class="nc" id="L327">            r.newlines = 0;</span>
+<span class="nc" id="L328">            r.subject = subjectId;</span>
+<span class="nc" id="L329">            r.add(toHit.getValue());</span>
+<span class="nc" id="L330">            vPhaseReport.addElement(r);</span>
+        }
+
+        // dice have been rolled, thanks
+<span class="nc" id="L334">        r = new Report(3155);</span>
+<span class="nc" id="L335">        r.newlines = 0;</span>
+<span class="nc" id="L336">        r.subject = subjectId;</span>
+<span class="nc" id="L337">        r.add(roll);</span>
+<span class="nc" id="L338">        vPhaseReport.addElement(r);</span>
+
+        // do we hit?
+<span class="nc bnc" id="L341" title="All 2 branches missed.">        bMissed = roll &lt; toHit.getValue();</span>
+        // Set Margin of Success/Failure.
+<span class="nc" id="L343">        toHit.setMoS(roll - Math.max(2, toHit.getValue()));</span>
+
+        // Do this stuff first, because some weapon's miss report reference the
+        // amount of shots fired and stuff.
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        if (!handledAmmoAndReport) {</span>
+<span class="nc" id="L348">            addHeat();</span>
+        }
+        
+        //In the case of misses, we'll need to hit multiple hexes
+<span class="nc" id="L352">        List&lt;Coords&gt; targets = new ArrayList&lt;Coords&gt;();</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">        if (!bMissed) {</span>
+<span class="nc" id="L354">            r = new Report(3199);</span>
+<span class="nc" id="L355">            r.subject = subjectId;</span>
+<span class="nc" id="L356">            r.add(nweaponsHit);</span>
+<span class="nc" id="L357">            r.add(targetPos.getBoardNum());</span>
+<span class="nc" id="L358">            r.add(atype.getShortName());</span>
+            // Mine clearance has its own report which will get added
+<span class="nc bnc" id="L360" title="All 2 branches missed.">            if (!mineClear) {</span>
+<span class="nc" id="L361">                vPhaseReport.addElement(r);</span>
+            }
+<span class="nc" id="L363">            artyMsg = &quot;Artillery hit here on round &quot; + game.getRoundCount() </span>
+<span class="nc" id="L364">                    + &quot;, fired by &quot; + game.getPlayer(aaa.getPlayerId()).getName()</span>
+                    + &quot; (this hex is now an auto-hit)&quot;;
+<span class="nc" id="L366">            game.getBoard().addSpecialHexDisplay(</span>
+                    targetPos,
+                    new SpecialHexDisplay(SpecialHexDisplay.Type.ARTILLERY_HIT,
+<span class="nc" id="L369">                            game.getRoundCount(), game.getPlayer(aaa</span>
+<span class="nc" id="L370">                                    .getPlayerId()), artyMsg));</span>
+        } else {
+<span class="nc" id="L372">            Coords origPos = targetPos;</span>
+<span class="nc" id="L373">            int moF = toHit.getMoS();</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">            if (ae.hasAbility(OptionsConstants.GUNNERY_OBLIQUE_ARTILLERY)) {</span>
+                // getMoS returns a negative MoF
+                // simple math is better so lets make it positive
+<span class="nc bnc" id="L377" title="All 2 branches missed.">                if ((-moF - 2) &lt; 1) {</span>
+<span class="nc" id="L378">                    moF = 0;</span>
+                } else {
+<span class="nc" id="L380">                    moF = moF + 2;</span>
+                }
+            }
+            //We're only going to display one missed shot hex on the board, at the intended target
+<span class="nc" id="L384">            artyMsg = &quot;Artillery missed here on round &quot;</span>
+<span class="nc" id="L385">                    + game.getRoundCount() + &quot;, fired by &quot;</span>
+<span class="nc" id="L386">                    + game.getPlayer(aaa.getPlayerId()).getName();</span>
+<span class="nc" id="L387">            game.getBoard().addSpecialHexDisplay(</span>
+                    origPos,
+                    new SpecialHexDisplay(
+                            SpecialHexDisplay.Type.ARTILLERY_HIT, game
+<span class="nc" id="L391">                                    .getRoundCount(), game</span>
+<span class="nc" id="L392">                                    .getPlayer(aaa.getPlayerId()),</span>
+                                    artyMsg));
+<span class="nc bnc" id="L394" title="All 2 branches missed.">            while (nweaponsHit &gt; 0) {</span>
+                //We'll generate a new report and scatter for each weapon fired
+<span class="nc" id="L396">                targetPos = Compute.scatterDirectArty(targetPos, moF);</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">                if (game.getBoard().contains(targetPos)) {</span>
+<span class="nc" id="L398">                    targets.add(targetPos);</span>
+                    // misses and scatters to another hex
+<span class="nc bnc" id="L400" title="All 2 branches missed.">                    if (!isFlak) {</span>
+<span class="nc" id="L401">                        r = new Report(3202);</span>
+<span class="nc" id="L402">                        r.subject = subjectId;</span>
+<span class="nc" id="L403">                        r.newlines = 1;</span>
+<span class="nc" id="L404">                        r.add(atype.getShortName());</span>
+<span class="nc" id="L405">                        r.add(targetPos.getBoardNum());</span>
+<span class="nc" id="L406">                        vPhaseReport.addElement(r);</span>
+                    } else {
+<span class="nc" id="L408">                        r = new Report(3192);</span>
+<span class="nc" id="L409">                        r.subject = subjectId;</span>
+<span class="nc" id="L410">                        r.newlines = 1;</span>
+<span class="nc" id="L411">                        r.add(targetPos.getBoardNum());</span>
+<span class="nc" id="L412">                        vPhaseReport.addElement(r);</span>
+                    }
+                } else {
+                    // misses and scatters off-board
+<span class="nc" id="L416">                    r = new Report(3200);</span>
+<span class="nc" id="L417">                    r.subject = subjectId;</span>
+<span class="nc" id="L418">                    r.newlines = 1;</span>
+<span class="nc" id="L419">                    vPhaseReport.addElement(r);</span>
+                }
+<span class="nc" id="L421">            nweaponsHit--;</span>
+            }
+            //If we managed to land everything off the board, stop
+<span class="nc bnc" id="L424" title="All 2 branches missed.">            if (targets.isEmpty()) {</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">                return !bMissed;</span>
+            }
+        }
+<span class="nc bnc" id="L428" title="All 2 branches missed.">        if (atype.getMunitionType() == AmmoType.M_FLARE) {</span>
+            int radius;
+<span class="nc bnc" id="L430" title="All 2 branches missed.">            if (atype.getAmmoType() == AmmoType.T_ARROW_IV) {</span>
+<span class="nc" id="L431">                radius = 4;</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">            } else if (atype.getAmmoType() == AmmoType.T_LONG_TOM) {</span>
+<span class="nc" id="L433">                radius = 3;</span>
+<span class="nc bnc" id="L434" title="All 2 branches missed.">            } else if (atype.getAmmoType() == AmmoType.T_SNIPER) {</span>
+<span class="nc" id="L435">                radius = 2;</span>
+            } else {
+<span class="nc" id="L437">                radius = 1;</span>
+            }
+<span class="nc bnc" id="L439" title="All 2 branches missed.">            if (!bMissed) {</span>
+                //If we hit, only one effect will stack in the target hex
+<span class="nc" id="L441">                server.deliverArtilleryFlare(targetPos, radius);</span>
+            } else {
+                //Deliver a round to each target hex
+<span class="nc bnc" id="L444" title="All 2 branches missed.">                for (Coords c : targets) {</span>
+<span class="nc" id="L445">                    server.deliverArtilleryFlare(c, radius);</span>
+<span class="nc" id="L446">                }</span>
+            }
+<span class="nc" id="L448">            return false;</span>
+        }
+<span class="nc bnc" id="L450" title="All 2 branches missed.">        if (atype.getMunitionType() == AmmoType.M_DAVY_CROCKETT_M) {</span>
+            // The appropriate term here is &quot;Bwahahahahaha...&quot;
+<span class="nc bnc" id="L452" title="All 2 branches missed.">            if (!bMissed) {</span>
+                //Keep blasting the target hex with each weapon in the bay that fired
+<span class="nc bnc" id="L454" title="All 2 branches missed.">                while (nweaponsHit &gt; 0) {</span>
+<span class="nc" id="L455">                    server.doNuclearExplosion(targetPos, 1, vPhaseReport);</span>
+<span class="nc" id="L456">                    nweaponsHit--;</span>
+                }
+            } else {
+                //Deliver a round to each target hex
+<span class="nc bnc" id="L460" title="All 2 branches missed.">                for (Coords c : targets) {</span>
+<span class="nc" id="L461">                    server.doNuclearExplosion(c, 1, vPhaseReport);</span>
+<span class="nc" id="L462">                }</span>
+            }
+<span class="nc" id="L464">            return false;</span>
+        }
+<span class="nc bnc" id="L466" title="All 2 branches missed.">        if (atype.getMunitionType() == AmmoType.M_FASCAM) {</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">            if (!bMissed) {</span>
+                //If we hit, only one effect will stack in the target hex
+<span class="nc" id="L469">                server.deliverFASCAMMinefield(targetPos, ae.getOwner().getId(),</span>
+<span class="nc" id="L470">                        atype.getRackSize(), ae.getId());</span>
+            } else {
+                //Deliver a round to each target hex
+<span class="nc bnc" id="L473" title="All 2 branches missed.">                for (Coords c : targets) {</span>
+<span class="nc" id="L474">                    server.deliverFASCAMMinefield(c, ae.getOwner().getId(),</span>
+<span class="nc" id="L475">                            atype.getRackSize(), ae.getId());</span>
+<span class="nc" id="L476">                }</span>
+            }
+<span class="nc" id="L478">            return false;</span>
+        }
+<span class="nc bnc" id="L480" title="All 2 branches missed.">        if (atype.getMunitionType() == AmmoType.M_INFERNO_IV) {</span>
+<span class="nc bnc" id="L481" title="All 2 branches missed.">            if (!bMissed) {</span>
+                //If we hit, only one effect will stack in the target hex
+<span class="nc" id="L483">                server.deliverArtilleryInferno(targetPos, ae, subjectId,</span>
+                        vPhaseReport);
+            } else {
+                //Deliver a round to each target hex
+<span class="nc bnc" id="L487" title="All 2 branches missed.">                for (Coords c : targets) {</span>
+<span class="nc" id="L488">                    server.deliverArtilleryInferno(c, ae, subjectId,</span>
+                            vPhaseReport);
+<span class="nc" id="L490">                }</span>
+            }
+<span class="nc" id="L492">            return false;</span>
+        }
+<span class="nc bnc" id="L494" title="All 2 branches missed.">        if (atype.getMunitionType() == AmmoType.M_VIBRABOMB_IV) {</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">            if (!bMissed) {</span>
+                //If we hit, only one effect will stack in the target hex
+<span class="nc" id="L497">                server.deliverThunderVibraMinefield(targetPos, ae.getOwner()</span>
+<span class="nc" id="L498">                        .getId(), atype.getRackSize(), waa.getOtherAttackInfo(), ae</span>
+<span class="nc" id="L499">                        .getId());</span>
+            } else {
+                //Deliver a round to each target hex
+<span class="nc bnc" id="L502" title="All 2 branches missed.">                for (Coords c : targets) {</span>
+<span class="nc" id="L503">                    server.deliverThunderVibraMinefield(c, ae.getOwner()</span>
+<span class="nc" id="L504">                            .getId(), atype.getRackSize(), waa.getOtherAttackInfo(), ae</span>
+<span class="nc" id="L505">                            .getId());</span>
+<span class="nc" id="L506">                }</span>
+            }
+<span class="nc" id="L508">            return false;</span>
+        }
+<span class="nc bnc" id="L510" title="All 2 branches missed.">        if (atype.getMunitionType() == AmmoType.M_SMOKE) {</span>
+<span class="nc bnc" id="L511" title="All 2 branches missed.">            if (!bMissed) {</span>
+                //If we hit, only one effect will stack in the target hex
+<span class="nc" id="L513">                server.deliverArtillerySmoke(targetPos, vPhaseReport);</span>
+            } else {
+                //Deliver a round to each target hex
+<span class="nc bnc" id="L516" title="All 2 branches missed.">                for (Coords c : targets) {</span>
+<span class="nc" id="L517">                    server.deliverArtillerySmoke(c, vPhaseReport);</span>
+<span class="nc" id="L518">                }</span>
+            }
+<span class="nc" id="L520">            return false;</span>
+        }
+<span class="nc bnc" id="L522" title="All 2 branches missed.">        if (atype.getMunitionType() == AmmoType.M_LASER_INHIB) {</span>
+<span class="nc bnc" id="L523" title="All 2 branches missed.">            if (!bMissed) {</span>
+                //If we hit, only one effect will stack in the target hex
+<span class="nc" id="L525">                server.deliverLIsmoke(targetPos, vPhaseReport);</span>
+            } else {
+                //Deliver a round to each target hex
+<span class="nc bnc" id="L528" title="All 2 branches missed.">                for (Coords c : targets) {</span>
+<span class="nc" id="L529">                    server.deliverLIsmoke(c, vPhaseReport);</span>
+<span class="nc" id="L530">                }</span>
+            }
+<span class="nc" id="L532">            return false;</span>
+        }
+<span class="nc" id="L534">        int altitude = 0;</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">        if (isFlak) {</span>
+<span class="nc" id="L536">            altitude = target.getElevation();</span>
+        }
+
+        // check to see if this is a mine clearing attack
+        // According to the RAW you have to hit the right hex to hit even if the
+        // scatter hex has minefields
+        
+<span class="nc bnc" id="L543" title="All 8 branches missed.">        if (mineClear &amp;&amp; game.containsMinefield(targetPos) &amp;&amp; !isFlak</span>
+                &amp;&amp; !bMissed) {
+<span class="nc" id="L545">            r = new Report(3255);</span>
+<span class="nc" id="L546">            r.indent(1);</span>
+<span class="nc" id="L547">            r.subject = subjectId;</span>
+<span class="nc" id="L548">            vPhaseReport.addElement(r);</span>
+
+<span class="nc" id="L550">            Enumeration&lt;Minefield&gt; minefields = game.getMinefields(targetPos)</span>
+<span class="nc" id="L551">                    .elements();</span>
+<span class="nc" id="L552">            ArrayList&lt;Minefield&gt; mfRemoved = new ArrayList&lt;Minefield&gt;();</span>
+<span class="nc bnc" id="L553" title="All 2 branches missed.">            while (minefields.hasMoreElements()) {</span>
+<span class="nc" id="L554">                Minefield mf = minefields.nextElement();</span>
+<span class="nc bnc" id="L555" title="All 2 branches missed.">                if (server.clearMinefield(mf, ae,</span>
+                        Minefield.CLEAR_NUMBER_WEAPON, vPhaseReport)) {
+<span class="nc" id="L557">                    mfRemoved.add(mf);</span>
+                }
+<span class="nc" id="L559">            }</span>
+            // we have to do it this way to avoid a concurrent error problem
+<span class="nc bnc" id="L561" title="All 2 branches missed.">            for (Minefield mf : mfRemoved) {</span>
+<span class="nc" id="L562">                server.removeMinefield(mf);</span>
+<span class="nc" id="L563">            }</span>
+        }
+<span class="nc bnc" id="L565" title="All 2 branches missed.">        if (!bMissed) {</span>
+            // artillery may unintentionally clear minefields, but only if it wasn't
+            // trying to. For a hit on the target, just do this once.
+<span class="nc bnc" id="L568" title="All 4 branches missed.">            if (!mineClear &amp;&amp; game.containsMinefield(targetPos)) {</span>
+<span class="nc" id="L569">                Enumeration&lt;Minefield&gt; minefields = game.getMinefields(targetPos)</span>
+<span class="nc" id="L570">                        .elements();</span>
+<span class="nc" id="L571">                ArrayList&lt;Minefield&gt; mfRemoved = new ArrayList&lt;Minefield&gt;();</span>
+<span class="nc bnc" id="L572" title="All 2 branches missed.">                while (minefields.hasMoreElements()) {</span>
+<span class="nc" id="L573">                    Minefield mf = minefields.nextElement();</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">                    if (server.clearMinefield(mf, ae, 10, vPhaseReport)) {</span>
+<span class="nc" id="L575">                        mfRemoved.add(mf);</span>
+                    }
+<span class="nc" id="L577">                }</span>
+                // we have to do it this way to avoid a concurrent error problem
+<span class="nc bnc" id="L579" title="All 2 branches missed.">                for (Minefield mf : mfRemoved) {</span>
+<span class="nc" id="L580">                    server.removeMinefield(mf);</span>
+<span class="nc" id="L581">                }</span>
+            }
+            //Here we're doing damage for each hit with more standard artillery shells
+<span class="nc bnc" id="L584" title="All 2 branches missed.">            while (nweaponsHit &gt; 0) {</span>
+<span class="nc" id="L585">                server.artilleryDamageArea(targetPos, aaa.getCoords(), atype,</span>
+                        subjectId, ae, isFlak, altitude, mineClear, vPhaseReport,
+                        asfFlak, -1);
+<span class="nc" id="L588">                nweaponsHit--;</span>
+            }
+        } else {
+            //Now if we missed, resolve a strike on each scatter hex
+<span class="nc bnc" id="L592" title="All 2 branches missed.">            for (Coords c : targets) {</span>
+                //Accidental mine clearance...
+<span class="nc bnc" id="L594" title="All 4 branches missed.">                if (!mineClear &amp;&amp; game.containsMinefield(c)) {</span>
+<span class="nc" id="L595">                    Enumeration&lt;Minefield&gt; minefields = game.getMinefields(c)</span>
+<span class="nc" id="L596">                            .elements();</span>
+<span class="nc" id="L597">                    ArrayList&lt;Minefield&gt; mfRemoved = new ArrayList&lt;Minefield&gt;();</span>
+<span class="nc bnc" id="L598" title="All 2 branches missed.">                    while (minefields.hasMoreElements()) {</span>
+<span class="nc" id="L599">                        Minefield mf = minefields.nextElement();</span>
+<span class="nc bnc" id="L600" title="All 2 branches missed.">                        if (server.clearMinefield(mf, ae, 10, vPhaseReport)) {</span>
+<span class="nc" id="L601">                            mfRemoved.add(mf);</span>
+                        }
+<span class="nc" id="L603">                    }</span>
+<span class="nc bnc" id="L604" title="All 2 branches missed.">                    for (Minefield mf : mfRemoved) {</span>
+<span class="nc" id="L605">                        server.removeMinefield(mf);</span>
+<span class="nc" id="L606">                    }</span>
+                }
+<span class="nc" id="L608">                server.artilleryDamageArea(c, aaa.getCoords(), atype,</span>
+                        subjectId, ae, isFlak, altitude, mineClear, vPhaseReport,
+                        asfFlak, -1);
+<span class="nc" id="L611">            }</span>
+            
+        }
+<span class="nc" id="L614">        return false;</span>
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see megamek.common.weapons.WeaponHandler#calcDamagePerHit()
+     */
+    @Override
+    protected int calcDamagePerHit() {
+<span class="nc" id="L624">        double toReturn = wtype.getDamage();</span>
+        // area effect damage is double
+<span class="nc bnc" id="L626" title="All 4 branches missed.">        if ((target instanceof Infantry) &amp;&amp; !(target instanceof BattleArmor)) {</span>
+<span class="nc" id="L627">            toReturn /= 0.5;</span>
+        }
+
+<span class="nc" id="L630">        toReturn = applyGlancingBlowModifier(toReturn, false);</span>
+
+<span class="nc" id="L632">        return (int) Math.ceil(toReturn);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.8.202204050719</span></div></body></html>
