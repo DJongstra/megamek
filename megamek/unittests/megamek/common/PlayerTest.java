@@ -26,10 +26,12 @@ import megamek.common.event.GamePlayerChangeEvent;
 import megamek.common.icons.Camouflage;
 import megamek.common.options.GameOptions;
 
+import megamek.common.options.OptionsConstants;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+import org.mockito.Mock;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -40,16 +42,14 @@ import java.util.Vector;
 public class PlayerTest {
     private Player player;
     private Game game;
-    private Entity mockedTank;
-    private GameOptions mockedOptions;
-    private Crew mockedCrew;
-    private VTOL mockedVTOL;
-
+    private Dropship mockDropship;
 
     @Before
     public void setup(){
         game = Mockito.mock(Game.class);
         player = new Player(1, "test_player");
+        mockDropship = Mockito.mock(Dropship.class);
+        game.addEntity(mockDropship);
 
         player.setGame(game);
 
@@ -339,4 +339,148 @@ public class PlayerTest {
         player.removeArtyAutoHitHexes();
         TestCase.assertEquals(0, player.getArtyAutoHitHexes().size());
     }
+
+    @Test
+    public void testHasTag(){
+        Player player1 = new Player(1, "player1");
+        Game game = new Game();
+        Dropship dropship = new Dropship();
+
+        game.addPlayer(1, player1);
+        game.addEntity(dropship);
+        TestCase.assertFalse(player1.hasTAG());
+
+        dropship.setOwner(player1);
+        game.addEntity(dropship);
+        TestCase.assertFalse(player1.hasTAG());
+
+        Dropship mockShip = Mockito.mock(Dropship.class);
+        Mockito.when(mockShip.hasTAG()).thenReturn(true);
+        Mockito.when(mockShip.getOwner()).thenReturn(player1);
+        game.addEntity(mockShip);
+        TestCase.assertTrue(player1.hasTAG());
+
+        Player player2 = new Player(2, "player2");
+        game.addPlayer(2, player2);
+        TestCase.assertFalse(player2.hasTAG());
+    }
+
+    private void resetMockDropship() {
+        Mockito.when(mockDropship.getOwner()).thenReturn(null);
+    }
+
+    @Test
+    public void testGetBV() {
+        Game game1 = new Game();
+        Player player1 = new Player(1, "player1");
+        game1.addPlayer(1, player1);
+        Mockito.when(mockDropship.calculateBattleValue()).thenReturn(10);
+
+        TestCase.assertEquals(0, player1.getBV());
+
+        game1.addEntity(mockDropship);
+        TestCase.assertEquals(0, player1.getBV());
+        player1.setInitialBV();
+        TestCase.assertEquals(0, player1.getInitialBV());
+
+        Mockito.when(mockDropship.getOwner()).thenReturn(player1);
+        TestCase.assertEquals(10, player1.getBV());
+        player1.setInitialBV();
+        TestCase.assertEquals(10, player1.getInitialBV());
+
+        Mockito.when(mockDropship.isTrapped()).thenReturn(true);
+        TestCase.assertEquals(0, player1.getBV());
+
+        Mockito.when(mockDropship.isDestroyed()).thenReturn(true);
+        TestCase.assertEquals(0, player1.getBV());
+    }
+
+    @Test
+    public void testGetFledBV(){
+        Vector<Entity> fled = new Vector<>();
+        Mockito.when(mockDropship.calculateBattleValue()).thenReturn(10);
+        Mockito.when(game.getRetreatedEntities()).thenReturn(fled.elements());
+
+        TestCase.assertEquals(0, player.getFledBV());
+
+        fled.add(mockDropship);
+        Mockito.when(game.getRetreatedEntities()).thenReturn(fled.elements());
+        Mockito.when((mockDropship.getOwner())).thenReturn(player);
+        TestCase.assertEquals(10, player.getFledBV());
+
+        Mockito.when((mockDropship.getOwner())).thenReturn(null);
+        TestCase.assertEquals(0, player.getFledBV());
+    }
+
+    @Test
+    public void testSetInitialBV(){
+        TestCase.assertEquals(0, player.getInitialBV());
+
+        player.increaseInitialBV(2);
+        TestCase.assertEquals(2, player.getInitialBV());
+    }
+
+    @Test
+    public void testSetInitCompensationBonus(){
+        TestCase.assertEquals(0, player.getInitCompensationBonus());
+
+        player.setInitCompensationBonus(3);
+        TestCase.assertEquals(3, player.getInitCompensationBonus());
+    }
+
+    @Test
+    public void testSetConstantInitBonus(){
+        TestCase.assertEquals(0, player.getConstantInitBonus());
+
+        player.setConstantInitBonus(2);
+        TestCase.assertEquals(2, player.getConstantInitBonus());
+    }
+
+    @Test
+    public void testGetTurnInitBonus() {
+        // no game for player
+        Player player1 = new Player(2, "plauer1");
+        TestCase.assertEquals(0, player1.getTurnInitBonus());
+
+        // no entity vector for player's game
+        Mockito.when(game.getEntitiesVector()).thenReturn(null);
+        TestCase.assertEquals(0, player.getTurnInitBonus());
+
+        // entity not owned by player to calculate the bonus for
+        Vector<Entity> entities = new Vector<>();
+        Mockito.when(mockDropship.getOwner()).thenReturn(player1);
+        entities.add(mockDropship);
+        Mockito.when(game.getEntitiesVector()).thenReturn(entities);
+        TestCase.assertEquals(0, player.getTurnInitBonus());
+
+        // player's entity, but game option is false
+        Mockito.when(mockDropship.getOwner()).thenReturn(player);
+        GameOptions gameOptions = Mockito.mock(GameOptions.class);
+        Mockito.when(gameOptions.booleanOption(OptionsConstants.ADVANCED_TACOPS_MOBILE_HQS)).thenReturn(false);
+        Mockito.when(game.getOptions()).thenReturn(gameOptions);
+        TestCase.assertEquals(0, player.getTurnInitBonus());
+
+        // entity's HQ and Quirk bonus is 0
+        Mockito.when(gameOptions.booleanOption(OptionsConstants.ADVANCED_TACOPS_MOBILE_HQS)).thenReturn(true);
+        Mockito.when(game.getOptions()).thenReturn(gameOptions);
+        Mockito.when(mockDropship.getHQIniBonus()).thenReturn(0);
+        Mockito.when(mockDropship.getQuirkIniBonus()).thenReturn(0);
+        TestCase.assertEquals(0, player.getTurnInitBonus());
+
+        // non-zero HQ bonus
+        Mockito.when(mockDropship.getHQIniBonus()).thenReturn(1);
+        TestCase.assertEquals(1, player.getTurnInitBonus());
+
+        // non-zero Quirk bonus
+        Mockito.when(mockDropship.getQuirkIniBonus()).thenReturn(2);
+        TestCase.assertEquals(3, player.getTurnInitBonus());
+
+        // 2 entities
+        ArmlessMech mech = Mockito.mock(ArmlessMech.class);
+        Mockito.when(mech.getOwner()).thenReturn(player);
+        Mockito.when(mech.getHQIniBonus()).thenReturn(6);
+        Mockito.when(mech.getQuirkIniBonus()).thenReturn(0);
+        TestCase.assertEquals(3, player.getTurnInitBonus());
+    }
+
 }
