@@ -598,5 +598,4 @@ public class PlayerTest {
         TestCase.assertTrue(ids2.contains(4));
         TestCase.assertTrue(ids2.contains(3));
     }
-
 }
