@@ -176,6 +176,9 @@ public class PlayerTest {
 
         // hash code
         TestCase.assertEquals(1, player.hashCode());
+
+        // player string
+        TestCase.assertEquals("Player 1 (testPlayer)", player.toString());
     }
 
     @Test
@@ -439,7 +442,7 @@ public class PlayerTest {
     @Test
     public void testGetTurnInitBonus() {
         // no game for player
-        Player player1 = new Player(2, "plauer1");
+        Player player1 = new Player(2, "player1");
         TestCase.assertEquals(0, player1.getTurnInitBonus());
 
         // no entity vector for player's game
@@ -481,6 +484,119 @@ public class PlayerTest {
         Mockito.when(mech.getHQIniBonus()).thenReturn(6);
         Mockito.when(mech.getQuirkIniBonus()).thenReturn(0);
         TestCase.assertEquals(3, player.getTurnInitBonus());
+    }
+
+    @Test
+    public void testGetCommandBonus(){
+        GameOptions gameOptions = Mockito.mock(GameOptions.class);
+
+        // no game for player
+        Player player1 = new Player(2, "player1");
+        TestCase.assertEquals(0, player1.getCommandBonus());
+
+        // entity not owned by a player
+        Vector<Entity> entities = new Vector<>();
+        Mockito.when(mockDropship.getOwner()).thenReturn(null);
+        entities.add(mockDropship);
+        Mockito.when(game.getEntitiesVector()).thenReturn(entities);
+        TestCase.assertEquals(0, player.getCommandBonus());
+
+        // entity not owned by correct player
+        Mockito.when(mockDropship.getOwner()).thenReturn(player1);
+        entities.add(mockDropship);
+        TestCase.assertEquals(0, player.getCommandBonus());
+
+        // entity is destroyed
+        Mockito.when(mockDropship.getOwner()).thenReturn(player);
+        Mockito.when(mockDropship.isDestroyed()).thenReturn(true);
+        TestCase.assertEquals(0, player.getCommandBonus());
+
+        // entity not deployed
+        Mockito.when(mockDropship.isDestroyed()).thenReturn(false);
+        Mockito.when(mockDropship.isDeployed()).thenReturn(false);
+        TestCase.assertEquals(0, player.getCommandBonus());
+
+        // entity is off-board
+        Mockito.when(mockDropship.isDeployed()).thenReturn(true);
+        Mockito.when(mockDropship.isOffBoard()).thenReturn(true);
+        TestCase.assertEquals(0, player.getCommandBonus());
+
+        // entity does not have active crew
+        Mockito.when(mockDropship.isOffBoard()).thenReturn(false);
+        Crew crew = Mockito.mock(Crew.class);
+        Mockito.when(mockDropship.getCrew()).thenReturn(crew);
+        Mockito.when(crew.isActive()).thenReturn(false);
+        TestCase.assertEquals(0, player.getCommandBonus());
+
+        // entity is captured
+        Mockito.when(crew.isActive()).thenReturn(true);
+        Mockito.when(mockDropship.isCaptured()).thenReturn(true);
+        TestCase.assertEquals(0, player.getCommandBonus());
+
+        // game option not RPG, has command console bonus
+        Mockito.when(mockDropship.isCaptured()).thenReturn(false);
+        Mockito.when(game.getOptions()).thenReturn(gameOptions);
+        Mockito.when(gameOptions.booleanOption(OptionsConstants.RPG_COMMAND_INIT)).thenReturn(false);
+        Mockito.when(mockDropship.hasCommandConsoleBonus()).thenReturn(true);
+        TestCase.assertEquals(2, player.getCommandBonus());
+
+        // rpg option true
+        Mockito.when(gameOptions.booleanOption(OptionsConstants.RPG_COMMAND_INIT)).thenReturn(true);
+        Mockito.when(mockDropship.hasCommandConsoleBonus()).thenReturn(false);
+        Mockito.when(crew.hasActiveTechOfficer()).thenReturn(true);
+        Mockito.when(crew.getCommandBonus()).thenReturn(3);
+        TestCase.assertEquals(5, player.getCommandBonus());
+
+        // negative command bonus
+        Mockito.when(crew.hasActiveTechOfficer()).thenReturn(false);
+        Mockito.when(crew.getCommandBonus()).thenReturn(-1);
+        TestCase.assertEquals(0, player.getCommandBonus());
+
+        MechWarrior mechWarrior = Mockito.mock(MechWarrior.class);
+        entities.add(mechWarrior);
+        Mockito.when(mechWarrior.getOwner()).thenReturn(player);
+        Mockito.when(mechWarrior.isDestroyed()).thenReturn(false);
+        Mockito.when(mechWarrior.isDeployed()).thenReturn(true);
+        Mockito.when(mechWarrior.isOffBoard()).thenReturn(false);
+        Mockito.when(mechWarrior.getCrew()).thenReturn(crew);
+        Mockito.when(mechWarrior.isCaptured()).thenReturn(false);
+        TestCase.assertEquals(0, player.getCommandBonus());
+    }
+
+    @Test
+    public void testGetAirborneVTOL() {
+        Vector<Entity> entities = new Vector<>();
+        Mockito.when(mockDropship.getOwner()).thenReturn(player);
+        Mockito.when(mockDropship.getId()).thenReturn(3);
+        entities.add(mockDropship);
+        Mockito.when(game.getEntitiesVector()).thenReturn(entities);
+        TestCase.assertEquals(0, player.getAirborneVTOL().size());
+
+        VTOL vtol = Mockito.mock(VTOL.class);
+        Mockito.when(vtol.getOwner()).thenReturn(player);
+        Mockito.when(vtol.getId()).thenReturn(4);
+        entities.add(vtol);
+        Mockito.when(vtol.isDestroyed()).thenReturn(false);
+        Mockito.when(vtol.getElevation()).thenReturn(1);
+        Vector<Integer> ids1 = player.getAirborneVTOL();
+        TestCase.assertEquals(1, ids1.size());
+        TestCase.assertTrue(ids1.contains(4));
+
+        Mockito.when(vtol.isDestroyed()).thenReturn(true);
+        TestCase.assertEquals(0, player.getAirborneVTOL().size());
+
+        Mockito.when(vtol.isDestroyed()).thenReturn(false);
+        Mockito.when(vtol.getElevation()).thenReturn(0);
+        TestCase.assertEquals(0, player.getAirborneVTOL().size());
+
+        Mockito.when(vtol.getElevation()).thenReturn(1);
+        Mockito.when(mockDropship.getMovementMode()).thenReturn(EntityMovementMode.WIGE);
+        Mockito.when(mockDropship.isDestroyed()).thenReturn(false);
+        Mockito.when(mockDropship.getElevation()).thenReturn(1);
+        Vector<Integer> ids2 = player.getAirborneVTOL();
+        TestCase.assertEquals(2, ids2.size());
+        TestCase.assertTrue(ids2.contains(4));
+        TestCase.assertTrue(ids2.contains(3));
     }
 
 }
