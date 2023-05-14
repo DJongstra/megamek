@@ -487,7 +487,6 @@ public final class Player extends TurnOrdered implements IPlayer {
     @Override
     public int getTurnInitBonus() {
         int bonusHQ = 0;
-        int bonusMD = 0;
         int bonusQ = 0;
         if (game == null) {
             return 0;
@@ -501,14 +500,6 @@ public final class Player extends TurnOrdered implements IPlayer {
                     && (bonusHQ == 0) && (entity.getHQIniBonus() > 0)) {
                     bonusHQ = entity.getHQIniBonus();
                 }
-                
-				/*
-				 * REMOVED IN IO. 
-				 * if (game.getOptions().booleanOption(OptionsConstants.
-				 * RPG_MANEI_DOMINI) && (bonusMD == 0) &&
-				 * (entity.getMDIniBonus() > 0)) { bonusMD =
-				 * entity.getMDIniBonus(); }
-				 */
                 if (entity.getQuirkIniBonus() > bonusQ) {
                     //TODO: I am assuming that the quirk initiative bonuses go to the highest,
                     //rather than being cumulative
@@ -517,7 +508,7 @@ public final class Player extends TurnOrdered implements IPlayer {
                 }
             }
         }
-        return bonusHQ + bonusMD + bonusQ;
+        return bonusHQ + bonusQ;
     }
 
     /**
