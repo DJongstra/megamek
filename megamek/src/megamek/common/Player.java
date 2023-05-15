@@ -393,10 +393,7 @@ public final class Player extends TurnOrdered implements IPlayer {
                     private final int ownerId = getId();
 
                     public boolean accept(Entity entity) {
-                        if (entity.getOwner() == null) {
-                            return false;
-                        }
-                        if (ownerId == entity.getOwner().getId()) {
+                        if (entity.getOwner() != null && ownerId == entity.getOwner().getId()) {
                             return true;
                         }
                         return false;
@@ -561,13 +558,12 @@ public final class Player extends TurnOrdered implements IPlayer {
         //a vector of unit ids
         Vector<Integer> units = new Vector<Integer>();
         for (Entity entity : game.getEntitiesVector()) {
-            if (entity.getOwner().equals(this)) {
-                if (((entity instanceof VTOL)
-                     || (entity.getMovementMode() == EntityMovementMode.WIGE)) &&
-                    (!entity.isDestroyed()) &&
-                    (entity.getElevation() > 0)) {
+            if (entity.getOwner().equals(this) &&
+                (((entity instanceof VTOL) ||
+                (entity.getMovementMode() == EntityMovementMode.WIGE)) &&
+                (!entity.isDestroyed()) &&
+                (entity.getElevation() > 0))) {
                     units.add(entity.getId());
-                }
             }
         }
         return units;
