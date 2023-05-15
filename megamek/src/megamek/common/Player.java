@@ -556,7 +556,7 @@ public final class Player extends TurnOrdered implements IPlayer {
     public Vector<Integer> getAirborneVTOL() {
 
         //a vector of unit ids
-        Vector<Integer> units = new Vector<Integer>();
+        Vector<Integer> units = new Vector<>();
         for (Entity entity : game.getEntitiesVector()) {
             if (entity.getOwner().equals(this) &&
                 (((entity instanceof VTOL) ||
