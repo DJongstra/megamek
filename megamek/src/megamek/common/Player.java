@@ -77,6 +77,16 @@ public final class Player extends TurnOrdered implements IPlayer {
      */
     private boolean allowingTeamChange = false;
 
+    private int playerRating = 0;
+
+    public int getPlayerRating() {
+        return playerRating;
+    }
+
+    public void setPlayerRating(int rating) {
+        playerRating = rating;
+    }
+
     @Override
     public Vector<Minefield> getMinefields() {
         return visibleMinefields;

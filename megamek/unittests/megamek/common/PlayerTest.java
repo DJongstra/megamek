@@ -598,4 +598,11 @@ public class PlayerTest {
         TestCase.assertTrue(ids2.contains(4));
         TestCase.assertTrue(ids2.contains(3));
     }
+
+    @Test
+    public void testPlayerRating() {
+        TestCase.assertEquals(0, player.getPlayerRating());
+        player.setPlayerRating(100);
+        TestCase.assertEquals(100, player.getPlayerRating());
+    }
 }
