@@ -567,11 +567,11 @@ public final class Player extends TurnOrdered implements IPlayer {
         for (Entity entity : game.getEntitiesVector()) {
             boolean isAirborne = (((entity instanceof VTOL) ||
                     (entity.getMovementMode() == EntityMovementMode.WIGE)) &&
-                    (entity.getElevation() > 0));
+                    (entity.getElevation() > 0)) &&
+                    !entity.isDestroyed();
 
             if (entity.ownedByPlayer(this) &&
-                 isAirborne &&
-                (!entity.isDestroyed())) {
+                 isAirborne) {
                     units.add(entity.getId());
             }
         }
