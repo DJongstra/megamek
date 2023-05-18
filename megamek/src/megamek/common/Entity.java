@@ -16030,4 +16030,9 @@ public abstract class Entity extends TurnOrdered implements Transporter, Targeta
     public boolean isOffBoardObserved(int teamID) {
         return offBoardShotObservers.contains(teamID);
     }
+
+    public boolean ownedByPlayer(IPlayer player) {
+        return null != this.getOwner()
+            && this.getOwner().equals(player);
+    }
 }

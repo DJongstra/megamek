@@ -426,8 +426,10 @@ public final class Player extends TurnOrdered implements IPlayer {
         int bv = 0;
 
         for (Entity entity : game.getEntitiesVector()) {
-            if (equals(entity.getOwner()) && !entity.isDestroyed()
-                    && !entity.isTrapped()) {
+            boolean isMobile = !entity.isDestroyed()
+                    && !entity.isTrapped();
+
+            if (equals(entity.getOwner()) && isMobile) {
                 bv += entity.calculateBattleValue();
             }
         }
@@ -503,14 +505,10 @@ public final class Player extends TurnOrdered implements IPlayer {
         }
         for (Entity entity : game.getEntitiesVector()) {
             if (entity.getOwner().equals(this)) {
-                if (game.getOptions().booleanOption(OptionsConstants.ADVANCED_TACOPS_MOBILE_HQS)
-                    && (bonusHQ == 0) && (entity.getHQIniBonus() > 0)) {
-                    bonusHQ = entity.getHQIniBonus();
+                if (game.getOptions().booleanOption(OptionsConstants.ADVANCED_TACOPS_MOBILE_HQS)) {
+                    bonusHQ = Math.max(entity.getHQIniBonus(), 0);
                 }
-                if (entity.getQuirkIniBonus() > bonusQ) {
-                    // The quirk initiative bonuses go to the highest, rather than being cumulative
-                    bonusQ = entity.getQuirkIniBonus();
-                }
+                bonusQ = Math.max(entity.getQuirkIniBonus(), bonusQ);
             }
         }
         return bonusHQ + bonusQ;
@@ -529,13 +527,14 @@ public final class Player extends TurnOrdered implements IPlayer {
         }
         
         for (Entity entity : game.getEntitiesVector()) {
-            if ((null != entity.getOwner())
-                    && entity.getOwner().equals(this)
-                    && !entity.isDestroyed()
+            boolean isInGame = !entity.isDestroyed()
                     && entity.isDeployed()
                     && !entity.isOffBoard()
+                    && !entity.isCaptured();
+
+            if (entity.ownedByPlayer(this)
+                    && isInGame
                     && entity.getCrew().isActive()
-                    && !entity.isCaptured()
                     && !(entity instanceof MechWarrior)) {
                 int bonus = 0;
                 if (game.getOptions().booleanOption(OptionsConstants.RPG_COMMAND_INIT)) {
@@ -549,9 +548,7 @@ public final class Player extends TurnOrdered implements IPlayer {
                 }
                 //Once we've gotten the status of the command console (if any), reset the flag that tracks
                 //the previous turn's action.
-                if (bonus > commandb) {
-                    commandb = bonus;
-                }
+                commandb = Math.max(bonus, commandb);
             }
         }
         return commandb;
@@ -568,11 +565,13 @@ public final class Player extends TurnOrdered implements IPlayer {
         //a vector of unit ids
         Vector<Integer> units = new Vector<>();
         for (Entity entity : game.getEntitiesVector()) {
-            if (entity.getOwner().equals(this) &&
-                (((entity instanceof VTOL) ||
-                (entity.getMovementMode() == EntityMovementMode.WIGE)) &&
-                (!entity.isDestroyed()) &&
-                (entity.getElevation() > 0))) {
+            boolean isAirborne = (((entity instanceof VTOL) ||
+                    (entity.getMovementMode() == EntityMovementMode.WIGE)) &&
+                    (entity.getElevation() > 0));
+
+            if (entity.ownedByPlayer(this) &&
+                 isAirborne &&
+                (!entity.isDestroyed())) {
                     units.add(entity.getId());
             }
         }

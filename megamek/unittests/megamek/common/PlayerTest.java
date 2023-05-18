@@ -48,7 +48,7 @@ public class PlayerTest {
     public void setup(){
         game = Mockito.mock(Game.class);
         player = new Player(1, "test_player");
-        mockDropship = Mockito.mock(Dropship.class);
+        mockDropship = Mockito.spy(Dropship.class);
         game.addEntity(mockDropship);
 
         player.setGame(game);
@@ -572,7 +572,7 @@ public class PlayerTest {
         Mockito.when(game.getEntitiesVector()).thenReturn(entities);
         TestCase.assertEquals(0, player.getAirborneVTOL().size());
 
-        VTOL vtol = Mockito.mock(VTOL.class);
+        VTOL vtol = Mockito.spy(VTOL.class);
         Mockito.when(vtol.getOwner()).thenReturn(player);
         Mockito.when(vtol.getId()).thenReturn(4);
         entities.add(vtol);
