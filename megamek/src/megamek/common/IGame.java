@@ -174,6 +174,11 @@ public interface IGame {
     abstract void setVictoryContext(HashMap<String, Object> ctx);
 
     /**
+     * Calculates the updated rankings of the players in the game if it is a competitive game
+     */
+    abstract void calculateRankings();
+
+    /**
      * Adds the specified game listener to receive board events from this Game.
      *
      * @param listener the game listener.

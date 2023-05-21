@@ -174,6 +174,8 @@ public class Game implements Serializable, IGame {
     // smoke clouds
     private List<SmokeCloud> smokeCloudList = new CopyOnWriteArrayList<>();
 
+    private boolean isCompetitiveGame = true;
+
     transient private Vector<GameListener> gameListeners = new Vector<GameListener>();
 
     /**
@@ -538,7 +540,7 @@ public class Game implements Serializable, IGame {
     }
 
     /**
-     * Returns the number of non-destroyed entityes owned by the player
+     * Returns the number of non-destroyed entities owned by the player
      */
     public int getLiveEntitiesOwnedBy(IPlayer player) {
         int count = 0;
@@ -2768,6 +2770,26 @@ public class Game implements Serializable, IGame {
 
     public void clearAllReports() {
         gameReports.clear();
+    }
+
+    public boolean getIsCompetitiveGame() {
+        return isCompetitiveGame;
+    }
+
+    public void setIsCompetitiveGame(boolean competitive) {
+        isCompetitiveGame = competitive;
+    }
+
+    public void calculateRankings() {
+        if (isCompetitiveGame) {
+            calculatePlayerRatings();
+        }
+    }
+
+    public void calculatePlayerRatings() {
+        for (IPlayer player : getPlayersVector()) {
+            // TODO calculate new rating for player
+        }
     }
 
     public void end(int winner, int winnerTeam) {

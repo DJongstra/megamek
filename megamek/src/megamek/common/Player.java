@@ -87,6 +87,10 @@ public final class Player extends TurnOrdered implements IPlayer {
         playerRating = rating;
     }
 
+    public void updatePlayerRating() {
+        // TODO get rating from persistent storage, save playerRating
+    }
+
     @Override
     public Vector<Minefield> getMinefields() {
         return visibleMinefields;

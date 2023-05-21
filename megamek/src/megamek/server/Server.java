@@ -2515,6 +2515,8 @@ public class Server implements Runnable {
                     }
                 }
             }
+                game.calculateRankings();
+
                 send(createFullEntitiesPacket());
                 send(createReportPacket(null));
                 send(createEndOfGamePacket());
