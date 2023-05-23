@@ -176,7 +176,7 @@ public interface IGame {
     /**
      * Calculates the updated rankings of the players in the game if it is a competitive game
      */
-    abstract void calculateRankings();
+    abstract void calculateRatings();
 
     /**
      * Adds the specified game listener to receive board events from this Game.

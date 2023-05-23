@@ -32,6 +32,10 @@ public interface IPlayer extends ITurnOrdered {
     String[] teamNames = {"No Team", "Team 1", "Team 2", "Team 3", "Team 4", "Team 5"};
     int MAX_TEAMS = teamNames.length;
 
+    int getPlayerRating();
+
+    void setPlayerRating(int rating);
+
     Vector<Minefield> getMinefields();
 
     void addMinefield(Minefield mf);
