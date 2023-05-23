@@ -58,6 +58,7 @@ public class ServerTest {
             TestCase.assertEquals(380, packet.getCommand());
             TestCase.assertEquals(1, packet.getData()[1]);
             TestCase.assertEquals(3, packet.getData()[2]);
+            TestCase.assertEquals(3, packet.getData().length);
         } catch (Exception e) {
             e.printStackTrace();
         }
