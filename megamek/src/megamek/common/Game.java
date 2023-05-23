@@ -2780,8 +2780,8 @@ public class Game implements Serializable, IGame {
         isCompetitiveGame = competitive;
     }
 
-    public void calculateRankings() {
-        if (isCompetitiveGame) {
+    public void calculateRatings() {
+        if (getIsCompetitiveGame()) {
             calculatePlayerRatings();
         }
     }
@@ -2790,6 +2790,14 @@ public class Game implements Serializable, IGame {
         for (IPlayer player : getPlayersVector()) {
             // TODO calculate new rating for player
         }
+    }
+
+    public Map<Integer, Integer> getPlayerRatings() {
+        Map<Integer, Integer> playerIdsWithRatings = new HashMap<>();
+        for (IPlayer player : getPlayersVector()) {
+            playerIdsWithRatings.put(player.getId(), player.getPlayerRating());
+        }
+        return playerIdsWithRatings;
     }
 
     public void end(int winner, int winnerTeam) {
