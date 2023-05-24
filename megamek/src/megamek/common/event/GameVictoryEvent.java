@@ -27,7 +27,7 @@ import megamek.common.IGame;
  * is reset.  It can be used to retrieve information from the game before the
  * state is reset and the lounge phase begins.
  *
- * @see IGame#end(int, int)
+ * @see IGame#end(int, int, java.util.Map)
  * @see GameListener
  */
 public class GameVictoryEvent extends GameEvent {

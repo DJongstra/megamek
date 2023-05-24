@@ -19,7 +19,7 @@ import megamek.common.IGame;
 /**
  * Instances of this class are sent when the game finished
  * 
- * @see IGame#end(int, int)
+ * @see IGame#end(int, int, java.util.Map)
  * @see GameListener
  */
 public class GameEndEvent extends GameEvent {
