@@ -2786,7 +2786,7 @@ public class Game implements Serializable, IGame {
         }
     }
 
-    public void calculatePlayerRatings() {
+    private void calculatePlayerRatings() {
         for (IPlayer player : getPlayersVector()) {
             // TODO calculate new rating for player
         }
@@ -2800,9 +2800,17 @@ public class Game implements Serializable, IGame {
         return playerIdsWithRatings;
     }
 
-    public void end(int winner, int winnerTeam) {
+    private void setPlayerRatings(Map<Integer, Integer> ratings) {
+        for (IPlayer player : getPlayersVector()) {
+            if (ratings.containsKey(player.getId())) {
+                player.setPlayerRating(ratings.get(player.getId()));
+            }
+        }
+    }
+    public void end(int winner, int winnerTeam, Map<Integer, Integer> playerRatings) {
         setVictoryPlayerId(winner);
         setVictoryTeam(winnerTeam);
+        setPlayerRatings(playerRatings);
         processGameEvent(new GameEndEvent(this));
 
     }

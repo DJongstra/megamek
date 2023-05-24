@@ -30980,10 +30980,11 @@ public class Server implements Runnable {
      * Creates a packet indicating end of game, including detailed unit status
      */
     private Packet createEndOfGamePacket() {
-        Object[] array = new Object[3];
+        Object[] array = new Object[4];
         array[0] = getDetailedVictoryReport();
         array[1] = game.getVictoryPlayerId();
         array[2] = game.getVictoryTeam();
+        array[3] = game.getPlayerRatings();
         return new Packet(Packet.COMMAND_END_OF_GAME, array);
     }
 

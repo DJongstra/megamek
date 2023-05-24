@@ -1442,7 +1442,7 @@ public class Client implements IClientCommandHandler {
             break;
         case Packet.COMMAND_END_OF_GAME:
             String sEntityStatus = (String) c.getObject(0);
-            game.end(c.getIntValue(1), c.getIntValue(2));
+            game.end(c.getIntValue(1), c.getIntValue(2), (Map<Integer, Integer>)c.getObject(3));
             // save victory report
             saveEntityStatus(sEntityStatus);
             break;

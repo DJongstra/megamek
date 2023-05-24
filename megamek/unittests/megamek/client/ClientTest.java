@@ -4,10 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import megamek.client.ui.swing.util.PlayerColour;
-import megamek.common.Entity;
-import megamek.common.Game;
-import megamek.common.MechFileParser;
-import megamek.common.Minefield;
+import megamek.common.*;
 import megamek.common.event.GamePlayerChangeEvent;
 import megamek.common.icons.Camouflage;
 import megamek.common.net.Packet;
@@ -55,16 +52,24 @@ public class ClientTest {
 
             Mockito.when(mockGame.getVictoryPlayerId()).thenReturn(1);
             Mockito.when(mockGame.getVictoryTeam()).thenReturn(3);
+            Player player1 = new Player(1, "player1");
+            Vector<IPlayer> players = new Vector<>();
+            players.add(player1);
+            Mockito.when(mockGame.getPlayersVector()).thenReturn(players);
+            player1.setPlayerRating(5);
 
             Packet packet = (Packet) method.invoke(server, methodArguments);
 
+            player1.setPlayerRating(7);
+            TestCase.assertEquals(7, player1.getPlayerRating());
+
             Client client = new Client("client", "localhost", 1235);
+            client.game = mockGame;
             client.handlePacket(packet);
 
             TestCase.assertEquals(3, mockGame.getVictoryTeam());
             TestCase.assertEquals(1, mockGame.getVictoryPlayerId());
-
-
+            TestCase.assertEquals(5, player1.getPlayerRating());
         } catch (Exception e) {
             e.printStackTrace();
         }

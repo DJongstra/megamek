@@ -27,6 +27,8 @@ import java.lang.reflect.Method;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Vector;
 
 @RunWith(JUnit4.class)
@@ -53,12 +55,17 @@ public class ServerTest {
 
             Mockito.when(mockGame.getVictoryPlayerId()).thenReturn(1);
             Mockito.when(mockGame.getVictoryTeam()).thenReturn(3);
+            Map<Integer, Integer> playerRatings = new HashMap<>();
+            playerRatings.put(1,7);
+            Mockito.when(mockGame.getPlayerRatings()).thenReturn(playerRatings);
 
             Packet packet = (Packet) method.invoke(server, methodArguments);
+            Map<Integer, Integer> ratingMap = (HashMap<Integer, Integer>) packet.getData()[3];
             TestCase.assertEquals(380, packet.getCommand());
             TestCase.assertEquals(1, packet.getData()[1]);
             TestCase.assertEquals(3, packet.getData()[2]);
-            TestCase.assertEquals(3, packet.getData().length);
+            TestCase.assertEquals(4, packet.getData().length);
+            TestCase.assertEquals(7, (int) ratingMap.get(1));
         } catch (Exception e) {
             e.printStackTrace();
         }
