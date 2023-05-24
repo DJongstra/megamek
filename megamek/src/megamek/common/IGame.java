@@ -16,14 +16,7 @@
 
 package megamek.common;
 
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Hashtable;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Vector;
+import java.util.*;
 
 import megamek.common.actions.ArtilleryAttackAction;
 import megamek.common.actions.AttackAction;
@@ -172,11 +165,6 @@ public interface IGame {
      * set the game victory state.
      */
     abstract void setVictoryContext(HashMap<String, Object> ctx);
-
-    /**
-     * Calculates the updated rankings of the players in the game if it is a competitive game
-     */
-    abstract void calculateRatings();
 
     /**
      * Adds the specified game listener to receive board events from this Game.
@@ -1260,7 +1248,27 @@ public interface IGame {
      */
     void clearAllReports();
 
-    abstract void end(int winner, int winnerTeam);
+    /**
+     * Gets all ratings of the players in the game by their id
+     */
+    abstract Map<Integer, Integer> getPlayerRatings();
+
+    /**
+     * Receives whether the game is a competitive game, denoting that player ratings should be updated at the end of the game
+     */
+    abstract boolean getIsCompetitiveGame();
+
+    /**
+     * Sets whether the game is a competitive game
+     */
+    abstract void setIsCompetitiveGame(boolean competitive);
+
+    /**
+     * Calculates the updated rankings of the players in the game if it is a competitive game
+     */
+    abstract void calculateRatings();
+
+    abstract void end(int winner, int winnerTeam, Map<Integer, Integer> playerRatings);
 
     /**
      * Getter for property victoryPlayerId. itmo: apparently this is the guy who
