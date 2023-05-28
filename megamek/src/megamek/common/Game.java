@@ -2177,17 +2177,7 @@ public class Game implements Serializable, IGame {
             }
         }
 
-
-        boolean useInfantryMoveLaterCheck = removeTurnMoveLaterCheck(entity);
-
-        for (int i = turnVector.size() - 1; i >= turnIndex; i--) {
-            GameTurn turn = turnVector.elementAt(i);
-
-            if (turn.isValidEntity(entity, this, useInfantryMoveLaterCheck)) {
-                turnVector.removeElementAt(i);
-                break;
-            }
-        }
+        removeTurnLater(entity);
     }
 
     /**
@@ -2208,6 +2198,23 @@ public class Game implements Serializable, IGame {
                         && !ect.isValidClass(~gameTurnClassCode)) {
                     turnVector.removeElementAt(turnIndex + 1);
                 }
+            }
+        }
+    }
+
+    /**
+     * Removes the turn if it should not be removed later
+     * @param entity entity for which to remove the turn
+     */
+    private void removeTurnLater(Entity entity) {
+        boolean useInfantryMoveLaterCheck = removeTurnMoveLaterCheck(entity);
+
+        for (int i = turnVector.size() - 1; i >= turnIndex; i--) {
+            GameTurn turn = turnVector.elementAt(i);
+
+            if (turn.isValidEntity(entity, this, useInfantryMoveLaterCheck)) {
+                turnVector.removeElementAt(i);
+                break;
             }
         }
     }
