@@ -88,10 +88,12 @@ public class GameTest {
     public void testRemoveTurnFor() {
         Game game = Mockito.spy(Game.class);
         List<GameTurn> gameTurns = new LinkedList<>();
-        GameTurn gameTurn1 = new GameTurn(1);
-        GameTurn gameTurn2 = Mockito.mock(GameTurn.EntityClassTurn.class); //new GameTurn.EntityClassTurn(1, 1);
+        GameTurn gameTurn1 = Mockito.mock(GameTurn.class);
+        Mockito.when(gameTurn1.isValidEntity(Mockito.any(Entity.class), Mockito.any(Game.class), Mockito.anyBoolean())).thenReturn(false);
+
+        GameTurn mockEntityGameTurn = Mockito.mock(GameTurn.EntityClassTurn.class); //new GameTurn.EntityClassTurn(1, 1);
         gameTurns.add(gameTurn1);
-        gameTurns.add(gameTurn2);
+        gameTurns.add(mockEntityGameTurn);
         game.setTurnVector(gameTurns);
         GameOptions gameOptions = Mockito.mock(GameOptions.class);
         Mockito.when(game.getOptions()).thenReturn(gameOptions);
@@ -101,9 +103,9 @@ public class GameTest {
         Mockito.when(gameOptions.booleanOption(OptionsConstants.INIT_PROTOS_MOVE_LATER)).thenReturn(true);
 
         // mock entities
-        Infantry mockInfantry = Mockito.mock(Infantry.class);
-        Protomech mockProtomech = Mockito.mock(Protomech.class);
-        Mech mockMech = Mockito.mock(Mech.class);
+        Infantry mockInfantry = Mockito.spy(Infantry.class);
+        Protomech mockProtomech = Mockito.spy(Protomech.class);
+        Mech mockMech = Mockito.spy(TripodMech.class);
 
         // entities to check
         Vector<Entity> entities = new Vector<>();
@@ -115,8 +117,8 @@ public class GameTest {
 
         // check 'move later' optional rules
         Mockito.when(gameOptions.booleanOption(OptionsConstants.INIT_INF_MOVE_MULTI)).thenReturn(false);
-        Mockito.when(gameTurn2.isValidEntity(Mockito.any(Entity.class), Mockito.any(Game.class), Mockito.eq(false))).thenReturn(true);
-        Mockito.when(gameTurn2.isValidEntity(Mockito.any(Entity.class), Mockito.any(Game.class), Mockito.eq(true))).thenReturn(false);
+        Mockito.when(mockEntityGameTurn.isValidEntity(Mockito.any(Entity.class), Mockito.any(Game.class), Mockito.eq(false))).thenReturn(true);
+        Mockito.when(mockEntityGameTurn.isValidEntity(Mockito.any(Entity.class), Mockito.any(Game.class), Mockito.eq(true))).thenReturn(false);
         Mockito.when(gameOptions.booleanOption(OptionsConstants.INIT_INF_MOVE_LATER)).thenReturn(true);
         game.removeTurnFor(mockInfantry);
         TestCase.assertEquals(1, game.getTurnVector().size());
@@ -142,9 +144,9 @@ public class GameTest {
         phases.add(IGame.Phase.PHASE_INITIATIVE);
 
         // add to entities to check
-        Tank mockTank = Mockito.mock(Tank.class);
+        Tank mockTank = Mockito.spy(Tank.class);
         entities.add(mockTank);
-        Dropship mockDropship = Mockito.mock(Dropship.class);
+        Dropship mockDropship = Mockito.spy(Dropship.class);
         entities.add(mockDropship);
 
         // mock options for infantry
@@ -162,11 +164,19 @@ public class GameTest {
         Mockito.when(gameOptions.booleanOption(OptionsConstants.ADVGRNDMOV_VEHICLE_LANCE_MOVEMENT)).thenReturn(true);
         Mockito.when(gameOptions.intOption(OptionsConstants.ADVGRNDMOV_VEHICLE_LANCE_MOVEMENT_NUMBER)).thenReturn(1);
 
+        // ensure that turn is only removed in first part before the boolean check 'useInfantryMoveLater'
+        Mockito.when(mockEntityGameTurn.isValidEntity(Mockito.any(Entity.class), Mockito.any(Game.class), Mockito.anyBoolean())).thenReturn(false);
+
 
         // check all entities in a phase that would leave the turn at the entity and one that would not
         for (IGame.Phase phase: phases) {
             for (Entity entity : entities) {
-                gameTurns.set(1, getGameturn(entity));
+                // determine whether to mock the gameTurn object
+                if (phase == IGame.Phase.PHASE_MOVEMENT) {
+                    gameTurns.set(1, getGameturn(entity));
+                } else {
+                    gameTurns.set(1, mockEntityGameTurn);
+                }
                 game.setTurnVector(gameTurns);
 
                 game.setPhase(phase);

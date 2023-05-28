@@ -18,6 +18,7 @@ import java.io.PrintWriter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import megamek.common.options.OptionsConstants;
 import megamek.common.preference.PreferenceManager;
 
 /**
@@ -1857,6 +1858,14 @@ public class Protomech extends Entity {
     public boolean canDFA() {
         // Protos can't DFA
         return false;
+    }
+
+    @Override
+    public boolean checkMultiTurnMode(IGame game) {
+        return (game.getOptions().booleanOption(OptionsConstants.INIT_PROTOS_MOVE_MULTI) &&
+                (game.getInfantryLeft(getOwnerId()) % game.getOptions().intOption(
+                        OptionsConstants.INIT_INF_PROTO_MOVE_MULTI)) != 1);
+
     }
 
     /**

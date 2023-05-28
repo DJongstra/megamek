@@ -2385,6 +2385,15 @@ public class Tank extends Entity {
         return false;
     }
 
+    @Override
+    public boolean checkMultiTurnMode(IGame game) {
+        return (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_VEHICLE_LANCE_MOVEMENT) &&
+                (game.getInfantryLeft(getOwnerId()) % game.getOptions().intOption(
+                        OptionsConstants.ADVGRNDMOV_VEHICLE_LANCE_MOVEMENT_NUMBER)) != 1);
+
+    }
+
+
     /**
      * @return suspension factor of vehicle
      */

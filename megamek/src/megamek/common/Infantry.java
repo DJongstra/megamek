@@ -1471,6 +1471,14 @@ public class Infantry extends Entity {
         return false;
     }
 
+    @Override
+    public boolean checkMultiTurnMode(IGame game) {
+        return (game.getOptions().booleanOption(OptionsConstants.INIT_INF_MOVE_MULTI) &&
+                (game.getInfantryLeft(getOwnerId()) % game.getOptions().intOption(
+                OptionsConstants.INIT_INF_PROTO_MOVE_MULTI)) != 1);
+
+    }
+
     /**
      * Checks if the entity is moving into a swamp. If so, returns the target
      * roll for the piloting skill check. now includes the level 3 terains which

@@ -6052,6 +6052,15 @@ public abstract class Mech extends Entity {
                 && !(game.getOptions().booleanOption(OptionsConstants.ALLOWED_NO_CLAN_PHYSICAL) && isClan());
     }
 
+    @Override
+    public boolean checkMultiTurnMode(IGame game) {
+        return (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_MEK_LANCE_MOVEMENT) &&
+                (game.getInfantryLeft(getOwnerId()) % game.getOptions().intOption(
+                        OptionsConstants.ADVGRNDMOV_MEK_LANCE_MOVEMENT_NUMBER)) != 1);
+
+    }
+
+
     // gives total number of sinks
     public int getNumberOfSinks() {
         int sinks = 0;

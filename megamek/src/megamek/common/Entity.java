@@ -7837,6 +7837,16 @@ public abstract class Entity extends TurnOrdered implements Transporter, Targeta
     }
 
     /**
+     * Checks whether it would be possible for an entity to make multiple moves in a single turn
+     * see Game.removeTurnFor for use
+     *
+     * @return True if this <code>Entity</code> falls under multiple moves per turn
+     */
+    public boolean checkMultiTurnMode(IGame game) {
+        return false;
+    }
+
+    /**
      * If using advanced vehicle ground movement, checks whether the unit is required to make
      * a driving roll for turning, and if so whether it succeeds.
      *
