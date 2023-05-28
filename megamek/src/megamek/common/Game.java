@@ -54,6 +54,7 @@ import megamek.common.options.OptionsConstants;
 import megamek.common.weapons.AttackHandler;
 import megamek.server.SmokeCloud;
 import megamek.server.victory.Victory;
+import megamek.utils.developmentOnly.GameDevelopment;
 
 /**
  * The game class is the root of all data about the game in progress. Both the
@@ -3583,80 +3584,18 @@ public class Game implements Serializable, IGame {
         }
     }
 
-    private int countEntitiesInCache(List<Integer> entitiesInCache) {
-        int count = 0;
-        for (Coords c : entityPosLookup.keySet()) {
-            count += entityPosLookup.get(c).size();
-            entitiesInCache.addAll(entityPosLookup.get(c));
-        }
-        return count;
-    }
-    
     /**
-     * A check to ensure that the position cache is properly updated.  This 
+     * A check to ensure that the position cache is properly updated.  This
      * is only used for debugging purposes, and will cause a number of things
      * to slow down.
+     * @deprecated
      */
     @SuppressWarnings("unused")
+    @Deprecated
     private void checkPositionCacheConsistency() {
-        // Sanity check on the position cache
-        //  This could be removed once we are confident the cache is working
-        List<Integer> entitiesInCache = new ArrayList<Integer>();
-        List<Integer> entitiesInVector = new ArrayList<Integer>();
-        int entitiesInCacheCount = countEntitiesInCache(entitiesInCache);
-        int entityVectorSize = 0;
-        for (Entity e : entities) {
-            if (e.getPosition() != null) {
-                entityVectorSize++;
-                entitiesInVector.add(e.getId());
-            }
-        }
-        Collections.sort(entitiesInCache);
-        Collections.sort(entitiesInVector);
-        if ((entitiesInCacheCount != entityVectorSize)
-                && (getPhase() != Phase.PHASE_DEPLOYMENT)
-                && (getPhase() != Phase.PHASE_EXCHANGE)
-                && (getPhase() != Phase.PHASE_LOUNGE)
-                && (getPhase() != Phase.PHASE_INITIATIVE_REPORT)
-                && (getPhase() != Phase.PHASE_INITIATIVE)) {
-            System.out.println("Entities vector has " + entities.size()
-                    + " but pos lookup cache has " + entitiesInCache.size()
-                    + " entities!");
-            List<Integer> missingIds = new ArrayList<Integer>();
-            for (Integer id : entitiesInVector) {
-                if (!entitiesInCache.contains(id)) {
-                    missingIds.add(id);
-                }
-            }
-            System.out.println("Missing ids: " + missingIds);
-        }
-        for (Entity e : entities) {
-            HashSet<Coords> positions = e.getOccupiedCoords();
-            for (Coords c : positions) {
-                HashSet<Integer> ents = entityPosLookup.get(c);
-                if ((ents != null) && !ents.contains(e.getId())) {
-                    System.out.println("Entity " + e.getId() + " is in "
-                            + e.getPosition() + " however the position cache "
-                            + "does not have it in that position!");
-                }
-            }
-        }
-        for (Coords c : entityPosLookup.keySet()) {
-            for (Integer eId : entityPosLookup.get(c)) {
-                Entity e = getEntity(eId);
-                if (e == null) {
-                    continue;
-                }
-                HashSet<Coords> positions = e.getOccupiedCoords();
-                if (!positions.contains(c)) {
-                    System.out.println("Entity Position Cache thinks Entity "
-                            + eId + "is in " + c
-                            + " but the Entity thinks it's in "
-                            + e.getPosition());
-                }
-            }
-        }
+        GameDevelopment.checkPositionCacheConsistency(this, entityPosLookup);
     }
+
 
     /**
      * Get a string representation of the UUId for this game.
