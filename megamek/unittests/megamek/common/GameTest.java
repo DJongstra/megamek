@@ -84,8 +84,13 @@ public class GameTest {
 
         }
     }
+
+    private void checkMoveLater(IGame game) {
+
+    }
+
     @Test
-    public void testRemoveTurnFor() {
+    public void testRemoveTurnForMoveLater() {
         Game game = Mockito.spy(Game.class);
         List<GameTurn> gameTurns = new LinkedList<>();
         GameTurn gameTurn1 = Mockito.mock(GameTurn.class);
@@ -105,13 +110,6 @@ public class GameTest {
         // mock entities
         Infantry mockInfantry = Mockito.spy(Infantry.class);
         Protomech mockProtomech = Mockito.spy(Protomech.class);
-        Mech mockMech = Mockito.spy(TripodMech.class);
-
-        // entities to check
-        Vector<Entity> entities = new Vector<>();
-        entities.add(mockInfantry);
-        entities.add(mockProtomech);
-        entities.add(mockMech);
 
         Mockito.when(mockInfantry.getOwnerId()).thenReturn(1);
 
@@ -137,17 +135,41 @@ public class GameTest {
         game.setTurnVector(gameTurns);
         game.removeTurnFor(mockProtomech);
         TestCase.assertEquals(1, game.getTurnVector().size());
+    }
 
-        //mock everything for the multi move possibilities
+    @Test
+    public void testRemoveTurnForMoveMultiple() {
+        Game game = Mockito.spy(Game.class);
+        List<GameTurn> gameTurns = new LinkedList<>();
+        GameTurn gameTurn1 = Mockito.mock(GameTurn.class);
+
+        GameTurn mockEntityGameTurn = Mockito.mock(GameTurn.EntityClassTurn.class); //new GameTurn.EntityClassTurn(1, 1);
+        gameTurns.add(gameTurn1);
+        gameTurns.add(mockEntityGameTurn);
+        game.setTurnVector(gameTurns);
+        GameOptions gameOptions = Mockito.mock(GameOptions.class);
+        Mockito.when(game.getOptions()).thenReturn(gameOptions);
+
+        // mock entities
+        Infantry mockInfantry = Mockito.spy(Infantry.class);
+        Protomech mockProtomech = Mockito.spy(Protomech.class);
+        Mech mockMech = Mockito.spy(TripodMech.class);
+        Dropship mockDropship = Mockito.spy(Dropship.class);
+        Tank mockTank = Mockito.spy(Tank.class);
+
+        // entities to check
+        Vector<Entity> entities = new Vector<>();
+        entities.add(mockInfantry);
+        entities.add(mockProtomech);
+        entities.add(mockMech);
+        Mockito.when(mockInfantry.getOwnerId()).thenReturn(1);
+        entities.add(mockTank);
+        entities.add(mockDropship);
+
         Vector<IGame.Phase> phases = new Vector<>();
         phases.add(IGame.Phase.PHASE_MOVEMENT);
         phases.add(IGame.Phase.PHASE_INITIATIVE);
 
-        // add to entities to check
-        Tank mockTank = Mockito.spy(Tank.class);
-        entities.add(mockTank);
-        Dropship mockDropship = Mockito.spy(Dropship.class);
-        entities.add(mockDropship);
 
         // mock options for infantry
         Mockito.when(gameOptions.booleanOption(OptionsConstants.INIT_INF_MOVE_MULTI)).thenReturn(true);
@@ -166,7 +188,6 @@ public class GameTest {
 
         // ensure that turn is only removed in first part before the boolean check 'useInfantryMoveLater'
         Mockito.when(mockEntityGameTurn.isValidEntity(Mockito.any(Entity.class), Mockito.any(Game.class), Mockito.anyBoolean())).thenReturn(false);
-
 
         // check all entities in a phase that would leave the turn at the entity and one that would not
         for (IGame.Phase phase: phases) {
@@ -190,10 +211,6 @@ public class GameTest {
                     TestCase.assertEquals(2, game.getTurnVector().size());
                 }
             }
-
         }
-
-
     }
-
 }
