@@ -35,7 +35,7 @@ public class ClientTest {
     @InjectMocks
     private Server server;
     Server makeServer() throws IOException {
-        return new Server("test", 1235, false, "");
+        return new Server("test", 1234, false, "");
     }
     @Test
     public void testCreateEndOfGamePacket() throws IOException{
