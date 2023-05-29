@@ -1716,6 +1716,19 @@ public abstract class Entity extends TurnOrdered implements Transporter, Targeta
                && (getPosition() != null);
     }
 
+    public boolean isAttackable() {
+        if (getPosition() == null) {
+            return false;
+        }
+        // check that entity is visible
+        if (isOffBoard() || isHidden()){
+            return false;
+        }
+        return isTargetable();
+
+
+    }
+
     public boolean isProne() {
         return prone;
     }

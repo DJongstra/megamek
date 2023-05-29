@@ -620,22 +620,20 @@ public class Game implements Serializable, IGame {
 
         for (Entity otherEntity : entities) {
             // Even if friendly fire is acceptable, do not shoot yourself
+            boolean canBeHitByAttacker = (entity.isEnemyOf(otherEntity) || (friendlyFire && (entity
+                    .getId() != otherEntity.getId())));
+            boolean isVisibleForAttacker = !otherEntity.isSensorReturn(entity.getOwner())
+                    && otherEntity.hasSeenEntity(entity.getOwner());
+
             // Enemy units not on the board can not be shot.
-            if ((otherEntity.getPosition() != null)
-                    && !otherEntity.isOffBoard()
-                    && otherEntity.isTargetable()
-                    && !otherEntity.isHidden()
-                    && !otherEntity.isSensorReturn(entity.getOwner())
-                    && otherEntity.hasSeenEntity(entity.getOwner())
-                    && (entity.isEnemyOf(otherEntity) || (friendlyFire && (entity
-                            .getId() != otherEntity.getId())))) {
+            if (otherEntity.isAttackable()
+                    && isVisibleForAttacker
+                    && canBeHitByAttacker) {
                 // Air to Ground - target must be on flight path
-                if (Compute.isAirToGround(entity, otherEntity)) {
-                    if (entity.getPassedThrough().contains(
-                            otherEntity.getPosition())) {
-                        ents.add(otherEntity);
-                    }                
-                } else {
+                if (!Compute.isAirToGround(entity, otherEntity)) {
+                    ents.add(otherEntity);
+                } else if (entity.getPassedThrough().contains(
+                        otherEntity.getPosition())){
                     ents.add(otherEntity);
                 }
             }
