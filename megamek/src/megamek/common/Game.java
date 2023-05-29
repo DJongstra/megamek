@@ -532,6 +532,12 @@ public class Game implements Serializable, IGame {
                 count++;
             }
         }
+        count += getOutOfGameEntitiesOwnedBy(player);
+        return count;
+    }
+
+    private int getOutOfGameEntitiesOwnedBy(IPlayer player) {
+        int count = 0;
         for (Entity entity : vOutOfGame) {
             if (entity.getOwner().equals(player)) {
                 count++;
