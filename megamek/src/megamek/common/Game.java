@@ -947,7 +947,6 @@ public class Game implements Serializable, IGame {
     }
 
     public synchronized void setEntitiesVector(List<Entity> entities) {
-        //checkPositionCacheConsistency();
         this.entities.clear();
         this.entities.addAll(entities);
         reindexEntities();
@@ -1407,11 +1406,6 @@ public class Game implements Serializable, IGame {
         
         Entity toRemove = getEntity(id);
         if (toRemove == null) {
-            // This next statement has been cluttering up double-blind
-            // logs for quite a while now. I'm assuming it's no longer
-            // useful.
-            // System.err.println("Game#removeEntity: could not find entity to
-            // remove");
             return;
         }
 
@@ -1475,7 +1469,6 @@ public class Game implements Serializable, IGame {
         resetPSRs();
         resetArtilleryAttacks();
         resetAttacks();
-        // removeMinefields();  Broken and bad!
         clearMinefields();
         removeArtyAutoHitHexes();
         flares.removeAllElements();
@@ -1497,17 +1490,6 @@ public class Game implements Serializable, IGame {
             player.removeArtyAutoHitHexes();
         }
     }
-
-//    private void removeMinefields() {
-//        minefields.clear();
-//        vibrabombs.removeAllElements();
-//
-//        Enumeration<IPlayer> iter = getPlayers();
-//        while (iter.hasMoreElements()) {
-//            IPlayer player = iter.nextElement();
-//            player.removeMinefields();
-//        }
-//    }
 
     /**
      * Regenerates the entities by id hashtable by going thru all entities in
@@ -1601,7 +1583,6 @@ public class Game implements Serializable, IGame {
      * @return <code>List<Entity></code>
      */
     public synchronized List<Entity> getEntitiesVector(Coords c, boolean ignore) {
-        //checkPositionCacheConsistency();
         // Make sure the look-up is initialized
         if (entityPosLookup == null
                 || (entityPosLookup.size() < 1 && entities.size() > 0)) {
@@ -1919,7 +1900,6 @@ public class Game implements Serializable, IGame {
                 hasLooped = true;
             }
         }
-        // return getFirstEntityNum(turn);
         return Entity.NONE;
     }
 
@@ -1953,7 +1933,6 @@ public class Game implements Serializable, IGame {
                 hasLooped = true;
             }
         }
-        // return getFirstEntityNum(turn);
         return -1;
     }
 
