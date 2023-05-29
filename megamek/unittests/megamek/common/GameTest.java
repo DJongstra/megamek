@@ -18,6 +18,7 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.mockito.Mock;
 import org.mockito.Mockito;
+import java.lang.reflect.Field;
 
 import java.util.*;
 import java.io.File;
@@ -212,5 +213,46 @@ public class GameTest {
                 }
             }
         }
+    }
+
+    @Test
+    public void testGetAllEntitiesOwnedBy() throws NoSuchFieldException, IllegalAccessException {
+        Player player1 = new Player(1, "p1");
+        Player player2 = new Player(2, "p2");
+        Game game = new Game();
+
+        Field vOutOfGameField = Game.class.getDeclaredField("vOutOfGame");
+        vOutOfGameField.setAccessible(true);
+
+        // set up out of game entities
+        Vector<Entity> mockOutOfGame = new Vector<>();
+
+        Dropship mockDropship = Mockito.mock(Dropship.class);
+        mockOutOfGame.add(mockDropship);
+        Mockito.when(mockDropship.getOwner()).thenReturn(player1);
+
+        TripodMech mockTripodmech = Mockito.mock(TripodMech.class);
+        mockOutOfGame.add(mockTripodmech);
+        Mockito.when(mockTripodmech.getOwner()).thenReturn(player1);
+
+
+        vOutOfGameField.set(game, mockOutOfGame);
+
+        TestCase.assertEquals(2, game.getAllEntitiesOwnedBy(player1));
+        TestCase.assertEquals(0, game.getAllEntitiesOwnedBy(player2));
+
+        Infantry mockInfantry = Mockito.mock(Infantry.class);
+        game.addEntity(mockInfantry);
+        Mockito.when(mockInfantry.getOwner()).thenReturn(player2);
+
+        TestCase.assertEquals(2, game.getAllEntitiesOwnedBy(player1));
+        TestCase.assertEquals(1, game.getAllEntitiesOwnedBy(player2));
+
+        // remove all out of game entities
+        Vector<Entity> mockOutOfGame2 = new Vector<>();
+        vOutOfGameField.set(game, mockOutOfGame2);
+
+        TestCase.assertEquals(0, game.getAllEntitiesOwnedBy(player1));
+        TestCase.assertEquals(1, game.getAllEntitiesOwnedBy(player2));
     }
 }
