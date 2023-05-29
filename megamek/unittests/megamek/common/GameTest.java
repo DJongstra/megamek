@@ -255,4 +255,65 @@ public class GameTest {
         TestCase.assertEquals(0, game.getAllEntitiesOwnedBy(player1));
         TestCase.assertEquals(1, game.getAllEntitiesOwnedBy(player2));
     }
+
+    @Test
+    public void testGetValidTargets(){
+        Player player1 = new Player(1, "p1");
+        Player player2 = new Player(2, "p2");
+        Game game = Mockito.spy(Game.class);
+        GameOptions gameOptions = Mockito.mock(GameOptions.class);
+        Mockito.when(game.getOptions()).thenReturn(gameOptions);
+
+        // no friendly fire
+        Mockito.when(gameOptions.booleanOption(OptionsConstants.BASE_FRIENDLY_FIRE)).thenReturn(false);
+        Dropship mockDropship = Mockito.spy(Dropship.class);
+        Mockito.when(mockDropship.getOwner()).thenReturn(player1);
+        Mockito.when(mockDropship.getPosition()).thenReturn(new Coords(1,1));
+        game.addEntity(mockDropship);
+        Infantry mockInfantry = Mockito.spy(Infantry.class);
+        Mockito.when(mockInfantry.getOwner()).thenReturn(player2);
+        Mockito.when(mockInfantry.getPosition()).thenReturn(new Coords(2,1));
+        game.addEntity(mockInfantry);
+
+        Vector<Coords> mockPassedThrough = new Vector<>();
+        mockPassedThrough.add(new Coords(2,1));
+        Mockito.doReturn(mockPassedThrough).when((Entity) mockDropship).getPassedThrough();
+
+        Mockito.when(mockInfantry.isOffBoard()).thenReturn(true);
+        TestCase.assertEquals(0, game.getValidTargets(mockDropship).size());
+
+        Mockito.when(mockInfantry.isOffBoard()).thenReturn(false);
+        Mockito.when(mockInfantry.isTargetable()).thenReturn(false);
+        TestCase.assertEquals(0, game.getValidTargets(mockDropship).size());
+
+        Mockito.when(mockInfantry.isTargetable()).thenReturn(true);
+        Mockito.when(mockInfantry.isHidden()).thenReturn(true);
+        TestCase.assertEquals(0, game.getValidTargets(mockDropship).size());
+
+        Mockito.when(mockInfantry.isHidden()).thenReturn(false);
+        Mockito.doReturn(true).when((Entity) mockInfantry).isSensorReturn(Mockito.any());
+        TestCase.assertEquals(0, game.getValidTargets(mockDropship).size());
+
+        Mockito.doReturn(false).when((Entity) mockInfantry).isSensorReturn(Mockito.any());
+        Mockito.doReturn(false).when((Entity) mockInfantry).hasSeenEntity(Mockito.any());
+        TestCase.assertEquals(0, game.getValidTargets(mockDropship).size());
+
+        Mockito.doReturn(true).when((Entity) mockInfantry).hasSeenEntity(Mockito.any());
+        Mockito.doReturn(false).when((Entity) mockDropship).isEnemyOf(Mockito.any());
+        TestCase.assertEquals(0, game.getValidTargets(mockDropship).size());
+
+        Mockito.doReturn(true).when((Entity) mockDropship).isEnemyOf(Mockito.any());
+        // force isAirToGround to be false
+        Mockito.doReturn(true).when((Entity) mockDropship).isSpaceborne();
+        TestCase.assertEquals(1, game.getValidTargets(mockDropship).size());
+
+        // enable friendly fire
+        Mockito.doReturn(false).when((Entity) mockDropship).isEnemyOf(Mockito.any());
+        Mockito.when(gameOptions.booleanOption(OptionsConstants.BASE_FRIENDLY_FIRE)).thenReturn(true);
+        TestCase.assertEquals(1, game.getValidTargets(mockDropship).size());
+
+        // airToGround
+        Mockito.doReturn(true).when((Entity) mockDropship).isSpaceborne();
+        TestCase.assertEquals(1, game.getValidTargets(mockDropship).size());
+    }
 }
